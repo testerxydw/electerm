@@ -10,7 +10,6 @@ import { isEqual, last, isNumber, some, isArray, pick, uniq, debounce } from 'lo
 import FileSection from './file-item'
 import resolve from '../../common/resolve'
 import wait from '../../common/wait'
-import isAbsPath from '../../common/is-absolute-path'
 import classnames from 'classnames'
 import sorterIndex from '../../common/index-sorter'
 import { handleErr } from '../../common/fetch'
@@ -107,8 +106,6 @@ export default class Sftp extends Component {
     this.sftp = null
     clearTimeout(this.timer4)
     this.timer4 = null
-    clearTimeout(this.timer5)
-    this.timer5 = null
     // Clear sort cache to prevent memory leaks
     this._sortCache?.clear()
     this._lastSortArgs = null
@@ -455,9 +452,7 @@ export default class Sftp extends Component {
     }
     const type = files[0]?.type || _type
     const func = this[type + 'Del']
-    for (const f of files) {
-      await func(f)
-    }
+    await Promise.all(files.map(f => func(f)))
     if (type === typeMap.remote) {
       await wait(500)
     }
@@ -560,8 +555,10 @@ export default class Sftp extends Component {
   }
 
   initRemoteAll = async () => {
-    await this.remoteList()
-    this.remoteListOwner()
+    await Promise.all([
+      this.remoteList(),
+      this.remoteListOwner().catch(e => console.debug('remoteListOwner error:', e))
+    ])
   }
 
   modifier = (...args) => {
@@ -647,12 +644,10 @@ export default class Sftp extends Component {
   }
 
   remoteListOwner = async () => {
-    const remoteUidTree = await owner.remoteListUsers(
-      this.props.pid
-    )
-    const remoteGidTree = await owner.remoteListGroups(
-      this.props.pid
-    )
+    const [remoteUidTree, remoteGidTree] = await Promise.all([
+      owner.remoteListUsers(this.props.pid),
+      owner.remoteListGroups(this.props.pid)
+    ])
     this.setState({
       remoteGidTree,
       remoteUidTree
@@ -660,8 +655,10 @@ export default class Sftp extends Component {
   }
 
   localListOwner = async () => {
-    const localUidTree = await owner.localListUsers()
-    const localGidTree = await owner.localListGroups()
+    const [localUidTree, localGidTree] = await Promise.all([
+      owner.localListUsers(),
+      owner.localListGroups()
+    ])
     this.setState({
       localGidTree,
       localUidTree
@@ -800,14 +797,6 @@ export default class Sftp extends Component {
           sftpCreated: true
         })
       })
-      this.timer5 = setTimeout(() => {
-        if (this.type !== 'ftp') {
-          this.updateRemoteList(remote, remotePath, sftp)
-        }
-        this.props.editTab(tab.id, {
-          sftpCreated: true
-        })
-      }, 1000)
     } catch (e) {
       const update = {
         remoteLoading: false,
@@ -828,41 +817,34 @@ export default class Sftp extends Component {
     remotePath,
     sftp
   ) => {
-    const remote = []
-    for (const r of remotes) {
-      const { name } = r
-      if (r.isSymbol) {
-        const linkPath = resolve(remotePath, name)
-        let realpath = await sftp.readlink(linkPath)
-          .catch(e => {
-            console.debug(e)
-            return null
-          })
-        if (!realpath) {
-          continue
+    // Resolve all symlinks in parallel for faster updates.
+    // Use sftp.stat (which follows symlinks) directly on the link path
+    // instead of readlink + realpath + stat, reducing 2-3 SFTP round
+    // trips per symlink to just 1.
+    const results = await Promise.all(
+      remotes.map(async r => {
+        if (!r.isSymbol) {
+          r.isSymbolicLink = false
+          return r
         }
-        if (!isAbsPath(realpath)) {
-          realpath = resolve(remotePath, realpath)
-          realpath = await sftp.realpath(realpath)
-        }
+        const linkPath = resolve(remotePath, r.name)
         const realFileInfo = await getRemoteFileInfo(
           sftp,
-          realpath
+          linkPath
         ).catch(e => {
           console.debug('seems a bad symbolic link')
           console.debug(e)
           return null
         })
         if (!realFileInfo) {
-          continue
+          return null
         }
         r.isSymbolicLink = true
         r.isDirectory = realFileInfo.isDirectory
-      } else {
-        r.isSymbolicLink = false
-      }
-      remote.push(r)
-    }
+        return r
+      })
+    )
+    const remote = results.filter(Boolean)
     const update = {
       remote,
       remoteFileTree: this.buildTree(remote, typeMap.remote)
@@ -892,14 +874,13 @@ export default class Sftp extends Component {
         this.getCwdLocal() ||
         this.getLocalHome()
       const locals = await window.fs.readdirAsync(localPath)
-      const local = []
-      for (const name of locals) {
-        const p = resolve(localPath, name)
-        const fileObj = await getLocalFileInfo(p).catch(console.log)
-        if (fileObj) {
-          local.push(fileObj)
-        }
-      }
+      const results = await Promise.all(
+        locals.map(name => {
+          const p = resolve(localPath, name)
+          return getLocalFileInfo(p).catch(console.log)
+        })
+      )
+      const local = results.filter(Boolean)
       const update = {
         local,
         inited: true,
