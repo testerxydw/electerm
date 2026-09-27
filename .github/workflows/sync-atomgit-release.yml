@@ -40,6 +40,18 @@ jobs:
     env:
       OWNER: electerm
       REPO: electerm
+      # The attachment PUT goes to file.gitcode.com, which resolves to a
+      # mainland-China Huawei OBS gateway (116.205.2.91). From a GitHub runner
+      # that route crawls: measured 41 KB/s, and HTTP/2 makes it worse -- a 20MB
+      # PUT timed out after 300s having sent ~10MB. 4.4GB at that rate is ~35h.
+      # This Huawei Cloud IP serves the same OBS backend (the presigned URL and
+      # its callback work unchanged) and measured 8 MB/s for the same payload:
+      #   default dns + http2   41 KB/s
+      #   default dns + http1.1  6.1 MB/s
+      #   this ip               8.1 MB/s
+      # It is only used as --resolve (Host/SNI stay file.gitcode.com); if it
+      # ever goes away the connect fails and we fall back to plain DNS.
+      UPLOAD_IP: 159.138.147.37
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -179,13 +191,20 @@ jobs:
           set -u
           api="https://api.atomgit.com/api/v5/repos/${OWNER}/${REPO}"
           auth="access_token=${ATOMGIT_TOKEN}"
-          export api auth TAG
+          export api auth TAG UPLOAD_IP
 
           upload_one() {
             file="$1"
             name="$(basename "$file")"
+            size="$(wc -c < "$file" | tr -d ' ')"
+            # budget the transfer at ~1MB/s: anything slower is a bad route, let
+            # --max-time kill it so the next attempt can try a different one.
+            # (curl's --speed-limit only applies to downloads, so we cannot use it)
+            budget=$((size / 1000000 + 30))
+            [ "$budget" -gt 1500 ] && budget=1500
+
             attempt=1
-            while [ "$attempt" -le 3 ]; do
+            while [ "$attempt" -le 4 ]; do
               info="$(curl -sSf "${api}/releases/${TAG}/upload_url?${auth}&file_name=${name}")" || {
                 echo "::warning::no upload url for ${name} (attempt ${attempt})"
                 sleep 10
@@ -193,19 +212,32 @@ jobs:
                 continue
               }
               url="$(printf '%s' "$info" | jq -r '.url')"
+              host="$(printf '%s' "$url" | sed -E 's#^https?://([^/]+).*#\1#')"
               hdr="$(mktemp)"
               printf '%s' "$info" \
                 | jq -r '.headers | to_entries[] | "header = \"\(.key): \(.value)\""' > "$hdr"
+
+              case "$attempt" in
+                1|3) set -- --resolve "${host}:443:${UPLOAD_IP}" --http1.1 ;;
+                2)   set -- --http1.1 ;;
+                *)   set -- ;;
+              esac
+              echo "start ${name} (${size}B, budget ${budget}s), attempt ${attempt}"
+
               if curl -sSf -X PUT "$url" -K "$hdr" \
                   --data-binary "@${file}" \
-                  --retry 3 --retry-delay 5; then
+                  -H 'Expect:' \
+                  --connect-timeout 20 \
+                  --max-time "$budget" \
+                  "$@" \
+                  -w '  -> %{http_code} in %{time_total}s (%{speed_upload} B/s)\n'; then
                 rm -f "$hdr"
                 echo "ok   ${name}"
                 return 0
               fi
               rm -f "$hdr"
-              echo "::warning::upload failed for ${name} (attempt ${attempt}), retrying"
-              sleep 15
+              echo "::warning::upload failed/slow for ${name} (attempt ${attempt}), next route"
+              sleep 5
               attempt=$((attempt + 1))
             done
             echo "::error::giving up on ${name}"
@@ -213,10 +245,14 @@ jobs:
           }
           export -f upload_one
 
-          # skip the auto generated source archives
+          # skip the auto generated source archives, smallest first so the
+          # attachment list starts filling immediately and a bad route shows up
+          # early instead of after the big images
           find ./release-assets -type f \
             ! -name "${TAG}.tar.gz" \
             ! -name "${TAG}.zip" \
+            -exec ls -l {} + \
+            | sort -k5 -n | awk '{print $NF}' \
             | xargs -r -P "${UPLOAD_JOBS}" -I {} bash -c 'upload_one "$@"' _ {}
 
       - name: Verify
