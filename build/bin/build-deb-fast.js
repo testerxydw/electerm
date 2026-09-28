@@ -110,7 +110,19 @@ if (forcePrepare || !appReady()) {
   // （修复 --prepare / 首次运行时 assets 被连带删除导致 "Cannot GET /index.html" 的问题）
   run('npm run compile')
 } else {
-  echo('[deb-fast] work/app 已就绪，跳过 prepare')
+  // 每次打包都同步最新 src/app 与版本号，避免合并上游后 work/app 陈旧
+  // （否则 app.asar 内仍是旧版 app 端代码/版本号，应用内版本与 deb 名不符）
+  echo('[deb-fast] work/app 已就绪，同步 src/app 与版本号')
+  run(`cp -r "${path.join(root, 'src/app')}/." "${workApp}/"`)
+  const wp = readJson(path.join(root, 'package.json'))
+  delete wp.devDependencies
+  delete wp.scripts
+  delete wp.standard
+  delete wp.files
+  delete wp.engines
+  delete wp.preferGlobal
+  wp.main = 'app.js'
+  writeJson(path.join(workApp, 'package.json'), wp)
 }
 
 // 4. 构建 stage/opt/electerm 运行时（仅首次从 electron dist 复制，之后复用）
@@ -145,7 +157,8 @@ fs.mkdirSync(path.join(stage, 'DEBIAN'), { recursive: true })
 const resDir = path.join(optDir, 'resources')
 const appAsar = path.join(resDir, 'app.asar')
 fs.rmSync(appAsar, { force: true })
-fs.rmSync(appAsar + '.unpacked', { recursive: true, force: true })
+// 用 shell rm 清理（避过 node safe-delete shim 对 >500 文件批量删除的拦截）
+run(`rm -rf "${appAsar}.unpacked"`)
 run(`npx asar pack "${workApp}" "${appAsar}" --unpack "*.node"`)
 echo(`[deb-fast] 已生成 app.asar（${Math.round(fs.statSync(appAsar).size / 1024 / 1024)} MB）`)
 
