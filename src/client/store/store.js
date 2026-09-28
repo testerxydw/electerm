@@ -145,6 +145,12 @@ class Store {
     if (rightPanelTab === 'ai') {
       return getBrand(baseURLAI).brand || 'Custom AI Model'
     }
+    if (rightPanelTab === 'cmdHistory') {
+      return window.translate('cmdHistory')
+    }
+    if (rightPanelTab === 'quickCommands') {
+      return window.translate('quickCommands')
+    }
     return createTitle(window.store.currentTab)
   }
 
