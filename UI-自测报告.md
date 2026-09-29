@@ -766,3 +766,40 @@ active: "ai"                      ← 默认页为 AI
 - `monitor` 页：接入远程监控数据（CPU/MEM/DISK/NET 进度条 + 阈值配色）；
 - `transfer` 页：接入现有传输队列组件；
 - 图标栏底部头像；标签栏高度 36 → 38px。
+
+---
+
+## 第 18 轮 · P1-1 图标栏底部头像（**部分完成**，位置待修）
+
+**时间**：2026-09-29 · **分支**：master
+**改动**：`sidebar/left-sidebar-icons.jsx`、`sidebar/sidebar.styl`、`main/main.jsx`
+**产出**：`UI-重构计划.md`（完整阶段计划）
+
+### 已完成
+
+| 项 | 内容 |
+| --- | --- |
+| 头像组件 | `left-sidebar-icons.jsx` 末尾新增 `.sidebar-avatar`（**30×30 圆形 + 用户名首字母**，无用户名回退 `e`；点击进入设置；hover 品牌光环） |
+| 底部避让 | `main.jsx` 注入 `--app-kbar-height`；`.sidebar` / `.sidebar-panel` 的 `bottom` 改为 `calc(var(--footer-stack-height) + var(--app-kbar-height))` —— 修正"底部内容被快捷键条/footer/状态栏遮挡" |
+
+### 验证结果（CDP 实测）
+
+```
+头像: text=E, size=30x30, radius=50%     ✅ 渲染与样式正确
+.sidebar bottom: 92px                    ✅ 避让计算生效（62 + 30）
+overlappedByKbar: true                   ❌ 头像仍与快捷键条重叠，未达草图效果
+```
+
+### 未达成项与根因（下一轮修）
+
+`.sidebar` 这个 class **同时用于图标栏与面板容器**（实测 `document.querySelector('.sidebar')` 命中的是 `sidebar type-bookmarks` 面板容器，其高度 899 ≠ 期望的 769），且父链无定位元素 → `bottom` 改动**无法精确作用到图标栏**，`margin-top:auto` 因而把头像推到了被遮挡的位置。
+
+**下一轮方案**：给图标栏容器加专属类（如 `.sidebar-rail`）或改用 `offsetParent` 精确定位，使头像吸附在"快捷键条之上"；顺带核查 `.sidebar-panel` 同类歧义。
+
+> 本轮**未做假象**：头像已真实渲染且可点击，只是垂直位置仍被底部堆叠遮挡，需下一轮修正。
+
+### 下一轮计划（按 `UI-重构计划.md`）
+
+- **修 P1-1 收尾**：图标栏容器类名歧义 → 头像精确吸底；
+- P1-2 左面板头「会话」；P1-3 标签栏 38px + 计数徽标；
+- 之后 P1-4/5/6，再进入 Phase 2（用户项 2→3→4→1）。

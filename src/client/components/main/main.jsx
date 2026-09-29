@@ -20,6 +20,7 @@ import classnames from 'classnames'
 import ShortcutControl from '../shortcuts/shortcut-control.jsx'
 import {
   footerHeight,
+  appKbarHeight,
   statusBarHeight,
   titleBarHeight,
   isMac,
@@ -186,7 +187,9 @@ export default auto(function Index (props) {
       '--left-side-bar-width': store.leftSideBarWidth + 'px',
       '--status-bar-height': `${sbHeight}px`,
       '--title-bar-height': `${tbHeight}px`,
-      '--footer-stack-height': `${footerHeight + sbHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`
+      '--footer-stack-height': `${footerHeight + sbHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`,
+      // 底部紧贴 footer 之上的常显条（应用快捷键条）：侧栏/面板需避开，否则底部内容被遮挡
+      '--app-kbar-height': `${store.isMobile ? 0 : appKbarHeight}px`
     }
   }
   // Get active tab IDs
