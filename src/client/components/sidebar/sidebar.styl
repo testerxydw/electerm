@@ -19,7 +19,8 @@
   position absolute
   left 0
   top var(--title-bar-height, 0px)
-  width 36px
+  // 用注入的宽度 token（原硬编码 36px，与 sidebarWidth=43 不一致 → 底部/面板 left 偏移 7px）
+  width var(--left-side-bar-width, 50px)
   z-index 100
   bottom 0
   background var(--surface-0)
@@ -106,6 +107,48 @@
     &:hover
       color var(--text-light)
       background var(--hover-bg)
+
+// 左图标栏（草图所述 rail）：按钮应为 36×36 圆角方块。
+// 原实现 padding 14px 0 → 背景/圆角贴在图标本体上、且栏宽(36)与 token(43) 不一致。
+// 限定在 .sidebar-bar 内，避免影响 transfer / upgrade 等其它 .control-icon-wrap 用法。
+.sidebar-bar
+  .control-icon-wrap
+    width 36px
+    height 36px
+    margin 2px auto
+    padding 0
+    display flex
+    align-items center
+    justify-content center
+    border-radius var(--radius)
+    position relative
+    transition background var(--dur-1) var(--ease)
+    &:hover
+      background var(--hover-bg)
+    // 选中态：品牌着色 + 左侧 3px 色条（对齐草图 .ri.on）
+    &.active
+      background var(--active-bg)
+      &::before
+        content ''
+        position absolute
+        left -7px
+        top 9px
+        bottom 9px
+        width 3px
+        border-radius 0 3px 3px 0
+        background var(--primary)
+      .control-icon
+        color var(--text)
+        background transparent
+        box-shadow none
+    .control-icon
+      color var(--text-dark)
+      background transparent
+      box-shadow none
+      cursor pointer
+      transition color var(--dur-1) var(--ease)
+    &:hover .control-icon
+      color var(--text-light)
 .sidebar-list
   position absolute
   left var(--left-side-bar-width, 43px)

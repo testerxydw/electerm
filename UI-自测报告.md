@@ -317,3 +317,61 @@ sudo dpkg -i dist/electerm-5.5.35-test.46-linux-amd64.deb
 
 - `setting-panel` 输入框 / 开关 / 选择器统一；
 - S5 亮色主题全量校验（收尾）。
+
+---
+
+## 第 9 轮 · 对照草图还原：左图标栏（rail）+ 修复宽度错位 bug
+
+**时间**：2026-09-29 · **分支**：master
+
+### 草图的 rail 规格（`UI-重设计草图.html`）
+
+```css
+.rail{width:50px; padding:10px 0; gap:4px}
+.rail .ri{width:36px;height:36px;border-radius:var(--r)  /* 10px */}
+.rail .ri:hover{background:var(--hov)}
+.rail .ri.on{background:var(--act)}
+.rail .ri.on::before{left:-7px;width:3px;border-radius:0 3px 3px 0;background:var(--primary)}
+```
+
+### 发现的问题（含一个真 bug）
+
+| # | 问题 | 修复 |
+| --- | --- | --- |
+| 1 | **宽度不一致（bug）**：常量 `sidebarWidth = 43`，但 `.sidebar` 硬编码 `width: 36px` → 依赖 `--left-side-bar-width`(43) 的 **footer / 状态栏 / 快捷命令 / 设置 / 抽屉** 位置**多偏 7px** | 常量统一为 **50**；`.sidebar` 改 `width var(--left-side-bar-width, 50px)`，三处一致 |
+| 2 | 图标按钮无方块感：`.control-icon-wrap{padding:14px 0}`，背景/圆角贴在**图标本体**上 | 在 `.sidebar-bar` 内新增规则：按钮 **36×36**、`border-radius var(--radius)`、`margin 2px auto`、hover 背景用容器承载 |
+| 3 | 选中态色条为 `inset 2px` 且贴图标 | 改 `::before` **3px 圆头色条**（`left:-7px; top/bottom:9px`），对齐草图 `.ri.on` |
+| 4 | 限定作用域 | 全部限定在 `.sidebar-bar` 内，**不影响** transfer / upgrade 等其它 `.control-icon-wrap` 用法 |
+
+### 验证
+
+**① 运行时实测（CDP）**：
+
+```
+storeWidth: 50   inline: "width: 50px"   railComputed: "50px"   btnCount: 10
+```
+✅ 栏宽、内联宽度、计算宽度全部为 50px（改动前为 43px）。
+
+**② 截图**：`self-test/r9-rail.png` —— 图标栏明显加宽、按钮间距舒展；footer「AI/C/Q/快捷键」与状态栏「● 已连接 Local」左边界与栏宽对齐（错位已消除）。
+
+### ⚠️ 本轮暴露的重要机制：「看不到变化」的真正原因
+
+调试中发现**我的调试实例反复显示旧值 43**，根因是：
+
+- `pkill -f "work/app/app.js"` **只杀掉主进程**，而 **`work/app/server/server.js` 子进程会存活**，继续占用端口（9222 与内部 30975）；
+- 新实例因此**无法接管端口**，CDP 一直连到**旧实例**（旧 bundle）。
+
+**这对你桌面版本的启动同理**：若旧 electerm **未完全退出**（关窗口 ≠ 退出，或残留子进程），再启动时会连到/复用到旧进程，表现为"装了新包但界面没变"。
+
+另外，electerm 渲染进程通过**本地 HTTP 服务**（`http://127.0.0.1:<port>/index.html`）加载页面，而产物文件名固定（`electerm-5.5.35.js`，**不含内容 hash**）→ **HTTP 缓存也可能命中旧文件**。
+
+**排查/规避（按顺序）**：
+1. 完全退出：托盘 → 退出；确认 `pgrep -af electerm` 无残留（尤其 `server.js`）；
+2. 清缓存：`rm -rf ~/.config/electerm/Cache ~/.config/electerm/'Code Cache'`；
+3. 重装后首次启动若仍异常，重启一次应用（缓存已在首次启动时刷新）。
+
+### 下一轮计划
+
+- 会话树节点舒展（草图 `.node`：`padding 6px 8px`、`border-radius 8px`、分组字号 11px）；
+- 标签栏状态圆点 + 顶部渐变条（草图 `.tab`）；
+- 终端区径向光晕；状态栏信息扩充。
