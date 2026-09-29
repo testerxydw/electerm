@@ -1,0 +1,71 @@
+// 右面板「监控」页（对齐重设计草图 .card-r / .metric）
+
+.monitor-panel
+  padding 10px 12px
+
+.monitor-panel-head
+  display flex
+  align-items center
+  justify-content space-between
+  margin-bottom 10px
+  font-size 11px
+  letter-spacing .4px
+  text-transform uppercase
+  color var(--text-dark)
+
+.monitor-panel-host
+  text-transform none
+  letter-spacing 0
+  font-family var(--font-mono)
+
+.monitor-metric
+  display flex
+  align-items center
+  gap 9px
+  margin 7px 0
+  font-size 11.5px
+  color var(--text)
+  flex-wrap wrap
+
+.monitor-metric-lb
+  width 38px
+  flex none
+  color var(--text-dark)
+  font-family var(--font-mono)
+
+.monitor-metric-bar
+  flex 1
+  min-width 60px
+  height 6px
+  border-radius var(--radius-pill)
+  background var(--surface-3)
+  overflow hidden
+  i
+    display block
+    height 100%
+    border-radius var(--radius-pill)
+    background unquote('linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 55%, var(--info)))')
+    transition width var(--dur-2) var(--ease), background var(--dur-2) var(--ease)
+    &.warn
+      background unquote('linear-gradient(90deg, var(--warn), color-mix(in srgb, var(--warn) 55%, var(--error)))')
+    &.error
+      background unquote('linear-gradient(90deg, var(--error), color-mix(in srgb, var(--error) 45%, var(--warn)))')
+
+.monitor-metric-vl
+  width 74px
+  flex none
+  text-align right
+  font-family var(--font-mono)
+  color var(--text-dark)
+
+.monitor-metric-sub
+  width 100%
+  padding-left 47px
+  font-family var(--font-mono)
+  font-size 10px
+  color var(--text-disabled)
+
+.monitor-panel-hint
+  margin-top 10px
+  font-size 11px
+  color var(--text-disabled)

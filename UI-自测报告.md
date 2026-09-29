@@ -843,3 +843,43 @@ overlappedByKbar: true                   ❌ 头像仍与快捷键条重叠，�
 2. 用户项 **3** —— `transfer` 页（接入现有传输队列）
 3. 用户项 **4** —— 头像账户菜单 / 标签栏收尾 / AI 气泡分栏
 4. 用户项 **1** —— `⌘R` 会话录制
+
+---
+
+## 第 20 轮 · Phase 2 用户项 2：`monitor` 监控页
+
+**时间**：2026-09-29 · **分支**：master
+
+### 新增
+
+| 文件 | 内容 |
+| --- | --- |
+| `remote-monitor/monitor-panel.jsx` | 监控页组件：复用 `useMonitorDetails`，渲染 **CPU / MEM / DISK / NET** 四条指标 |
+| `remote-monitor/monitor-panel.styl` | 对齐草图 `.card-r` / `.metric`：标题行 + 指标条 + 右侧数值 + 副行（等宽） |
+| `main.jsx` | 以 `<MonitorPanel />` 替换此前的占位 |
+
+**阈值配色**（对齐草图 `.metric .bar i.warn`）：`≥70% → warn`、`≥90% → error`，条形用品牌渐变、过渡 180ms。
+
+**数据映射**（复用既有采集，不新造数据）：`groupOf(snapshot,'cpu').data`（%）、`memory.percent/usedBytes/totalBytes`、`disks[0].percent/mount`、`selectPrimaryNetwork(network)` 的 `rxRate/txRate`。
+
+### 验证（CDP 实测）
+
+```
+exists: true
+metrics: 4
+text: "系统负载 | CPU | — | MEM | — | DISK | — | NET | —"
+```
+✅ 组件与四条指标正常渲染。当前是**本地会话**（无远端 `/proc` 采集目标）故数值为 `—`；连上 SSH 主机后显示真实百分比与阈值配色。
+
+**截图**：`self-test/r20-monitor.png`（右面板「监控」页签激活 + 系统负载卡片）。
+
+### 差距复审（已写入 `UI-重构计划.md` §三·补）
+
+- **已对齐**：布局骨架 / 图标栏(含头像) / 会话树 / 标签栏 / 标题栏 / 面包屑 / 终端光晕 / 快捷键条 / 状态栏 / 右面板三页签与监控页；
+- **仍存差距 8 项**，分为「纯前端可做」（首页空态 E、图标顺序 F、会话树状态点与类型标签 G、transfer 页 H）与「需数据/功能支撑」（状态栏三段 A、shell 徽标 B、`● REC` C、AI 气泡分栏 D）。
+
+### 下一轮计划
+
+- 用户项 **3**：`transfer` 页接入现有传输队列（纯前端，差距 H）；
+- 用户项 **4**：头像账户菜单、标签栏收尾、AI 气泡分栏（差距 D）；
+- 用户项 **1**：`⌘R` 会话录制（差距 C 一并解决）。

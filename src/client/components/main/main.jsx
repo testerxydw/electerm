@@ -55,6 +55,7 @@ import LazyBoundary from '../common/lazy-boundary'
 import CommandPalette from '../command-palette'
 import StatusBar from '../status-bar'
 import AppKbar from '../app-kbar'
+import MonitorPanel from '../remote-monitor/monitor-panel'
 import TitleBar from '../title-bar'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import '../../common/fs.js'
@@ -387,9 +388,7 @@ export default auto(function Index (props) {
           }
           {
             store.rightPanelTab === 'monitor' && (
-              <div className='right-panel-placeholder'>
-                系统负载 CPU / MEM / DISK / NET（对齐草图「监控」页）—— 下一步接入远程监控数据
-              </div>
+              <MonitorPanel store={store} />
             )
           }
           <TerminalInfo key={store.activeTabId} store={store} {...deepCopy(store.terminalInfoProps)} />
