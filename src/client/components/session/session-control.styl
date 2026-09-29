@@ -34,5 +34,27 @@
     display flex
     align-items center
     margin-left 0
-  .sess-icon
+  // 连接信息（内容区顶部面包屑）
+.session-conn-info
+  display inline-flex
+  align-items center
+  gap 6px
+  margin-right 12px
+  max-width 220px
+  color var(--text-dark)
+  font-size 12px
+  .conn-host
+    max-width 180px
+  .conn-dot
+    width 6px
+    height 6px
+    flex none
+    border-radius var(--radius-pill)
+    background var(--text-disabled)
+    &.ok
+      background var(--success)
+    &.err
+      background var(--error)
+
+.sess-icon
     margin-right 0

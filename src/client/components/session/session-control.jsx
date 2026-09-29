@@ -18,7 +18,8 @@ import classnames from 'classnames'
 import {
   paneMap,
   connectionMap,
-  terminalSerialType
+  terminalSerialType,
+  statusMap
 } from '../../common/constants'
 import { SplitViewIcon } from '../icons/split-view'
 import { HeartbeatIcon } from '../icons/heartbeat'
@@ -60,6 +61,26 @@ export default function SessionControl (props) {
   const showSshFeatures = isSsh || isLocal
 
   // ---- sub-renderers ----
+
+  // 连接信息（host + 状态点）——内容区顶部的"面包屑"
+  function renderConnInfo () {
+    const { host, status } = tab
+    if (!host && !status) {
+      return null
+    }
+    const ok = status === statusMap.success
+    return (
+      <div className='session-conn-info fleft'>
+        <i
+          className={classnames(
+            'conn-dot',
+            ok ? 'ok' : (status ? 'err' : '')
+          )}
+        />
+        <span className='conn-host elli'>{host || e('local')}</span>
+      </div>
+    )
+  }
 
   function renderPaneControl () {
     if (isDisabled) {
@@ -323,6 +344,7 @@ export default function SessionControl (props) {
   // ---- desktop ----
   return (
     <div className='terminal-control fix'>
+      {renderConnInfo()}
       {renderPaneControl()}
       {renderSftpPathFollowControl()}
       {renderSplitToggle()}
