@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>electerm 美化效果预览草图 · v3</title>
+<style>
+/* ============ 页面骨架（预览工具本身，不随主题切换） ============ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#14161a;color:#d7dae0;min-height:100vh;padding:28px 20px 60px;
+  font-family:system-ui,-apple-system,'Noto Sans CJK SC','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  font-size:14px;line-height:1.6;
+}
+.wrap{max-width:1360px;margin:0 auto}
+h1{font-size:22px;font-weight:700;letter-spacing:.5px}
+.sub{color:#8a909b;font-size:13px;margin:6px 0 18px}
+.seg{display:inline-flex;border:1px solid #2a2e36;border-radius:8px;overflow:hidden;margin-right:12px;vertical-align:middle}
+.seg button{background:transparent;border:none;color:#8a909b;padding:7px 18px;cursor:pointer;font-size:13px;font-family:inherit}
+.seg button.on{background:#08c;color:#fff}
+.hint{display:inline-block;color:#8a909b;font-size:12.5px;vertical-align:middle}
+.card{background:#1b1e24;border:1px solid #2a2e36;border-radius:12px;padding:16px 18px;margin-bottom:20px}
+.card>header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.card h2{font-size:16px;font-weight:600}
+.stepbadge{background:#08c22e22;color:#4ade80;border:1px solid #08c22e55;font-size:11.5px;padding:1px 9px;border-radius:999px}
+.stepbadge.blue{background:#08c2;color:#7cc7ff;border-color:#0af5}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:980px){.duo{grid-template-columns:1fr}}
+.panel{border:1px solid #2a2e36;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.panel figcaption{font-size:12px;padding:7px 12px;font-weight:600;letter-spacing:.3px}
+.panel.before figcaption{background:#3a1d22;color:#ff9aa5}
+.panel.after figcaption{background:#15301f;color:#7ee2a8}
+.notes{list-style:none;padding:9px 12px;font-size:12px;color:#9aa1ad;border-top:1px solid #242830}
+.notes li{margin:3px 0;padding-left:14px;position:relative}
+.notes li::before{content:'·';position:absolute;left:2px;color:#566}
+.notes b{color:#c8cdd6;font-weight:600}
+.chip{display:inline-block;font-size:10.5px;padding:0 6px;border-radius:999px;margin-left:4px;vertical-align:1px}
+.chip.bad{background:#ef476f22;color:#ff8aa5;border:1px solid #ef476f55}
+.chip.good{background:#06d6a022;color:#6fe3bd;border:1px solid #06d6a055}
+.chip.info{background:#08c2;color:#8ecbff;border:1px solid #08c6}
+
+/* ============ 主题舞台：electerm 真实色值 ============ */
+.stage{padding:12px;border-radius:0 0 0 0}
+/* 深色（内置 default：theme-defaults.js） */
+.stage{
+  --main:#121214;--main-dark:#000;--main-light:#2E3338;
+  --text:#ddd;--text-light:#fff;--text-dark:#888;--text-disabled:#777;
+  --primary:#08c;--pc:#fff;--info:#FFD166;--success:#06D6A0;--error:#EF476F;--warn:#E55934;
+}
+/* 浅色（iTerm「3024 Day」代表值） */
+body.light .stage{
+  --main:#ededed;--main-dark:#cccccc;--main-light:#fefefe;
+  --text:#555;--text-light:#777;--text-dark:#444;--text-disabled:#888;
+}
+.mock{background:var(--main);border-radius:8px;overflow:hidden;font-size:12px;color:var(--text);min-height:120px}
+
+/* ============ 改造后：新 token（规范 §2.3） ============ */
+.modern{
+  --surface-0:var(--main-dark);--surface-1:var(--main);--surface-2:var(--main-light);
+  --border:color-mix(in srgb,var(--text) 14%,transparent);
+  --border-strong:color-mix(in srgb,var(--text) 24%,transparent);
+  --hover-bg:color-mix(in srgb,var(--text) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--primary) 18%,var(--main));
+  --r-xs:4px;--r-sm:6px;--r:8px;--r-lg:12px;--r-pill:999px;
+  --sh1:0 1px 2px rgba(0,0,0,.30);--sh2:0 4px 12px rgba(0,0,0,.34);--sh3:0 16px 40px rgba(0,0,0,.45);
+  --dur:120ms;--ease:cubic-bezier(.4,0,.2,1);
+}
+/* ============ 改造前：--main-lighter 的真实渲染值 ============
+   深色下 darker('#121214',-0.3)='#5e5e60' 合法；
+   浅色下 darker('#ededed',-0.3)='#1393939' 非法 → 声明失效(透明) */
+.legacy{--ml:#5e5e60}
+body.light .legacy{--ml:transparent}
+
+/* ============ ① 标签栏（Step 14 · §4.1） ============ */
+.tbar{display:flex;align-items:flex-end;height:36px;padding:0 8px}
+.tab{padding:0 14px;line-height:32px;margin-right:1px;cursor:pointer;position:relative;user-select:none;white-space:nowrap}
+.tab .cnt{font-size:10px;padding:0 5px;margin-left:5px;display:inline-block;height:14px;line-height:14px;vertical-align:2px}
+.tab.add{padding:0 9px;color:var(--text-dark)}
+.legacy .tbar{background:var(--main-dark);border-bottom:1px solid var(--main-light)}
+.legacy .tab{background:var(--main-dark);color:var(--text-dark);border-radius:3px 3px 0 0}
+.legacy .tab.active{background:var(--main);color:var(--text);box-shadow:inset 0 2px 0 0 var(--primary)}
+.legacy .tab .cnt{background:var(--primary);color:#fff;border-radius:10px 2px 2px 10px}
+.modern .tbar{background:var(--surface-0);border-bottom:1px solid var(--border)}
+.modern .tab{background:var(--surface-0);color:var(--text-dark);border-radius:var(--r) var(--r) 0 0;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.modern .tab:hover{background:var(--hover-bg)}
+.modern .tab.active{background:var(--surface-1);color:var(--text);box-shadow:inset 0 2px 0 0 var(--primary)}
+.modern .tab .cnt{background:var(--primary);color:var(--pc);border-radius:var(--r-pill)}
+
+/* ============ ② 侧栏（Step 15 · §4.2 + Step 3 死变量） ============ */
+.sb{display:flex;height:150px}
+.sicons{width:36px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding-top:8px}
+.ic{width:28px;height:28px;line-height:28px;text-align:center;cursor:pointer;user-select:none}
+.spanel{flex:1;min-width:0}
+.hhead{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-weight:600}
+.lrow{padding:5px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.legacy .sicons{background:var(--main-dark)}
+.legacy .ic{color:var(--text-dark)}
+.legacy .ic:hover,.legacy .ic.active{color:var(--text-light)}
+.legacy .hhead{border-bottom:1px solid var(--border)}   /* --border 未定义 → 整条失效 → 无线 */
+.legacy .lrow.hov{color:var(--text-light)}
+.modern .sicons{background:var(--surface-0)}
+.modern .ic{color:var(--text-dark);border-radius:var(--r-sm);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.modern .ic:hover{color:var(--text-light);background:var(--hover-bg)}
+.modern .ic.active{color:var(--text);background:var(--active-bg)}
+.modern .hhead{border-bottom:1px solid var(--border)}
+.modern .lrow{border-radius:var(--r-xs);transition:background var(--dur) var(--ease)}
+.modern .lrow:hover{background:var(--hover-bg)}
+
+/* ============ ③ SFTP（Step 18 · §4.4） ============ */
+.slist{margin:10px;overflow:hidden}
+.shead{display:flex;justify-content:space-between;padding:4px 10px;color:var(--text-dark);font-size:11px}
+.srow{display:flex;justify-content:space-between;padding:5px 10px;cursor:pointer;gap:10px}
+.srow .sz{color:var(--text-dark);flex-shrink:0}
+.legacy .slist{border-radius:3px;box-shadow:0 0 3px 3px var(--ml)}   /* 聚焦光晕：浅色下失效 */
+.legacy .srow:nth-child(odd){background:var(--main)}
+.legacy .srow:nth-child(even){background:var(--main)}
+.legacy .srow.hov,.legacy .srow.sel{background:var(--primary);color:#fff}
+.legacy .srow.hov .sz,.legacy .srow.sel .sz{color:#fff}
+.modern .slist{border-radius:var(--r);border:1px solid var(--border-strong);box-shadow:var(--sh2)}
+.modern .srow{border-radius:0;transition:background var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.modern .srow:nth-child(even){background:var(--surface-2)}
+.modern .srow.hov{background:var(--hover-bg);box-shadow:inset 2px 0 0 0 var(--primary)}
+.modern .srow.sel{background:var(--active-bg);color:var(--text);box-shadow:inset 2px 0 0 0 var(--primary)}
+
+/* ============ ④ 右键菜单（Step 12 · §4.10） ============ */
+.menuwrap{padding:14px;display:flex;justify-content:center}
+.menu{width:220px;padding:4px 0}
+.mi{padding:0 16px;height:28px;line-height:28px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu hr{border:none;margin:2px 0}
+.legacy .menu{background:var(--main)}
+.legacy .mi.hov{background:#08c;color:#eee}
+.legacy .mi.dis{color:var(--text-disabled)}
+.legacy .mi.dis.hov{background:#333;color:#777;cursor:not-allowed}
+.legacy .menu hr{border-bottom:1px solid var(--main-darker)}  /* 深色下失效 → 无线 */
+.modern .menu{background:var(--surface-1);border-radius:var(--r);box-shadow:0 0 0 1px var(--border),var(--sh2)}
+.modern .mi{border-radius:var(--r-xs);transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.modern .mi.hov{background:var(--active-bg);color:var(--text)}
+.modern .mi.dis{color:var(--text-disabled)}
+.modern .mi.dis.hov{background:var(--surface-2);color:var(--text-disabled);cursor:not-allowed}
+.modern .menu hr{border-bottom:1px solid var(--border)}
+
+/* ============ ⑤ 弹窗（Step 11 · §4.9 + Step 4） ============ */
+.mask{padding:20px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+.modal{width:88%;background:var(--main)}
+.mhead{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-weight:600}
+.mx{width:24px;height:24px;display:grid;place-items:center;border-radius:4px;cursor:pointer;font-style:normal}
+.mbody{padding:10px 14px;color:var(--text-dark)}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;padding:9px 14px}
+.mbtn{padding:4px 16px;cursor:pointer;border:none;font-size:12px;font-family:inherit}
+.mbtn.ok{background:var(--primary);color:var(--pc)}
+.mbtn.ghost{background:transparent;color:var(--text)}
+.legacy .modal{border-radius:8px;box-shadow:0 6px 16px 0 rgba(0,0,0,.08),0 3px 6px -4px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.05)}
+.legacy .mhead{border-bottom:1px solid var(--main-darker)}  /* 深色下失效 → 无线 */
+.legacy .mfoot{border-top:1px solid var(--main-darker)}
+.legacy .mx:hover{background:var(--main-darker)}            /* 深色下失效 → hover 无反馈 */
+.legacy .mbtn{border-radius:4px}
+.modern .modal{border-radius:var(--r-lg);box-shadow:var(--sh3)}
+.modern .mhead{border-bottom:1px solid var(--border)}
+.modern .mfoot{border-top:1px solid var(--border)}
+.modern .mx{border-radius:var(--r-sm);transition:background var(--dur) var(--ease)}
+.modern .mx:hover{background:var(--hover-bg)}
+.modern .mbtn{border-radius:var(--r-sm)}
+
+/* ============ ⑥ 底栏 + 命令历史（Step 16 · §4.5） ============ */
+.foot{height:36px;display:flex;align-items:center;gap:12px;padding:0 12px;font-size:13px}
+.pop{margin:0 12px 12px;padding:8px 10px;background:var(--main)}
+.pitem{display:flex;justify-content:space-between;gap:10px;padding:4px 8px;cursor:pointer}
+.pitem .pc{flex-shrink:0}
+.pact{display:flex;gap:10px}
+.legacy .foot{background:var(--main)}                       /* 无上边线（现状） */
+.legacy .pop .pitem.hov{background:var(--main-lighter)}     /* 浅色下失效 */
+.legacy .pitem .pc{color:var(--text-color-secondary)}       /* 未定义 → 继承正文色 */
+.legacy .clr:hover{color:red}
+.legacy .cpy:hover{color:blue}
+.modern .foot{background:var(--surface-1);box-shadow:inset 0 1px 0 0 var(--border)}  /* inset 补线，不加 border → 零布局位移 */
+.modern .pop{border-radius:var(--r-sm);box-shadow:var(--sh2)}
+.modern .pop .pitem{border-radius:var(--r-xs);transition:background var(--dur) var(--ease)}
+.modern .pop .pitem.hov{background:var(--hover-bg)}
+.modern .pitem .pc{color:var(--text-dark)}
+.modern .clr:hover{color:var(--error)}
+.modern .cpy:hover{color:var(--primary)}
+
+/* ============ ⑦ 焦点环（Step 8 · §3.6） ============ */
+.fwrap{padding:12px}
+.fitem{display:block;padding:6px 10px;margin:3px 6px;cursor:pointer;border-radius:4px}
+.legacy .fitem.focus{outline-style:none}   /* 现状：焦点无任何指示（问题本身） */
+.modern .fitem{border-radius:var(--r-xs)}
+.modern .fitem.focus{outline:1px solid var(--primary);outline-offset:1px}   /* 上游 item-filter 同款描边式 */
+
+/* ============ ⑧ 快捷键条（Step 24 · §4.16） ============ */
+.kbar{padding:6px 8px;display:flex;gap:6px;align-items:center}
+.kb{height:32px;min-width:32px;padding:0 12px;display:inline-flex;align-items:center;cursor:pointer;font-size:12px;font-family:inherit}
+.legacy .kbar{background:var(--main);border-top:1px solid var(--main-lighter)}
+.legacy .kb{background:var(--main-light);border:1px solid var(--main-lighter);color:var(--text);border-radius:6px}
+.legacy .kb.press{background:var(--primary);color:var(--pc)}
+.modern .kbar{background:var(--surface-1);border-top:1px solid var(--border)}
+.modern .kb{background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--r-sm);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.modern .kb:hover{background:var(--hover-bg)}
+.modern .kb.press{background:var(--active-bg);color:var(--text);border-color:transparent}
+
+/* ============ ⑨ 消息通知（Step 11 · §4.9） ============ */
+.toasts{padding:14px;display:flex;flex-direction:column;gap:10px}
+.toast{padding:8px 14px;font-size:12px}
+.toast.ok{color:var(--success)}
+.toast.err{color:var(--error)}
+.legacy .toast{background:var(--main-lighter);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.15)}  /* 浅色下背景失效 → 文字悬空 */
+.modern .toast{background:var(--main-light);border-radius:var(--r-sm);color:var(--text)}
+.modern .toast.ok{box-shadow:inset 3px 0 0 0 var(--success),var(--sh2)}
+.modern .toast.err{box-shadow:inset 3px 0 0 0 var(--error),var(--sh2)}
+
+/* ============ ⑩ 对比度整改（§5.4） ============ */
+.ctable{width:100%;border-collapse:collapse;font-size:12.5px}
+.ctable th{color:#9aa1ad;font-weight:500;text-align:left;padding:6px 10px;border-bottom:1px solid #2a2e36}
+.ctable td{padding:7px 10px;border-bottom:1px solid #242830}
+.sw{display:inline-flex;align-items:center;justify-content:center;width:74px;height:30px;border-radius:4px;font-size:12px;margin-right:8px;vertical-align:middle}
+.swb{background:#08c;color:#fff}
+.swa{background:color-mix(in srgb,var(--primary) 18%,var(--main));color:var(--text)}
+.swg{background:#0e1512;color:#c9ced8}
+
+/* 固定双主题展示（不随页头切换） */
+.fixed duo,.fx{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:980px){.fx{grid-template-columns:1fr}}
+.fxbox{border:1px solid #2a2e36;border-radius:10px;padding:12px;font-size:12px}
+.fxbox h4{font-size:12.5px;font-weight:600;margin-bottom:8px;color:#c8cdd6}
+.dk{background:#121214;border-radius:6px;padding:12px;color:#ddd}
+.lt{background:#ededed;border-radius:6px;padding:12px;color:#555}
+.bline{margin:8px 0;padding:9px 12px;border-radius:4px}
+.tag{font-size:10.5px;color:#8a909b;display:block;margin-bottom:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>electerm 美化效果预览草图 <span style="font-size:13px;color:#8a909b;font-weight:400">· 按规范 v3 绘制 · 色值取自真实主题</span></h1>
+  <p class="sub">
+    左右并排 = 同一区域的「改造前（当前代码真实渲染，含变量失效导致的真实缺陷）」vs「改造后（Step 3–27 全部落地）」。
+    布局为示意草图，<b>不改变任何真实布局尺寸</b>；仅表达视觉语言（色阶 / 圆角 / 阴影 / 焦点 / 交互态）。
+    <b style="color:#7cc7ff">「改造后」面板的 hover 是真实 CSS，把鼠标放上去可体验 120ms 过渡。</b>
+  </p>
+
+  <div style="margin-bottom:18px">
+    <span class="seg" id="themeSeg">
+      <button class="on" data-t="dark">深色主题（内置 default）</button>
+      <button data-t="light">浅色主题（iTerm 3024 Day）</button>
+    </span>
+    <span class="hint">浅色模式下重点看：③⑨ 的「背景失效」缺陷、⑥ 的白色分隔线问题、悬停对比度</span>
+  </div>
+
+  <!-- ① 标签栏 -->
+  <section class="card">
+    <header><h2>① 标签栏 / 标题栏</h2><span class="stepbadge">Step 14 · §4.1</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前（当前代码真实渲染）</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="tbar">
+            <div class="tab active">ssh · dev-server</div>
+            <div class="tab hov">sftp <span class="cnt">3</span></div>
+            <div class="tab">local</div>
+            <div class="tab add">＋</div>
+          </div>
+          <div style="padding:14px">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>标签圆角 <b>3px</b>，直角感强</li>
+          <li>底部分隔线 <b>#2E3338</b>（--main-light），偏重</li>
+          <li>hover <b>无任何底色反馈</b>（中间那个标签就是 hover 态）</li>
+          <li>计数徽标 <b>10px 2px 2px 10px</b> 不对称圆角</li>
+          <li>关闭钮 hover：<b>#fff 写死</b></li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="tbar">
+            <div class="tab active">ssh · dev-server</div>
+            <div class="tab hov">sftp <span class="cnt">3</span></div>
+            <div class="tab">local</div>
+            <div class="tab add">＋</div>
+          </div>
+          <div style="padding:14px">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>圆角 3→<b>8px</b>（--radius），与弹窗/菜单同语言</li>
+          <li>底边线改 <b>--border</b>（14% text），更含蓄</li>
+          <li>hover 补 <b>--hover-bg</b> + 120ms 过渡（试试鼠标）</li>
+          <li>徽标改<b>全圆角</b>（--radius-pill）</li>
+          <li>active 主色高亮条<b>保留</b>（对上游的取向差异，commit 注明）</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ② 侧栏 -->
+  <section class="card">
+    <header><h2>② 侧边图标栏 + 历史面板</h2><span class="stepbadge">Step 15 · §4.2</span><span class="stepbadge blue">Step 1/3 修复 --border</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="sb">
+            <div class="sicons"><span class="ic active">★</span><span class="ic">☰</span><span class="ic">⇅</span><span class="ic">ⓘ</span></div>
+            <div class="spanel">
+              <div class="hhead"><span>历史记录</span><span class="clr" style="cursor:pointer">清空</span></div>
+              <div class="lrow">ssh root@10.0.0.8</div>
+              <div class="lrow hov">ssh deploy@prod-1（hover）</div>
+              <div class="lrow">telnet 192.168.1.1</div>
+            </div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>🔴 表头分隔线<b>完全不显示</b>：<code>sidebar.styl:57</code> 引用的 <b>--border 从未定义</b>（Step 1 定义后自动亮起）</li>
+          <li>激活图标只有<b>文字变白</b>，无底色块，扫视时不易定位</li>
+          <li>hover 仅文字变白，无区域反馈</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="sb">
+            <div class="sicons"><span class="ic active">★</span><span class="ic">☰</span><span class="ic">⇅</span><span class="ic">ⓘ</span></div>
+            <div class="spanel">
+              <div class="hhead"><span>历史记录</span><span class="clr" style="cursor:pointer">清空</span></div>
+              <div class="lrow">ssh root@10.0.0.8</div>
+              <div class="lrow hov">ssh deploy@prod-1（hover）</div>
+              <div class="lrow">telnet 192.168.1.1</div>
+            </div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>分隔线<b>首次显示</b>（Step 3 附带收益，验收点）</li>
+          <li>激活图标补 <b>--active-bg</b> 底色块 + 圆角</li>
+          <li>hover 补 <b>--hover-bg</b> + 过渡</li>
+          <li>深浅主题自动适配（派生自 --text）</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ③ SFTP -->
+  <section class="card">
+    <header><h2>③ SFTP 文件列表</h2><span class="stepbadge">Step 18 · §4.4</span><span class="stepbadge blue">对比度整改最大收益</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="slist">
+            <div class="shead"><span>名称</span><span>大小</span></div>
+            <div class="srow"><span>app.log</span><span class="sz">2.4 KB</span></div>
+            <div class="srow hov"><span>deploy.sh（hover）</span><span class="sz">1.1 KB</span></div>
+            <div class="srow"><span>backup.tar.gz</span><span class="sz">312 MB</span></div>
+            <div class="srow sel"><span>nginx.conf（选中）</span><span class="sz">4 KB</span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>🔴 hover / 选中 = <b>主色实心 + 白字</b>，实测 <b>3.89:1</b><span class="chip bad">AA 不达标</span>，整片刺眼</li>
+          <li>斑马纹用 --main（与容器同色，等于没有）</li>
+          <li>聚焦光晕 <b>0 0 3px 3px --main-lighter</b>：浅色主题下该变量产出非法色 → <b>光晕消失</b></li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="slist">
+            <div class="shead"><span>名称</span><span>大小</span></div>
+            <div class="srow"><span>app.log</span><span class="sz">2.4 KB</span></div>
+            <div class="srow hov"><span>deploy.sh（hover）</span><span class="sz">1.1 KB</span></div>
+            <div class="srow"><span>backup.tar.gz</span><span class="sz">312 MB</span></div>
+            <div class="srow sel"><span>nginx.conf（选中）</span><span class="sz">4 KB</span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>hover = <b>--hover-bg</b> + 左侧 <b>2px 主色条</b>（inset 阴影，不加 border → 零布局位移）</li>
+          <li>选中 = <b>--active-bg</b> + 色条，文字保持 --text，实测 <b>≈11.3:1</b><span class="chip good">AA ✅</span></li>
+          <li>斑马纹改 <b>--surface-2</b>，层次真实可辨</li>
+          <li>聚焦改 <b>--border-strong + --shadow-2</b>，双主题稳定</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ④ 右键菜单 -->
+  <section class="card">
+    <header><h2>④ 右键菜单（最高频交互）</h2><span class="stepbadge">Step 12 · §4.10</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="menuwrap"><div class="menu">
+            <div class="mi hov">复制（hover）</div>
+            <div class="mi">粘贴</div>
+            <div class="mi dis hov">重命名（禁用+hover）</div>
+            <hr>
+            <div class="mi">在终端中打开 ▸</div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>hover = <b>#08c 实心 + #eee</b>（≈3.6:1<span class="chip bad">不达标</span>），6 处硬编码 hex</li>
+          <li>容器<b>无圆角、无阴影</b>，浮在内容上没有「浮层感」</li>
+          <li>分隔线 <b>--main-darker</b>：深色主题下产出非法色 <b>#0 → 整条失效，无线</b></li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="menuwrap"><div class="menu">
+            <div class="mi hov">复制（hover）</div>
+            <div class="mi">粘贴</div>
+            <div class="mi dis hov">重命名（禁用+hover）</div>
+            <hr>
+            <div class="mi">在终端中打开 ▸</div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>hover = <b>--active-bg + --text</b>（≈11.3:1<span class="chip good">AA ✅</span>）</li>
+          <li>容器补 <b>8px 圆角 + 1px 描边环 + --shadow-2</b>（描边用 box-shadow 环，不加 border → 280px 宽度不变）</li>
+          <li>分隔线 <b>--border</b>，双主题可见</li>
+          <li>禁用项 hover = --surface-2，语义更清楚</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑤ 弹窗 -->
+  <section class="card">
+    <header><h2>⑤ 弹窗（Modal）</h2><span class="stepbadge">Step 11 · §4.9</span><span class="stepbadge blue">Step 4 darker() 修复</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="mask"><div class="modal">
+            <div class="mhead"><span>编辑书签</span><i class="mx hov">✕</i></div>
+            <div class="mbody">主机名 / 端口 / 认证方式 …（表单占位）</div>
+            <div class="mfoot"><button class="mbtn ghost">取消</button><button class="mbtn ok">保存</button></div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>圆角 <b>8px</b>、阴影是 antd 抄来的三段长串</li>
+          <li>🔴 头/底分隔线 <b>--main-darker</b>：深色下失效 → <b>两条线都没有</b>（弹窗头尾「糊」在一起）</li>
+          <li>🔴 关闭钮 hover 背景 <b>--main-darker</b>：深色下失效 → <b>hover 无反馈</b>（试试右图的 ✕ 对比）</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="mask"><div class="modal">
+            <div class="mhead"><span>编辑书签</span><i class="mx hov">✕</i></div>
+            <div class="mbody">主机名 / 端口 / 认证方式 …（表单占位）</div>
+            <div class="mfoot"><button class="mbtn ghost">取消</button><button class="mbtn ok">保存</button></div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>圆角 8→<b>12px</b>（--radius-lg，浮层更高一档）</li>
+          <li>阴影收敛为 <b>--shadow-3</b> 单一来源</li>
+          <li>头/底线 = <b>--border</b>，关闭钮 hover = <b>--hover-bg</b>，双主题稳定</li>
+          <li>遮罩 <b>--mask</b>（值与现状相同 → 零变化）</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑥ 底栏 -->
+  <section class="card">
+    <header><h2>⑥ 底部栏 + 命令历史浮层</h2><span class="stepbadge">Step 16 · §4.5</span><span class="stepbadge blue">Step 3 死变量</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="foot">⚡ &nbsp;⇱ &nbsp;▶ &nbsp;<b>Q</b> &nbsp;· 命令历史
+          </div>
+          <div class="pop">
+            <div class="pitem"><span>npm run build</span><span class="pact"><span class="pc">12</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem hov"><span>ssh deploy@prod-1（hover）</span><span class="pact"><span class="pc">3</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem"><span>docker compose up -d</span><span class="pact"><span class="pc">7</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>底栏<b>没有上边线</b>，与终端区无分界（Step 16 用 inset 阴影补线，<b>不加 border → 高度仍 36px</b>）</li>
+          <li>🔴 次数徽标 <b>--text-color-secondary 未定义</b> → 继承正文色，与命令文字同灰度，没有主次</li>
+          <li>hover 背景 <b>--main-lighter</b>：深色 #5e5e60 偏重；<b>浅色下非法 → hover 完全无反馈</b>（切浅色看）</li>
+          <li><b>red / blue 命名色</b> 写死（✕ 与 复制）</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="foot">⚡ &nbsp;⇱ &nbsp;▶ &nbsp;<b>Q</b> &nbsp;· 命令历史
+          </div>
+          <div class="pop">
+            <div class="pitem"><span>npm run build</span><span class="pact"><span class="pc">12</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem hov"><span>ssh deploy@prod-1（hover）</span><span class="pact"><span class="pc">3</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem"><span>docker compose up -d</span><span class="pact"><span class="pc">7</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>上边线 = <b>inset 0 1px 0 0 --border</b>（不参与布局，零位移）</li>
+          <li>次数徽标 = <b>--text-dark</b>，主次分明（Step 3 修复）</li>
+          <li>hover = <b>--hover-bg</b>，浮层补 <b>--shadow-2 + 圆角</b></li>
+          <li>red → <b>--error</b>，blue → <b>--primary</b>（含命名色，hex 扫描扫不到，单测 3 特意覆盖）</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑦ 焦点环 -->
+  <section class="card">
+    <header><h2>⑦ 键盘焦点环（无障碍）</h2><span class="stepbadge">Step 8 · §3.6</span><span class="stepbadge blue">对齐上游 item-filter 写法</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="fwrap">
+            <span class="tag" style="margin:4px 8px">Tab 遍历到「书签 B」时的样子：</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 A</span>
+            <span class="fitem focus" style="background:var(--active-bg,#16324a);outline:none">书签 B（当前焦点）</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 C</span>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>自定义列表行 / 标签等<b>非原生控件：无任何焦点指示</b>，Tab 遍历「凭感觉」</li>
+          <li>部分组件 outline 被移除（如弹窗关闭钮）</li>
+          <li>全库 :focus-visible 仅 2 个新组件局部实现，未成体系</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="fwrap">
+            <span class="tag" style="margin:4px 8px">Tab 遍历到「书签 B」时的样子：</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 A</span>
+            <span class="fitem focus" style="background:var(--active-bg);color:var(--text);outline:1px solid var(--primary);outline-offset:1px">书签 B（当前焦点）</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 C</span>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>全局基线：<b>:focus-visible → outline 1px solid --primary + offset 1px</b>（与上游 item-filter.styl:16 同款，不自造第三套）</li>
+          <li>仅键盘触发，<b>鼠标点击不出环</b></li>
+          <li>outline 不参与布局 → 零位移；若与 antd 双环则按 §3.6 加 :not() 排除</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑧ 快捷键条 -->
+  <section class="card">
+    <header><h2>⑧ 终端快捷键条（5.5.26 新区域）</h2><span class="stepbadge">Step 24 · §4.16</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="kbar">
+            <button class="kb">⌘ build</button>
+            <button class="kb press">⌘ deploy（按下态）</button>
+            <button class="kb">⌘ test</button>
+          </div>
+          <div style="padding:10px 14px;color:var(--text-dark)">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>按钮 <b>--main-light 底 + --main-lighter 边</b>，硬编码散值 5 处圆角</li>
+          <li>按下态 = <b>主色实心 + 白字 3.89:1</b><span class="chip bad">AA 不达标</span></li>
+          <li>边线颜色偏重，与底栏风格不一致</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="kbar">
+            <button class="kb">⌘ build</button>
+            <button class="kb press">⌘ deploy（按下态）</button>
+            <button class="kb">⌘ test</button>
+          </div>
+          <div style="padding:10px 14px;color:var(--text-dark)">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>底色 <b>--surface-2</b>、边线 <b>--border</b>、圆角 <b>--radius-sm</b>，全 token</li>
+          <li>按下态 = <b>--active-bg + --text</b><span class="chip good">AA ✅</span></li>
+          <li>hover 补 <b>--hover-bg</b> + 过渡（试试鼠标）</li>
+          <li>高度 var(--shortcut-bar-h) <b>保持上游变量不动</b></li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑨ 消息通知 -->
+  <section class="card">
+    <header><h2>⑨ 消息 / 通知</h2><span class="stepbadge">Step 11 · §4.9</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="toasts">
+            <div class="toast ok">✓ 连接成功 ssh root@10.0.0.8</div>
+            <div class="toast err">✕ 传输失败：backup.tar.gz（重试？）</div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>背景 <b>--main-lighter</b>：深色 #5e5e60 偏灰重；<b>浅色下非法 → 背景消失，文字悬空</b>（切浅色看，非常明显）</li>
+          <li>无状态色条，成功/失败只靠图标小字</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock modern">
+          <div class="toasts">
+            <div class="toast ok">✓ 连接成功 ssh root@10.0.0.8</div>
+            <div class="toast err">✕ 传输失败：backup.tar.gz（重试？）</div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>左侧 <b>3px 状态色条</b>（inset 阴影，不加 border-left → 内容不位移）</li>
+          <li>圆角 <b>--radius-sm</b>、阴影 <b>--shadow-2</b></li>
+          <li>背景经 darker() 修复后浅色 = #ffffff，双主题可读</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑩ 对比度整改 -->
+  <section class="card">
+    <header><h2>⑩ 「主色实心 + 白字」整改汇总（9 处）</h2><span class="stepbadge">§5.4 实测数据</span></header>
+    <div class="stage" style="padding:4px">
+      <table class="ctable">
+        <tr><th>位置（实测行号）</th><th>改造前</th><th>对比度</th><th>改造后</th><th>对比度</th></tr>
+        <tr><td>sftp.styl:21-22 / 25-26（hover/选中）</td><td><span class="sw swb">Aa</span>主色实心+白字</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>active-bg+text</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>list.styl:31-37（设置左列表）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>同上</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>tabs.styl:275-276（workspace 激活）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>同上</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>sys-menu.styl:12-13 / 61-62（菜单）</td><td><span class="sw swb">Aa</span>#08c+#eee</td><td><span class="chip bad">≈3.6:1</span></td><td><span class="sw swa">Aa</span>active-bg+text</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>shortcut-bar.styl:69-71（按下态）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>同上</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>setting-wrap.styl:158-160（移动端返回钮）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>同上</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>transfer.styl:41-43（传输项图标）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>hover-bg+text</td><td><span class="chip good">≈12:1</span></td></tr>
+      </table>
+      <p style="font-size:12px;color:#9aa1ad;margin-top:8px">
+        另有 2 处「浅色主题下完全不可见」：terminal.styl:230（rgba(255,255,255,.55) ≈1.1:1 → --text-dark 8.3:1）、qm.styl:56,69（白色 15% 分隔线 → --border）。对比度数字来自规范 §5.4 的 WCAG 实测。
+      </p>
+    </div>
+  </section>
+
+  <!-- ⑪ darker() 修复（固定双主题，不随页头切换） -->
+  <section class="card">
+    <header><h2>⑪ Step 4 · darker() 非法颜色修复（为什么先修它）</h2><span class="stepbadge">Step 4 · §3.9</span></header>
+    <p style="font-size:12.5px;color:#9aa1ad;margin-bottom:10px">
+      darker() 缺上界钳制：深色主题 darker('#121214',0.3) = <b>'#0'</b>（非法），浅色 darker('#ededed',-0.3) = <b>'#1393939'</b>（非法）。
+      非法值经 var() 替换后整条声明失效。两组变量的「失效主题」正好<b>互补</b>，所以两个主题各有各的盲区：
+    </p>
+    <div class="fx">
+      <div class="fxbox">
+        <h4>深色主题（--main #121214）</h4>
+        <div class="dk">
+          <span class="tag">--main-darker = '#0' 非法 → 29 处边框/阴影全部不渲染（当前）</span>
+          <div class="bline" style="background:#181a1e">无边框的卡片（弹窗头尾线、菜单分隔线、面板描边全部消失）</div>
+          <span class="tag" style="margin-top:10px">修复后 = '#000000'（合法）</span>
+          <div class="bline" style="background:#181a1e;border:1px solid #000">1px 近黑描边 —— 深色下对比度 ≈1.05:1，<b>几乎看不出</b>，但声明恢复有效（为后续 token 化打底）</div>
+        </div>
+      </div>
+      <div class="fxbox">
+        <h4>浅色主题（--main #ededed）</h4>
+        <div class="lt">
+          <span class="tag">--main-lighter = '#1393939' 非法 → 背景类声明全部失效（当前）</span>
+          <div class="bline" style="background:transparent;border:1px dashed #bbb">背景透明（消息气泡悬空、选区工具条无底色）</div>
+          <span class="tag" style="margin-top:10px">修复后 = '#ffffff'（合法）</span>
+          <div class="bline" style="background:#fff;border:1px solid #ddd">白色底恢复可见</div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:12px;color:#9aa1ad;margin-top:10px">
+      结论：Step 4 单独提交、放在区域精修之前 —— 否则精修时的「改动前基线」是失真的。深色下视觉变化≈0，风险 🟡 低。
+    </p>
+  </section>
+
+  <!-- ⑫ 范围外说明 -->
+  <section class="card">
+    <header><h2>⑫ 明确不改的（防止误判为回归）</h2><span class="stepbadge blue">范围边界</span></header>
+    <ul style="font-size:13px;color:#b8bec9;padding-left:18px;line-height:2">
+      <li>🔴 浅色主题 <b>--success #06D6A0 对比度 1.61:1</b> —— 既有缺陷，改色值=改主题语义且牵连 310 个 iTerm 主题，<b>不在本次范围</b>，单独提 issue</li>
+      <li>⚠️ <b>--text-light 语义反转</b>（深色=更亮、浅色=更淡）—— 记录不改</li>
+      <li>⚠️ <b>--text-disabled</b> 两主题都不达 AA —— 「禁用」语义本就如此，不改</li>
+      <li>布局数值（36px / 340px / 43px / 各 padding）<b>全部保持原值</b>；所有新增描边用 box-shadow，<b>零布局位移</b></li>
+      <li>antd 动效恢复（Step 6 删 motion:false）是唯一性能观察点：卡顿则降级为缩短时长而非关闭</li>
+      <li>其余 6 处 <b>!important</b> 保留场景：term-fullscreen(19)、cmd-history 窄屏定位(1)、qm 移动端(1) 等确实需要</li>
+    </ul>
+  </section>
+
+  <p class="sub" style="margin-top:26px;text-align:center">
+    草图文件：美化效果预览草图.html（未提交，阅后可删）· 依据：UI-美化设计规范 v3 · 上游5.5.26升级与样式差异审计 §十三
+  </p>
+</div>
+
+<script>
+  // 深色 / 浅色切换
+  const seg = document.getElementById('themeSeg')
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b))
+    document.body.classList.toggle('light', b.dataset.t === 'light')
+  })
+</script>
+</body>
+</html>

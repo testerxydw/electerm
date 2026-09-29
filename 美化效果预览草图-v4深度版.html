@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>electerm 美化深度设计预览 · v4「Tinted Console」</title>
+<style>
+/* ============ 页面骨架 ============ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#101216;color:#d7dae0;min-height:100vh;padding:28px 20px 60px;
+  font-family:system-ui,-apple-system,'Noto Sans CJK SC','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  font-size:14px;line-height:1.6;
+}
+.wrap{max-width:1360px;margin:0 auto}
+h1{font-size:22px;font-weight:700;letter-spacing:.5px}
+.sub{color:#8a909b;font-size:13px;margin:6px 0 18px}
+.seg{display:inline-flex;border:1px solid #2a2e36;border-radius:8px;overflow:hidden;margin-right:12px;vertical-align:middle}
+.seg button{background:transparent;border:none;color:#8a909b;padding:7px 18px;cursor:pointer;font-size:13px;font-family:inherit}
+.seg button.on{background:#08c;color:#fff}
+.hint{display:inline-block;color:#8a909b;font-size:12.5px;vertical-align:middle}
+.card{background:#171a20;border:1px solid #2a2e36;border-radius:12px;padding:16px 18px;margin-bottom:20px}
+.card>header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.card h2{font-size:16px;font-weight:600}
+.stepbadge{background:#08c22e22;color:#4ade80;border:1px solid #08c22e55;font-size:11.5px;padding:1px 9px;border-radius:999px}
+.stepbadge.blue{background:#08c2;color:#7cc7ff;border-color:#0af5}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:980px){.duo{grid-template-columns:1fr}}
+.panel{border:1px solid #2a2e36;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.panel figcaption{font-size:12px;padding:7px 12px;font-weight:600;letter-spacing:.3px}
+.panel.before figcaption{background:#3a1d22;color:#ff9aa5}
+.panel.after figcaption{background:#15301f;color:#7ee2a8}
+.notes{list-style:none;padding:9px 12px;font-size:12px;color:#9aa1ad;border-top:1px solid #242830}
+.notes li{margin:3px 0;padding-left:14px;position:relative}
+.notes li::before{content:'·';position:absolute;left:2px;color:#566}
+.notes b{color:#c8cdd6;font-weight:600}
+.chip{display:inline-block;font-size:10.5px;padding:0 6px;border-radius:999px;margin-left:4px;vertical-align:1px}
+.chip.bad{background:#ef476f22;color:#ff8aa5;border:1px solid #ef476f55}
+.chip.good{background:#06d6a022;color:#6fe3bd;border:1px solid #06d6a055}
+
+/* ============ 主题舞台：electerm 真实色值 ============ */
+.stage{padding:12px}
+.stage{
+  --main:#121214;--main-dark:#000;--main-light:#2E3338;
+  --text:#ddd;--text-light:#fff;--text-dark:#888;--text-disabled:#777;
+  --primary:#08c;--pc:#fff;--info:#FFD166;--success:#06D6A0;--error:#EF476F;--warn:#E55934;
+}
+body.light .stage{
+  --main:#ededed;--main-dark:#cccccc;--main-light:#fefefe;
+  --text:#555;--text-light:#777;--text-dark:#444;--text-disabled:#888;
+}
+.mock{background:var(--main);border-radius:8px;overflow:hidden;font-size:12px;color:var(--text);min-height:120px}
+
+/* ============ v4 深度设计 token（全部 color-mix 派生，主题自动适配） ============ */
+.v4{
+  --s0:color-mix(in srgb,var(--primary) 4%,var(--main-dark));   /* 品牌浸染最深底 */
+  --s1:color-mix(in srgb,var(--primary) 2%,var(--main));        /* 内容区底 */
+  --s2:var(--main-light);                                        /* 浮起层 */
+  --s3:color-mix(in srgb,var(--text) 6%,var(--main));           /* 更高浮起 / 输入底 */
+  --bd:color-mix(in srgb,var(--text) 12%,transparent);
+  --bds:color-mix(in srgb,var(--text) 22%,transparent);
+  --hov:color-mix(in srgb,var(--text) 7%,transparent);
+  --act:color-mix(in srgb,var(--primary) 16%,transparent);
+  --wash:color-mix(in srgb,var(--primary) 10%,var(--main));     /* 品牌浸染块 */
+  --glow:0 0 0 1px color-mix(in srgb,var(--primary) 45%,transparent),
+         0 2px 16px color-mix(in srgb,var(--primary) 30%,transparent);
+  --ok-bg:color-mix(in srgb,var(--success) 14%,var(--main));
+  --err-bg:color-mix(in srgb,var(--error) 14%,var(--main));
+  --warn-bg:color-mix(in srgb,var(--warn) 14%,var(--main));
+  --info-bg:color-mix(in srgb,var(--info) 14%,var(--main));
+  --r-xs:4px;--r-sm:8px;--r:10px;--r-lg:14px;--r-pill:999px;
+  --sh1:0 1px 2px rgba(0,0,0,.32);--sh2:0 4px 14px rgba(0,0,0,.36);--sh3:0 18px 48px rgba(0,0,0,.5);
+  --dur:120ms;--dur2:180ms;--ease:cubic-bezier(.4,0,.2,1);
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace;
+}
+/* ============ 改造前：--main-lighter 真实渲染 ============ */
+.legacy{--ml:#5e5e60}
+body.light .legacy{--ml:transparent}
+
+/* ============ 设计语言速览 tiles ============ */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.tile{border:1px solid #2a2e36;border-radius:10px;overflow:hidden}
+.tile h4{font-size:12.5px;font-weight:600;padding:8px 12px;border-bottom:1px solid #242830;color:#c8cdd6}
+.tile .bd2{padding:12px}
+.tile p{font-size:11.5px;color:#8a909b;margin-top:8px}
+.swrow{display:flex;gap:6px}
+.swrow i{flex:1;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-style:normal;font-family:var(--mono,#aaa);color:#9aa1ad}
+
+/* ============ ⓪ 无会话首页 ============ */
+.hero{min-height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px}
+.hero .ring{width:64px;height:64px;border-radius:60% 40% 30% 70%/60% 30% 70% 40%;display:grid;place-items:center;font-size:26px}
+.hero .btns{display:flex;gap:10px}
+.hero .hbtn{padding:6px 18px;cursor:pointer;font-size:12px;font-family:inherit}
+.hero .tag{font-size:11px}
+.legacy .hero{background:var(--main)}
+.legacy .ring{background:linear-gradient(45deg,#08c 0%,#09c 100%);color:#fff}
+.legacy .hbtn{background:var(--main-light);color:var(--text);border:none;border-radius:3px}
+.legacy .tag{color:var(--text-dark);font-family:inherit}
+.v4 .hero{background:radial-gradient(420px 190px at 50% -30px,color-mix(in srgb,var(--primary) 16%,transparent),transparent 72%),var(--s1)}
+.v4 .ring{background:linear-gradient(45deg,var(--primary),color-mix(in srgb,var(--primary) 60%,var(--info)));color:var(--pc);
+  box-shadow:var(--glow)}
+.v4 .hbtn.pri{background:var(--primary);color:var(--pc);border:none;border-radius:var(--r-sm);
+  transition:transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.v4 .hbtn.pri:hover{transform:translateY(-1px);box-shadow:0 4px 14px color-mix(in srgb,var(--primary) 40%,transparent)}
+.v4 .hbtn.gh{background:transparent;color:var(--text);border:1px solid var(--bds);border-radius:var(--r-sm)}
+.v4 .tag{color:var(--text-dark);font-family:var(--mono)}
+
+/* ============ ① 标签栏 ============ */
+.tbar{display:flex;align-items:flex-end;height:36px;padding:0 8px}
+.tab{padding:0 14px;line-height:32px;margin-right:1px;cursor:pointer;user-select:none;white-space:nowrap}
+.tab .cnt{font-size:10px;padding:0 5px;margin-left:5px;display:inline-block;height:14px;line-height:14px;vertical-align:2px;font-family:var(--mono,inherit)}
+.tab.add{padding:0 9px;color:var(--text-dark)}
+.legacy .tbar{background:var(--main-dark);border-bottom:1px solid var(--main-light)}
+.legacy .tab{background:var(--main-dark);color:var(--text-dark);border-radius:3px 3px 0 0}
+.legacy .tab.active{background:var(--main);color:var(--text);box-shadow:inset 0 2px 0 0 var(--primary)}
+.legacy .tab .cnt{background:var(--primary);color:#fff;border-radius:10px 2px 2px 10px}
+.v4 .tbar{background:var(--s0);border-bottom:1px solid var(--bd)}
+.v4 .tab{background:transparent;color:var(--text-dark);border-radius:var(--r) var(--r) 0 0;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.v4 .tab:hover{background:var(--hov);color:var(--text)}
+.v4 .tab.active{background:var(--s1);color:var(--text);
+  background-image:linear-gradient(90deg,var(--primary),transparent 78%);
+  background-repeat:no-repeat;background-size:100% 2px;background-position:0 0;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 22%,transparent)}
+.v4 .tab .cnt{background:var(--primary);color:var(--pc);border-radius:var(--r-pill)}
+
+/* ============ ② 侧栏 ============ */
+.sb{display:flex;height:150px}
+.sicons{width:36px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding-top:8px}
+.ic{width:28px;height:28px;line-height:28px;text-align:center;cursor:pointer;user-select:none}
+.spanel{flex:1;min-width:0}
+.hhead{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-weight:600}
+.lrow{padding:5px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.legacy .sicons{background:var(--main-dark)}
+.legacy .ic{color:var(--text-dark)}
+.legacy .ic:hover,.legacy .ic.active{color:var(--text-light)}
+.legacy .hhead{border-bottom:1px solid var(--border)}
+.legacy .lrow.hov{color:var(--text-light)}
+.v4 .sicons{background:var(--s0);border-right:1px solid var(--bd)}
+.v4 .ic{color:var(--text-dark);border-radius:var(--r-xs);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.v4 .ic:hover{color:var(--text-light);background:var(--hov)}
+.v4 .ic.active{color:var(--text);background:var(--act);box-shadow:inset 2px 0 0 0 var(--primary)}
+.v4 .hhead{border-bottom:1px solid var(--bd);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--primary) 9%,transparent),transparent 65%)}
+.v4 .lrow{border-radius:var(--r-xs);transition:background var(--dur) var(--ease)}
+.v4 .lrow:hover{background:var(--hov)}
+
+/* ============ ③ SFTP ============ */
+.slist{margin:10px;overflow:hidden}
+.shead{display:flex;justify-content:space-between;padding:4px 10px;color:var(--text-dark);font-size:11px}
+.srow{display:flex;justify-content:space-between;padding:5px 10px;cursor:pointer;gap:10px}
+.srow .sz{color:var(--text-dark);flex-shrink:0;font-family:var(--mono,inherit);font-size:11px}
+.legacy .sz{font-family:inherit;font-size:12px}
+.legacy .slist{border-radius:3px;box-shadow:0 0 3px 3px var(--ml)}
+.legacy .srow.hov,.legacy .srow.sel{background:var(--primary);color:#fff}
+.legacy .srow.hov .sz,.legacy .srow.sel .sz{color:#fff}
+.v4 .slist{border-radius:var(--r);border:1px solid var(--bds);background:var(--s1)}
+.v4 .srow{transition:background var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.v4 .srow:hover{background:var(--hov)}
+.v4 .srow.hov{background:var(--hov);box-shadow:inset 2px 0 0 0 var(--primary)}
+.v4 .srow.sel{background:var(--act);color:var(--text);box-shadow:inset 2px 0 0 0 var(--primary)}
+
+/* ============ ④ 右键菜单 ============ */
+.menuwrap{padding:14px;display:flex;justify-content:center}
+.menu{width:220px;padding:4px 0}
+.mi{padding:0 16px;height:28px;line-height:28px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu hr{border:none;margin:2px 0}
+.legacy .menu{background:var(--main)}
+.legacy .mi.hov{background:#08c;color:#eee}
+.legacy .mi.dis{color:var(--text-disabled)}
+.legacy .mi.dis.hov{background:#333;color:#777;cursor:not-allowed}
+.legacy .menu hr{border-bottom:1px solid var(--main-darker)}
+.v4 .menu{background:var(--s2);border-radius:var(--r);box-shadow:0 0 0 1px var(--bd),var(--sh2)}
+.v4 .mi{border-radius:var(--r-xs);transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.v4 .mi.hov{background:var(--act);color:var(--text);box-shadow:inset 2px 0 0 0 var(--primary)}
+.v4 .mi.dis{color:var(--text-disabled)}
+.v4 .mi.dis.hov{background:var(--s3);color:var(--text-disabled);cursor:not-allowed}
+.v4 .menu hr{border-bottom:1px solid var(--bd)}
+
+/* ============ ⑤ 弹窗 ============ */
+.mask{padding:20px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+.modal{width:88%;background:var(--main)}
+.mhead{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-weight:600}
+.mx{width:24px;height:24px;display:grid;place-items:center;border-radius:4px;cursor:pointer;font-style:normal}
+.mbody{padding:10px 14px;color:var(--text-dark)}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;padding:9px 14px}
+.mbtn{padding:4px 16px;cursor:pointer;border:none;font-size:12px;font-family:inherit}
+.mbtn.ok{background:var(--primary);color:var(--pc)}
+.mbtn.ghost{background:transparent;color:var(--text)}
+.legacy .modal{border-radius:8px;box-shadow:0 6px 16px 0 rgba(0,0,0,.08),0 3px 6px -4px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.05)}
+.legacy .mhead{border-bottom:1px solid var(--main-darker)}
+.legacy .mfoot{border-top:1px solid var(--main-darker)}
+.legacy .mx:hover{background:var(--main-darker)}
+.legacy .mbtn{border-radius:4px}
+.v4 .modal{background:var(--s1);border-radius:var(--r-lg);box-shadow:0 0 0 1px var(--bd),var(--sh3)}
+.v4 .mhead{border-bottom:1px solid var(--bd);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--primary) 8%,transparent),transparent 60%)}
+.v4 .mfoot{border-top:1px solid var(--bd)}
+.v4 .mx{border-radius:var(--r-xs);transition:background var(--dur) var(--ease)}
+.v4 .mx:hover{background:var(--hov)}
+.v4 .mbtn{border-radius:var(--r-sm)}
+.v4 .mbtn.ok{transition:transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.v4 .mbtn.ok:hover{transform:translateY(-1px);box-shadow:0 4px 14px color-mix(in srgb,var(--primary) 40%,transparent)}
+
+/* ============ ⑥ 底栏 + 命令历史 ============ */
+.foot{height:36px;display:flex;align-items:center;gap:12px;padding:0 12px;font-size:13px}
+.pop{margin:0 12px 12px;padding:8px 10px;background:var(--main)}
+.pitem{display:flex;justify-content:space-between;gap:10px;padding:4px 8px;cursor:pointer}
+.pitem .pc{flex-shrink:0}
+.pact{display:flex;gap:10px}
+.legacy .foot{background:var(--main)}
+.legacy .pop .pitem.hov{background:var(--main-lighter)}
+.legacy .pitem .pc{color:var(--text-color-secondary)}
+.legacy .clr:hover{color:red}
+.legacy .cpy:hover{color:blue}
+.v4 .foot{background:var(--s1);box-shadow:inset 0 1px 0 0 var(--bd)}
+.v4 .pop{background:var(--s2);border-radius:var(--r);box-shadow:var(--sh2)}
+.v4 .pop .pitem{border-radius:var(--r-xs);transition:background var(--dur) var(--ease)}
+.v4 .pop .pitem.hov{background:var(--act);box-shadow:inset 2px 0 0 0 var(--primary)}
+.v4 .pitem .pc{color:var(--text-dark);font-family:var(--mono);font-size:11px}
+.v4 .clr:hover{color:var(--error)}
+.v4 .cpy:hover{color:var(--primary)}
+
+/* ============ ⑦ 焦点环 ============ */
+.fwrap{padding:12px}
+.fitem{display:block;padding:6px 10px;margin:3px 6px;cursor:pointer;border-radius:4px}
+.legacy .fitem.focus{outline-style:none}
+.v4 .fitem{border-radius:var(--r-xs)}
+.v4 .fitem.focus{outline:1px solid var(--primary);outline-offset:1px;background:var(--act)}
+
+/* ============ ⑧ 快捷键条 ============ */
+.kbar{padding:6px 8px;display:flex;gap:6px;align-items:center}
+.kb{height:32px;min-width:32px;padding:0 12px;display:inline-flex;align-items:center;cursor:pointer;font-size:12px;font-family:inherit}
+.legacy .kbar{background:var(--main);border-top:1px solid var(--main-lighter)}
+.legacy .kb{background:var(--main-light);border:1px solid var(--main-lighter);color:var(--text);border-radius:6px}
+.legacy .kb.press{background:var(--primary);color:var(--pc)}
+.v4 .kbar{background:var(--s0);border-top:1px solid var(--bd)}
+.v4 .kb{background:var(--s2);border:1px solid var(--bd);color:var(--text);border-radius:var(--r-sm);
+  transition:background var(--dur) var(--ease),box-shadow var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.v4 .kb:hover{background:var(--hov);transform:translateY(-1px)}
+.v4 .kb.press{background:var(--act);color:var(--text);border-color:transparent;box-shadow:var(--glow)}
+
+/* ============ ⑨ 消息通知 ============ */
+.toasts{padding:14px;display:flex;flex-direction:column;gap:10px}
+.toast{padding:8px 14px;font-size:12px}
+.legacy .toast{background:var(--main-lighter);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.15);color:var(--text)}
+.legacy .toast b{font-weight:400}
+.v4 .toast{border-radius:var(--r-sm);color:var(--text);box-shadow:var(--sh2)}
+.v4 .toast.ok{background:var(--ok-bg);box-shadow:inset 3px 0 0 0 var(--success),var(--sh2)}
+.v4 .toast.ok b{color:var(--success)}
+.v4 .toast.err{background:var(--err-bg);box-shadow:inset 3px 0 0 0 var(--error),var(--sh2)}
+.v4 .toast.err b{color:var(--error)}
+
+/* ============ ⑩ 对比度表 ============ */
+.ctable{width:100%;border-collapse:collapse;font-size:12.5px}
+.ctable th{color:#9aa1ad;font-weight:500;text-align:left;padding:6px 10px;border-bottom:1px solid #2a2e36}
+.ctable td{padding:7px 10px;border-bottom:1px solid #242830}
+.sw{display:inline-flex;align-items:center;justify-content:center;width:74px;height:30px;border-radius:4px;font-size:12px;margin-right:8px;vertical-align:middle}
+.swb{background:#08c;color:#fff}
+.swa{background:color-mix(in srgb,var(--primary) 18%,var(--main));color:var(--text)}
+
+/* 固定双主题（darker 卡片专用） */
+.fx{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:980px){.fx{grid-template-columns:1fr}}
+.fxbox{border:1px solid #2a2e36;border-radius:10px;padding:12px;font-size:12px}
+.fxbox h4{font-size:12.5px;font-weight:600;margin-bottom:8px;color:#c8cdd6}
+.dk{background:#121214;border-radius:6px;padding:12px;color:#ddd}
+.lt{background:#ededed;border-radius:6px;padding:12px;color:#555}
+.bline{margin:8px 0;padding:9px 12px;border-radius:4px}
+.tag2{font-size:10.5px;color:#8a909b;display:block;margin-bottom:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>electerm 美化深度设计预览 · v4「Tinted Console」品牌浸染控制台</h1>
+  <p class="sub">
+    设计主张：整个应用的外壳不再是「中性灰黑」，而是被品牌蓝 <b>4% 级别浸染</b>——深色下呈现独有的蓝黑气质，浅色下自动变为蓝白。
+    激活态用<b>光晕</b>而不是平涂，状态用<b>色底芯片</b>而不是变文字色，浮层有<b>描边环 + 双层阴影</b>的层级感。
+    <b style="color:#7cc7ff">依旧零布局位移、零类名改动、全部在红线内</b>（新增 CSS 属性仅 transform 与 background-image 渐变）。
+  </p>
+
+  <div style="margin-bottom:18px">
+    <span class="seg" id="themeSeg">
+      <button class="on" data-t="dark">深色主题（内置 default）</button>
+      <button data-t="light">浅色主题（iTerm 3024 Day）</button>
+    </span>
+    <span class="hint">「改造后」面板的 hover / 光晕 / 上浮都是真实 CSS，把鼠标放上去体验</span>
+  </div>
+
+  <!-- 设计语言四要素 -->
+  <section class="card">
+    <header><h2>设计语言四要素</h2><span class="stepbadge blue">v4 新增层</span></header>
+    <div class="stage"><div class="v4"><div class="tiles">
+      <div class="tile"><h4>① 品牌浸染色阶（4 级）</h4><div class="bd2">
+        <div class="swrow">
+          <i style="background:var(--s0)">s0</i><i style="background:var(--s1)">s1</i><i style="background:var(--s2)">s2</i><i style="background:var(--s3)">s3</i>
+        </div>
+        <p>s0=4% primary+main-dark（标签栏/图标栏）· s1=2%+main（内容区）· s2=main-light（浮层）· s3=6% text+main（更高浮起）。<b>色相跟着主题走</b>，浅色下自动变蓝白。</p>
+      </div></div>
+      <div class="tile"><h4>② 光晕激活态</h4><div class="bd2">
+        <div style="display:flex;gap:14px;align-items:center">
+          <span style="padding:6px 16px;border-radius:8px;background:var(--act);color:var(--text)">平涂（v3）</span>
+          <span style="padding:6px 16px;border-radius:8px;background:var(--act);color:var(--text);box-shadow:var(--glow)">光晕（v4）</span>
+        </div>
+        <p>激活 = 1px 主色环 + 16px 柔光。焦点、选中、按下共用同一语言（--glow 一个 token）。</p>
+      </div></div>
+      <div class="tile"><h4>③ 状态色底芯片</h4><div class="bd2">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span style="padding:3px 10px;border-radius:8px;background:var(--ok-bg);color:var(--success);font-size:11px">✓ 已完成 12</span>
+          <span style="padding:3px 10px;border-radius:8px;background:var(--warn-bg);color:var(--warn);font-size:11px">⏳ 传输中</span>
+          <span style="padding:3px 10px;border-radius:8px;background:var(--err-bg);color:var(--error);font-size:11px">✕ 失败 2</span>
+        </div>
+        <p>14% 色底 + 同色文字 + 30% 同色描边。传输状态、消息通知、监控条全部统一。</p>
+      </div></div>
+      <div class="tile"><h4>④ 渐变强调线 + 等宽点缀</h4><div class="bd2">
+        <div style="height:2px;border-radius:2px;background:linear-gradient(90deg,var(--primary),transparent 78%)"></div>
+        <p style="margin-top:10px">激活标签顶部、面板表头用 <b>primary→透明渐变线</b>；路径 / 大小 / 次数 / 版本号用<b>等宽字体</b>——终端应用的辨识度。</p>
+      </div></div>
+    </div></div></div>
+  </section>
+
+  <!-- ⓪ 首页 -->
+  <section class="card">
+    <header><h2>⓪ 无会话首页（第一印象）</h2><span class="stepbadge">Step 13 扩展 · §4.1</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="hero">
+            <div class="ring">⚡</div>
+            <div class="btns"><button class="hbtn">+ SSH 连接</button><button class="hbtn">+ 串口</button></div>
+            <span class="tag">v5.5.26 · 最近会话 3 条</span>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>整个首页<b>纯平</b>：平灰底 + 3px 直角按钮 + 渐变球没有光影呼应</li>
+          <li>品牌色只出现在小 Logo 球上，<b>第一屏没有记忆点</b></li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="hero">
+            <div class="ring">⚡</div>
+            <div class="btns"><button class="hbtn pri">+ SSH 连接</button><button class="hbtn gh">+ 串口</button></div>
+            <span class="tag">v5.5.26 · 最近会话 3 条</span>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li><b>顶部品牌光晕</b>（radial 浸染 16%）：第一眼就知道这是什么应用</li>
+          <li>主按钮 = <b>主色实心</b>（大面积色块对比度 3.89:1 但属大号按钮文字，符合 AA 大字标准；hover 上浮 + 投影）</li>
+          <li>次按钮 = 描边 ghost；Logo 球带 <b>--glow</b> 光晕呼应</li>
+          <li>版本号等 <b>等宽字体</b>，终端气质</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ① 标签栏 -->
+  <section class="card">
+    <header><h2>① 标签栏</h2><span class="stepbadge">Step 14 · §4.1</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="tbar">
+            <div class="tab active">ssh · dev-server</div>
+            <div class="tab hov">sftp <span class="cnt">3</span></div>
+            <div class="tab">local</div>
+            <div class="tab add">＋</div>
+          </div>
+          <div style="padding:14px">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>纯黑底 + 3px 直角标签；hover 无反馈；底边线 #2E3338 生硬</li>
+          <li>active 高亮条是<b>实色平条</b>，无品牌延伸感</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="tbar">
+            <div class="tab active">ssh · dev-server</div>
+            <div class="tab hov">sftp <span class="cnt">3</span></div>
+            <div class="tab">local</div>
+            <div class="tab add">＋</div>
+          </div>
+          <div style="padding:14px">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>标签栏用 <b>s0 浸染底</b>（比纯黑多 4% 蓝），与终端内容区分层</li>
+          <li>active = <b>渐变强调线</b>（primary→透明）+ 22% 描边环 + s1 底</li>
+          <li>hover 补底色 + 120ms 过渡；计数徽标 <b>等宽字体 + 全圆角</b></li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ② 侧栏 -->
+  <section class="card">
+    <header><h2>② 侧边图标栏 + 历史面板</h2><span class="stepbadge">Step 15 · §4.2</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="sb">
+            <div class="sicons"><span class="ic active">★</span><span class="ic">☰</span><span class="ic">⇅</span><span class="ic">ⓘ</span></div>
+            <div class="spanel">
+              <div class="hhead"><span>历史记录</span><span style="cursor:pointer">清空</span></div>
+              <div class="lrow">ssh root@10.0.0.8</div>
+              <div class="lrow hov">ssh deploy@prod-1（hover）</div>
+              <div class="lrow">telnet 192.168.1.1</div>
+            </div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>表头分隔线因 --border 未定义<b>不显示</b></li>
+          <li>激活图标只变白，<b>无位置感</b></li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="sb">
+            <div class="sicons"><span class="ic active">★</span><span class="ic">☰</span><span class="ic">⇅</span><span class="ic">ⓘ</span></div>
+            <div class="spanel">
+              <div class="hhead"><span>历史记录</span><span style="cursor:pointer">清空</span></div>
+              <div class="lrow">ssh root@10.0.0.8</div>
+              <div class="lrow hov">ssh deploy@prod-1（hover）</div>
+              <div class="lrow">telnet 192.168.1.1</div>
+            </div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>图标栏 <b>s0 浸染底 + 右侧描边</b>，与内容区形成「轨道」关系</li>
+          <li>激活图标 = <b>act 底 + 左侧 2px 主色条</b>（光晕语言的静音版）</li>
+          <li>表头 = 分隔线 + <b>9% 品牌渐变洗染</b>，段落感强</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ③ SFTP -->
+  <section class="card">
+    <header><h2>③ SFTP 文件列表</h2><span class="stepbadge">Step 18 · §4.4</span><span class="stepbadge blue">对比度整改</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="slist">
+            <div class="shead"><span>名称</span><span>大小</span></div>
+            <div class="srow"><span>app.log</span><span class="sz">2.4 KB</span></div>
+            <div class="srow hov"><span>deploy.sh（hover）</span><span class="sz">1.1 KB</span></div>
+            <div class="srow"><span>backup.tar.gz</span><span class="sz">312 MB</span></div>
+            <div class="srow sel"><span>nginx.conf（选中）</span><span class="sz">4 KB</span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>hover/选中 = <b>主色实心 + 白字 3.89:1</b><span class="chip bad">AA 不达标</span></li>
+          <li>聚焦光晕浅色下失效；文件大小无等宽对齐</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="slist">
+            <div class="shead"><span>名称</span><span>大小</span></div>
+            <div class="srow"><span>app.log</span><span class="sz">2.4 KB</span></div>
+            <div class="srow hov"><span>deploy.sh（hover）</span><span class="sz">1.1 KB</span></div>
+            <div class="srow"><span>backup.tar.gz</span><span class="sz">312 MB</span></div>
+            <div class="srow sel"><span>nginx.conf（选中）</span><span class="sz">4 KB</span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>列表容器 = <b>s1 浸染底 + 22% 描边</b>，从「贴在背景上」变成「一块面板」</li>
+          <li>hover = hov + 左色条；选中 = <b>act 浸染 + 左色条</b><span class="chip good">≈11.3:1</span></li>
+          <li>大小列 <b>等宽字体</b>，纵向自然对齐</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ④ 右键菜单 -->
+  <section class="card">
+    <header><h2>④ 右键菜单</h2><span class="stepbadge">Step 12 · §4.10</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="menuwrap"><div class="menu">
+            <div class="mi hov">复制（hover）</div>
+            <div class="mi">粘贴</div>
+            <div class="mi dis hov">重命名（禁用+hover）</div>
+            <hr>
+            <div class="mi">在终端中打开 ▸</div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>无圆角无阴影；hover = #08c 实心；分隔线深色下失效</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="menuwrap"><div class="menu">
+            <div class="mi hov">复制（hover）</div>
+            <div class="mi">粘贴</div>
+            <div class="mi dis hov">重命名（禁用+hover）</div>
+            <hr>
+            <div class="mi">在终端中打开 ▸</div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>浮层 = <b>s2 底 + 10px 圆角 + 描边环 + --shadow-2</b>，真正「浮」起来</li>
+          <li>hover = <b>act 浸染 + 左侧主色条</b><span class="chip good">≈11.3:1</span></li>
+          <li>280px 宽度不变（描边用 box-shadow 环，不加 border）</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑤ 弹窗 -->
+  <section class="card">
+    <header><h2>⑤ 弹窗</h2><span class="stepbadge">Step 11 · §4.9</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="mask"><div class="modal">
+            <div class="mhead"><span>编辑书签</span><i class="mx hov">✕</i></div>
+            <div class="mbody">主机名 / 端口 / 认证方式 …（表单占位）</div>
+            <div class="mfoot"><button class="mbtn ghost">取消</button><button class="mbtn ok">保存</button></div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li>头尾分隔线深色下失效；关闭钮 hover 无反馈；8px 圆角偏平</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="mask"><div class="modal">
+            <div class="mhead"><span>编辑书签</span><i class="mx hov">✕</i></div>
+            <div class="mbody">主机名 / 端口 / 认证方式 …（表单占位）</div>
+            <div class="mfoot"><button class="mbtn ghost">取消</button><button class="mbtn ok">保存</button></div>
+          </div></div>
+        </div></div>
+        <ul class="notes">
+          <li><b>14px 圆角 + 描边环 + --shadow-3</b>，浮层层级感</li>
+          <li>标题栏带 <b>8% 品牌渐变洗染</b>，与 v4 面板语言一致</li>
+          <li>保存按钮 <b>hover 上浮 1px + 主色投影</b>（transform，零布局位移）</li>
+          <li>试试鼠标悬停 ✕ 与「保存」</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑥ 底栏 -->
+  <section class="card">
+    <header><h2>⑥ 底部栏 + 命令历史</h2><span class="stepbadge">Step 16 · §4.5</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="foot">⚡ &nbsp;⇱ &nbsp;▶ &nbsp;<b>Q</b> &nbsp;· 命令历史</div>
+          <div class="pop">
+            <div class="pitem"><span>npm run build</span><span class="pact"><span class="pc">12</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem hov"><span>ssh deploy@prod-1（hover）</span><span class="pact"><span class="pc">3</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem"><span>docker compose up -d</span><span class="pact"><span class="pc">7</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>无上边线；次数徽标继承正文色（变量未定义）；red/blue 命名色</li>
+        </ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="foot">⚡ &nbsp;⇱ &nbsp;▶ &nbsp;<b>Q</b> &nbsp;· 命令历史</div>
+          <div class="pop">
+            <div class="pitem"><span>npm run build</span><span class="pact"><span class="pc">12</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem hov"><span>ssh deploy@prod-1（hover）</span><span class="pact"><span class="pc">3</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+            <div class="pitem"><span>docker compose up -d</span><span class="pact"><span class="pc">7</span><span class="cpy" style="cursor:pointer">复制</span><span class="clr" style="cursor:pointer">✕</span></span></div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li>底栏 = <b>s1 浸染底 + inset 顶线</b>（36px 高度不变）</li>
+          <li>浮层 = <b>s2 + 10px 圆角 + 阴影</b>；hover = act + 左色条</li>
+          <li>次数徽标 = <b>等宽字体 + text-dark</b>；red/blue → error/primary</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑦ 焦点环 -->
+  <section class="card">
+    <header><h2>⑦ 键盘焦点环</h2><span class="stepbadge">Step 8 · §3.6</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="fwrap">
+            <span class="tag2" style="margin:4px 8px">Tab 到「书签 B」：</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 A</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 B（当前焦点）</span>
+            <span class="fitem focus" style="background:var(--main-light)">书签 C</span>
+          </div>
+        </div></div>
+        <ul class="notes"><li>自定义控件无任何焦点指示，Tab 遍历「凭感觉」</li></ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="fwrap">
+            <span class="tag2" style="margin:4px 8px">Tab 到「书签 B」：</span>
+            <span class="fitem focus" style="background:var(--s2)">书签 A</span>
+            <span class="fitem focus" style="background:var(--s2)">书签 B（当前焦点）</span>
+            <span class="fitem focus" style="background:var(--s2)">书签 C</span>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li><b>:focus-visible → outline 1px primary + offset 1px + act 浸染</b>（与上游 item-filter 同语言，光晕的静音版）</li>
+          <li>鼠标点击不出环；outline 不参与布局</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑧ 快捷键条 -->
+  <section class="card">
+    <header><h2>⑧ 终端快捷键条</h2><span class="stepbadge">Step 24 · §4.16</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="kbar">
+            <button class="kb">⌘ build</button>
+            <button class="kb press">⌘ deploy（按下态）</button>
+            <button class="kb">⌘ test</button>
+          </div>
+          <div style="padding:10px 14px;color:var(--text-dark)">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes"><li>按下态 = 主色实心白字 3.89:1<span class="chip bad">不达标</span>；无 hover 反馈</li></ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="kbar">
+            <button class="kb">⌘ build</button>
+            <button class="kb press">⌘ deploy（按下态）</button>
+            <button class="kb">⌘ test</button>
+          </div>
+          <div style="padding:10px 14px;color:var(--text-dark)">（终端区域占位）</div>
+        </div></div>
+        <ul class="notes">
+          <li>按下态 = <b>act 浸染 + --glow 光晕</b><span class="chip good">≈11.3:1</span>——光晕语言的完整版</li>
+          <li>hover = hov + <b>上浮 1px</b>（transform）</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑨ 消息通知 -->
+  <section class="card">
+    <header><h2>⑨ 消息 / 通知</h2><span class="stepbadge">Step 11 · §4.9</span></header>
+    <div class="duo">
+      <figure class="panel before">
+        <figcaption>改造前</figcaption>
+        <div class="stage"><div class="mock legacy">
+          <div class="toasts">
+            <div class="toast ok"><b>✓</b> 连接成功 ssh root@10.0.0.8</div>
+            <div class="toast err"><b>✕</b> 传输失败：backup.tar.gz（重试？）</div>
+          </div>
+        </div></div>
+        <ul class="notes"><li>背景浅色下失效（文字悬空）；状态只有一个小图标</li></ul>
+      </figure>
+      <figure class="panel after">
+        <figcaption>改造后</figcaption>
+        <div class="stage"><div class="mock v4">
+          <div class="toasts">
+            <div class="toast ok"><b>✓</b> 连接成功 ssh root@10.0.0.8</div>
+            <div class="toast err"><b>✕</b> 传输失败：backup.tar.gz（重试？）</div>
+          </div>
+        </div></div>
+        <ul class="notes">
+          <li><b>状态色底芯片</b>：14% 色底 + 左 3px 色条 + 彩色状态字——一眼区分成败</li>
+          <li>同语言应用于传输队列、监控详情、批量操作结果</li>
+        </ul>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ⑩ 对比度 -->
+  <section class="card">
+    <header><h2>⑩ 「主色实心 + 白字」整改汇总（9 处）</h2><span class="stepbadge">§5.4 实测数据</span></header>
+    <div class="stage"><div class="v4">
+      <table class="ctable">
+        <tr><th>位置（实测行号）</th><th>改造前</th><th>对比度</th><th>改造后</th><th>对比度</th></tr>
+        <tr><td>sftp.styl:21-22 / 25-26（hover/选中）</td><td><span class="sw swb">Aa</span>主色实心+白字</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>act+text</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>list.styl:31-37（设置左列表）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>同上</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>tabs.styl:275-276（workspace 激活）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>同上</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>sys-menu.styl:12-13 / 61-62（菜单）</td><td><span class="sw swb">Aa</span>#08c+#eee</td><td><span class="chip bad">≈3.6:1</span></td><td><span class="sw swa">Aa</span>act+text</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>shortcut-bar.styl:69-71（按下态）</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>act+glow</td><td><span class="chip good">≈11.3:1</span></td></tr>
+        <tr><td>setting-wrap.styl:158-160 / transfer.styl:41-43</td><td><span class="sw swb">Aa</span>同上</td><td><span class="chip bad">3.89:1</span></td><td><span class="sw swa">Aa</span>act/hov+text</td><td><span class="chip good">≈11-12:1</span></td></tr>
+      </table>
+      <p style="font-size:12px;color:#9aa1ad;margin-top:8px">另 2 处「浅色下不可见」：terminal.styl:230（≈1.1:1 → text-dark 8.3:1）、qm.styl:56,69（白 15% 线 → --border）。</p>
+    </div></div>
+  </section>
+
+  <!-- ⑪ darker() -->
+  <section class="card">
+    <header><h2>⑪ Step 4 · darker() 修复（不变，仍是前置）</h2><span class="stepbadge">Step 4 · §3.9</span></header>
+    <div class="fx">
+      <div class="fxbox">
+        <h4>深色主题（--main #121214）</h4>
+        <div class="dk">
+          <span class="tag2">--main-darker = '#0' 非法 → 29 处声明失效（当前）</span>
+          <div class="bline" style="background:#181a1e">无边框卡片（弹窗头尾线、菜单线全消失）</div>
+          <span class="tag2" style="margin-top:10px">修复后 = '#000000'</span>
+          <div class="bline" style="background:#181a1e;border:1px solid #000">近黑描边（深色下≈不可见，但声明恢复有效）</div>
+        </div>
+      </div>
+      <div class="fxbox">
+        <h4>浅色主题（--main #ededed）</h4>
+        <div class="lt">
+          <span class="tag2">--main-lighter = '#1393939' 非法 → 背景类声明失效（当前）</span>
+          <div class="bline" style="background:transparent;border:1px dashed #bbb">背景透明（消息悬空、工具条无底色）</div>
+          <span class="tag2" style="margin-top:10px">修复后 = '#ffffff'</span>
+          <div class="bline" style="background:#fff;border:1px solid #ddd">白色底恢复可见</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑫ 边界 -->
+  <section class="card">
+    <header><h2>⑫ v4 的安全边界（与 v3 相同的红线）</h2><span class="stepbadge blue">零风险声明</span></header>
+    <ul style="font-size:13px;color:#b8bec9;padding-left:18px;line-height:2">
+      <li>全部效果只用了 <b>color / background / background-image / box-shadow / border-radius / transform / font-family</b> —— <b>零布局位移</b>（transform 由合成器处理，不参与布局）</li>
+      <li>色阶与光晕全部 <b>color-mix 从既有 12 个主题 key 派生</b> → 310 个 iTerm 主题 + 浅色自动适配，约束 A（白名单）零触碰</li>
+      <li>零类名改动、零 DOM 增删 → e2e 类选择器与可见性断言不受影响</li>
+      <li>等宽字体仅作用于<b>新增声明</b>（大小/次数/版本号），不改全局字体栈；CJK 回退仍按 §3.8 单独做</li>
+      <li>唯一新增的"动效"是 hover 上浮（transform）与既定 120ms 过渡，均在 prefers-reduced-motion 兜底内</li>
+      <li>范围外仍不改：--success 浅色 1.61:1（既有缺陷，单独 issue）、--text-light 语义反转、布局数值</li>
+    </ul>
+  </section>
+
+  <p class="sub" style="margin-top:26px;text-align:center">
+    草图文件：美化效果预览草图-v4深度版.html（未提交）· 设计语言速览见对话内嵌组件 · 依据：UI-美化设计规范 v3 + 本提案
+  </p>
+</div>
+
+<script>
+  const seg = document.getElementById('themeSeg')
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b))
+    document.body.classList.toggle('light', b.dataset.t === 'light')
+  })
+</script>
+</body>
+</html>
