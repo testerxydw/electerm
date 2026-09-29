@@ -419,3 +419,56 @@ rowH: 30   itemH: 30   items: 8
 
 - 标签栏：状态圆点 7px + active 顶部 2px 渐变条；
 - 终端区径向光晕；状态栏信息扩充（算法 / shell / 编码 / 速率）。
+
+---
+
+## 第 11 轮 · 对照草图还原：标签栏（状态圆点 + active 描边）
+
+**时间**：2026-09-29 · **分支**：master
+**改动**：`tabs/tab.jsx`（DOM 顺序）、`tabs/tabs.styl`
+
+### 草图规格 → 实现
+
+| 草图 | 改动前 | 改动后 |
+| --- | --- | --- |
+| `.tab{display:flex;align-items:center;gap:7px}` | `display:inline-block` + `text-align:center` | **`inline-flex` + `align-items:center` + `gap:5px`** |
+| `.tab .dot{width:7px;height:7px;border-radius:50%;box-shadow:0 0 6px …}`（圆点**在标题前**） | `.tab-status`：`absolute; left:2px; top:2px; 5px; border-radius:8px`（左上角小方块） | **`position:static` + 7px 圆 + 光晕**；JSX 中移到 `.tab-title` 之前 |
+| `.tab.active{box-shadow:inset 0 0 0 1px primary@26%}` | `inset 0 2px 0 0 var(--primary)`（2px 实顶边） | **`inset 0 0 0 1px` + `color-mix` 26%** |
+
+（active 的**顶部 2px 渐变条**原本已实现，予以保留。）
+
+### ⚠️ 本轮踩坑（重要，值得记入规范）
+
+**编译静默失败**：本次改动首次编译后，页面仍是旧样式（CDP 实测 `position:absolute; 5px; inline-block`）。排查发现：
+
+```
+✗ Build failed in 1.11s
+Error: [stylus] tabs.styl:66 … color-mix(in srgb, var(--primary) 26%, transparent)
+```
+
+- **原因**：Stylus 解析 `color-mix(in srgb, …)`（含 `in` 与逗号）会报错 —— 项目 `tokens.styl:11` 早已注明：**含 `in` 的 `color-mix(...)` 必须用 `unquote()` 包裹**。
+- **陷阱**：`vite build` 失败时**不会删除已有产物**，`work/app/assets` 仍是上一次成功版本 → 表面"编译完成"，实际样式未更新。
+
+**教训（已形成检查习惯）**：
+1. styl 中写 `color-mix(in …)` 一律 `unquote('color-mix(in …)')`；
+2. 编译后**必须显式检查**：`grep -q "Build failed" <log> && echo 失败 || echo 成功`，不能只看 `tail`（`done build in N s` 在失败时**也会打印**）；
+3. 验证要查**产物 CSS** 或**运行时计算样式**，而非只看截图。
+
+### 验证（CDP 实测真实 DOM）
+
+```
+statusPos: static      (原 absolute)
+statusSize: 7px        (原 5px)
+statusRadius: 50%      (原 8px 方块)
+tabDisplay: inline-flex (原 inline-block)
+activeShadow: color(srgb 0 0.533 0.8 / 0.26) 0 0 0 1px inset   ← color-mix 已生效
+```
+✅ 全部符合草图。
+
+**截图**：`self-test/r11-tab.png` —— 「新连接」标签前可见**绿色状态圆点**（带光晕），active 标签有 1px 品牌描边 + 顶部渐变条。
+
+### 下一轮计划
+
+- 终端区径向光晕（草图 `.term` 的 `radial-gradient`）；
+- 状态栏信息扩充（ssh 算法 / shell / 编码 / 速率）；
+- 标签栏高度 36 → 38px（草图 38px，tab 高 32px）需评估布局依赖。

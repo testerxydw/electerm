@@ -33,7 +33,11 @@
 .tabs-wrapper
   z-index 3
 .tab
-  display inline-block
+  // 对齐草图 .tab：flex 行内布局（状态圆点 → 标题 → 关闭）
+  display inline-flex
+  align-items center
+  justify-content center
+  gap 5px
   vertical-align middle
   cursor pointer
   position relative
@@ -44,7 +48,6 @@
   margin 0 1px 0 0
   border-radius var(--radius) var(--radius) 0 0
   background var(--surface-0)
-  text-align center
   color var(--text-dark)
   transition background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease)
   &.tab-last
@@ -54,11 +57,12 @@
   &.active
     color var(--text)
     background var(--surface-1)
+    // 顶部 2px 渐变条 + 1px 品牌描边（对齐草图 .tab.active::before / box-shadow）
     background-image linear-gradient(90deg, var(--primary), transparent 78%)
     background-repeat no-repeat
     background-size 100% 2px
     background-position 0 0
-    box-shadow inset 0 2px 0 0 var(--primary)
+    box-shadow inset 0 0 0 1px unquote('color-mix(in srgb, var(--primary) 26%, transparent)')
   &.active-all
     font-weight bold
     .tab-count
@@ -108,6 +112,23 @@
     background-color var(--error)
   &.processing
     background-color var(--primary)
+
+// 对齐草图 .tab .dot：状态圆点为 7px 圆点 + 光晕，位于标题之前（flex 行内，覆盖上面的 absolute 定位）
+.tab-status
+  position static
+  flex none
+  width 7px
+  height 7px
+  border-radius 50%
+  &.success
+    background-color var(--success)
+    box-shadow 0 0 6px unquote('color-mix(in srgb, var(--success) 60%, transparent)')
+  &.error
+    background-color var(--error)
+    box-shadow 0 0 6px unquote('color-mix(in srgb, var(--error) 60%, transparent)')
+  &.processing
+    background-color var(--primary)
+    box-shadow 0 0 6px unquote('color-mix(in srgb, var(--primary) 60%, transparent)')
 .tab-traffic
   left 10px
   width 5px

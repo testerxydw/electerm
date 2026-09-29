@@ -545,6 +545,8 @@ class Tab extends Component {
             'onDragEnd'
           ])}
         >
+          {/* 状态圆点置于标题前（对齐重设计草图 .tab .dot） */}
+          <div className={'tab-status ' + status} />
           <Dropdown {...dropdownProps}>
             <div
               className='tab-title elli'
@@ -571,7 +573,6 @@ class Tab extends Component {
               </span>
             </div>
           </Dropdown>
-          <div className={'tab-status ' + status} />
           {isTransporting && <div className='tab-traffic' />}
           {terminalOnData === 'feed' && <BorderlessTableOutlined className='tab-terminal-feed' />}
           {terminalOnData === 'password' && <LockOutlined className='tab-terminal-feed password' />}
