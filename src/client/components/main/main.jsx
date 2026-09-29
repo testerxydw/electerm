@@ -20,6 +20,7 @@ import classnames from 'classnames'
 import ShortcutControl from '../shortcuts/shortcut-control.jsx'
 import {
   footerHeight,
+  statusBarHeight,
   isMac,
   isWin,
   remoteMonitorBarHeight,
@@ -50,6 +51,7 @@ import TerminalInfo from '../terminal-info/terminal-info-entry'
 import ShortcutBarEntry from '../terminal/shortcut-bar-entry'
 import LazyBoundary from '../common/lazy-boundary'
 import CommandPalette from '../command-palette'
+import StatusBar from '../status-bar'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import '../../common/fs.js'
 import './term-fullscreen.styl'
@@ -173,11 +175,13 @@ export default auto(function Index (props) {
     'is-touch-device': store.isTouchDevice,
     'remote-monitor-bar-on': remoteMonitorBarVisible
   })
+  const sbHeight = store.isMobile ? 0 : statusBarHeight
   const ext1 = {
     className: cls,
     style: {
       '--left-side-bar-width': store.leftSideBarWidth + 'px',
-      '--footer-stack-height': `${footerHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`
+      '--status-bar-height': `${sbHeight}px`,
+      '--footer-stack-height': `${footerHeight + sbHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`
     }
   }
   // Get active tab IDs
@@ -386,6 +390,7 @@ export default auto(function Index (props) {
         <BookmarkFromHistoryModal />
         <NotificationContainer />
         <CommandPalette store={store} />
+        <StatusBar store={store} />
         <BatchOpRunner />
         <ImportProgress />
         <ShortcutBarEntry store={store} />

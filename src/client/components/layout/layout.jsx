@@ -5,6 +5,7 @@ import {
   splitConfig,
   quickCommandBoxHeight,
   footerHeight,
+  statusBarHeight,
   remoteMonitorBarHeight,
   shortcutBarHeight
 } from '../../common/constants'
@@ -57,7 +58,8 @@ export default auto(function Layout (props) {
       !quickCommandsInRightPanel
       ? quickCommandBoxHeight
       : 0
-    const h = height - footerHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
+    const sbHeight = isMobile ? 0 : statusBarHeight
+    const h = height - footerHeight - sbHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
     const l = pinned && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth
     const r = rightPanelVisible && rightPanelPinned && !isMobile ? rightPanelWidth : 0
     return {
