@@ -123,3 +123,32 @@
 - 终端区细节：搜索条 `term-search`、快捷键条 `shortcut-bar`（密度 / 圆角 / 动效）；
 - `setting-panel`（设置面板）控件统一；
 - 继续 S3 动效补充。
+
+---
+
+## 第 4 轮 · S4 区域精修：终端搜索浮层（`term-search`）
+
+**时间**：2026-09-29 · **分支**：master · **改动**：`src/client/components/terminal/term-search.styl`
+
+### 问题与修复
+
+该文件仅 17 行，浮层**裸用 `background var(--main)`**，无圆角、无描边、无内边距——与其它浮层（菜单/弹窗）语言不一致。
+
+| # | 修复 |
+| --- | --- |
+| 1 | `.term-search-wrap` 底色 `--main` → `--surface-2`，加 `border-radius var(--radius)` + `box-shadow 0 0 0 1px var(--border), var(--shadow-2)` + `padding 6px` |
+| 2 | `.term-search-opt-icon` 补 `cursor pointer` + `border-radius var(--radius-xs)` + `transition color/background`（hover/激活态此前无过渡） |
+
+### 验证（截图）
+
+**`self-test/r4-term-search.png`**（CDP 置 `store.termSearchOpen = true` 后截图）：
+
+- 终端搜索浮层显示为**圆角 + 描边 + 阴影**的统一浮层（改动前为无圆角的裸底块）✅；
+- 浮层内查找选项图标（Aa / 大小写 / 正则 / 上下 / 关闭）排列正常；
+- 主界面（标题栏/标签栏/会话树/终端/状态栏）无回归。
+
+### 下一轮计划
+
+- `shortcut-bar`（快捷键条）按钮态与密度精修；
+- `setting-panel` 控件（输入/开关/列表）统一；
+- S3 动效补充收尾。

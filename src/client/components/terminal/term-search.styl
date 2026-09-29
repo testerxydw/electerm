@@ -3,6 +3,9 @@
   margin 0 3px
   color var(--text-light)
   font-size 15px
+  cursor pointer
+  border-radius var(--radius-xs)
+  transition color var(--dur-1) var(--ease), background var(--dur-1) var(--ease)
   &:hover
     color var(--text)
   &.term-search-on
@@ -13,4 +16,8 @@
   top 100px
   right 5px
   z-index 200
-  background var(--main)
+  // 浮层统一表面与描边语言（原先裸用 --main，无圆角/描边/内边距）
+  background var(--surface-2)
+  border-radius var(--radius)
+  box-shadow 0 0 0 1px var(--border), var(--shadow-2)
+  padding 6px
