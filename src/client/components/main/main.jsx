@@ -53,6 +53,7 @@ import ShortcutBarEntry from '../terminal/shortcut-bar-entry'
 import LazyBoundary from '../common/lazy-boundary'
 import CommandPalette from '../command-palette'
 import StatusBar from '../status-bar'
+import AppKbar from '../app-kbar'
 import TitleBar from '../title-bar'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import '../../common/fs.js'
@@ -395,6 +396,7 @@ export default auto(function Index (props) {
         <BookmarkFromHistoryModal />
         <NotificationContainer />
         <CommandPalette store={store} />
+        <AppKbar store={store} />
         <StatusBar store={store} />
         <BatchOpRunner />
         <ImportProgress />

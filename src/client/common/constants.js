@@ -86,6 +86,8 @@ export const titleBarHeight = 38
 export const remoteMonitorBarHeight = 28
 export const quickCommandBoxHeight = 180
 export const shortcutBarHeight = 44
+// 应用快捷键条（常显，对齐重设计草图 .kbar：30px）
+export const appKbarHeight = 30
 export const shortcutBarLsKey = 'shortcut-bar-buttons'
 export { isWin, isMac, isMacJs } from './platform.js'
 export const ctrlOrCmd = isMacJs ? 'cmd' : 'ctrl'

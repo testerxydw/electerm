@@ -4,6 +4,7 @@ import TabsWrap from '../tabs/index'
 import {
   splitConfig,
   quickCommandBoxHeight,
+  appKbarHeight,
   footerHeight,
   statusBarHeight,
   titleBarHeight,
@@ -62,7 +63,7 @@ export default auto(function Layout (props) {
       : 0
     const sbHeight = isMobile ? 0 : statusBarHeight
     const tbHeight = isMobile || props.store.config.useSystemTitleBar || isMacJs ? 0 : titleBarHeight
-    const h = height - footerHeight - sbHeight - tbHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
+    const h = height - footerHeight - sbHeight - tbHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) - (isMobile ? 0 : appKbarHeight) + resizeTrigger
     const l = pinned && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth
     const r = rightPanelVisible && rightPanelPinned && !isMobile ? rightPanelWidth : 0
     return {
