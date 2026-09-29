@@ -10,7 +10,10 @@ import SideBarPanel from './sidebar-panel'
 import MenuBtn from '../sys-menu/menu-btn'
 import {
   settingMap,
-  modals
+  modals,
+  footerHeight,
+  statusBarHeight,
+  appKbarHeight
 } from '../../common/constants'
 import SideIcon from './side-icon'
 import SidePanel from './side-panel'
@@ -137,11 +140,16 @@ export default function Sidebar (props) {
     : {
         className: 'sidebar-list'
       }
+  // 侧栏高度由外部传入（≈视口高），需自行避让底部常显区
+  // （快捷键条 + footer + 状态栏），否则图标栏底部（设置/头像）被遮挡
+  const bottomStack = footerHeight + statusBarHeight + (isMobile ? 0 : appKbarHeight)
   const sidebarProps = {
     className: `sidebar type-${openedSideBar}${leftSideBarWidth === 0 ? ' collapsed' : ''}`,
     style: {
       width: leftSideBarWidth,
-      height
+      height: typeof height === 'number' && height > 0
+        ? Math.max(0, height - bottomStack)
+        : height
     }
   }
   const transferProps = {
@@ -222,6 +230,20 @@ export default function Sidebar (props) {
               )
             : null
         }
+        {/* 底部头像（对齐重设计草图 .rail .av）：用户名首字母；点击进入设置（账户 / 同步）。
+            margin-top:auto 使其吸附在图标栏底部（.sidebar-bar 为纵向 flex）。 */}
+        <div
+          className='sidebar-avatar'
+          title={store.config.userName || store.config.name || 'electerm'}
+          onClick={() => store.openSettingModal()}
+        >
+          {
+            ((store.config.userName || store.config.name || 'e') + '')
+              .trim()
+              .charAt(0)
+              .toUpperCase()
+          }
+        </div>
       </div>
       <SidePanel
         sideProps={sideProps}

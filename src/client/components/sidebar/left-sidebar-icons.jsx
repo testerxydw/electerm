@@ -144,20 +144,5 @@ export default function LeftSidebarIcons (props) {
     )
   }
 
-  // 底部头像（对齐重设计草图 .rail .av）：用户名首字母；点击进入设置（账户 / 同步）
-  const cfg = (window.store && window.store.config) || {}
-  const userName = cfg.userName || cfg.name || ''
-  const initial = (userName || 'e').trim().charAt(0).toUpperCase()
-  return (
-    <>
-      {ids.map(id => registry[id] || null)}
-      <div
-        className='sidebar-avatar'
-        title={userName || 'electerm'}
-        onClick={() => window.store.openSettingModal()}
-      >
-        {initial}
-      </div>
-    </>
-  )
+  return ids.map(id => registry[id] || null)
 }

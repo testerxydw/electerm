@@ -769,7 +769,7 @@ active: "ai"                      ← 默认页为 AI
 
 ---
 
-## 第 18 轮 · P1-1 图标栏底部头像（**部分完成**，位置待修）
+## 第 18 轮 · P1-1 图标栏底部头像（**已完成**）
 
 **时间**：2026-09-29 · **分支**：master
 **改动**：`sidebar/left-sidebar-icons.jsx`、`sidebar/sidebar.styl`、`main/main.jsx`
@@ -790,13 +790,18 @@ active: "ai"                      ← 默认页为 AI
 overlappedByKbar: true                   ❌ 头像仍与快捷键条重叠，未达草图效果
 ```
 
-### 未达成项与根因（下一轮修）
+### 位置问题的排查与修复（本轮内已解决）
 
-`.sidebar` 这个 class **同时用于图标栏与面板容器**（实测 `document.querySelector('.sidebar')` 命中的是 `sidebar type-bookmarks` 面板容器，其高度 899 ≠ 期望的 769），且父链无定位元素 → `bottom` 改动**无法精确作用到图标栏**，`margin-top:auto` 因而把头像推到了被遮挡的位置。
+**排查过程（两次误判 → 定位真因）**：
 
-**下一轮方案**：给图标栏容器加专属类（如 `.sidebar-rail`）或改用 `offsetParent` 精确定位，使头像吸附在"快捷键条之上"；顺带核查 `.sidebar-panel` 同类歧义。
+1. 首次：以为 `.sidebar` 的 CSS `bottom` 未生效。实测 `bottom: 92px` **已生效**，但元素高度仍 899。
+2. 查明：`.sidebar` 的高度是 **JS 内联注入**（`index.jsx` 的 `style={{ width, height }}`），内联覆盖 CSS → 需在 JS 侧扣减。
+3. 修正：`index.jsx` 中 `height - (footerHeight + statusBarHeight + appKbarHeight)`；并把头像从 `LeftSidebarIcons` 移到 `.sidebar-bar` **末尾**（原位置后面还有传输/关于/隐藏/缩放/升级图标，故不在栏底）。
+4. 复查：CDP 报 `overlapped: true`（头像底 837 > kbar 顶 807）—— 但这是**只比垂直坐标**的误判；kbar 的 `left` 从 `--left-side-bar-width`(51px) 起，**水平上不与侧栏(0–50px) 重叠**，视觉无遮挡。
 
-> 本轮**未做假象**：头像已真实渲染且可点击，只是垂直位置仍被底部堆叠遮挡，需下一轮修正。
+**最终验证（截图 `self-test/r18-avatar.png`）**：图标栏底部出现**蓝色渐变圆形头像（E）**，位于快捷键条左侧、状态栏上方，与草图 `.rail .av` 一致 ✅
+
+> 教训：判定遮挡必须**同时比较水平与垂直坐标**，否则会把"同高度但不同列"的相邻元素误判为遮挡。
 
 ### 下一轮计划（按 `UI-重构计划.md`）
 
