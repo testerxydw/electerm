@@ -132,7 +132,8 @@ export default () => {
     terminalInfoProps: {},
     // 对齐重设计草图：右侧面板默认显示（仍可由用户隐藏）
     rightPanelVisible: true,
-    rightPanelTab: 'info',
+    // 对齐重设计草图：右面板默认 AI 页
+    rightPanelTab: 'ai',
     rightPanelPinned: ls.getItem(rightPanelPinnedKey) === 'true',
     cmdHistoryInRightPanel: ls.getItem(cmdHistoryInRightPanelKey) === 'true',
     quickCommandsInRightPanel: ls.getItem(quickCommandsInRightPanelKey) === 'true',

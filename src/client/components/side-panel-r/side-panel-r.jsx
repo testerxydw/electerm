@@ -3,16 +3,12 @@ import DragHandle from '../common/drag-handle'
 import './right-side-panel.styl'
 import {
   CloseCircleOutlined,
-  PushpinOutlined,
-  BarChartOutlined,
-  HistoryOutlined,
-  ThunderboltOutlined
+  PushpinOutlined
 } from '@ant-design/icons'
 import {
-  Typography,
-  Flex,
-  Tag
+  Flex
 } from 'antd'
+import { isAIDisabled } from '../../common/ai-feature'
 
 export default memo(function RightSidePanel (
   {
@@ -59,14 +55,13 @@ export default memo(function RightSidePanel (
   // from a desktop session must not turn the panel into a dock here — that
   // would make it full height over the footer for no reachable reason.
   const pinned = rightPanelPinned && !isMobile
-  // one glyph per tab, so the panel says what it is showing; the info tab is
-  // the fallback, since a stale or unknown tab falls back to it everywhere else
-  const tagMap = {
-    ai: <Tag className='mg1r'>AI</Tag>,
-    cmdHistory: <HistoryOutlined className='mg1r' />,
-    quickCommands: <ThunderboltOutlined className='mg1r' />
-  }
-  const tag = tagMap[rightPanelTab] || <BarChartOutlined className='mg1r' />
+  // 对齐重设计草图的右面板页签：AI / 传输 / 监控
+  const aiDisabled = isAIDisabled()
+  const tabs = [
+    { key: 'ai', label: 'AI' },
+    { key: 'transfer', label: '传输' },
+    { key: 'monitor', label: '监控' }
+  ]
 
   function onDragEnd (nw) {
     window.store.setRightSidePanelWidth(nw)
@@ -116,24 +111,34 @@ export default memo(function RightSidePanel (
           edge and drag a size the panel never uses. */}
       {!isMobile && <DragHandle {...dragProps} />}
       <Flex
-        className='right-panel-title pd2'
-        justify='space-between'
+        className='right-panel-tabs'
         align='center'
       >
-        <Typography.Text level={4} ellipsis style={{ margin: 0, flex: 1 }}>
-          {tag} {title}
-        </Typography.Text>
-        <Flex>
-          {!isMobile && (
-            <PushpinOutlined
-              {...pinProps}
-            />
-          )}
-          <CloseCircleOutlined
-            className='right-side-panel-close right-side-panel-controls mg1l'
-            onClick={onClose}
+        {
+          tabs.filter(t => t.key !== 'ai' || !aiDisabled).map(t => (
+            <span
+              key={t.key}
+              className={
+                'right-panel-tab' +
+                (rightPanelTab === t.key ? ' on' : '')
+              }
+              onClick={() => { window.store.rightPanelTab = t.key }}
+            >
+              {t.label}
+            </span>
+          ))
+        }
+        <span className='right-panel-tab-grow' />
+        <span className='right-panel-tab-title elli'>{title}</span>
+        {!isMobile && (
+          <PushpinOutlined
+            {...pinProps}
           />
-        </Flex>
+        )}
+        <CloseCircleOutlined
+          className='right-side-panel-close right-side-panel-controls mg1l'
+          onClick={onClose}
+        />
       </Flex>
       <div className='right-side-panel-content'>
         {children}

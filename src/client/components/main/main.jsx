@@ -375,6 +375,20 @@ export default auto(function Index (props) {
         )}
         <RightSidePanel {...rightPanelProps}>
           {!isAIDisabled() && <AIChat {...aiChatProps} />}
+          {
+            store.rightPanelTab === 'transfer' && (
+              <div className='right-panel-placeholder'>
+                传输列表（对齐草图「传输」页）—— 下一步接入现有传输队列组件
+              </div>
+            )
+          }
+          {
+            store.rightPanelTab === 'monitor' && (
+              <div className='right-panel-placeholder'>
+                系统负载 CPU / MEM / DISK / NET（对齐草图「监控」页）—— 下一步接入远程监控数据
+              </div>
+            )
+          }
           <TerminalInfo key={store.activeTabId} store={store} {...deepCopy(store.terminalInfoProps)} />
           {/* the cmd history panel has two homes; the footer popover is the
               other one, and both are the same component (see cmd-history.jsx) */}

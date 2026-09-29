@@ -24,8 +24,39 @@
     left 0
     right auto
     display block
-.right-panel-title
+// 右面板页签头（对齐重设计草图 .ptabs：AI / 传输 / 监控）
+.right-panel-tabs
+  flex none
+  gap 2px
+  height 34px
+  padding 0 8px
   border-bottom 1px solid var(--border)
+.right-panel-tab
+  padding 5px 11px
+  border-radius var(--radius-sm)
+  color var(--text-dark)
+  font-size 11.5px
+  white-space nowrap
+  cursor pointer
+  transition background var(--dur-1) var(--ease), color var(--dur-1) var(--ease)
+  &:hover
+    background var(--hover-bg)
+    color var(--text)
+  &.on
+    background var(--active-bg)
+    color unquote('color-mix(in srgb, var(--primary) 80%, var(--text))')
+.right-panel-tab-grow
+  flex 1
+.right-panel-tab-title
+  max-width 110px
+  color var(--text-dark)
+  font-size 11px
+// 尚未接入内容的页签占位（传输 / 监控）
+.right-panel-placeholder
+  padding 18px 12px
+  color var(--text-dark)
+  font-size 12px
+  line-height 1.8
 .right-side-panel-controls
   color var(--text)
   font-size 16px
