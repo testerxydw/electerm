@@ -224,3 +224,46 @@
 - `setting-panel` 输入框 / 开关 / 选择器控件统一；
 - 侧栏面板头页签（书签 / 访问历史）细节；
 - S5 亮色主题全量校验（收尾）。
+
+---
+
+## 第 7 轮 · S3 动效批量收尾（6 文件 9 处）
+
+**时间**：2026-09-29 · **分支**：master
+
+### 方法
+
+普查全项目「含 `:hover` 但整个文件无 `transition`」的样式文件（11 个），逐一分析并补齐：
+
+| 文件 | 改动 |
+| --- | --- |
+| `common/responsive-tabs` | 页签 hover 加 `transition color/border-color` |
+| `common/item-filter` | 两处：图标 hover 加 `transition color`；筛选项 hover 改 `--hover-bg` + `transition background` |
+| `quick-commands/qm` | `.qm-move-icon` hover 加 `transition color` |
+| `file-transfer/transfer` | **修复 `font-weight bold` 抖动**（见下）；`.transfer-control-icon` 加 transition |
+| `session/session-control` | hover 加 `transition color` |
+| `setting-panel/setting-wrap` | 两处：关闭图标 / 移动端返回按钮加 `transition` |
+
+### 发现并修复的真问题
+
+`.sftp-transport:hover { font-weight bold }` —— **加粗会改变文字宽度**，导致该行内容在 hover 时**左右抖动**（行内重排）。改为 `background var(--hover-bg)` 背景反馈（无重排）。
+
+### 验证
+
+**① 量化指标**：
+
+| 指标 | 前 | 后 |
+| --- | --- | --- |
+| 含 `transition` 的样式文件数 | 22 | **30** |
+| 「有 hover 却无任何过渡」的文件 | 11 | 5 |
+
+剩余 5 个：`notification` / `message`（antd 通知，样式由 antd 主导）、`bookmark-form`（hover 是 `display` 切换，不可过渡）、`upgrade`、`mobile`（移动端 `!important` 覆盖场景）。
+
+**② 截图**：`self-test/r7-animations.png` —— 主界面无回归（左图标栏 / 会话树 / 标签栏 / 终端 / 快捷命令 / footer / 状态栏正常）。
+
+**③ 需真人验证**：hover 类效果的动感（过渡时长/缓动）需真机手感确认。
+
+### 下一轮计划
+
+- `setting-panel` 输入框 / 开关 / 选择器控件统一；
+- S5 亮色主题全量校验（收尾）。
