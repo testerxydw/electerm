@@ -1,0 +1,103 @@
+// 独立标题栏（38px）——全 token 化，随 12 主题自适应
+
+.main-titlebar
+  position absolute
+  top 0
+  left 0
+  right 0
+  z-index 250
+  height var(--title-bar-height, 0px)
+  display flex
+  align-items center
+  gap 10px
+  padding 0 6px 0 12px
+  background var(--surface-0)
+  border-bottom 1px solid var(--border)
+  // 整条为窗口拖拽区；交互元素单独 no-drag
+  -webkit-app-region drag
+
+.titlebar-brand
+  display flex
+  align-items center
+  gap 8px
+  font-size 12.5px
+  font-weight 600
+  color var(--text)
+
+.titlebar-logo
+  width 16px
+  height 16px
+  display grid
+  place-items center
+  border-radius var(--radius-xs)
+  background var(--primary)
+  color var(--primary-contrast)
+  font-size 11px
+  font-weight 700
+
+.titlebar-ws
+  color var(--text-dark)
+  font-weight 400
+  font-family var(--font-mono)
+
+.titlebar-cmdk
+  margin-left 16px
+  flex 1
+  max-width 380px
+  height 24px
+  display flex
+  align-items center
+  gap 8px
+  padding 0 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-pill)
+  background var(--surface-1)
+  color var(--text-dark)
+  cursor text
+  -webkit-app-region no-drag
+  transition border-color var(--dur-1) var(--ease)
+
+.titlebar-cmdk:hover
+  border-color var(--border-strong)
+
+.titlebar-cmdk-ico
+  font-size 12px
+
+.titlebar-cmdk-txt
+  flex 1
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-size 12px
+
+.titlebar-cmdk kbd
+  font-family var(--font-mono)
+  font-size 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 0 5px
+
+.titlebar-grow
+  flex 1
+
+// 标题栏内的窗口控制三键：由绝对定位改为流式，撑满标题栏高度
+.main-titlebar .window-controls
+  position static
+  top auto
+  right auto
+  z-index auto
+  height 100%
+  display flex
+  align-items center
+  box-shadow none
+  border-radius 0
+  -webkit-app-region no-drag
+
+.main-titlebar .window-control-box
+  height 100%
+  display flex
+  align-items center
+
+@media (prefers-reduced-motion: reduce)
+  .titlebar-cmdk
+    transition none

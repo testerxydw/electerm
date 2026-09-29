@@ -21,10 +21,8 @@ import {
   tabWidth,
   tabMargin,
   extraTabWidth,
-  windowControlWidth,
   isMacJs
 } from '../../common/constants'
-import WindowControl from './window-control'
 import AddBtn from './add-btn'
 import AppDrag from './app-drag'
 import NoSession from './no-session'
@@ -374,19 +372,11 @@ export default class Tabs extends Component {
   }
 
   getExtraTabWidth = () => {
-    return this.shouldRenderWindowControl()
-      ? windowControlWidth
-      : 0
+    // 窗口控制三键已迁移到独立标题栏，标签区不再为其预留宽度
+    return 0
   }
 
   renderWindowControl = () => {
-    if (this.shouldRenderWindowControl()) {
-      return (
-        <WindowControl
-          store={window.store}
-        />
-      )
-    }
     return null
   }
 

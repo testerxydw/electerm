@@ -6,6 +6,8 @@ import {
   quickCommandBoxHeight,
   footerHeight,
   statusBarHeight,
+  titleBarHeight,
+  isMacJs,
   remoteMonitorBarHeight,
   shortcutBarHeight
 } from '../../common/constants'
@@ -59,12 +61,13 @@ export default auto(function Layout (props) {
       ? quickCommandBoxHeight
       : 0
     const sbHeight = isMobile ? 0 : statusBarHeight
-    const h = height - footerHeight - sbHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
+    const tbHeight = isMobile || props.store.config.useSystemTitleBar || isMacJs ? 0 : titleBarHeight
+    const h = height - footerHeight - sbHeight - tbHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
     const l = pinned && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth
     const r = rightPanelVisible && rightPanelPinned && !isMobile ? rightPanelWidth : 0
     return {
       height: h,
-      top: 0,
+      top: tbHeight,
       left: l,
       width: Math.max(0, width - l - r)
     }

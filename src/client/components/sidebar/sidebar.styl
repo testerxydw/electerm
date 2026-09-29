@@ -14,11 +14,11 @@
     .list-item-remove
       display none !important
 .sidebar-panel
-  top 36px
+  top calc(36px + var(--title-bar-height, 0px))
 .sidebar
   position absolute
   left 0
-  top 0
+  top var(--title-bar-height, 0px)
   width 36px
   z-index 100
   bottom 0
@@ -32,14 +32,14 @@
   position absolute
   left 0
   right 0
-  top 0
+  top var(--title-bar-height, 0px)
   height 112px
 .sidebar-panel-bookmarks
 .sidebar-panel-history
   position absolute
   left 0
   right 0
-  top 112px
+  top calc(112px + var(--title-bar-height, 0px))
   bottom 0
   overflow hidden
   display flex

@@ -21,6 +21,7 @@ import ShortcutControl from '../shortcuts/shortcut-control.jsx'
 import {
   footerHeight,
   statusBarHeight,
+  titleBarHeight,
   isMac,
   isWin,
   remoteMonitorBarHeight,
@@ -52,6 +53,7 @@ import ShortcutBarEntry from '../terminal/shortcut-bar-entry'
 import LazyBoundary from '../common/lazy-boundary'
 import CommandPalette from '../command-palette'
 import StatusBar from '../status-bar'
+import TitleBar from '../title-bar'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import '../../common/fs.js'
 import './term-fullscreen.styl'
@@ -176,11 +178,13 @@ export default auto(function Index (props) {
     'remote-monitor-bar-on': remoteMonitorBarVisible
   })
   const sbHeight = store.isMobile ? 0 : statusBarHeight
+  const tbHeight = store.isMobile || store.config.useSystemTitleBar || isMac ? 0 : titleBarHeight
   const ext1 = {
     className: cls,
     style: {
       '--left-side-bar-width': store.leftSideBarWidth + 'px',
       '--status-bar-height': `${sbHeight}px`,
+      '--title-bar-height': `${tbHeight}px`,
       '--footer-stack-height': `${footerHeight + sbHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`
     }
   }
@@ -305,6 +309,7 @@ export default auto(function Index (props) {
       theme={uiThemeConfig}
     >
       <div {...ext1}>
+        <TitleBar store={store} />
         <InputContextMenu />
         <ShortcutControl config={config} />
         <CssOverwrite
