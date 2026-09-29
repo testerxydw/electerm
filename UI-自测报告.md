@@ -519,3 +519,45 @@ background unquote('radial-gradient(600px 240px at 78% -60px, color-mix(in srgb,
 - 状态栏信息扩充（ssh 算法 / shell / 编码 / 速率）；
 - 标签栏高度 36 → 38px（评估布局依赖后实施）；
 - 内容区面包屑（`.crumb`）与草图对齐（badge 样式）。
+
+---
+
+## 第 13 轮 · 对照草图还原：状态栏（等宽 + 分段 + kbd）
+
+**时间**：2026-09-29 · **分支**：master
+**改动**：`status-bar/index.jsx`（重写）、`status-bar/index.styl`
+
+### 草图规格 → 实现
+
+| 草图 | 改动前 | 改动后 |
+| --- | --- | --- |
+| `font-family:var(--mono)`（等宽） | 继承默认无衬线 | **`var(--font-mono)`** |
+| `.it b{color:var(--text);font-weight:600}`（主机名加粗） | 主机名为普通灰字 | **`.statusbar-host` 加粗 + `--text`** |
+| 分段含 `UTF-8`、`⌘K 命令面板` | 仅 `1 tab` + `Ctrl/Cmd + K` 纯文本 | 新增**编码段**（`tab.encode` 大写）+ **`<kbd>Ctrl/Cmd + K</kbd> 命令面板`** |
+
+**有意偏差**：草图中的 `ssh2 · aes-256-gcm` 与 `zsh 5.9`、`↑ 2.1 MB/s ↓ 8.4 MB/s` 需要新的数据管线（连接算法 / 远端 shell / 实时速率），当前 store 无对应字段 → 本轮先接**已有数据**（连接态 / 主机 / 类型 / 编码 / 标签数），待数据管线就绪再补两段（已在交互设计文档中列为待补项）。
+
+### 踩坑（本环境变量命名）
+
+`font-family var(--mono)` **不生效** —— 项目没有 `--mono`，正确变量是 **`--font-mono`**（`tokens.styl:66`，title-bar / command-palette 均用它）。已改正并复验。
+
+### 验证（CDP 实测）
+
+```
+font: ui-monospace, "SF Mono", Menlo, Consolas   ← 等宽生效
+kbd border: 1px / radius: 4px                    ← kbd 胶囊生效
+text: 已连接 | Local | 1 tab | Ctrl/Cmd + K | 命令面板
+```
+✅ 与草图结构一致（含分段与 kbd 提示）。
+
+**截图**：`self-test/r13-statusbar.png`。
+
+### 交付（本轮附带）
+
+- **`UI-交互设计.md`**：详细设计后续交互（命令面板 / 标签 / 会话树 / 图标栏 / 面包屑 / 快捷键条 / 右面板 / 状态栏 / 动效 / 无障碍 / 空态错误态）。
+
+### 下一轮计划
+
+- 标签栏高度 36 → 38px + tab 32px（草图，评估布局依赖）；
+- 内容区面包屑 badge（已连接 / `SSH · zsh` / `● REC`）+ 右侧操作图标；
+- 左面板标题（草图「会话」大写间距 + 操作按钮）；图标栏底部头像。

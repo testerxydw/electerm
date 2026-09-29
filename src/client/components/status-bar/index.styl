@@ -2,7 +2,7 @@
 
 .main-statusbar
   position absolute
-  left calc(var(--left-side-bar-width, 43px) + 1px)
+  left calc(var(--left-side-bar-width, 50px) + 1px)
   right 0
   bottom 0
   height 26px
@@ -12,9 +12,26 @@
   gap 14px
   padding 0 12px
   font-size 11px
+  // 对齐草图 .statusbar：等宽字体（项目变量名为 --font-mono）
+  font-family var(--font-mono)
   color var(--text-dark)
   background var(--surface-0)
   box-shadow inset 0 1px 0 0 var(--border)
+
+// 主机名加粗（草图 .statusbar .it b）
+.statusbar-host
+  color var(--text)
+  font-weight 600
+
+// 命令面板提示里的按键（草图 .statusbar kbd 风格）
+.statusbar-hint
+  kbd
+    font-family var(--font-mono)
+    font-size 10px
+    border 1px solid var(--border)
+    border-radius var(--radius-xs)
+    padding 0 4px
+    color var(--text-dark)
 
 .pinned
   .main-statusbar
