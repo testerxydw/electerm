@@ -134,6 +134,8 @@ export default () => {
     rightPanelVisible: true,
     // 对齐重设计草图：右面板默认 AI 页
     rightPanelTab: 'ai',
+    // 右面板「监控」页的资源采集：默认关闭，用户手动开启后才采集
+    rightPanelMonitor: false,
     rightPanelPinned: ls.getItem(rightPanelPinnedKey) === 'true',
     cmdHistoryInRightPanel: ls.getItem(cmdHistoryInRightPanelKey) === 'true',
     quickCommandsInRightPanel: ls.getItem(quickCommandsInRightPanelKey) === 'true',
