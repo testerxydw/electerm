@@ -346,7 +346,7 @@
   flex-shrink 0
   font-size 11px
   line-height 1
-  color var(--text-color-2)
+  color var(--text-dark)
   cursor default
   user-select none
 
@@ -354,7 +354,7 @@
   display inline-block
   width 34px
   height 5px
-  border-radius 3px
+  border-radius var(--radius-xs)
   background var(--main-darker)
   overflow hidden
   flex-shrink 0
@@ -362,7 +362,7 @@
 .ai-context-bar-fill
   display block
   height 100%
-  border-radius 3px
+  border-radius var(--radius-xs)
   background var(--primary)
   transition width 0.2s
 
@@ -375,15 +375,15 @@
 
 .ai-context-warn
   .ai-context-bar-fill
-    background #faad14
+    background var(--warn)
   .ai-context-percent
-    color #faad14
+    color var(--warn)
 
 .ai-context-danger
   .ai-context-bar-fill
-    background #ff4d4f
+    background var(--error)
   .ai-context-percent
-    color #ff4d4f
+    color var(--error)
     font-weight 500
 
 .ai-context-tip
@@ -411,4 +411,4 @@
 
 .ai-context-tip-warn
   margin-top 4px
-  color #faad14
+  color var(--warn)
