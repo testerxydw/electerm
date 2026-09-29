@@ -31,7 +31,7 @@ export default auto(function TitleBar (props) {
         onMouseDown={openPalette}
       >
         <span className='titlebar-cmdk-ico'>⌕</span>
-        <span className='titlebar-cmdk-txt'>{e('commandPalette') || 'Search session / command'}</span>
+        <span className='titlebar-cmdk-txt'>{e('search') || 'Search'} / {e('shortcut') || 'Command'}</span>
         <kbd>Ctrl/Cmd+K</kbd>
       </div>
       <span className='titlebar-grow' />

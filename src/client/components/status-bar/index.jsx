@@ -9,8 +9,6 @@ import { statusMap } from '../../common/constants'
 import { statusText, typeText } from './format'
 import './index.styl'
 
-const e = window.translate
-
 export default auto(function StatusBar (props) {
   const { store } = props
   if (store.isMobile) {
@@ -24,7 +22,7 @@ export default auto(function StatusBar (props) {
     <div className='main-statusbar'>
       <span className='statusbar-unit'>
         <i className={classnames('statusbar-dot', { ok, err: hasTab && !ok })} />
-        {e('status') || 'Status'}: {statusText(currentTab && currentTab.status)}
+        {statusText(currentTab && currentTab.status)}
       </span>
       {
         hasTab && (
