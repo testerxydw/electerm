@@ -19,7 +19,10 @@
 .terms-box
   position relative
 .term-wrap
-  background var(--main)
+  // 对齐草图 .term 的右上角品牌径向光晕；草图取 8%，但在真实终端底色（更暗）下几乎不可见，
+  // 故提高到 12% 以保留「氛围光」的可感知度。xterm 背景透明，故容器底色可见。
+  // 整段值用 unquote：Stylus 不能直接解析含 `in`/逗号的 color-mix 与多层 background
+  background unquote('radial-gradient(600px 240px at 78% -60px, color-mix(in srgb, var(--primary) 12%, transparent), transparent 70%), var(--main)')
   position absolute
 
 .vertical

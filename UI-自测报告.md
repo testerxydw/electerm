@@ -472,3 +472,50 @@ activeShadow: color(srgb 0 0.533 0.8 / 0.26) 0 0 0 1px inset   ← color-mix 已
 - 终端区径向光晕（草图 `.term` 的 `radial-gradient`）；
 - 状态栏信息扩充（ssh 算法 / shell / 编码 / 速率）；
 - 标签栏高度 36 → 38px（草图 38px，tab 高 32px）需评估布局依赖。
+
+---
+
+## 第 12 轮 · 对照草图还原：终端区径向光晕
+
+**时间**：2026-09-29 · **分支**：master · **改动**：`terminal/terminal.styl`
+
+### 草图规格 → 实现
+
+```css
+/* 草图 */
+.term{background: radial-gradient(600px 240px at 78% -60px,
+        color-mix(in srgb, var(--primary) 8%, transparent), transparent 70%), var(--s1)}
+```
+
+前置条件已具备：`.xterm` 与 `.xterm-viewport` 背景本就为 `transparent`（`terminal.styl:33-36`），故容器底色可见。
+
+**实现**（`.term-wrap`）：
+
+```styl
+background unquote('radial-gradient(600px 240px at 78% -60px, color-mix(in srgb, var(--primary) 12%, transparent), transparent 70%), var(--main)')
+```
+
+**偏差说明（有意）**：草图取 **8%**，实测在真实终端底色（比草图更暗）下**肉眼不可见**；提高到 **12%** 以保住"氛围光"的可感知度。
+
+### 验证（像素量化，非主观判断）
+
+| 采样点 | RGB | 判读 |
+| --- | --- | --- |
+| 终端右上 (880,160) | **(0, 5, 8)** | 偏蓝 |
+| 终端右中 (880,260) | **(36, 43, 47)** | 蓝通道较红 +11 → **品牌蓝光晕** |
+| 终端左下 (500,400) | (38, 38, 38) | 中性灰（无光晕） |
+| 终端右下 (880,430) | (38, 38, 38) | 中性灰（无光晕） |
+
+✅ 右侧上部呈品牌蓝偏移、左侧/下部为中性底色 → 光晕按预期只出现在右上（`at 78% -60px`）。
+
+**截图**：`self-test/r12-term-glow.png`（光晕为克制的氛围效果，放大后可见右侧上部的冷色偏移）。
+
+### 备注
+
+- Stylus 中该值**必须整体 `unquote()`**（含 `in`/逗号的 `color-mix` + 多层 background 无法直接解析）——见第 11 轮的踩坑记录。
+
+### 下一轮计划
+
+- 状态栏信息扩充（ssh 算法 / shell / 编码 / 速率）；
+- 标签栏高度 36 → 38px（评估布局依赖后实施）；
+- 内容区面包屑（`.crumb`）与草图对齐（badge 样式）。
