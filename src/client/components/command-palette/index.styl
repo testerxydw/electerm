@@ -1,0 +1,88 @@
+// command palette (Ctrl/Cmd + K) — 全 token 化，随 12 主题自适应
+
+.cmd-palette-mask
+  position fixed
+  inset 0
+  z-index 3000
+  background var(--mask)
+  display flex
+  justify-content center
+  align-items flex-start
+  padding-top 12vh
+
+.cmd-palette
+  width 520px
+  max-width 92vw
+  background var(--main-light)
+  border 1px solid var(--border-strong)
+  border-radius var(--radius-lg)
+  box-shadow var(--shadow-3)
+  overflow hidden
+
+.cmd-palette-pin
+  display flex
+  align-items center
+  gap 8px
+  padding 10px 14px
+  border-bottom 1px solid var(--border)
+
+.cmd-palette-ico
+  color var(--text-dark)
+  font-size 13px
+
+.cmd-palette-input
+  flex 1
+  min-width 0
+  background transparent
+  border none
+  outline none
+  color var(--text)
+  font-size 14px
+  font-family inherit
+
+.cmd-palette-pin kbd
+  font-family var(--font-mono)
+  font-size 10.5px
+  color var(--text-dark)
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 1px 6px
+
+.cmd-palette-list
+  max-height 320px
+  overflow-y auto
+  padding 6px
+
+.cmd-palette-item
+  display flex
+  align-items center
+  gap 9px
+  padding 8px 10px
+  border-radius var(--radius-sm)
+  cursor pointer
+  transition background var(--dur-1) var(--ease)
+
+.cmd-palette-item.sel
+  background var(--active-bg)
+
+.cmd-palette-hint
+  font-size 10.5px
+  color var(--text-dark)
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 0 6px
+  flex none
+
+.cmd-palette-label
+  color var(--text)
+  font-size 13px
+
+.cmd-palette-empty
+  padding 18px
+  text-align center
+  color var(--text-dark)
+  font-size 12.5px
+
+@media (prefers-reduced-motion: reduce)
+  .cmd-palette-item
+    transition none

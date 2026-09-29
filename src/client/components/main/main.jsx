@@ -49,6 +49,7 @@ import './wrapper.styl'
 import TerminalInfo from '../terminal-info/terminal-info-entry'
 import ShortcutBarEntry from '../terminal/shortcut-bar-entry'
 import LazyBoundary from '../common/lazy-boundary'
+import CommandPalette from '../command-palette'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import '../../common/fs.js'
 import './term-fullscreen.styl'
@@ -384,6 +385,7 @@ export default auto(function Index (props) {
         <WorkspaceSaveModal store={store} />
         <BookmarkFromHistoryModal />
         <NotificationContainer />
+        <CommandPalette store={store} />
         <BatchOpRunner />
         <ImportProgress />
         <ShortcutBarEntry store={store} />
