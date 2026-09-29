@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons'
 import { Tooltip, Popover } from 'antd'
 import classnames from 'classnames'
+import { statusText } from '../status-bar/format'
 import {
   paneMap,
   connectionMap,
@@ -62,7 +63,7 @@ export default function SessionControl (props) {
 
   // ---- sub-renderers ----
 
-  // 连接信息（host + 状态点）——内容区顶部的"面包屑"
+  // 连接信息（host + 状态点 + 状态胶囊）——内容区顶部的"面包屑"（对齐草图 .crumb）
   function renderConnInfo () {
     const { host, status } = tab
     if (!host && !status) {
@@ -77,7 +78,16 @@ export default function SessionControl (props) {
             ok ? 'ok' : (status ? 'err' : '')
           )}
         />
-        <span className='conn-host elli'>{host || e('local')}</span>
+        <b className='conn-host elli'>{host || e('local')}</b>
+        {
+          status
+            ? (
+              <span className={classnames('conn-badge', ok ? 'ok' : 'err')}>
+                {statusText(status)}
+              </span>
+              )
+            : null
+        }
       </div>
     )
   }

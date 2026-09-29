@@ -561,3 +561,46 @@ text: 已连接 | Local | 1 tab | Ctrl/Cmd + K | 命令面板
 - 标签栏高度 36 → 38px + tab 32px（草图，评估布局依赖）；
 - 内容区面包屑 badge（已连接 / `SSH · zsh` / `● REC`）+ 右侧操作图标；
 - 左面板标题（草图「会话」大写间距 + 操作按钮）；图标栏底部头像。
+
+---
+
+## 第 14 轮 · 对照草图还原：内容区面包屑（状态胶囊）
+
+**时间**：2026-09-29 · **分支**：master
+**改动**：`session/session-control.jsx`、`session/session-control.styl`
+
+### 草图规格 → 实现
+
+| 草图 | 改动前 | 改动后 |
+| --- | --- | --- |
+| `.crumb .host{color:var(--text);font-weight:600}` | `.conn-host` 普通灰字 | **`--text` + 600** |
+| `.badge.ok{background:var(--ok-bg);border-color:success@40%;color:success@75%}` | 无状态徽标 | 新增 **`.conn-badge` 胶囊**（`ok` / `err` 两种语义色，`color-mix` 派生） |
+| `.badge{font-family:var(--mono);font-size:10px;border-radius:var(--r-pill)}` | — | 等宽 10px + pill 圆角 |
+
+状态文案复用 `statusText()`（与状态栏同一来源，避免重复维护）。
+
+### 验证（CDP 实测）
+
+```
+hasInfo: true
+text: "本地 已连接"          ← 主机名 + 状态胶囊
+hostWeight: 600              ← 加粗生效
+badgeRadius: 999px           ← 胶囊
+badgeBg: color(srgb .13 .25 .22)  ← success 15% 与底色混合（绿调）
+```
+✅ 与草图 `.crumb` 结构一致。
+
+**截图**：`self-test/r14-crumb.png`。
+
+### 说明（与草图的差异及原因）
+
+| 草图元素 | 现状 |
+| --- | --- |
+| `SSH / zsh` 徽标 | 连接类型已有（`typeText`，见状态栏）；远端 shell 名需新数据管线 |
+| `● REC` 录制徽标 | 项目尚无"会话录制"功能，属**新增能力**（已列入 `UI-交互设计.md` P1） |
+| 右侧 分屏/SFTP/AI 图标 | 已存在（`.term-controls`），hover 样式已在第 6/7 轮统一 |
+
+### 下一轮计划
+
+- 左面板标题（草图「会话」· 大写 + 操作按钮）；图标栏**底部头像**；
+- 标签栏高度 36 → 38px + tab 32px（草图）。

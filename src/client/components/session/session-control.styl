@@ -44,8 +44,29 @@
   max-width 220px
   color var(--text-dark)
   font-size 12px
+  // 主机名加粗（草图 .crumb .host）
   .conn-host
     max-width 180px
+    color var(--text)
+    font-weight 600
+  // 状态胶囊（草图 .crumb .badge：ok 底 + 绿边 / err 底 + 红边）
+  .conn-badge
+    flex none
+    font-family var(--font-mono)
+    font-size 10px
+    line-height 16px
+    border-radius var(--radius-pill)
+    padding 1px 8px
+    border 1px solid var(--border)
+    color var(--text-dark)
+    &.ok
+      background unquote('color-mix(in srgb, var(--success) 15%, var(--main))')
+      border-color unquote('color-mix(in srgb, var(--success) 40%, transparent)')
+      color unquote('color-mix(in srgb, var(--success) 75%, var(--text))')
+    &.err
+      background unquote('color-mix(in srgb, var(--error) 15%, var(--main))')
+      border-color unquote('color-mix(in srgb, var(--error) 40%, transparent)')
+      color unquote('color-mix(in srgb, var(--error) 78%, var(--text))')
   .conn-dot
     width 6px
     height 6px
