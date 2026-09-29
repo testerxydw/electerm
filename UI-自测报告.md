@@ -189,3 +189,38 @@
 - `setting-panel` 其余控件（输入框/开关/选择器）与卡片统一；
 - `sidebar` 面板头（书签/访问历史页签）细节；
 - S5 亮色主题全量校验（收尾）。
+
+---
+
+## 第 6 轮 · S4 区域精修：侧栏图标栏与文字按钮
+
+**时间**：2026-09-29 · **分支**：master · **改动**：`src/client/components/sidebar/sidebar.styl`
+
+### 问题与修复
+
+| # | 位置 | 问题 | 修复 |
+| --- | --- | --- | --- |
+| 1 | `.control-icon`（左图标栏按钮） | hover 只变文字色、**无背景**；选中态已有品牌色条（保留） | `&:hover` 补 `background var(--hover-bg)` |
+| 2 | `.control-icon-text` | hover 变 `--success` 但**无过渡** | 补 `transition color var(--dur-1) var(--ease)` |
+| 3 | `.history-clear-icon` | hover 变 `--error` 但**无过渡** | 补 `transition color var(--dur-1) var(--ease)` |
+
+### 验证
+
+**① 产物 CSS 校验**（编译产物）：
+
+```css
+.control-icon:hover{color:var(--text-light);background:var(--hover-bg)}   ← 本轮新增 background
+.control-icon-text{color:var(--text);transition:color var(--dur-1) var(--ease)}
+```
+✅ 两处均已编译进产物（与打包同源）。
+
+**② 截图**：`self-test/r6-sidebar.png`（展开侧栏 + 模拟悬停尝试）——
+- 主界面无回归：左图标栏（图标 + 选中色条）、会话树、标签栏、终端、footer、状态栏均正常；
+- **hover 状态无法在截图中体现**：Xvfb 下 CDP `Input.dispatchMouseEvent`（mouseMoved）**不移动系统指针**，CSS `:hover` 不触发（已实测）。故 hover 类改动统一以产物 CSS 校验为证据。
+- 需真人验证：鼠标移到左图标栏按钮 / 历史的"清除"图标，确认出现淡色背景与颜色过渡。
+
+### 下一轮计划
+
+- `setting-panel` 输入框 / 开关 / 选择器控件统一；
+- 侧栏面板头页签（书签 / 访问历史）细节；
+- S5 亮色主题全量校验（收尾）。
