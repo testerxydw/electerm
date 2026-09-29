@@ -8,8 +8,6 @@ import { isMacJs } from '../../common/constants'
 import WindowControl from '../tabs/window-control'
 import './index.styl'
 
-const e = window.translate
-
 export default auto(function TitleBar (props) {
   const { config } = props.store
   if (config.useSystemTitleBar || isMacJs) {
@@ -22,7 +20,7 @@ export default auto(function TitleBar (props) {
   return (
     <div className='main-titlebar'>
       <div className='titlebar-brand'>
-        <span className='titlebar-logo'>e</span>
+        <span className='titlebar-logo' />
         <span className='titlebar-name'>electerm</span>
         <span className='titlebar-ws'>{ws}</span>
       </div>
@@ -31,8 +29,8 @@ export default auto(function TitleBar (props) {
         onMouseDown={openPalette}
       >
         <span className='titlebar-cmdk-ico'>⌕</span>
-        <span className='titlebar-cmdk-txt'>{e('search') || 'Search'} / {e('shortcut') || 'Command'}</span>
-        <kbd>Ctrl/Cmd+K</kbd>
+        <span className='titlebar-cmdk-txt'>搜索会话、命令、主机…</span>
+        <kbd>{isMacJs ? '⌘K' : 'Ctrl+K'}</kbd>
       </div>
       <span className='titlebar-grow' />
       <WindowControl store={window.store} />

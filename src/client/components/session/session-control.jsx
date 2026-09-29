@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons'
 import { Tooltip, Popover } from 'antd'
 import classnames from 'classnames'
-import { statusText } from '../status-bar/format'
+import { statusText, typeText } from '../status-bar/format'
 import {
   paneMap,
   connectionMap,
@@ -86,6 +86,12 @@ export default function SessionControl (props) {
                 {statusText(status)}
               </span>
               )
+            : null
+        }
+        {/* 连接类型徽标（对齐草图 .crumb 的 `SSH / zsh` 那一枚；远端 shell 需数据管线，暂只显示类型） */}
+        {
+          typeText(tab)
+            ? <span className='conn-badge'>{typeText(tab)}</span>
             : null
         }
       </div>

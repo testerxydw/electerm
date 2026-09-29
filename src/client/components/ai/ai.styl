@@ -81,12 +81,19 @@
 
 .code-block
   width 100%
+  // 对齐草图 .ai-msg code：surface-3 底 + 小圆角 + 等宽
+  border-radius var(--radius-xs)
+  background var(--surface-3)
+  padding 6px 8px
   pre
     white-space pre-wrap
     word-wrap break-word
     overflow-x auto
     max-width 100%
+    margin 0
   code
+    font-family var(--font-mono)
+    font-size 11px
     white-space pre-wrap
     word-break break-all
 

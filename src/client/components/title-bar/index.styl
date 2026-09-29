@@ -29,11 +29,10 @@
   height 16px
   display grid
   place-items center
-  border-radius var(--radius-xs)
-  background var(--primary)
-  color var(--primary-contrast)
-  font-size 11px
-  font-weight 700
+  // 对齐草图 .brand .logo：渐变圆角方块 + 品牌光晕
+  border-radius 5px
+  background unquote('linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 55%, var(--info)))')
+  box-shadow 0 0 10px unquote('color-mix(in srgb, var(--primary) 45%, transparent)')
 
 .titlebar-ws
   color var(--text-dark)

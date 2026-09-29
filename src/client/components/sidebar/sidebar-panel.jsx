@@ -124,7 +124,9 @@ export default memo(function SidebarPanel (props) {
             onClick={store.handleCloseSidebar}
           />
         </div>
-        <div className='pd1y pd2x'>
+        {/* 面板头（对齐草图 .panel-hd）：小字标题 + 页签 */}
+        <div className='sidebar-panel-tabs pd1y pd2x'>
+          <span className='sidebar-panel-title'>会话</span>
           <Tabs {...tabsProps} />
         </div>
       </div>

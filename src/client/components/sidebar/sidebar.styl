@@ -197,6 +197,23 @@
   &:hover
     box-shadow 0 0 0 2px var(--active-bg)
 
+// 面板头（对齐草图 .panel-hd：11px / --text-dark / 大写间距）
+.sidebar-panel-tabs
+  display flex
+  align-items center
+  gap 8px
+  .ant-tabs-nav
+    margin 0
+  .ant-tabs-tab
+    font-size 11px
+    padding 4px 0
+.sidebar-panel-title
+  flex none
+  font-size 11px
+  letter-spacing .4px
+  text-transform uppercase
+  color var(--text-dark)
+
 // mobile: icon bar hidden — hide its buttons
 .sidebar.collapsed
   .sidebar-bar
