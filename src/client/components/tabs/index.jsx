@@ -10,9 +10,10 @@ import TabTitle from './tab-title'
 import {
   DownOutlined,
   LeftOutlined,
-  RightOutlined
+  RightOutlined,
+  SearchOutlined
 } from '@ant-design/icons'
-import { Dropdown } from 'antd'
+import { Dropdown, Tooltip } from 'antd'
 import Tab from './tab'
 import LayoutMenu from './layout-menu'
 import './tabs.styl'
@@ -28,6 +29,8 @@ import AddBtn from './add-btn'
 import AppDrag from './app-drag'
 import NoSession from './no-session'
 import classNames from 'classnames'
+
+const e = window.translate
 
 export default class Tabs extends Component {
   constructor (props) {
@@ -212,9 +215,21 @@ export default class Tabs extends Component {
     )
   }
 
+  renderCmdEntry = () => {
+    return (
+      <Tooltip title={`${e('commandPalette') || 'Command Palette'} (Ctrl/Cmd+K)`} placement='bottom'>
+        <SearchOutlined
+          className='iblock pointer font12 tab-scroll-icon tabs-cmd-entry'
+          onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
+        />
+      </Tooltip>
+    )
+  }
+
   renderNoExtra () {
     return (
       <div className='tabs-extra pd1x'>
+        {this.renderCmdEntry()}
         {this.renderLayoutMenu()}
       </div>
     )
@@ -239,6 +254,7 @@ export default class Tabs extends Component {
     }
     return (
       <div className='tabs-extra pd1x'>
+        {this.renderCmdEntry()}
         {this.renderAddBtn()}
         <LeftOutlined
           className='mg1l iblock pointer font12 tab-scroll-icon'

@@ -76,6 +76,17 @@ export default auto(function CommandPalette (props) {
     }
   }, [open])
 
+  // 供外部入口（标题栏/标签栏按钮）唤出
+  useEffect(() => {
+    const onOpen = () => {
+      setOpen(true)
+      setQuery('')
+      setIndex(0)
+    }
+    window.addEventListener('open-command-palette', onOpen)
+    return () => window.removeEventListener('open-command-palette', onOpen)
+  }, [])
+
   function run (it) {
     if (!it) {
       return
