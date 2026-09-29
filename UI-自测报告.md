@@ -267,3 +267,53 @@
 
 - `setting-panel` 输入框 / 开关 / 选择器控件统一；
 - S5 亮色主题全量校验（收尾）。
+
+---
+
+## 第 8 轮 · 全量打包 + 安装包内改动核验（关键）
+
+**时间**：2026-09-29 · **产物**：`dist/electerm-5.5.35-test.46-linux-amd64.deb`（98,581,724 B，15:09）
+
+### 目的
+
+前 7 轮改动需要**确认真的进了安装包**（此前出现过「deb 名 5.5.35 但包内是旧 app.asar」的问题）。本轮不只看编译日志，而是**从 deb 内部提取 CSS 逐条核验**。
+
+### 核验方法
+
+```bash
+dpkg-deb -x dist/electerm-5.5.35-test.46-linux-amd64.deb /tmp/deb8
+npx asar extract-file /tmp/deb8/opt/electerm/resources/app.asar assets/css/style-5.5.35.css
+grep -o '<选择器>{[^}]*}' style-5.5.35.css
+```
+
+### 核验结果（deb 内 CSS 实测）
+
+| 轮次 | 选择器 | 包内实测 |
+| --- | --- | --- |
+| 2 | `.sub-context-menu` | `{background:var(--surface-2);border-radius:var(--radius);box-shadow:0 0 0 1px var(--border), var(--shadow-2);…}` ✅ |
+| 3 | `.tree-item.selected` | `{background:var(--active-bg);color:var(--text)}` + `::before{width:2px;background:var(--primary);…}` ✅ |
+| 4 | `.term-search-wrap` | `{background:var(--surface-2);border-radius:var(--radius);box-shadow:0 0 0 1px var(--border)…;padding:6px}` ✅ |
+| 6 | `.control-icon:hover` | `{color:var(--text-light);background:var(--hover-bg)}` ✅ |
+| 7 | `.sftp-transport:hover` | `{background:var(--hover-bg)}`（`font-weight:bold` 已移除）✅ |
+
+**结论：7 轮改动全部编译进 test.46 安装包**（与截图所用 `work/app` 同源）。
+
+### 安装验证
+
+```bash
+sudo dpkg -i dist/electerm-5.5.35-test.46-linux-amd64.deb
+```
+
+安装后可见的变化：
+1. **侧栏会话树**：选中项有品牌色背景 + **左侧 2px 色条**（最直观）；
+2. **右键菜单**：子菜单与主菜单底色/圆角/描边一致；
+3. **终端搜索**（Ctrl/Cmd+F）：浮层为圆角 + 描边 + 阴影；
+4. **悬停反馈**：左图标栏、快捷键条、传输列表、设置列表等出现淡色背景 + 过渡；
+5. 传输列表 hover **不再左右抖动**。
+
+> 若安装后仍无变化，排查顺序：① 确认装的是 `test.46`（`dpkg -l electerm`）；② 完全退出旧进程（托盘退出，非关窗口）再启动；③ `~/.config/electerm` 下若有旧缓存不影响 UI（UI 样式在 app.asar 内）——最可能是启动到了旧进程。
+
+### 下一轮计划
+
+- `setting-panel` 输入框 / 开关 / 选择器统一；
+- S5 亮色主题全量校验（收尾）。
