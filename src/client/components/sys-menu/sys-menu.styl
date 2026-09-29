@@ -47,8 +47,10 @@
   position absolute
   left 100%
   top 0
-  background var(--main)
-  box-shadow var(--shadow-2)
+  // 与主菜单保持同一表面与描边语言（原先用 --main，与主菜单 --surface-2 不一致）
+  background var(--surface-2)
+  border-radius var(--radius)
+  box-shadow 0 0 0 1px var(--border), var(--shadow-2)
   max-height 300px
   overflow-y scroll
   color var(--text)
@@ -81,7 +83,9 @@
   display inline-block
   line-height 28px
   cursor pointer
-  color var(--text)
+  transition color var(--dur-1) var(--ease), background var(--dur-1) var(--ease)
+  &:hover
+    background var(--hover-bg)
 
 .menu-logo
   display inline-block
@@ -89,6 +93,7 @@
   height 28px
   vertical-align middle
   color var(--text-disabled)
+  transition color var(--dur-1) var(--ease)
   &:hover
     color var(--text)
   svg

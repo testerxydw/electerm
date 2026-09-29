@@ -57,3 +57,39 @@
 - S3 动效补充（`quick-commands` / `bookmark-form` 等自定义 hover 加统一 `transition`）；
 - S4 区域精修（按优先级：`sys-menu` 右键菜单 → 会话树 → 终端区）；
 - 每轮均产出「自测报告 + 截图」。
+
+---
+
+## 第 2 轮 · S4 区域精修：右键菜单（`sys-menu`）
+
+**时间**：2026-09-29 · **分支**：master · **改动**：`src/client/components/sys-menu/sys-menu.styl`
+
+### 改动内容
+
+| # | 问题 | 修复 |
+| --- | --- | --- |
+| 1 | **子菜单底色与主菜单不一致**：主菜单 `--surface-2`，子菜单却用 `--main` | 子菜单改 `background var(--surface-2)`，视觉统一 |
+| 2 | 子菜单**无圆角、无描边**（只有 `--shadow-2`），与主菜单语言不符 | 加 `border-radius var(--radius)` + `box-shadow 0 0 0 1px var(--border), var(--shadow-2)`（与主菜单一致） |
+| 3 | `.menu-control` hover 加动效；顺带清理重复的 `color` 声明 | 加 `transition color/background var(--dur-1) var(--ease)` + `&:hover { background var(--hover-bg) }` |
+| 4 | `.menu-logo` hover 变色但无过渡 | 加 `transition color var(--dur-1) var(--ease)` |
+
+### 验证
+
+**① 产物 CSS 校验**（编译后 `work/app/assets/css/*.css`）：
+
+```css
+.sub-context-menu{background:var(--surface-2);border-radius:var(--radius);
+  box-shadow:0 0 0 1px var(--border), var(--shadow-2);...}
+.menu-control{...;transition:color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);...}
+```
+✅ 新规则已生效（`--main` → `--surface-2`、圆角/描边已加、transition 已加）。
+
+**② 基础态截图**：`self-test/r2-base.png`（主界面无回归——本轮改动仅作用于菜单内部，主界面外观不变，符合预期）。
+
+**③ 局限（需真人验证）**：右键菜单**打开态**的自动截图未成功——`sys-menu` 是 antd `ContextMenu`（由 `Dropdown trigger=['contextMenu']` 挂载），CDP 合成事件与 `store` 直调均未触发。真人验证步骤：在任意标签/会话上右键 → 观察主菜单与**子菜单**（如「布局」）底色是否一致、圆角与描边是否统一。
+
+### 下一轮计划
+
+- 会话树（`tree-list`）精修（选中态 / 分组 / 密度）；
+- 终端区细节（搜索条 `term-search`、快捷键条 `shortcut-bar`）；
+- 继续 S3 动效补充（自定义 hover 元素）。
