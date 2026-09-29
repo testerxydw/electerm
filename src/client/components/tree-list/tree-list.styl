@@ -24,12 +24,24 @@
 
   &.search-selected
     outline 1px dashed var(--primary)
-  &.selected
   &.item-dragover
   &:hover
-    background var(--surface-0)
+    background var(--hover-bg)
     color var(--text)
     cursor pointer
+  // 选中态与 hover 原本共用同一底色、无法区分；改为品牌着色 + 左侧色条
+  &.selected
+    background var(--active-bg)
+    color var(--text)
+    &::before
+      content ''
+      position absolute
+      left 0
+      top 4px
+      bottom 4px
+      width 2px
+      border-radius var(--radius-pill)
+      background var(--primary)
   &.item-dragover-top
     border 2px solid var(--primary)
 .tree-item-title
@@ -122,6 +134,7 @@
 
 .tree-sort-trigger
   cursor pointer
+  transition color var(--dur-1) var(--ease)
   &:hover
     color var(--primary)
   &.active
@@ -133,6 +146,7 @@
   cursor pointer
   white-space nowrap
   font-size 12px
+  transition background var(--dur-1) var(--ease), color var(--dur-1) var(--ease)
   &:hover
     background var(--hover-bg)
   &.active
@@ -185,6 +199,7 @@
   z-index 3
   opacity 0
   pointer-events none
+  transition opacity var(--dur-1) var(--ease)
   &.is-active
     opacity 1
     pointer-events auto

@@ -93,3 +93,33 @@
 - 会话树（`tree-list`）精修（选中态 / 分组 / 密度）；
 - 终端区细节（搜索条 `term-search`、快捷键条 `shortcut-bar`）；
 - 继续 S3 动效补充（自定义 hover 元素）。
+
+---
+
+## 第 3 轮 · S4 区域精修：会话树（`tree-list`）
+
+**时间**：2026-09-29 · **分支**：master · **改动**：`src/client/components/tree-list/tree-list.styl`
+
+### 发现的问题与修复
+
+| # | 问题 | 修复 |
+| --- | --- | --- |
+| 1 | **选中态与 hover 态完全同款**（都是 `background var(--surface-0)`）→ 无法分辨当前选中项 | hover 改 `var(--hover-bg)`；选中改 `var(--active-bg)` + 左侧 2px 品牌色条（`::before`） |
+| 2 | 行内操作图标（`.tree-item-op-wrap`）hover 显隐**无过渡**（opacity 突变） | 加 `transition opacity var(--dur-1) var(--ease)` |
+| 3 | `.tree-sort-trigger` hover 变色无过渡 | 加 `transition color var(--dur-1) var(--ease)` |
+| 4 | `.tree-sort-popover-item` hover 换底无过渡 | 加 `transition background/color var(--dur-1) var(--ease)` |
+
+### 验证（截图）
+
+**`self-test/r3-tree-list.png`**（CDP 展开左侧书签面板后截图）：
+
+- 会话树正常渲染（`default` → 主机分组 → `root@…` 子项 + `ssh configs`）；
+- **选中项 `128_112` 显示品牌着色高亮 + 左侧竖条** ✅（改动前与 hover 无区别）；
+- 其余项无背景，层次清晰；
+- 左侧图标栏 / 标签栏 / 终端 / footer / 状态栏均正常，无回归。
+
+### 下一轮计划
+
+- 终端区细节：搜索条 `term-search`、快捷键条 `shortcut-bar`（密度 / 圆角 / 动效）；
+- `setting-panel`（设置面板）控件统一；
+- 继续 S3 动效补充。
