@@ -130,12 +130,13 @@ export default () => {
     activeTabId2: '',
     activeTabId3: '',
     terminalInfoProps: {},
-    rightPanelVisible: false,
+    // 对齐重设计草图：右侧面板默认显示（仍可由用户隐藏）
+    rightPanelVisible: true,
     rightPanelTab: 'info',
     rightPanelPinned: ls.getItem(rightPanelPinnedKey) === 'true',
     cmdHistoryInRightPanel: ls.getItem(cmdHistoryInRightPanelKey) === 'true',
     quickCommandsInRightPanel: ls.getItem(quickCommandsInRightPanelKey) === 'true',
-    _rightPanelWidth: parseInt(ls.getItem(rightSidebarWidthKey), 10) || 500,
+    _rightPanelWidth: parseInt(ls.getItem(rightSidebarWidthKey), 10) || 308,
     showAIConfigModal: false,
 
     // for settings related
@@ -187,8 +188,9 @@ export default () => {
     shortcutBarKbOffset: 0,
 
     // sidebar
-    openedSideBar: ls.getItem(openedSidebarKey) || '',
-    _leftSidePanelWidth: parseInt(ls.getItem(leftSidePanelWidthKey), 10) || 300,
+    // 对齐重设计草图：左侧会话面板默认展开（仍可由用户收起）
+    openedSideBar: ls.getItem(openedSidebarKey) || 'bookmarks',
+    _leftSidePanelWidth: parseInt(ls.getItem(leftSidePanelWidthKey), 10) || 236,
     // whether the far-left icon bar is open (hide/show works on every platform)
     _leftSideBarOpen: leftSideBarOpen,
     addPanelWidth: parseInt(ls.getItem(addPanelWidthLsKey), 10) || 300,
