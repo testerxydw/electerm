@@ -152,3 +152,40 @@
 - `shortcut-bar`（快捷键条）按钮态与密度精修；
 - `setting-panel` 控件（输入/开关/列表）统一；
 - S3 动效补充收尾。
+
+---
+
+## 第 5 轮 · S4 区域精修：快捷键条 + 设置面板列表
+
+**时间**：2026-09-29 · **分支**：master
+**改动**：`terminal/shortcut-bar.styl`、`setting-panel/setting.styl`
+
+### 问题与修复
+
+| # | 位置 | 问题 | 修复 |
+| --- | --- | --- | --- |
+| 1 | `.shortcut-bar-icon-btn` | hover 只变文字色、**无背景反馈**（可点击感弱） | `&:hover` 补 `background var(--hover-bg)` |
+| 2 | `.shortcut-bar-btn` | 同上 | `&:hover` 补 `background var(--hover-bg)` |
+| 3 | `.shortcut-candidate-item` | hover 无背景**且无任何过渡** | 补 `transition background/color/opacity` + hover 背景 |
+| 4 | `.setting-passwords-item` | 列表行无 hover 反馈 | 补 `transition background` + `&:hover { background var(--hover-bg) }` |
+
+### 验证
+
+**① 产物 CSS 校验**（编译产物 `work/app/assets/css/*.css`）：
+
+```css
+.shortcut-bar-btn:hover{color:var(--text-light);background:var(--hover-bg)}
+```
+✅ 新规则已编译进产物（与打包使用同一来源，可确保安装后生效）。
+
+**② 截图**：`self-test/r5-shortcut-bar.png`
+- 本次会话中快捷键条（`shortcut-bar`）在**当前视图/配置下未展开**（底部为 footer「AI/C/Q/快捷键」+ 快捷命令面板 + 状态栏），故 hover 效果无法在截图中体现；
+- 截图用于确认主界面**无回归**（标题栏/标签栏/会话树/终端/footer/状态栏层次正常）。
+
+**③ 需真人验证**：把鼠标移到快捷键条按钮 / 候选命令项 / 设置页密码列表行上，确认出现淡色背景反馈（`--hover-bg`）。
+
+### 下一轮计划
+
+- `setting-panel` 其余控件（输入框/开关/选择器）与卡片统一；
+- `sidebar` 面板头（书签/访问历史页签）细节；
+- S5 亮色主题全量校验（收尾）。
