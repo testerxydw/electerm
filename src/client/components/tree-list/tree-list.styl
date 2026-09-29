@@ -6,21 +6,24 @@
   margin-left 3px
   width 16px
   line-height 30px
-  height 26px
+  height 30px
 .tree-item
   display flex
   position relative
-  line-height 26px
-  padding-left 5px
-  border-radius var(--radius-xs)
+  // 对齐草图 .node：行高 30px、圆角 8px、内边距更舒展
+  line-height 30px
+  padding-left 8px
+  border-radius var(--radius-sm)
   overflow hidden
   white-space nowrap
   text-overflow ellipsis
   transition background var(--dur-1) var(--ease), color var(--dur-1) var(--ease)
+  // 分组标题对齐草图 .grp：轻量小字（原为 14px 粗体，视觉过重）
   &.is-category
     .tree-item-title
-      font-weight bold
-      font-size 14px
+      font-weight 600
+      font-size 12px
+      color var(--text-dark)
 
   &.search-selected
     outline 1px dashed var(--primary)
@@ -37,8 +40,8 @@
       content ''
       position absolute
       left 0
-      top 4px
-      bottom 4px
+      top 7px
+      bottom 7px
       width 2px
       border-radius var(--radius-pill)
       background var(--primary)
@@ -46,7 +49,7 @@
     border 2px solid var(--primary)
 .tree-item-title
   flex-grow 1
-  line-height 26px
+  line-height 30px
   overflow hidden
   white-space nowrap
   text-overflow ellipsis

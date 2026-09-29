@@ -375,3 +375,47 @@ storeWidth: 50   inline: "width: 50px"   railComputed: "50px"   btnCount: 10
 - 会话树节点舒展（草图 `.node`：`padding 6px 8px`、`border-radius 8px`、分组字号 11px）；
 - 标签栏状态圆点 + 顶部渐变条（草图 `.tab`）；
 - 终端区径向光晕；状态栏信息扩充。
+
+---
+
+## 第 10 轮 · 对照草图还原：会话树节点与分组标题
+
+**时间**：2026-09-29 · **分支**：master
+**改动**：`tree-list/tree-list.styl`、`tree-list/tree-list-layout.js`（同步虚拟滚动常量）
+
+### 草图规格 → 实现
+
+| 草图 | 改动前 | 改动后 |
+| --- | --- | --- |
+| `.node{padding:6px 8px 6px 10px}`（约 30px 行高） | `line-height: 26px`、`padding-left: 5px` | **`line-height: 30px`**、`padding-left: 8px` |
+| `.node{border-radius:var(--r-sm)}`（8px） | `var(--radius-xs)`（4px） | **`var(--radius-sm)`** |
+| `.grp{font-size:11px;color:var(--text-dark)}`（轻量小字） | `font-weight:bold; font-size:14px`（视觉过重） | **`font-weight:600; font-size:12px; color:var(--text-dark)`** |
+| `.node.on::before{top:7px;bottom:7px}` | `top/bottom: 4px` | **7px** |
+
+### 同步修改（关键，否则虚拟滚动错位）
+
+```js
+// tree-list-layout.js
+export const treeRowHeight = 30      // 原 26：与 .tree-item line-height 必须一致
+export const treeEditorRowHeight = 34 // 原 32（跟随行高上调）
+```
+同时把 `.tree-control-btn` 的 `height: 26px` 改为 `30px`（行内按钮跟随行高）。
+
+### 验证
+
+**① CDP 实测（真实 DOM）**：
+
+```
+rowH: 30   itemH: 30   items: 8
+```
+✅ 行高 / 项高均为 30px（改动前 26px），8 个会话项渲染正常（虚拟滚动无错位）。
+
+**② 截图**：`self-test/r10-tree.png`
+- 分组标题 `default` 变为**轻量小灰字**（原为 14px 粗体白字）；
+- 会话项行距明显舒展（26 → 30px）；
+- 图标栏（50px）与底部状态栏对齐正常，无回归。
+
+### 下一轮计划
+
+- 标签栏：状态圆点 7px + active 顶部 2px 渐变条；
+- 终端区径向光晕；状态栏信息扩充（算法 / shell / 编码 / 速率）。
