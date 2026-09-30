@@ -886,6 +886,17 @@ text: "系统负载 | CPU | — | MEM | — | DISK | — | NET | —"
 
 ---
 
+## 第 28 轮 · 标签栏收尾（用户项 4 全部完成）
+
+**时间**：2026-09-30 · **分支**：master · **改动**：`tabs/tabs.styl`
+
+- `.tab-close` 关闭键：`display none/block` 突变 → **`opacity 0 → 0.7` 淡入**（对齐草图 `.tab .x{opacity:0;transition:opacity}`），120ms；
+- 多标签核对结论：拖拽插入线（`item-dragover` 2px 品牌线）、计数徽标、状态圆点均已对齐草图 ✅。
+
+**用户项 4 至此全部完成**（头像菜单 ✅ / AI 气泡分栏 ✅ / 标签栏收尾 ✅）。
+
+---
+
 ## 第 27 轮 · 用户项 4：头像账户菜单
 
 **时间**：2026-09-30 · **分支**：master · **改动**：`sidebar/index.jsx`、`sidebar.styl`
