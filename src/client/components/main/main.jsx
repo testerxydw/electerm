@@ -56,6 +56,7 @@ import CommandPalette from '../command-palette'
 import StatusBar from '../status-bar'
 import AppKbar from '../app-kbar'
 import MonitorPanel from '../remote-monitor/monitor-panel'
+import TransferPanel from '../file-transfer/transfer-panel'
 import TitleBar from '../title-bar'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import '../../common/fs.js'
@@ -387,9 +388,7 @@ export default auto(function Index (props) {
           {!isAIDisabled() && <AIChat {...aiChatProps} />}
           {
             store.rightPanelTab === 'transfer' && (
-              <div className='right-panel-placeholder'>
-                传输列表（对齐草图「传输」页）—— 下一步接入现有传输队列组件
-              </div>
+              <TransferPanel store={store} />
             )
           }
           {

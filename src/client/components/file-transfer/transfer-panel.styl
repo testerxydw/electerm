@@ -1,0 +1,32 @@
+// 右面板「传输」页（对齐重设计草图 .panel-r）
+
+.transfer-panel
+  padding 10px 12px
+
+.transfer-panel-head
+  display flex
+  align-items center
+  justify-content space-between
+  margin-bottom 8px
+  font-size 11px
+  letter-spacing .4px
+  text-transform uppercase
+  color var(--text-dark)
+
+.transfer-panel-count
+  font-family var(--font-mono)
+  text-transform none
+  letter-spacing 0
+
+.transfer-panel-hint
+  margin-top 8px
+  font-size 11.5px
+  line-height 1.8
+  color var(--text-disabled)
+
+// 复用既有传输列表时，去掉弹层内的固定宽度约束，让其填满右面板
+.transfer-panel
+  .transfer-modal
+  .transfer-list-wrap
+    width 100%
+    max-width 100%
