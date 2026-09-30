@@ -886,6 +886,34 @@ text: "系统负载 | CPU | — | MEM | — | DISK | — | NET | —"
 
 ---
 
+## 第 25 轮 · 用户项 4（部分）：AI 对话气泡左右分栏
+
+**时间**：2026-09-30 · **分支**：master · **改动**：`ai/ai.styl`
+
+### 实现（样式层，零功能风险）
+
+AI 历史条目结构是「用户问题（antd `Alert`）+ AI 回复（`AIOutput`）」一体，**不改 JSX**（避免影响展开/复制/停止等功能），纯样式分栏：
+
+| 草图 | 实现 |
+| --- | --- |
+| `.ai-msg`（AI 回复，左） | `.chat-history-item .ai-stream-output`：`margin-right:auto` + `--surface-1` 底 + `1px --border` + 圆角 |
+| `.ai-msg.me`（用户，右 + 品牌浸染） | `.chat-history-item .ant-alert`：`margin-left:auto` + `--active-bg` 底 + 品牌色 30% 描边 + 圆角，`max-width 92%` |
+
+### 验证（产物 CSS 实测）
+
+```css
+.chat-history-item .ant-alert{...background:var(--active-bg);border-color:color-mix(... 30%...);max-width:92%;margin-left:auto}
+.chat-history-item .ai-stream-output{...border:1px solid var(--border);background:var(--surface-1);max-width:96%;margin-right:auto}
+```
+✅ 两条规则均已编译进产物（截图验证需发起一次 AI 对话，留待用户验收）。
+
+### 说明
+
+- 「who 标签」（草图气泡上的 AI / 你）未加：需改 JSX 结构，当前分栏视觉已可区分归属；
+- 会话历史（`ai-chat-history-item`）与流式输出共用 `ai-stream-output` 容器，样式一并生效。
+
+---
+
 ## 第 23 轮 · 方案整合 + 用户项 3（`transfer` 传输页）
 
 **时间**：2026-09-30 · **分支**：master

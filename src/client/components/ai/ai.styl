@@ -97,6 +97,22 @@
     white-space pre-wrap
     word-break break-all
 
+// 对齐草图 .ai-msg / .ai-msg.me：对话气泡左右分栏
+// —— 用户提问（antd Alert）靠右 + 品牌浸染；AI 回复靠左 + 中性卡片
+.chat-history-item
+  .ant-alert
+    margin-left auto
+    max-width 92%
+    border-radius var(--radius)
+    background var(--active-bg)
+    border-color unquote('color-mix(in srgb, var(--primary) 30%, transparent)')
+  .ai-stream-output
+    margin-right auto
+    max-width 96%
+    border-radius var(--radius)
+    border 1px solid var(--border)
+    background var(--surface-1)
+
 .send-to-ai-icon.disabled
   opacity 0.4
   cursor not-allowed
