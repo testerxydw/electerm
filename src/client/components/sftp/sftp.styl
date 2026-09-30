@@ -163,8 +163,17 @@
   background var(--main)
 
 .file-list
+  // 对齐 v4 草图 ③：列表容器从「贴在背景上」变成「一块面板」
+  background var(--surface-1)
+  border-radius var(--radius-sm)
+  box-shadow 0 0 0 1px var(--border)
   ::-webkit-scrollbar-thumb
     background-color var(--primary) !important
+
+// 大小列等宽字体（对齐 v4 草图：纵向自然对齐）
+.sftp-file-prop.shi-size
+  font-family var(--font-mono)
+  font-size 11px
 
 .pager-wrap
   z-index 4
