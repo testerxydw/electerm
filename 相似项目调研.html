@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>electerm 相似项目调研 · 60 项全景</title>
+<title>electerm 相似项目调研 · 100+ 项全景</title>
 <style>
 :root{
   --bg:#121214; --surface-0:#05070a; --surface-1:#16181d; --surface-2:#1e2126;
@@ -38,10 +38,17 @@ section{margin-bottom:34px}
 .sec-desc{color:var(--text-dim);font-size:13.5px;margin-bottom:14px;max-width:900px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(355px,1fr));gap:14px}
 .card{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px 18px;transition:transform .15s,border-color .15s;display:flex;flex-direction:column;gap:6px}
+a.card{text-decoration:none;color:inherit;cursor:pointer}
+.card .name::after{content:"↗";font-size:11px;color:var(--text-faint);margin-left:6px}
+.card.self{border-color:var(--primary);background:linear-gradient(160deg,var(--primary-soft),var(--surface-1));box-shadow:0 0 0 1px var(--primary-line) inset}
+.card.analysis{border-left:3px solid var(--primary);cursor:default}
+.card.analysis .name::after{content:""}
+.card.analysis b{color:#7fb0f5}
 .card:hover{transform:translateY(-2px);border-color:var(--primary-line)}
 .card .top{display:flex;align-items:center;gap:10px}
 .card .name{font-weight:700;font-size:15.5px}
 .card .stars{margin-left:auto;font-size:12.5px;color:var(--warn);background:rgba(229,160,52,.1);border:1px solid rgba(229,160,52,.3);border-radius:999px;padding:1px 9px;white-space:nowrap}
+.card .forks{font-size:12.5px;color:var(--text-dim);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 9px;white-space:nowrap;margin-left:6px}
 .card .meta{font-size:12px;color:var(--text-faint);display:flex;gap:8px;flex-wrap:wrap}
 .card .meta i{font-style:normal;background:var(--surface-2);border-radius:6px;padding:1px 7px}
 .card .desc{font-size:13.2px;color:var(--text-dim)}
@@ -68,12 +75,12 @@ section{margin-bottom:34px}
 <div class="wrap">
   <div class="hero">
     <h1>electerm <em>相似项目全景</em></h1>
-    <p>跨代码托管平台（GitHub · Gitee · SourceForge）+ 闭源市场参照，聚焦「终端 + SSH + SFTP 一体化」赛道 · 数据截至 2026-09-29，star 为 GitHub 实时值</p>
+    <p>跨代码托管平台（GitHub · Gitee · SourceForge）+ 闭源市场参照，聚焦「终端 + SSH + SFTP + 数据库 + AI」一体化赛道 · 数据截至 2026-09-29，star 为 GitHub 实时值</p>
     <div class="stats">
-      <div class="stat"><b id="stTotal">60</b><span>收录项目</span></div>
-      <div class="stat"><b>4</b><span>A 类子赛道</span></div>
+      <div class="stat"><b id="stTotal">103</b><span>收录项目（含 electerm 基准）</span></div>
+      <div class="stat"><b>10</b><span>分类（A–J）</span></div>
       <div class="stat"><b>124.7k</b><span>组内最高 star（RustDesk）</span></div>
-      <div class="stat"><b>1</b><span>未被占据的开源生态位：终端+SFTP+数据库</span></div>
+      <div class="stat"><b>MCP</b><span>AI×SSH 新战场（electerm 已内置）</span></div>
     </div>
   </div>
 
@@ -84,113 +91,230 @@ section{margin-bottom:34px}
     <span class="chip" data-f="b">B · 终端模拟器</span>
     <span class="chip" data-f="c">C · 远程桌面</span>
     <span class="chip" data-f="d">D · CLI/TUI</span>
+    <span class="chip" data-f="e">E · 堡垒机/PAM</span>
+    <span class="chip" data-f="f">F · 容器/面板</span>
+    <span class="chip" data-f="g">G · AI终端/MCP</span>
+    <span class="chip" data-f="h">H · SFTP GUI</span>
+    <span class="chip" data-f="i">I · Web数据库</span>
+    <span class="chip" data-f="j">J · 移动端SSH</span>
+    <span class="chip" data-f="road">★ 未来方向 / 路线图</span>
   </div>
 
   <section data-g="a">
     <div class="sec-head"><h2>A 类</h2><span class="tag">重点 · 一体化「终端 + SSH + SFTP 管理」</span><span class="cnt"></span></div>
     <p class="sec-desc">与 electerm 同形态直接竞争的四条子赛道：桌面全协议、Web 自托管、数据库一体、闭源商业套件。</p>
 
+    <div class="grid">
+      <a class="card self" href="https://github.com/electerm/electerm" target="_blank" rel="noopener"><div class="top"><span class="name">electerm（本项目 · 基准）</span><span class="badge b-os">开源 MIT</span><span class="stars">15.2k★</span><span class="forks">1.2k fork</span></div><div class="meta"><i>Electron+React</i><i>Win/Mac/Linux</i></div><div class="desc">终端/SSH/SFTP/FTP/Telnet/串口/RDP/VNC/SPICE 多合一客户端 + <b>AI 助手</b> + <b>内置 MCP server</b>，跨平台开源（v5.5.35，活跃）。</div><div class="diff">本调研的基准对象</div></a>
+    </div>
+
     <div class="sub">A1 · 桌面级全协议客户端（开源为主，同形态正面竞争）</div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">Tabby</span><span class="badge b-os">开源 MIT</span><span class="stars">74.7k★</span></div><div class="meta"><i>Electron</i><i>Win/Mac/Linux</i></div><div class="desc">electerm 最直接对手：本地 shell/SSH/Telnet/串口，SFTP+Zmodem、分屏、连接管理，插件市场成熟。</div><div class="diff">缺远程桌面与 AI 助手</div></div>
-      <div class="card"><div class="top"><span class="name">Wave Terminal</span><span class="badge b-os">开源 Apache-2.0</span><span class="stars">22.4k★</span></div><div class="meta"><i>Go+React</i><i>Win/Mac/Linux</i></div><div class="desc">本组最强新秀：AI 集成终端，块式（block）交互范式，内置 SFTP 文件预览、远程编辑、可接本地 LLM。</div><div class="diff">同为 Electron 一体化路线，块式交互是最大差异</div></div>
-      <div class="card"><div class="top"><span class="name">WindTerm</span><span class="badge b-pa">部分开源</span><span class="stars">32.3k★</span></div><div class="meta"><i>C++/Qt</i><i>Win/Mac/Linux</i><i>国产</i></div><div class="desc">性能标杆：SSH/SFTP/Shell/Telnet/Tmux/Serial，原生 C++ 非 Electron，内存占用低。</div><div class="diff">无远程桌面；部分闭源</div></div>
-      <div class="card"><div class="top"><span class="name">Termora</span><span class="badge b-os">开源</span><span class="stars">3.8k★</span></div><div class="meta"><i>Kotlin/Compose</i><i>Win/Mac/Linux</i><i>国产作者</i></div><div class="desc">对标 Xshell 交互习惯的新一代终端 + SSH 客户端，上升期。</div><div class="diff">以 Xshell 迁移体验为卖点</div></div>
-      <div class="card"><div class="top"><span class="name">Shell360</span><span class="badge b-os">开源</span><span class="stars">1.2k★</span></div><div class="meta"><i>Electron/TS</i><i>跨平台</i></div><div class="desc">跨平台 SSH + SFTP 客户端，与 electerm 技术栈与定位几乎同构。</div><div class="diff">可视为同栈最小实现参照</div></div>
-      <div class="card"><div class="top"><span class="name">Snowflake</span><span class="badge b-os">开源 GPL</span><span class="stars">2.2k★</span></div><div class="meta"><i>Java/JavaFX</i><i>跨平台</i></div><div class="desc">图形化 SFTP 客户端 + 终端模拟器，带 shell 工具集。</div><div class="diff">Java 桌面路线，活跃度一般</div></div>
-      <div class="card"><div class="top"><span class="name">Submarine</span><span class="badge b-os">开源</span><span class="stars">386★</span></div><div class="meta"><i>Electron/TS</i></div><div class="desc">现代 SSH & SFTP：终端、端口转发、文件夹镜像、加密同步。</div><div class="diff">设计取向与 electerm 相近</div></div>
-      <div class="card"><div class="top"><span class="name">Ásbrú Connection Manager</span><span class="badge b-os">开源</span><span class="stars">1.3k★</span></div><div class="meta"><i>Perl/GTK</i><i>Linux 为主</i></div><div class="desc">PAC Manager 后继，远程会话组织器：本地/SSH/Telnet/宏/脚本/簇控制（一发多收）。</div><div class="diff">老牌、功能杂但界面陈旧</div></div>
-      <div class="card"><div class="top"><span class="name">Termius</span><span class="badge b-cl">闭源 Freemium</span><span class="stars">商业主流</span></div><div class="meta"><i>原生</i><i>桌面+移动全端</i></div><div class="desc">SSH 客户端商业标杆：云同步与移动端体验是王牌。</div><div class="diff">SFTP/端口转发/密钥管理在付费档</div></div>
-      <div class="card"><div class="top"><span class="name">NexTerm（国产）</span><span class="badge b-os">开源</span><span class="stars">新项目</span></div><div class="meta"><i>开源</i></div><div class="desc">「一体化开发运维终端」：SSH · WinRM · 文件 · Docker · <b>数据库</b> · AI 装进同一窗口。</div><div class="diff">与 electerm 5.x「AI+运维一体」方向完全同频，值得跟踪</div></div>
+      <a class="card" href="https://github.com/Eugeny/tabby" target="_blank" rel="noopener"><div class="top"><span class="name">Tabby</span><span class="badge b-os">开源 MIT</span><span class="stars">74.7k★</span><span class="forks">4.3k fork</span></div><div class="meta"><i>Electron</i><i>Win/Mac/Linux</i></div><div class="desc">electerm 最直接对手：本地 shell/SSH/Telnet/串口，SFTP+Zmodem、分屏、连接管理，插件市场成熟。</div><div class="diff">缺远程桌面与 AI 助手</div></a>
+      <a class="card" href="https://github.com/wavetermdev/waveterm" target="_blank" rel="noopener"><div class="top"><span class="name">Wave Terminal</span><span class="badge b-os">开源 Apache-2.0</span><span class="stars">22.4k★</span><span class="forks">1.1k fork</span></div><div class="meta"><i>Go+React</i><i>Win/Mac/Linux</i></div><div class="desc">本组最强新秀：AI 集成终端，块式（block）交互范式，内置 SFTP 文件预览、远程编辑、可接本地 LLM。</div><div class="diff">同为 Electron 一体化路线，块式交互是最大差异</div></a>
+      <a class="card" href="https://github.com/kingToolbox/WindTerm" target="_blank" rel="noopener"><div class="top"><span class="name">WindTerm</span><span class="badge b-pa">部分开源</span><span class="stars">32.3k★</span><span class="forks">2.5k fork</span></div><div class="meta"><i>C++/Qt</i><i>Win/Mac/Linux</i><i>国产</i></div><div class="desc">性能标杆：SSH/SFTP/Shell/Telnet/Tmux/Serial，原生 C++。免费（商用无限制）但<b>非完整开源</b>：仅 <code>src/</code> 下 Protocols/Pty/Utility/Widgets/libssh 等组件 Apache-2.0，<b>应用主体闭源</b>。</div><div class="diff">无远程桌面；仓库无构建脚本，无法从源码构建</div></a>
+      <a class="card" href="https://github.com/TermoraDev/termora" target="_blank" rel="noopener"><div class="top"><span class="name">Termora</span><span class="badge b-os">开源</span><span class="stars">3.8k★</span><span class="forks">230 fork</span></div><div class="meta"><i>Kotlin/Compose</i><i>Win/Mac/Linux</i><i>国产作者</i></div><div class="desc">对标 Xshell 交互习惯的新一代终端 + SSH 客户端，上升期。</div><div class="diff">以 Xshell 迁移体验为卖点</div></a>
+      <a class="card" href="https://github.com/nashaofu/shell360" target="_blank" rel="noopener"><div class="top"><span class="name">Shell360</span><span class="badge b-os">开源</span><span class="stars">1.2k★</span><span class="forks">65 fork</span></div><div class="meta"><i>Electron/TS</i><i>跨平台</i></div><div class="desc">跨平台 SSH + SFTP 客户端，与 electerm 技术栈与定位几乎同构。</div><div class="diff">可视为同栈最小实现参照</div></a>
+      <a class="card" href="https://github.com/subhra74/snowflake" target="_blank" rel="noopener"><div class="top"><span class="name">Snowflake</span><span class="badge b-os">开源 GPL</span><span class="stars">2.2k★</span><span class="forks">240 fork</span></div><div class="meta"><i>Java/JavaFX</i><i>跨平台</i></div><div class="desc">图形化 SFTP 客户端 + 终端模拟器，带 shell 工具集。</div><div class="diff">Java 桌面路线，活跃度一般</div></a>
+      <a class="card" href="https://github.com/SinaXhpm/Submarine" target="_blank" rel="noopener"><div class="top"><span class="name">Submarine</span><span class="badge b-os">开源</span><span class="stars">386★</span><span class="forks">28 fork</span></div><div class="meta"><i>Electron/TS</i></div><div class="desc">现代 SSH & SFTP：终端、端口转发、文件夹镜像、加密同步。</div><div class="diff">设计取向与 electerm 相近</div></a>
+      <a class="card" href="https://github.com/asbru-cm/asbru-cm" target="_blank" rel="noopener"><div class="top"><span class="name">Ásbrú Connection Manager</span><span class="badge b-os">开源</span><span class="stars">1.3k★</span><span class="forks">156 fork</span></div><div class="meta"><i>Perl/GTK</i><i>Linux 为主</i></div><div class="desc">PAC Manager 后继，远程会话组织器：本地/SSH/Telnet/宏/脚本/簇控制（一发多收）。</div><div class="diff">老牌、功能杂但界面陈旧</div></a>
+      <a class="card" href="https://termius.com" target="_blank" rel="noopener"><div class="top"><span class="name">Termius</span><span class="badge b-cl">闭源 Freemium</span><span class="stars">商业主流</span></div><div class="meta"><i>原生</i><i>桌面+移动全端</i></div><div class="desc">SSH 客户端商业标杆：云同步与移动端体验是王牌。</div><div class="diff">SFTP/端口转发/密钥管理在付费档</div></a>
+      <a class="card" href="https://github.com/ProbiusOfficial/NexTerm" target="_blank" rel="noopener"><div class="top"><span class="name">NexTerm（国产）</span><span class="badge b-os">开源</span><span class="stars">14★</span><span class="forks">3 fork</span></div><div class="meta"><i>开源</i></div><div class="desc">「一体化开发运维终端」：SSH · WinRM · 文件 · Docker · <b>数据库</b> · AI 装进同一窗口。</div><div class="diff">与 electerm 5.x「AI+运维一体」方向完全同频，值得跟踪</div></a>
+      <a class="card" href="https://github.com/nyakang/nyaterm" target="_blank" rel="noopener"><div class="top"><span class="name">NyaTerm</span><span class="badge b-os">开源</span><span class="stars">1.7k★</span><span class="forks">160 fork</span></div><div class="meta"><i>跨平台</i></div><div class="desc">「MobaXterm 替代」开源终端：SSH + SFTP + AI 助手（Ask/Agent 双模式）+ Docker 全装进一个应用；远程文件本地编辑自动回传。</div><div class="diff">与 electerm「AI+运维一体」方向高度同频</div></a>
+      <a class="card" href="https://github.com/joygqz/sageport" target="_blank" rel="noopener"><div class="top"><span class="name">Sageport</span><span class="badge b-os">开源</span><span class="stars">79★</span><span class="forks">16 fork</span></div><div class="meta"><i>跨平台</i></div><div class="desc">开源 AI SSH 客户端：终端、SFTP 面板、密钥管理、GitHub 跨设备配置同步、AI 运维助手（可填任意 API Key/模型）。</div><div class="diff">AI 助手 + 同步是主打</div></a>
+      <a class="card" href="https://www.plutodoor.com" target="_blank" rel="noopener"><div class="top"><span class="name">Pluto Door</span><span class="badge b-cl">闭源 $12</span></div><div class="meta"><i>原生 macOS</i></div><div class="desc">macOS SSH 客户端：内置终端 + AI 助手 + SFTP 文件浏览 + 代码编辑器，四合一。</div><div class="diff">主打单机「最美」体验</div></a>
+      <a class="card" href="https://www.hexhub.cn" target="_blank" rel="noopener"><div class="top"><span class="name">HexHub</span><span class="badge b-pa">闭源国产·社区免费</span><span class="stars">六端</span></div><div class="meta"><i>跨平台</i><i>Win/Mac/Linux/移动</i></div><div class="desc"><b>数据库 + SSH/SFTP + Docker + AI 工作流</b>四合一的桌面客户端，支持达梦/人大金仓/OceanBase 等国产库。</div><div class="diff">「Navicat + FinalShell + Portainer」替代定位，形态最接近 electerm 的"三合一"</div></a>
+      <a class="card" href="https://gitee.com/nolan_ning/uniterm" target="_blank" rel="noopener"><div class="top"><span class="name">uniTerm</span><span class="badge b-os">开源</span></div><div class="meta"><i>&lt;10MB</i></div><div class="desc">轻量「全能终端」：覆盖 SSH、文件传输、<b>数据库客户端</b>、远程桌面等 20+ 协议。</div><div class="diff">体积极小是差异点</div></a>
+      <a class="card" href="https://github.com/feigeCode/onetcli" target="_blank" rel="noopener"><div class="top"><span class="name">onetcli</span><span class="badge b-os">开源</span><span class="stars">515★</span><span class="forks">51 fork</span></div><div class="meta"><i>跨平台</i></div><div class="desc"><b>数据库 + SSH/SFTP + 终端 + 串口 + AI</b> 一体工作区：AI 助手支持自然语言转 SQL、查询解释、BI 式数据分析与图表。</div><div class="diff">AI 数据分析能力较突出</div></a>
     </div>
 
     <div class="sub">A2 · Web / 自托管平台（浏览器即客户端，2024-2026 增长最快赛道）</div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">1Panel</span><span class="badge b-os">开源 GPL</span><span class="stars">37.1k★</span></div><div class="meta"><i>Go</i><i>国产</i></div><div class="desc">现代 Linux 服务器管理面板：网站/容器/任务 + Web 终端 + 文件管理 + 应用商店 + AI 平台。</div><div class="diff">定位偏面板，终端是其中一环</div></div>
-      <div class="card"><div class="top"><span class="name">Termix</span><span class="badge b-os">开源</span><span class="stars">15.3k★</span></div><div class="meta"><i>TypeScript</i><i>自托管 Docker</i></div><div class="desc">自托管 SSH + 远程桌面管理：SSH 终端、SFTP 文件管理、RDP/VNC、服务器统计、多标签。</div><div class="diff">2025 起步的黑马，增长极快</div></div>
-      <div class="card"><div class="top"><span class="name">Nexterm</span><span class="badge b-os">开源 MIT</span><span class="stars">5.1k★</span></div><div class="meta"><i>Node</i><i>自托管+桌面+移动</i></div><div class="desc">SSH/VNC/RDP/Telnet/SFTP/FTP + Docker + Proxmox 管理 + 监控 + AI 命令生成 + 多组织 SSO/LDAP/审计。</div><div class="diff">协议广度最接近 electerm 的 Web 形态</div></div>
-      <div class="card"><div class="top"><span class="name">Cockpit</span><span class="badge b-os">开源 LGPL</span><span class="stars">15.2k★</span></div><div class="meta"><i>Python/C</i><i>Red Hat</i></div><div class="desc">Web 图形化服务器管理：终端、存储、网络、容器、日志。</div><div class="diff">系统管理深度强，无 SFTP 文件管理器</div></div>
-      <div class="card"><div class="top"><span class="name">Apache Guacamole</span><span class="badge b-os">开源</span><span class="stars">3.9k★</span></div><div class="meta"><i>Java+C</i><i>企业网关</i></div><div class="desc">无客户端远程桌面网关：浏览器访问 RDP/VNC/SSH/Telnet。</div><div class="diff">企业 Web 门户场景</div></div>
-      <div class="card"><div class="top"><span class="name">ttyd</span><span class="badge b-os">开源 MIT</span><span class="stars">12.4k★</span></div><div class="meta"><i>C</i></div><div class="desc">把终端共享到 Web 的最轻方案，单二进制。</div><div class="diff">只做终端共享这一件事</div></div>
-      <div class="card"><div class="top"><span class="name">webssh2</span><span class="badge b-os">开源</span><span class="stars">2.8k★</span></div><div class="meta"><i>Node/ssh2/xterm.js</i></div><div class="desc">Web SSH 客户端。</div><div class="diff">渲染层（ssh2+xterm.js）与 electerm 同源</div></div>
-      <div class="card"><div class="top"><span class="name">GateOne</span><span class="badge b-os">开源</span><span class="stars">6.3k★</span></div><div class="meta"><i>Python/HTML5</i></div><div class="desc">老牌 HTML5 终端 + SSH，支持录制回放。</div><div class="diff">年代久但仍活跃</div></div>
-      <div class="card"><div class="top"><span class="name">webssh</span><span class="badge b-os">开源</span><span class="stars">5.1k★</span></div><div class="meta"><i>Python</i></div><div class="desc">极简 Web SSH 客户端，一个包起服务。</div><div class="diff">极简主义</div></div>
-      <div class="card"><div class="top"><span class="name">sshwifty</span><span class="badge b-os">开源</span><span class="stars">3.1k★</span></div><div class="meta"><i>Go</i></div><div class="desc">浏览器 SSH/Telnet，单二进制自托管，安全默认值好。</div><div class="diff">注重安全</div></div>
+      <a class="card" href="https://github.com/1Panel-dev/1Panel" target="_blank" rel="noopener"><div class="top"><span class="name">1Panel</span><span class="badge b-os">开源 GPL</span><span class="stars">37.1k★</span><span class="forks">3.4k fork</span></div><div class="meta"><i>Go</i><i>国产</i></div><div class="desc">现代 Linux 服务器管理面板：网站/容器/任务 + Web 终端 + 文件管理 + 应用商店 + AI 平台。</div><div class="diff">定位偏面板，终端是其中一环</div></a>
+      <a class="card" href="https://github.com/Termix-SSH/Termix" target="_blank" rel="noopener"><div class="top"><span class="name">Termix</span><span class="badge b-os">开源</span><span class="stars">15.3k★</span><span class="forks">730 fork</span></div><div class="meta"><i>TypeScript</i><i>自托管 Docker</i></div><div class="desc">自托管 SSH + 远程桌面管理：SSH 终端、SFTP 文件管理、RDP/VNC、服务器统计、多标签。</div><div class="diff">2025 起步的黑马，增长极快</div></a>
+      <a class="card" href="https://github.com/gnmyt/Nexterm" target="_blank" rel="noopener"><div class="top"><span class="name">Nexterm</span><span class="badge b-os">开源 MIT</span><span class="stars">5.1k★</span><span class="forks">277 fork</span></div><div class="meta"><i>Node</i><i>自托管+桌面+移动</i></div><div class="desc">SSH/VNC/RDP/Telnet/SFTP/FTP + Docker + Proxmox 管理 + 监控 + AI 命令生成 + 多组织 SSO/LDAP/审计。</div><div class="diff">协议广度最接近 electerm 的 Web 形态</div></a>
+      <a class="card" href="https://github.com/cockpit-project/cockpit" target="_blank" rel="noopener"><div class="top"><span class="name">Cockpit</span><span class="badge b-os">开源 LGPL</span><span class="stars">15.2k★</span><span class="forks">1.4k fork</span></div><div class="meta"><i>Python/C</i><i>Red Hat</i></div><div class="desc">Web 图形化服务器管理：终端、存储、网络、容器、日志。</div><div class="diff">系统管理深度强，无 SFTP 文件管理器</div></a>
+      <a class="card" href="https://github.com/apache/guacamole-server" target="_blank" rel="noopener"><div class="top"><span class="name">Apache Guacamole</span><span class="badge b-os">开源</span><span class="stars">4k★</span><span class="forks">810 fork</span></div><div class="meta"><i>Java+C</i><i>企业网关</i></div><div class="desc">无客户端远程桌面网关：浏览器访问 RDP/VNC/SSH/Telnet。</div><div class="diff">企业 Web 门户场景</div></a>
+      <a class="card" href="https://github.com/tsl0922/ttyd" target="_blank" rel="noopener"><div class="top"><span class="name">ttyd</span><span class="badge b-os">开源 MIT</span><span class="stars">12.4k★</span><span class="forks">1.2k fork</span></div><div class="meta"><i>C</i></div><div class="desc">把终端共享到 Web 的最轻方案，单二进制。</div><div class="diff">只做终端共享这一件事</div></a>
+      <a class="card" href="https://github.com/billchurch/webssh2" target="_blank" rel="noopener"><div class="top"><span class="name">webssh2</span><span class="badge b-os">开源</span><span class="stars">2.8k★</span><span class="forks">578 fork</span></div><div class="meta"><i>Node/ssh2/xterm.js</i></div><div class="desc">Web SSH 客户端。</div><div class="diff">渲染层（ssh2+xterm.js）与 electerm 同源</div></a>
+      <a class="card" href="https://github.com/liftoff/GateOne" target="_blank" rel="noopener"><div class="top"><span class="name">GateOne</span><span class="badge b-os">开源</span><span class="stars">6.3k★</span><span class="forks">904 fork</span></div><div class="meta"><i>Python/HTML5</i></div><div class="desc">老牌 HTML5 终端 + SSH，支持录制回放。</div><div class="diff">年代久但仍活跃</div></a>
+      <a class="card" href="https://github.com/huashengdun/webssh" target="_blank" rel="noopener"><div class="top"><span class="name">webssh</span><span class="badge b-os">开源</span><span class="stars">5.1k★</span><span class="forks">1.6k fork</span></div><div class="meta"><i>Python</i></div><div class="desc">极简 Web SSH 客户端，一个包起服务。</div><div class="diff">极简主义</div></a>
+      <a class="card" href="https://github.com/nirui/sshwifty" target="_blank" rel="noopener"><div class="top"><span class="name">sshwifty</span><span class="badge b-os">开源</span><span class="stars">3.1k★</span><span class="forks">397 fork</span></div><div class="meta"><i>Go</i></div><div class="desc">浏览器 SSH/Telnet，单二进制自托管，安全默认值好。</div><div class="diff">注重安全</div></a>
+      <a class="card" href="https://github.com/bifrost0x/webssh" target="_blank" rel="noopener"><div class="top"><span class="name">bifrost0x/webssh</span><span class="badge b-os">开源</span><span class="stars">206★</span><span class="forks">37 fork</span></div><div class="meta"><i>Go/Web</i></div><div class="desc">自托管浏览器 SSH/SFTP workspace：多会话终端 + SFTP 文件管理。</div><div class="diff">把 SSH 与文件传输做成可控本地工作台</div></a>
+      <a class="card" href="https://github.com/HussainNizamani/serverdeck" target="_blank" rel="noopener"><div class="top"><span class="name">serverdeck</span><span class="badge b-os">开源</span><span class="stars">13★</span><span class="forks">2 fork</span></div><div class="meta"><i>Web</i></div><div class="desc">自托管个人服务器管理：实时 SSH 终端 + SFTP 文件管理器 + 服务管理于一个干净 Web UI。</div><div class="diff">轻量个人向</div></a>
+      <a class="card" href="https://shellngn.com" target="_blank" rel="noopener"><div class="top"><span class="name">ShellNGN</span><span class="badge b-pa">在线/商业</span></div><div class="meta"><i>Web</i></div><div class="desc">在线 SSH 客户端：浏览器内 SSH + SFTP + VNC + RDP，免安装跨设备。</div><div class="diff">纯在线形态</div></a>
     </div>
 
     <div class="sub">A3 · 终端 + 数据库一体（electerm 的潜在生态位）</div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">PortX</span><span class="badge b-cl">闭源</span><span class="stars">商业</span></div><div class="meta"><i>Electron</i><i>日系</i></div><div class="desc">明确主打「SSH + SFTP + FTP + 数据库客户端」一体的跨平台工具。</div><div class="diff">形态最接近的"数据库一体"闭源竞品</div></div>
-      <div class="card"><div class="top"><span class="name">OmniDB</span><span class="badge b-os">开源 GPL</span><span class="stars">3.3k★</span></div><div class="meta"><i>Python/JS</i><i>Web</i></div><div class="desc">Web 数据库管理工具，内置 SSH 终端（连库后直接开 shell）。</div><div class="diff">"DB+终端"一体的历史代表</div></div>
-      <div class="card"><div class="top"><span class="name">DBeaver</span><span class="badge b-os">开源 Apache</span><span class="stars">51.9k★</span></div><div class="meta"><i>Java</i><i>全平台</i></div><div class="desc">数据库工具王者（100+ 库），带 SSH 隧道连接。</div><div class="diff">无终端无 SFTP——做"数据库一体"时的 UI 参照</div></div>
-      <div class="card"><div class="top"><span class="name">Beekeeper Studio</span><span class="badge b-os">开源 GPL</span><span class="stars">23.7k★</span></div><div class="meta"><i>Electron/TS</i></div><div class="desc">现代跨平台 SQL 客户端，内置 SSH 隧道。</div><div class="diff">Electron 同栈，无终端</div></div>
-      <div class="card"><div class="top"><span class="name">DbGate</span><span class="badge b-os">开源 MIT</span><span class="stars">7.3k★</span></div><div class="meta"><i>Node/React</i><i>桌面+Web</i></div><div class="desc">跨平台 DB 管理器，支持 SSH 隧道，轻量。</div><div class="diff">MySQL/PG/Mongo/SQLite 全覆盖</div></div>
-      <div class="card"><div class="top"><span class="name">TablePlus</span><span class="badge b-cl">闭源</span><span class="stars">商业</span></div><div class="meta"><i>原生</i></div><div class="desc">原生 DB GUI + SSH 隧道，体验标杆。</div><div class="diff">无终端</div></div>
+      <a class="card" href="https://portx.online" target="_blank" rel="noopener"><div class="top"><span class="name">PortX</span><span class="badge b-cl">闭源</span><span class="stars">商业</span></div><div class="meta"><i>Electron</i><i>日系</i></div><div class="desc">明确主打「SSH + SFTP + FTP + 数据库客户端」一体的跨平台工具。</div><div class="diff">形态最接近的"数据库一体"闭源竞品</div></a>
+      <a class="card" href="https://github.com/OmniDB/OmniDB" target="_blank" rel="noopener"><div class="top"><span class="name">OmniDB</span><span class="badge b-os">开源 GPL</span><span class="stars">3.3k★</span><span class="forks">479 fork</span></div><div class="meta"><i>Python/JS</i><i>Web</i></div><div class="desc">Web 数据库管理工具，内置 SSH 终端（连库后直接开 shell）。</div><div class="diff">"DB+终端"一体的历史代表</div></a>
+      <a class="card" href="https://github.com/dbeaver/dbeaver" target="_blank" rel="noopener"><div class="top"><span class="name">DBeaver</span><span class="badge b-os">开源 Apache</span><span class="stars">51.9k★</span><span class="forks">4.4k fork</span></div><div class="meta"><i>Java</i><i>全平台</i></div><div class="desc">数据库工具王者（100+ 库），带 SSH 隧道连接。</div><div class="diff">无终端无 SFTP——做"数据库一体"时的 UI 参照</div></a>
+      <a class="card" href="https://github.com/beekeeper-studio/beekeeper-studio" target="_blank" rel="noopener"><div class="top"><span class="name">Beekeeper Studio</span><span class="badge b-os">开源 GPL</span><span class="stars">23.7k★</span><span class="forks">1.6k fork</span></div><div class="meta"><i>Electron/TS</i></div><div class="desc">现代跨平台 SQL 客户端，内置 SSH 隧道。</div><div class="diff">Electron 同栈，无终端</div></a>
+      <a class="card" href="https://github.com/dbgate/dbgate" target="_blank" rel="noopener"><div class="top"><span class="name">DbGate</span><span class="badge b-os">开源 MIT</span><span class="stars">7.3k★</span><span class="forks">475 fork</span></div><div class="meta"><i>Node/React</i><i>桌面+Web</i></div><div class="desc">跨平台 DB 管理器，支持 SSH 隧道，轻量。</div><div class="diff">MySQL/PG/Mongo/SQLite 全覆盖</div></a>
+      <a class="card" href="https://tableplus.com" target="_blank" rel="noopener"><div class="top"><span class="name">TablePlus</span><span class="badge b-cl">闭源</span><span class="stars">商业</span></div><div class="meta"><i>原生</i></div><div class="desc">原生 DB GUI + SSH 隧道，体验标杆。</div><div class="diff">无终端</div></a>
+      <a class="card" href="https://www.navicat.com" target="_blank" rel="noopener"><div class="top"><span class="name">Navicat</span><span class="badge b-cl">闭源</span><span class="stars">商业</span></div><div class="meta"><i>原生</i><i>全平台</i></div><div class="desc">商业 DB GUI 标杆：MySQL/PG/Redis/MongoDB/Oracle/SQL Server 等，支持 SSH 隧道与团队对象共享。</div><div class="diff">体验成熟；无终端</div></a>
+      <a class="card" href="https://www.jetbrains.com/datagrip/" target="_blank" rel="noopener"><div class="top"><span class="name">DataGrip</span><span class="badge b-cl">闭源 JetBrains</span><span class="stars">商业</span></div><div class="meta"><i>JVM</i></div><div class="desc">JetBrains 出品 DB IDE：多库、SSH 隧道、与 IDE 生态无缝，开发友好。</div><div class="diff">无终端；面向开发者</div></a>
+      <a class="card" href="https://github.com/HeidiSQL/HeidiSQL" target="_blank" rel="noopener"><div class="top"><span class="name">HeidiSQL</span><span class="badge b-os">开源</span><span class="stars">6.3k★</span><span class="forks">586 fork</span></div><div class="meta"><i>Delphi</i><i>Windows</i></div><div class="desc">轻量快速的 MySQL/MariaDB/PostgreSQL/SQL Server GUI。</div><div class="diff">免费轻量，无终端</div></a>
+      <a class="card" href="https://github.com/CodePhiliaX/Chat2DB" target="_blank" rel="noopener"><div class="top"><span class="name">Chat2DB</span><span class="badge b-pa">开源/商业</span><span class="stars">28.3k★</span><span class="forks">3k fork</span></div><div class="meta"><i>Java</i></div><div class="desc"><b>AI 驱动</b>的数据库客户端：自然语言转 SQL、数据洞察，多库支持。</div><div class="diff">AI 是核心卖点，与 electerm AI 方向重叠</div></a>
+      <a class="card" href="https://github.com/search?q=dbctl" target="_blank" rel="noopener"><div class="top"><span class="name">Dbctl</span><span class="badge b-os">开源</span></div><div class="meta"><i>CLI</i></div><div class="desc"><b>终端原生</b>数据库客户端：内置 SSH 与 AWS SSM 隧道，不离开终端即可安全连到代理后的 DB。</div><div class="diff">「DB 进终端」的纯 CLI 形态</div></a>
+      <a class="card" href="https://database-client.com" target="_blank" rel="noopener"><div class="top"><span class="name">Database Client</span><span class="badge b-os">开源扩展</span><span class="stars">VS Code</span></div><div class="meta"><i>VSCode</i></div><div class="desc">连接 40+ 数据库/服务（MySQL/PG/Redis/MongoDB/Kafka/Docker/<b>SSH</b>），SQL 编辑器 + 数据网格 + 备份 + ER 图 + <b>SFTP</b>。</div><div class="diff">IDE 内的一体化，含 SSH 与 SFTP</div></a>
     </div>
 
     <div class="sub">A4 · 闭源商业套件与老牌工具（市场参照）</div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">Xshell + Xftp 套件</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Windows</i></div><div class="desc">老牌组合：终端与文件分体安装、统一会话管理，免费个人版。</div></div>
-      <div class="card"><div class="top"><span class="name">MobaXterm</span><span class="badge b-pa">Freemium</span></div><div class="meta"><i>Windows</i></div><div class="desc">全家桶：内置 X server + SSH + SFTP + RDP/VNC + 宏。</div></div>
-      <div class="card"><div class="top"><span class="name">SecureCRT + SecureFX</span><span class="badge b-cl">闭源</span><span class="stars">~$119</span></div><div class="meta"><i>全平台</i></div><div class="desc">企业合规标杆：脚本化、FIPS。</div></div>
-      <div class="card"><div class="top"><span class="name">ZOC</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Win/mac</i></div><div class="desc">原生跨平台，4 会话仅 ~34MB 内存。</div><div class="diff">常被用来对比 Electron 系 200MB+</div></div>
-      <div class="card"><div class="top"><span class="name">WinSCP</span><span class="badge b-os">开源 GPL</span></div><div class="meta"><i>Windows</i></div><div class="desc">SFTP/SCP/FTP 图形化王者，可联动 PuTTY。</div></div>
-      <div class="card"><div class="top"><span class="name">Solar-PuTTY / SmarTTY / Tera Term</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Windows</i></div><div class="desc">会话管理器 / 标签+SFTP 面板 / 串口+Telnet 老牌（嵌入式圈）。</div></div>
-      <div class="card"><div class="top"><span class="name">Remote Desktop Manager</span><span class="badge b-cl">闭源</span><span class="stars">Devolutions</span></div><div class="meta"><i>全平台</i></div><div class="desc">企业级连接管理中枢：RDP/VNC/SSH/数据库/VPN 凭据库一体。</div></div>
-      <div class="card"><div class="top"><span class="name">Royal TS</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Win/mac/Linux</i></div><div class="desc">文档化组织凭据与连接的管理中枢。</div></div>
-      <div class="card"><div class="top"><span class="name">ServerCat</span><span class="badge b-cl">闭源+部分开源</span></div><div class="meta"><i>iOS/macOS</i></div><div class="desc">移动端 SSH + Docker + 服务器监控。</div></div>
-      <div class="card"><div class="top"><span class="name">XTerminal</span><span class="badge b-cl">闭源国产</span></div><div class="meta"><i>全平台</i></div><div class="desc">终端全家桶：SSH+SFTP+转发+监控+AI 助手「小易」（免费 50 次/天）。</div><div class="diff">AI 是核心卖点，与 electerm AI 正面竞争</div></div>
-      <div class="card"><div class="top"><span class="name">FinalShell</span><span class="badge b-cl">闭源国产</span></div><div class="meta"><i>Java</i><i>全平台</i></div><div class="desc">可视化监控 + SFTP + 批量命令，内存 200MB+ 有争议。</div></div>
-      <div class="card"><div class="top"><span class="name">Aechoterm 闪令</span><span class="badge b-cl">闭源国产</span></div><div class="meta"><i>Gitee</i><i>信创</i></div><div class="desc">免费跨平台 SSH/SFTP：批量输入、云同步、抓包，Gitee 托管文档。</div></div>
+      <a class="card" href="https://www.netsarang.com/en/xshell/" target="_blank" rel="noopener"><div class="top"><span class="name">Xshell + Xftp 套件</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Windows</i></div><div class="desc">老牌组合：终端与文件分体安装、统一会话管理，免费个人版。</div></a>
+      <a class="card" href="https://mobaxterm.mobatek.net" target="_blank" rel="noopener"><div class="top"><span class="name">MobaXterm</span><span class="badge b-pa">Freemium</span></div><div class="meta"><i>Windows</i></div><div class="desc">全家桶：内置 X server + SSH + SFTP + RDP/VNC + 宏。</div></a>
+      <a class="card" href="https://www.vandyke.com" target="_blank" rel="noopener"><div class="top"><span class="name">SecureCRT + SecureFX</span><span class="badge b-cl">闭源</span><span class="stars">~$119</span></div><div class="meta"><i>全平台</i></div><div class="desc">企业合规标杆：脚本化、FIPS。</div></a>
+      <a class="card" href="https://www.emtec.com/zoc/" target="_blank" rel="noopener"><div class="top"><span class="name">ZOC</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Win/mac</i></div><div class="desc">原生跨平台，4 会话仅 ~34MB 内存。</div><div class="diff">常被用来对比 Electron 系 200MB+</div></a>
+      <a class="card" href="https://winscp.net" target="_blank" rel="noopener"><div class="top"><span class="name">WinSCP</span><span class="badge b-os">开源 GPL</span></div><div class="meta"><i>Windows</i></div><div class="desc">SFTP/SCP/FTP 图形化王者，可联动 PuTTY。</div></a>
+      <a class="card" href="https://www.solarwinds.com/free-tools/solar-putty" target="_blank" rel="noopener"><div class="top"><span class="name">Solar-PuTTY / SmarTTY / Tera Term</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Windows</i></div><div class="desc">会话管理器 / 标签+SFTP 面板 / 串口+Telnet 老牌（嵌入式圈）。</div></a>
+      <a class="card" href="https://remotedesktopmanager.com" target="_blank" rel="noopener"><div class="top"><span class="name">Remote Desktop Manager</span><span class="badge b-cl">闭源</span><span class="stars">Devolutions</span></div><div class="meta"><i>全平台</i></div><div class="desc">企业级连接管理中枢：RDP/VNC/SSH/数据库/VPN 凭据库一体。</div></a>
+      <a class="card" href="https://www.royalapps.com" target="_blank" rel="noopener"><div class="top"><span class="name">Royal TS</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Win/mac/Linux</i></div><div class="desc">文档化组织凭据与连接的管理中枢。</div></a>
+      <a class="card" href="https://servercat.app" target="_blank" rel="noopener"><div class="top"><span class="name">ServerCat</span><span class="badge b-cl">闭源+部分开源</span></div><div class="meta"><i>iOS/macOS</i></div><div class="desc">移动端 SSH + Docker + 服务器监控。</div></a>
+      <a class="card" href="https://www.terminal.icu" target="_blank" rel="noopener"><div class="top"><span class="name">XTerminal</span><span class="badge b-cl">闭源国产</span></div><div class="meta"><i>全平台</i></div><div class="desc">终端全家桶：SSH+SFTP+转发+监控+AI 助手「小易」（免费 50 次/天）。</div><div class="diff">AI 是核心卖点，与 electerm AI 正面竞争</div></a>
+      <a class="card" href="https://www.hostbuf.com" target="_blank" rel="noopener"><div class="top"><span class="name">FinalShell</span><span class="badge b-cl">闭源国产</span></div><div class="meta"><i>Java</i><i>全平台</i></div><div class="desc">可视化监控 + SFTP + 批量命令，内存 200MB+ 有争议。</div></a>
+      <a class="card" href="https://github.com/Aechoterm/Aechoterm" target="_blank" rel="noopener"><div class="top"><span class="name">Aechoterm 闪令</span><span class="badge b-cl">闭源国产</span><span class="stars">236★</span><span class="forks">54 fork</span></div><div class="meta"><i>Gitee</i><i>信创</i></div><div class="desc">免费跨平台 SSH/SFTP：批量输入、云同步、抓包，Gitee 托管文档。</div></a>
     </div>
   </section>
 
   <section data-g="b">
     <div class="sec-head"><h2>B 类</h2><span class="tag">终端模拟器</span><span class="cnt">本地 shell 为主</span></div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">Windows Terminal</span><span class="badge b-os">开源</span><span class="stars">105k★</span></div><div class="meta"><i>C++</i><i>微软官方</i></div><div class="desc">GPU 加速、标签/分屏、OpenSSH 集成。</div></div>
-      <div class="card"><div class="top"><span class="name">Alacritty</span><span class="badge b-os">开源</span><span class="stars">65.8k★</span></div><div class="meta"><i>Rust/OpenGL</i></div><div class="desc">极简极速，无标签无 GUI 配置，靠 tmux 搭配。</div></div>
-      <div class="card"><div class="top"><span class="name">Ghostty</span><span class="badge b-os">开源 MIT</span><span class="stars">61.6k★</span></div><div class="meta"><i>Zig</i></div><div class="desc">2025 爆发的原生 UI 终端新贵。</div></div>
-      <div class="card"><div class="top"><span class="name">Termux</span><span class="badge b-os">开源</span><span class="stars">61.6k★</span></div><div class="meta"><i>Android</i></div><div class="desc">Android 终端 + Linux 环境基底。</div></div>
-      <div class="card"><div class="top"><span class="name">Hyper</span><span class="badge b-os">开源 MIT</span><span class="stars">44.7k★</span></div><div class="meta"><i>Electron</i><i>Vercel</i></div><div class="desc">Electron 终端先行者，React 插件化。</div></div>
-      <div class="card"><div class="top"><span class="name">kitty</span><span class="badge b-os">开源 GPL</span><span class="stars">35.1k★</span></div><div class="meta"><i>Python+C/GPU</i></div><div class="desc">GPU 加速 + kittens 扩展框架。</div></div>
-      <div class="card"><div class="top"><span class="name">WezTerm</span><span class="badge b-os">开源 MIT</span><span class="stars">29k★</span></div><div class="meta"><i>Rust</i></div><div class="desc">GPU 终端 + 内置多路复用器（类 tmux），Lua 配置。</div></div>
-      <div class="card"><div class="top"><span class="name">eDEX-UI</span><span class="badge b-os">开源（停更）</span><span class="stars">29k★</span></div><div class="meta"><i>Electron</i></div><div class="desc">科幻 TRON 风全屏终端 + 系统监控。</div></div>
-      <div class="card"><div class="top"><span class="name">iTerm2</span><span class="badge b-os">开源 GPL</span><span class="stars">18.1k★</span></div><div class="meta"><i>Objective-C</i><i>macOS</i></div><div class="desc">macOS 王牌：分屏、热键窗口、搜索。</div></div>
-      <div class="card"><div class="top"><span class="name">Tilix</span><span class="badge b-os">开源 MPL</span><span class="stars">5.7k★</span></div><div class="meta"><i>D/GTK</i><i>Linux</i></div><div class="desc">GTK 平铺终端，多分屏布局与会话分组。</div></div>
+      <a class="card" href="https://github.com/microsoft/terminal" target="_blank" rel="noopener"><div class="top"><span class="name">Windows Terminal</span><span class="badge b-os">开源</span><span class="stars">105k★</span><span class="forks">9.6k fork</span></div><div class="meta"><i>C++</i><i>微软官方</i></div><div class="desc">GPU 加速、标签/分屏、OpenSSH 集成。</div></a>
+      <a class="card" href="https://github.com/alacritty/alacritty" target="_blank" rel="noopener"><div class="top"><span class="name">Alacritty</span><span class="badge b-os">开源</span><span class="stars">65.8k★</span><span class="forks">3.6k fork</span></div><div class="meta"><i>Rust/OpenGL</i></div><div class="desc">极简极速，无标签无 GUI 配置，靠 tmux 搭配。</div></a>
+      <a class="card" href="https://ghostty.org" target="_blank" rel="noopener"><div class="top"><span class="name">Ghostty</span><span class="badge b-os">开源 MIT</span><span class="stars">61.6k★</span></div><div class="meta"><i>Zig</i></div><div class="desc">2025 爆发的原生 UI 终端新贵。</div></a>
+      <a class="card" href="https://github.com/termux/termux-app" target="_blank" rel="noopener"><div class="top"><span class="name">Termux</span><span class="badge b-os">开源</span><span class="stars">61.6k★</span><span class="forks">7.7k fork</span></div><div class="meta"><i>Android</i></div><div class="desc">Android 终端 + Linux 环境基底。</div></a>
+      <a class="card" href="https://github.com/vercel/hyper" target="_blank" rel="noopener"><div class="top"><span class="name">Hyper</span><span class="badge b-os">开源 MIT</span><span class="stars">44.7k★</span><span class="forks">3.6k fork</span></div><div class="meta"><i>Electron</i><i>Vercel</i></div><div class="desc">Electron 终端先行者，React 插件化。</div></a>
+      <a class="card" href="https://github.com/kovidgoyal/kitty" target="_blank" rel="noopener"><div class="top"><span class="name">kitty</span><span class="badge b-os">开源 GPL</span><span class="stars">35.1k★</span><span class="forks">1.5k fork</span></div><div class="meta"><i>Python+C/GPU</i></div><div class="desc">GPU 加速 + kittens 扩展框架。</div></a>
+      <a class="card" href="https://github.com/wez/wezterm" target="_blank" rel="noopener"><div class="top"><span class="name">WezTerm</span><span class="badge b-os">开源 MIT</span><span class="stars">29.1k★</span><span class="forks">1.8k fork</span></div><div class="meta"><i>Rust</i></div><div class="desc">GPU 终端 + 内置多路复用器（类 tmux），Lua 配置。</div></a>
+      <a class="card" href="https://github.com/GitSquared/edex-ui" target="_blank" rel="noopener"><div class="top"><span class="name">eDEX-UI</span><span class="badge b-os">开源（停更）</span><span class="stars">45.1k★</span><span class="forks">3.2k fork</span></div><div class="meta"><i>Electron</i></div><div class="desc">科幻 TRON 风全屏终端 + 系统监控。</div></a>
+      <a class="card" href="https://iterm2.com" target="_blank" rel="noopener"><div class="top"><span class="name">iTerm2</span><span class="badge b-os">开源 GPL</span><span class="stars">18.1k★</span></div><div class="meta"><i>Objective-C</i><i>macOS</i></div><div class="desc">macOS 王牌：分屏、热键窗口、搜索。</div></a>
+      <a class="card" href="https://github.com/gnunn1/tilix" target="_blank" rel="noopener"><div class="top"><span class="name">Tilix</span><span class="badge b-os">开源 MPL</span><span class="stars">5.7k★</span><span class="forks">324 fork</span></div><div class="meta"><i>D/GTK</i><i>Linux</i></div><div class="desc">GTK 平铺终端，多分屏布局与会话分组。</div></a>
+      <a class="card" href="https://www.warp.dev" target="_blank" rel="noopener"><div class="top"><span class="name">Warp</span><span class="badge b-cl">闭源 AI 终端</span></div><div class="meta"><i>Rust</i></div><div class="desc">AI 原生终端代表：像编辑器一样输入、AI 建议、Warp Drive、Agentic 开发环境；Agent 已拆成 CLI 可跨 SSH/tmux 运行。</div><div class="diff">与 electerm 的「AI 助手」是正面叙事竞争</div></a>
     </div>
   </section>
 
   <section data-g="c">
     <div class="sec-head"><h2>C 类</h2><span class="tag">远程桌面 / 多协议</span><span class="cnt">RDP/VNC 侧</span></div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">RustDesk</span><span class="badge b-os">开源 AGPL</span><span class="stars">124.7k★</span></div><div class="meta"><i>Rust/Flutter</i></div><div class="desc">开源 TeamViewer 替代，自托管中继，全平台含移动端。</div></div>
-      <div class="card"><div class="top"><span class="name">FreeRDP</span><span class="badge b-os">开源 Apache</span><span class="stars">13.7k★</span></div><div class="meta"><i>C</i></div><div class="desc">RDP 协议参考实现库，众多客户端的底层。</div></div>
-      <div class="card"><div class="top"><span class="name">mRemoteNG</span><span class="badge b-os">开源 GPL</span><span class="stars">11.1k★</span></div><div class="meta"><i>C#</i><i>Windows</i></div><div class="desc">多协议（RDP/VNC/SSH/HTTP）标签式连接管理中枢。</div></div>
-      <div class="card"><div class="top"><span class="name">Remmina</span><span class="badge b-os">开源 GPL</span><span class="stars">GitLab 主仓</span></div><div class="meta"><i>C/GTK</i><i>Linux</i></div><div class="desc">RDP/VNC/SPICE/SSH/SFTP 多协议桌面客户端。</div><div class="diff">协议覆盖最接近 electerm 的 GUI</div></div>
-      <div class="card"><div class="top"><span class="name">Xpra</span><span class="badge b-os">开源 GPL</span><span class="stars">3k★</span></div><div class="meta"><i>Python</i></div><div class="desc">远程单应用无缝显示（seamless）+ 屏幕共享。</div></div>
-      <div class="card"><div class="top"><span class="name">electrdp</span><span class="badge b-os">开源</span><span class="stars">29★</span></div><div class="meta"><i>Electron/mtsc.js</i></div><div class="desc">纯 JS 实现 RDP 的 Electron 客户端。</div><div class="diff">与 electerm 的 RDP 实现同源（mtsc.js）</div></div>
+      <a class="card" href="https://github.com/rustdesk/rustdesk" target="_blank" rel="noopener"><div class="top"><span class="name">RustDesk</span><span class="badge b-os">开源 AGPL</span><span class="stars">124.7k★</span><span class="forks">19.3k fork</span></div><div class="meta"><i>Rust/Flutter</i></div><div class="desc">开源 TeamViewer 替代，自托管中继，全平台含移动端。</div></a>
+      <a class="card" href="https://github.com/FreeRDP/FreeRDP" target="_blank" rel="noopener"><div class="top"><span class="name">FreeRDP</span><span class="badge b-os">开源 Apache</span><span class="stars">13.8k★</span><span class="forks">15.5k fork</span></div><div class="meta"><i>C</i></div><div class="desc">RDP 协议参考实现库，众多客户端的底层。</div></a>
+      <a class="card" href="https://github.com/mRemoteNG/mRemoteNG" target="_blank" rel="noopener"><div class="top"><span class="name">mRemoteNG</span><span class="badge b-os">开源 GPL</span><span class="stars">11.1k★</span><span class="forks">1.6k fork</span></div><div class="meta"><i>C#</i><i>Windows</i></div><div class="desc">多协议（RDP/VNC/SSH/HTTP）标签式连接管理中枢。</div></a>
+      <a class="card" href="https://gitlab.com/Remmina/Remmina" target="_blank" rel="noopener"><div class="top"><span class="name">Remmina</span><span class="badge b-os">开源 GPL</span><span class="stars">GitLab 主仓</span></div><div class="meta"><i>C/GTK</i><i>Linux</i></div><div class="desc">RDP/VNC/SPICE/SSH/SFTP 多协议桌面客户端。</div><div class="diff">协议覆盖最接近 electerm 的 GUI</div></a>
+      <a class="card" href="https://github.com/Xpra-org/xpra" target="_blank" rel="noopener"><div class="top"><span class="name">Xpra</span><span class="badge b-os">开源 GPL</span><span class="stars">3k★</span><span class="forks">237 fork</span></div><div class="meta"><i>Python</i></div><div class="desc">远程单应用无缝显示（seamless）+ 屏幕共享。</div></a>
+      <a class="card" href="https://github.com/egg123/electrdp" target="_blank" rel="noopener"><div class="top"><span class="name">electrdp</span><span class="badge b-os">开源</span><span class="stars">29★</span><span class="forks">8 fork</span></div><div class="meta"><i>Electron/mtsc.js</i></div><div class="desc">纯 JS 实现 RDP 的 Electron 客户端。</div><div class="diff">与 electerm 的 RDP 实现同源（mtsc.js）</div></a>
     </div>
   </section>
 
   <section data-g="d">
     <div class="sec-head"><h2>D 类</h2><span class="tag">CLI / TUI 增强</span><span class="cnt">命令行侧 SSH 管理器</span></div>
     <div class="grid">
-      <div class="card"><div class="top"><span class="name">lazyssh</span><span class="badge b-os">开源</span><span class="stars">4k★</span></div><div class="meta"><i>Go</i></div><div class="desc">lazydocker 风格的 TUI SSH 管理器。</div></div>
-      <div class="card"><div class="top"><span class="name">assh</span><span class="badge b-os">开源</span><span class="stars">3.2k★</span></div><div class="meta"><i>Go</i></div><div class="desc">智能 SSH 包装器：配置图形化、按需隧道、连接统计。</div></div>
-      <div class="card"><div class="top"><span class="name">trzsz-ssh (tssh)</span><span class="badge b-os">开源 MIT</span><span class="stars">2.7k★</span></div><div class="meta"><i>Go</i></div><div class="desc">openssh 即插即用替代：会话记忆、批量执行、trzsz 传输。</div><div class="diff">与 electerm 支持的 rz/sz 增强协议同族</div></div>
+      <a class="card" href="https://github.com/Adembc/lazyssh" target="_blank" rel="noopener"><div class="top"><span class="name">lazyssh</span><span class="badge b-os">开源</span><span class="stars">4k★</span><span class="forks">152 fork</span></div><div class="meta"><i>Go</i></div><div class="desc">lazydocker 风格的 TUI SSH 管理器。</div></a>
+      <a class="card" href="https://github.com/moul/assh" target="_blank" rel="noopener"><div class="top"><span class="name">assh</span><span class="badge b-os">开源</span><span class="stars">3.2k★</span><span class="forks">163 fork</span></div><div class="meta"><i>Go</i></div><div class="desc">智能 SSH 包装器：配置图形化、按需隧道、连接统计。</div></a>
+      <a class="card" href="https://github.com/trzsz/trzsz-ssh" target="_blank" rel="noopener"><div class="top"><span class="name">trzsz-ssh (tssh)</span><span class="badge b-os">开源 MIT</span><span class="stars">2.7k★</span><span class="forks">155 fork</span></div><div class="meta"><i>Go</i></div><div class="desc">openssh 即插即用替代：会话记忆、批量执行、trzsz 传输。</div><div class="diff">与 electerm 支持的 rz/sz 增强协议同族</div></a>
+    </div>
+  </section>
+
+  <section data-g="e">
+    <div class="sec-head"><h2>E 类</h2><span class="tag">堡垒机 / PAM / SSH 访问网关</span><span class="cnt">企业安全侧</span></div>
+    <p class="sec-desc">服务端/门户形态的安全访问管理；electerm 是客户端形态，若强化凭据/审计与 MCP 服务端能力将与之互补或竞争。</p>
+    <div class="grid">
+      <a class="card" href="https://github.com/gravitational/teleport" target="_blank" rel="noopener"><div class="top"><span class="name">Teleport</span><span class="badge b-os">开源</span><span class="stars">21k★</span><span class="forks">2.2k fork</span></div><div class="meta"><i>Go</i></div><div class="desc">零信任访问平台：SSH/K8s/DB/Web 统一入口，证书化访问、会话录制、审计。</div><div class="diff">企业级事实标准</div></a>
+      <a class="card" href="https://github.com/jumpserver/jumpserver" target="_blank" rel="noopener"><div class="top"><span class="name">JumpServer</span><span class="badge b-os">开源</span><span class="stars">31.6k★</span><span class="forks">5.8k fork</span></div><div class="meta"><i>Python/Django</i><i>国产</i></div><div class="desc">国产开源 PAM 标杆：浏览器内按需访问 SSH/RDP/K8s/Database/RemoteApp，含终端与审计。</div><div class="diff">国内堡垒机市场头部</div></a>
+      <a class="card" href="https://github.com/Eugeny/warpgate" target="_blank" rel="noopener"><div class="top"><span class="name">Warpgate</span><span class="badge b-os">开源</span><span class="stars">8k★</span><span class="forks">390 fork</span></div><div class="meta"><i>Rust</i></div><div class="desc">无需客户端软件的智能堡垒机：同时代理 <b>SSH / HTTPS / Kubernetes / MySQL / PostgreSQL / RDP / VNC</b>。</div><div class="diff">协议广度与 electerm 同构的「服务端形态」</div></a>
+      <a class="card" href="https://github.com/hashicorp/boundary" target="_blank" rel="noopener"><div class="top"><span class="name">Boundary</span><span class="badge b-os">开源</span><span class="stars">4.1k★</span><span class="forks">315 fork</span></div><div class="meta"><i>Go</i><i>HashiCorp</i></div><div class="desc">身份驱动的访问管理：动态凭据、会话授权，面向云基础设施。</div><div class="diff">云原生访问控制</div></a>
+      <a class="card" href="https://github.com/shellinabox/shellinabox" target="_blank" rel="noopener"><div class="top"><span class="name">OpenBastion / shellinabox 类自建跳板</span><span class="badge b-os">开源</span><span class="stars">3.1k★</span><span class="forks">488 fork</span></div><div class="meta"><i>多</i></div><div class="desc">以 SSH ProxyJump / 跳板机脚本或轻量自建网关实现集中跳转。</div><div class="diff">运维自建常见形态</div></a>
+    </div>
+  </section>
+
+  <section data-g="f">
+    <div class="sec-head"><h2>F 类</h2><span class="tag">服务器 / 容器管理面板</span><span class="cnt">Web 自托管</span></div>
+    <p class="sec-desc">面板/平台形态（管服务器与容器）；HexHub / Nexterm / 1Panel 已在向客户端领域渗透。</p>
+    <div class="grid">
+      <a class="card" href="https://github.com/portainer/portainer" target="_blank" rel="noopener"><div class="top"><span class="name">Portainer</span><span class="badge b-os">开源/商业</span><span class="stars">38.6k★</span><span class="forks">2.9k fork</span></div><div class="meta"><i>Go</i></div><div class="desc">经典 Docker/K8s 容器管理面板：容器、镜像、Stacks（Compose）、日志、控制台。</div><div class="diff">容器管理事实标准</div></a>
+      <a class="card" href="https://github.com/coollabsio/coolify" target="_blank" rel="noopener"><div class="top"><span class="name">Coolify</span><span class="badge b-os">开源</span><span class="stars">62.4k★</span><span class="forks">5.6k fork</span></div><div class="meta"><i>自托管</i></div><div class="desc">自托管 Heroku/Vercel 替代：应用/数据库/服务一键部署，Git 集成。</div><div class="diff">PaaS 体验</div></a>
+      <a class="card" href="https://github.com/Dokploy/dokploy" target="_blank" rel="noopener"><div class="top"><span class="name">Dokploy</span><span class="badge b-os">开源</span><span class="stars">37.6k★</span><span class="forks">3k fork</span></div><div class="meta"><i>自托管</i></div><div class="desc">现代化 PaaS：可视化部署、容器编排、Compose 一键上云。</div><div class="diff">2025 热门的部署面板</div></a>
+      <a class="card" href="https://github.com/caprover/caprover" target="_blank" rel="noopener"><div class="top"><span class="name">CapRover</span><span class="badge b-os">开源</span><span class="stars">15.2k★</span><span class="forks">1k fork</span></div><div class="meta"><i>Node</i></div><div class="desc">轻量级 PaaS：一键部署应用与数据库。</div><div class="diff">轻量自托管</div></a>
+      <a class="card" href="https://github.com/webmin/webmin" target="_blank" rel="noopener"><div class="top"><span class="name">Webmin</span><span class="badge b-os">开源</span><span class="stars">6.1k★</span><span class="forks">794 fork</span></div><div class="meta"><i>Perl</i></div><div class="desc">老牌 Linux/Unix Web 系统管理：用户、服务、网络、软件包。</div><div class="diff">历史悠久</div></a>
+      <a class="card" href="https://www.bt.cn" target="_blank" rel="noopener"><div class="top"><span class="name">宝塔面板（BT）</span><span class="badge b-cl">闭源国产</span></div><div class="meta"><i>Web</i><i>国产</i></div><div class="desc">国内普及度最高的服务器运维面板：LAMP/LNMP 一键部署、网站/FTP/数据库/监控/SSL + Docker。</div><div class="diff">用户基数最大的国外面板</div></a>
+    </div>
+  </section>
+
+  <section data-g="g">
+    <div class="sec-head"><h2>G 类</h2><span class="tag">AI 原生终端 / AI×SSH（MCP）</span><span class="cnt">新战场</span></div>
+    <p class="sec-desc">electerm 已内置 MCP server；「让 AI 直接驱动终端与数据库」正成为标配入口。</p>
+    <div class="grid">
+      <a class="card" href="https://www.warp.dev" target="_blank" rel="noopener"><div class="top"><span class="name">Warp</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Rust</i></div><div class="desc">AI 原生终端 + Agent 模式，可跨 SSH/tmux 运行 Agent CLI。</div><div class="diff">AI 终端叙事代表</div></a>
+      <a class="card" href="https://github.com/classfang/ssh-mcp-server" target="_blank" rel="noopener"><div class="top"><span class="name">ssh-mcp-server</span><span class="badge b-os">开源</span><span class="stars">910★</span><span class="forks">114 fork</span></div><div class="meta"><i>MCP</i></div><div class="desc">基于 SSH 的 Model Context Protocol 服务端：让 AI Agent 标准化地安全执行远程 SSH 命令。</div><div class="diff">与 electerm <b>内置 MCP server</b> 直接同类</div></a>
+      <a class="card" href="https://github.com/Echoqili/ssh-licco" target="_blank" rel="noopener"><div class="top"><span class="name">ssh-licco</span><span class="badge b-os">开源</span><span class="stars">3★</span><span class="forks">0 fork</span></div><div class="meta"><i>MCP</i></div><div class="desc">为 AI 模型提供 SSH 能力的 MCP Server。</div><div class="diff">MCP×SSH 同类</div></a>
+      <a class="card" href="https://github.com/Bing-Xuan-Lu/MCP_NodeServer" target="_blank" rel="noopener"><div class="top"><span class="name">MCP_NodeServer</span><span class="badge b-os">开源</span></div><div class="meta"><i>MCP</i></div><div class="desc">多功能 AI Agent MCP 服务端：AI 直接读写文件、操作 DB、执行 PHP、<b>部署 SFTP</b>。</div><div class="diff">AI 直接操作 DB/SFTP</div></a>
+    </div>
+  </section>
+
+  <section data-g="h">
+    <div class="sec-head"><h2>H 类</h2><span class="tag">SFTP / FTP 图形化客户端</span><span class="cnt">纯文件方向</span></div>
+    <div class="grid">
+      <a class="card" href="https://filezilla-project.org" target="_blank" rel="noopener"><div class="top"><span class="name">FileZilla</span><span class="badge b-os">开源 GPL</span></div><div class="meta"><i>跨平台</i></div><div class="desc">最强通用 FTP/SFTP 桌面客户端，可脚本化。</div><div class="diff">electerm 亦内置 FTP/SFTP 客户端</div></a>
+      <a class="card" href="https://cyberduck.io" target="_blank" rel="noopener"><div class="top"><span class="name">Cyberduck</span><span class="badge b-os">开源 GPL</span></div><div class="meta"><i>跨平台</i></div><div class="desc">FTP/SFTP/WebDAV/云存储客户端，macOS UI 精美。</div><div class="diff">云存储支持广</div></a>
+      <a class="card" href="https://panic.com/transmit" target="_blank" rel="noopener"><div class="top"><span class="name">Transmit</span><span class="badge b-cl">闭源 Panic</span></div><div class="meta"><i>macOS</i></div><div class="desc">macOS 体验天花板级文件传输客户端：SFTP/S3/WebDAV。</div><div class="diff">体验标杆</div></a>
+      <a class="card" href="https://binarynights.com" target="_blank" rel="noopener"><div class="top"><span class="name">ForkLift</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>macOS</i></div><div class="desc">双窗格文件管理器 + SFTP/S3/WebDAV 传输。</div><div class="diff">文件管理器取向</div></a>
+    </div>
+  </section>
+
+  <section data-g="i">
+    <div class="sec-head"><h2>I 类</h2><span class="tag">Web 数据库管理</span><span class="cnt">浏览器内 DB</span></div>
+    <div class="grid">
+      <a class="card" href="https://www.phpmyadmin.net" target="_blank" rel="noopener"><div class="top"><span class="name">phpMyAdmin</span><span class="badge b-os">开源 GPL</span></div><div class="meta"><i>PHP</i></div><div class="desc">PHP 生态最知名的 MySQL/MariaDB Web 管理面板。</div><div class="diff">经典</div></a>
+      <a class="card" href="https://www.adminer.org" target="_blank" rel="noopener"><div class="top"><span class="name">Adminer</span><span class="badge b-os">开源 GPL</span></div><div class="meta"><i>PHP</i></div><div class="desc">单 PHP 文件多库 Web 管理（MySQL/PG/SQLite/MSSQL…），轻量安全。</div><div class="diff">极简单文件</div></a>
+      <a class="card" href="https://github.com/dbeaver/cloudbeaver" target="_blank" rel="noopener"><div class="top"><span class="name">CloudBeaver</span><span class="badge b-os">开源 Apache</span><span class="stars">5.2k★</span><span class="forks">566 fork</span></div><div class="meta"><i>Web</i><i>DBeaver 团队</i></div><div class="desc">DBeaver 的 Web 版：浏览器直接管理多库，无需安装。</div><div class="diff">桌面 DB 王者的 Web 形态</div></a>
+      <a class="card" href="https://www.pgadmin.org" target="_blank" rel="noopener"><div class="top"><span class="name">pgAdmin 4</span><span class="badge b-os">开源</span></div><div class="meta"><i>Python/Web</i></div><div class="desc">PostgreSQL 官方 Web/桌面管理工具。</div><div class="diff">官方出品</div></a>
+      <a class="card" href="https://github.com/nocodb/nocodb" target="_blank" rel="noopener"><div class="top"><span class="name">NocoDB</span><span class="badge b-os">开源</span><span class="stars">65.1k★</span><span class="forks">5.1k fork</span></div><div class="meta"><i>Node</i></div><div class="desc">「开源 Airtable」：把数据库变成电子表格式协作界面。</div><div class="diff">低代码协作取向</div></a>
+      <a class="card" href="https://www.sqlynx.com" target="_blank" rel="noopener"><div class="top"><span class="name">SQLynx</span><span class="badge b-pa">商业/Web</span></div><div class="meta"><i>Web</i></div><div class="desc">面向 DBA 与开发的 Web 数据库管理工具。</div><div class="diff">企业向</div></a>
+    </div>
+  </section>
+
+  <section data-g="j">
+    <div class="sec-head"><h2>J 类</h2><span class="tag">移动端 SSH / 运维</span><span class="cnt">手机/平板</span></div>
+    <div class="grid">
+      <a class="card" href="https://github.com/connectbot/connectbot" target="_blank" rel="noopener"><div class="top"><span class="name">ConnectBot</span><span class="badge b-os">开源</span><span class="stars">3.5k★</span><span class="forks">736 fork</span></div><div class="meta"><i>Android</i></div><div class="desc">开源老牌 Android SSH 终端，支持端口转发。</div><div class="diff">Android 经典</div></a>
+      <a class="card" href="https://juicessh.com" target="_blank" rel="noopener"><div class="top"><span class="name">JuiceSSH</span><span class="badge b-cl">闭源</span></div><div class="meta"><i>Android</i></div><div class="desc">曾最流行的 Android SSH 客户端（2025-12 已从 Google Play 下架）。</div><div class="diff">标签/配色/片段功能经典</div></a>
+      <a class="card" href="https://play.google.com/store/search?q=turbo%20ssh&c=apps" target="_blank" rel="noopener"><div class="top"><span class="name">Turbo SSH</span><span class="badge b-pa">Freemium</span></div><div class="meta"><i>Android</i></div><div class="desc">轻量 Android SSH/Telnet 客户端。</div><div class="diff">轻量</div></a>
+      <a class="card" href="https://apps.apple.com/cn/app/hqssh-ai-sftp/id6759682948" target="_blank" rel="noopener"><div class="top"><span class="name">HQSSH</span><span class="badge b-cl">闭源 $38</span></div><div class="meta"><i>iOS</i></div><div class="desc">SSH 终端 + SFTP 文件管理 + AI CLI 启动器。</div><div class="diff">移动端 AI+SSH</div></a>
+    </div>
+  </section>
+
+  <section data-g="road">
+    <div class="sec-head"><h2>未来方向</h2><span class="tag">路线图 · 基于本调研</span><span class="cnt">分析</span></div>
+    <p class="sec-desc">协议广度红利见顶，下一程靠「<b>AI×MCP 领先 + 数据库四合一 + 团队化</b>」三件事：AI 是防守（守住唯一领先项）、数据库是进攻（抢占最后一块空白）、团队是扩张（打开 B 端）。</p>
+    <div class="grid">
+      <div class="card analysis"><div class="top"><span class="name">三个硬事实</span></div><div class="desc">① 协议广度已不稀缺（NyaTerm/uniTerm/HexHub/Nexterm 都在堆）；② 竞争焦点转向 <b>AI 原生</b>与<b>一体化工作台</b>；③ 新战线是 <b>AI×SSH（MCP）</b> 与 <b>Web 自托管</b>。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">electerm 的真实位置</span></div><div class="desc">✅ 协议广度第一梯队（含 RDP/VNC/SPICE 罕见）、<b>AI 助手 + 内置 MCP server 已领先</b>；❌ 数据库空白、团队/审计弱、Web 形态弱、Electron 体积软肋。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">P0 · 深化 AI×MCP</span><span class="badge b-os">低本高效</span></div><div class="desc">唯一<b>已领先</b>的赛道，竞品刚起步。补齐终端/文件/AI 工具集，支持外部 Agent（Claude/Cursor）驱动 electerm，低成本拉开差距。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">P1 · 数据库支持（MVP）</span><span class="badge b-pa">进攻</span></div><div class="desc">真实空白，SSH 隧道/连接管理/AI 可直接复用；对标 HexHub/PortX/NexTerm，走<b>开源「终端+SFTP+库+AI」四合一</b>差异化。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">P2 · 团队同步 / 审计</span></div><div class="desc">缩小与 Termius 云同步、JumpServer/Teleport 审计的差距，打开 B 端市场。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">P3 · Web 自托管强化</span></div><div class="desc">增长最快赛道，但 Termix(15.3k★)/Nexterm/1Panel 已密集，属追赶型。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">P4 · 性能 / 轻量化</span></div><div class="desc">Electron 200–300MB 软肋（Tabby/Wave 同命）。长期命题：Tauri 实验或体积治理。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">数据库专题 · 为什么值得做</span></div><div class="desc">已具备 SSH 隧道(跳板) + 连接管理 + AI + MCP —— 正是"安全连库"的全部前置；而 DBeaver/Beekeeper/DbGate <b>都没有终端</b>，开源阵营无人全占四合一。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">数据库专题 · 技术路径</span></div><div class="desc">主进程(Node) 接 mysql2 / pg / mongodb / redis / sqlite 驱动 → <b>复用现有 SSH 隧道连库</b> → 渲染层 SQL 编辑器 + 数据网格 → MCP 暴露 query_db 给 AI。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">数据库专题 · MVP 建议</span></div><div class="desc">先仅 <b>MySQL / PostgreSQL / Redis</b>；<b>只读</b>查询 + 表结构浏览 + 数据网格 + 导出 CSV/JSON；与终端/SFTP <b>同一连接卡片三视图切换</b>；AI 加成（NL2SQL、结果解释）。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">数据库专题 · 风险</span></div><div class="desc">体积/维护（驱动<b>按需动态加载</b>）、凭据安全（走现有加密体系）、别陷"全库支持"陷阱（先主流库、后按需国产达梦/金仓）。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">路线图 · 近期 0–3 月</span></div><div class="desc">AI×MCP 工具集补齐 + 支持外部 Agent；同时<b>立项数据库 MVP（只读）</b>。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">路线图 · 中期 3–9 月</span></div><div class="desc">数据库扩展主流库 + 写入/DDL + 库级 AI；补团队同步 / 会话共享。</div></div>
+      <div class="card analysis"><div class="top"><span class="name">路线图 · 长期 9 月+</span></div><div class="desc">评估 Web 自托管形态；性能命题（Tauri 实验或体积治理）。</div></div>
     </div>
   </section>
 
   <div class="concl">
-    <h2>electerm 竞争坐标系 · 四条结论</h2>
-    <div class="item"><span class="no">1</span><div><b>协议广度仍是最强差异化。</b>桌面形态下「终端+SSH+SFTP+FTP+Telnet+串口+RDP/VNC/SPICE+AI+MCP」全开源无对位者；Web 形态最接近的是 Nexterm（还多了 Docker/Proxmox 与多组织 SSO），桌面形态最接近的是 Tabby / Wave。</div></div>
-    <div class="item"><span class="no">2</span><div><b>两条增长曲线值得盯防：</b>Web 自托管平台（Termix 一年冲到 15.3k★，同级体量）与 AI 原生终端（Wave 22.4k★ 的块式交互 + 本地 LLM）。</div></div>
-    <div class="item"><span class="no">3</span><div><b>「终端 + SFTP + 数据库」三合一是真实空白。</b>开源桌面阵营只有国产 NexTerm（新）在做，PortX 闭源——这是 electerm 可抢占的生态位（Beekeeper/DbGate/DBeaver 均无终端）。</div></div>
-    <div class="item"><span class="no">4</span><div><b>性能叙事仍是软肋：</b>Electron 200-300MB vs 原生 ZOC 34MB / WindTerm——但这是 Electron 阵营（含 Tabby/Wave/Hyper）的集体软肋，非 electerm 独有。</div></div>
+    <h2>electerm 竞争坐标系 · 五条结论</h2>
+    <div class="item"><span class="no">1</span><div><b>协议广度仍是最强差异化。</b>桌面形态下「终端+SSH+SFTP+FTP+Telnet+串口+RDP/VNC/SPICE+AI+MCP」全开源无对位者；Web 形态最接近的是 Nexterm（还多了 Docker/Proxmox 与多组织 SSO），桌面形态最接近的是 Tabby / Wave / NyaTerm。</div></div>
+    <div class="item"><span class="no">2</span><div><b>两条增长曲线值得盯防：</b>① Web 自托管平台（Termix 15.3k★ 一年冲到 electerm 同级，另有 serverdeck / bifrost0x-webssh / ShellNGN 涌现）；② AI 原生终端（Wave 22.4k★ 块式+本地 LLM、Warp 的 Agentic 终端、NyaTerm/Sageport 的 AI SSH）。</div></div>
+    <div class="item"><span class="no">3</span><div><b>「终端 + SFTP + 数据库」三合一是可抢占的生态位（但正被快速填补）。</b>新增大批玩家：HexHub / uniTerm / onetcli / Database Client / Dbctl / Chat2DB（闭源有 PortX、HexHub）。Beekeeper/DbGate/DBeaver 均无终端。</div></div>
+    <div class="item"><span class="no">4</span><div><b>AI×SSH（MCP）是必须盯紧的新战场。</b>electerm 已<b>内置 MCP server</b>；同类有 ssh-mcp-server / ssh-licco / MCP_NodeServer，以及 Warp/HexHub/NyaTerm/Sageport 的 AI 助手——「让 AI 直接驱动终端与数据库」正成为标配入口。</div></div>
+    <div class="item"><span class="no">5</span><div><b>性能叙事仍是软肋：</b>Electron 200-300MB vs 原生 ZOC 34MB / WindTerm——但这是 Electron 阵营（含 Tabby/Wave/Hyper）的集体软肋，非 electerm 独有。</div></div>
   </div>
 
-  <div class="foot">数据来源：GitHub API（star 实时）· Gitee · SourceForge · alternativeto.net · 厂商官网 · 生成于 2026-09-29</div>
+  <div class="foot">v3 全量扩充版 · 100+ 项 · A–J 十类 · 数据来源：GitHub API（star 实时）· Gitee · SourceForge · alternativeto.net · 各厂商官网与评测 · 生成于 2026-09-29</div>
 </div>
 
 <script>
@@ -208,7 +332,7 @@ function apply(){
     });
     sec.classList.toggle('hidden',n===0);
     const cnt=sec.querySelector('.cnt'); if(cnt)cnt.textContent=n+' 项';
-    shown+=n;
+    if(g!=='road')shown+=n;
   });
   document.getElementById('stTotal').textContent=shown;
 }
