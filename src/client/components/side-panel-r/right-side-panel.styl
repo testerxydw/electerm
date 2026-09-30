@@ -18,7 +18,9 @@
   // (layout.jsx reserves rightPanelWidth), so covering the footer is intended.
   &.right-side-panel-pinned
     top 0
-    bottom 0
+    // 停靠时与内容区同高：避让底部常显区（快捷键条 + footer + 状态栏），
+    // 否则面板会盖住 footer / 状态栏
+    bottom calc(var(--footer-stack-height, 62px) + var(--app-kbar-height, 0px))
 
   .drag-handle
     left 0

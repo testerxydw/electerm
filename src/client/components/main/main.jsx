@@ -190,7 +190,13 @@ export default auto(function Index (props) {
       '--title-bar-height': `${tbHeight}px`,
       '--footer-stack-height': `${footerHeight + sbHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`,
       // 底部紧贴 footer 之上的常显条（应用快捷键条）：侧栏/面板需避开，否则底部内容被遮挡
-      '--app-kbar-height': `${store.isMobile ? 0 : appKbarHeight}px`
+      '--app-kbar-height': `${store.isMobile ? 0 : appKbarHeight}px`,
+      // 右面板停靠(dock)时占用的宽度：快捷键条据此右边界让位（三栏并排）
+      '--right-panel-dock-width': `${
+        store.rightPanelVisible && store.rightPanelPinned && !store.isMobile
+          ? store.rightPanelWidth
+          : 0
+      }px`
     }
   }
   // Get active tab IDs

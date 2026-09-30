@@ -136,7 +136,11 @@ export default () => {
     rightPanelTab: 'ai',
     // 右面板「监控」页的资源采集：默认关闭，用户手动开启后才采集
     rightPanelMonitor: false,
-    rightPanelPinned: ls.getItem(rightPanelPinnedKey) === 'true',
+    // 对齐重设计草图：右面板默认**停靠(dock)**，内容区（终端/控制条）据此让位。
+    // 若是浮层(overlay)，内容区仍按全宽布局，右侧控制条图标会被面板盖住（实测 .term-controls 落在面板区域内）。
+    rightPanelPinned: ls.getItem(rightPanelPinnedKey) === null
+      ? true
+      : ls.getItem(rightPanelPinnedKey) === 'true',
     cmdHistoryInRightPanel: ls.getItem(cmdHistoryInRightPanelKey) === 'true',
     quickCommandsInRightPanel: ls.getItem(quickCommandsInRightPanelKey) === 'true',
     _rightPanelWidth: parseInt(ls.getItem(rightSidebarWidthKey), 10) || 308,

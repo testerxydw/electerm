@@ -886,6 +886,56 @@ text: "系统负载 | CPU | — | MEM | — | DISK | — | NET | —"
 
 ---
 
+## 第 22 轮 · 修复右面板遮挡内容区（用户红框报障）
+
+**时间**：2026-09-30 · **分支**：master
+**报障**：右上角图标组（`⌕ □ ⌄`）位置异常 / 底部快捷键条与状态栏挤在一起。
+
+### 排查（CDP 实测坐标）
+
+| 元素 | 实测 | 判定 |
+| --- | --- | --- |
+| `.right-side-panel` | `left 1131 → right 1439`（308px） | 右面板 |
+| `.terminal-control`（会话控制条） | `left 50 → right 1439` | **未扣减面板宽度** |
+| `.term-controls`（图标组） | `left 1395 → right 1429` | **落在面板区域内(1131+)，被面板盖住** ✗ |
+| `.term-wrap`（终端） | `left 50 → right 1439` | 同样未扣减 |
+
+### 根因
+
+第 15 轮把右面板改为**默认显示**时，其默认状态是 **overlay（浮层，`rightPanelPinned=false`）**。而 `layout.jsx` 只在 **pinned(dock)** 时才扣减宽度：
+
+```js
+const r = rightPanelVisible && rightPanelPinned && !isMobile ? rightPanelWidth : 0
+```
+
+于是浮层模式下内容区仍按全宽布局，右侧控制条图标被面板压在下面；底部快捷键条也因此横跨到面板下方。**草图是三栏并排**，应走 dock。
+
+### 修复
+
+| 项 | 改动 |
+| --- | --- |
+| 默认停靠 | `init-state.js`：`rightPanelPinned` 无存储值时默认 **`true`**（dock），内容区据此让位（`layout.jsx` 的 `r` 生效） |
+| 面板高度 | `right-side-panel.styl` 的 `.right-side-panel-pinned` 加 `bottom: calc(var(--footer-stack-height) + var(--app-kbar-height))`，避免盖住 footer/状态栏/快捷键条 |
+| 快捷键条让位 | `main.jsx` 注入 `--right-panel-dock-width`；`.app-kbar { right: var(--right-panel-dock-width, 0px) }`，使其落在内容区内 |
+
+### 验证（CDP 实测，停靠后）
+
+```
+pinned: true
+.term-controls: 1087 → 1121
+.right-side-panel: 1131 → 1439
+overlaps: false          ← 图标组已在面板左侧之外，不再被遮挡
+```
+
+**截图**：`self-test/r22-dock-fix.png` —— 图标组回到内容区右上；右面板独立成列；快捷键条右边界与面板左边界对齐；footer 与状态栏各就其位。
+
+### 说明
+
+- 该问题在**第 15 轮（右面板默认显示）引入**，此前默认隐藏所以未暴露；
+- 若用户此前手动点过"图钉"（pin），localStorage 内有值会覆盖默认 —— 用户侧如仍异常，点一次图钉或在应用内清站点数据即可。
+
+---
+
 ## 第 21 轮 · 监控改为「默认关闭，手动开启后采集」
 
 **时间**：2026-09-29 · **分支**：master
