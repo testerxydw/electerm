@@ -27,8 +27,9 @@
 .custom-modal-content
   position relative
   background var(--main)
-  border-radius var(--radius)
-  box-shadow var(--shadow-3)
+  // 对齐 v4 草图 ⑤：14px 圆角 + 描边环 + --shadow-3（浮层层级感）
+  border-radius var(--radius-lg)
+  box-shadow 0 0 0 1px var(--border), var(--shadow-3)
   margin-top 50px
   max-width calc(100vw - 48px)
 
@@ -38,6 +39,8 @@
   justify-content space-between
   padding 16px 24px
   border-bottom 1px solid var(--border)
+  // 对齐 v4 草图 ⑤：标题栏 8% 品牌渐变洗染（与 v4 面板语言一致）
+  background unquote('linear-gradient(90deg, color-mix(in srgb, var(--primary) 8%, transparent), transparent)')
 
 .custom-modal-title
   font-size 16px
@@ -88,6 +91,13 @@
   border none
   border-radius var(--radius-sm)
   cursor pointer
+
+// 主按钮（对齐 v4 草图 ⑤：hover 上浮 1px + 主色投影，transform 零布局位移）
+.custom-modal-ok-btn
+  transition transform var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease)
+  &:hover
+    transform translateY(-1px)
+    box-shadow 0 6px 18px unquote('color-mix(in srgb, var(--primary) 40%, transparent)')
   font-size 14px
   transition background var(--dur-2) var(--ease)
 

@@ -886,6 +886,42 @@ text: "系统负载 | CPU | — | MEM | — | DISK | — | NET | —"
 
 ---
 
+## 第 26 轮 · v4 深度层复核 ⑤ 弹窗
+
+**时间**：2026-09-30 · **分支**：master · **改动**：`common/modal.styl`
+
+### 草图规格 → 实现
+
+| v4 草图 ⑤ | 现状 | 改动 |
+| --- | --- | --- |
+| **14px 圆角 + 描边环 + --shadow-3** | `--radius`(10) + 仅 shadow-3 | `border-radius var(--radius-lg)`（14px）+ `box-shadow 0 0 0 1px var(--border), var(--shadow-3)` |
+| **标题栏 8% 品牌渐变洗染** | 无 | `linear-gradient(90deg, primary@8%, transparent)` |
+| 关闭钮 hover 反馈 | ✅ 已有（`--hover-bg` + 过渡） | 无需改 |
+| 保存按钮 hover **上浮 1px + 主色投影** | 无 | `.custom-modal-ok-btn:hover { translateY(-1px) + 0 6px 18px primary@40% }` |
+
+### 验证（产物 CSS 实测）
+
+```css
+.custom-modal-content{background:var(--main);border-radius:var(--radius-lg);
+  box-shadow:0 0 0 1px var(--border), var(--shadow-3);...}
+标题洗染: linear-gradient(90deg, color-mix(in srgb, var(--primary) 8%, transparent), transparent) ×1
+```
+✅ 弹窗整改生效（桌面规则；移动端全屏规则不受影响）。
+
+**视觉验收**：打开任意弹窗（如「编辑书签」）—— 圆角更大、描边环、标题栏淡淡的品牌洗染、保存按钮 hover 上浮。
+
+### v4 12 区复核进度更新
+
+| 区 | 状态 |
+| --- | --- |
+| ①②③④⑥⑦⑧⑨⑩⑪ | ✅ |
+| **⑤ 弹窗** | ✅ 本轮 |
+| ⓪ 无会话首页 | 🟡 待做（需新增首页视图，成本中高） |
+
+**v4 复核仅剩 ⓪**。
+
+---
+
 ## 第 25 轮 · 用户项 4（部分）：AI 对话气泡左右分栏
 
 **时间**：2026-09-30 · **分支**：master · **改动**：`ai/ai.styl`
