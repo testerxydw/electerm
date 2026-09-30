@@ -5,7 +5,7 @@ import {
   AimOutlined,
   MenuFoldOutlined
 } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Tooltip, Popover } from 'antd'
 import SideBarPanel from './sidebar-panel'
 import MenuBtn from '../sys-menu/menu-btn'
 import {
@@ -230,20 +230,52 @@ export default function Sidebar (props) {
               )
             : null
         }
-        {/* 底部头像（对齐重设计草图 .rail .av）：用户名首字母；点击进入设置（账户 / 同步）。
+        {/* 底部头像（对齐重设计草图 .rail .av）：用户名首字母；点击弹出账户菜单。
             margin-top:auto 使其吸附在图标栏底部（.sidebar-bar 为纵向 flex）。 */}
-        <div
-          className='sidebar-avatar'
-          title={store.config.userName || store.config.name || 'electerm'}
-          onClick={() => store.openSettingModal()}
-        >
-          {
-            ((store.config.userName || store.config.name || 'e') + '')
-              .trim()
-              .charAt(0)
-              .toUpperCase()
+        <Popover
+          content={
+            <div className='sidebar-avatar-menu'>
+              <div
+                className='sidebar-avatar-menu-item'
+                onClick={openSetting}
+              >
+                {e('setting')}
+              </div>
+              <div
+                className='sidebar-avatar-menu-item'
+                onClick={openSettingSync}
+              >
+                {e('settingSync')}
+              </div>
+              <div
+                className='sidebar-avatar-menu-item'
+                onClick={openTerminalThemes}
+              >
+                {e(settingMap.terminalThemes)}
+              </div>
+              <div
+                className='sidebar-avatar-menu-item'
+                onClick={openAbout}
+              >
+                {e('about')}
+              </div>
+            </div>
           }
-        </div>
+          trigger='click'
+          placement='rightTop'
+        >
+          <div
+            className='sidebar-avatar'
+            title={store.config.userName || store.config.name || 'electerm'}
+          >
+            {
+              ((store.config.userName || store.config.name || 'e') + '')
+                .trim()
+                .charAt(0)
+                .toUpperCase()
+            }
+          </div>
+        </Popover>
       </div>
       <SidePanel
         sideProps={sideProps}

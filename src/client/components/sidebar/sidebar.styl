@@ -214,6 +214,21 @@
   text-transform uppercase
   color var(--text-dark)
 
+// 头像账户菜单（对齐草图：头像点击 → 账户菜单）
+.sidebar-avatar-menu
+  min-width 120px
+.sidebar-avatar-menu-item
+  padding 6px 12px
+  font-size 12px
+  color var(--text)
+  cursor pointer
+  white-space nowrap
+  border-radius var(--radius-xs)
+  transition background var(--dur-1) var(--ease)
+  &:hover
+    background var(--hover-bg)
+    color var(--text)
+
 // mobile: icon bar hidden — hide its buttons
 .sidebar.collapsed
   .sidebar-bar
