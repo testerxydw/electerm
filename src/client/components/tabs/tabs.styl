@@ -58,7 +58,9 @@
   &.tab-last
     margin-right 5px
   .tab-close
-    display none
+    // 对齐草图 .tab .x：关闭键 hover 淡入（opacity 过渡，替代 display 突变）
+    opacity 0
+    transition opacity var(--dur-1) var(--ease)
   &.active
     color var(--text)
     background var(--surface-1)
@@ -76,7 +78,7 @@
   &:hover
     background var(--hover-bg)
     .tab-close
-      display block
+      opacity 0.7
   &.dragover-tab::after
     position absolute
     content ''
