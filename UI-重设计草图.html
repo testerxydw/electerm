@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>electerm UI 重设计 · 整体真实界面（高保真草图）</title>
+<style>
+/* ══════════════════════════════════════════════════════════
+   electerm UI 重设计草图 v5 · 整体真实界面
+   目标：完整还原并重绘 electerm 主窗口（标题栏/标签/左右面板/终端/状态栏）
+   —— 允许调整结构；所有颜色由 --primary 等基色 color-mix 派生（12 主题自适应）
+   ══════════════════════════════════════════════════════════ */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --font:system-ui,-apple-system,'Noto Sans CJK SC','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace;
+  --dur:120ms;--dur2:200ms;--ease:cubic-bezier(.4,0,.2,1);
+  --r-xs:4px;--r-sm:8px;--r:10px;--r-lg:14px;--r-pill:999px;
+}
+body{background:#0b0d11;color:#c9ced8;font-family:var(--font);font-size:13px;line-height:1.55;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:26px 16px 60px;gap:18px}
+.topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:1280px;width:100%}
+.topbar h1{font-size:16px;font-weight:600;color:#e6e9ef;margin-right:auto}
+.topbar h1 small{display:block;font-size:11.5px;color:#7c8494;font-weight:400;margin-top:2px}
+.seg{display:inline-flex;border:1px solid #262b34;border-radius:var(--r-sm);overflow:hidden}
+.seg button{background:transparent;border:0;color:#8b93a3;padding:6px 14px;cursor:pointer;font:inherit;font-size:12px;transition:all var(--dur) var(--ease)}
+.seg button.on{background:var(--primary);color:#fff}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#8b93a3;border:1px solid #262b34;border-radius:var(--r-sm);padding:6px 12px;cursor:pointer}
+
+/* ══ 应用窗口 ══ */
+.window{width:1280px;max-width:100%;height:800px;border-radius:var(--r-lg);overflow:hidden;
+  display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06);
+  background:var(--s1);color:var(--text);font-size:12.5px;position:relative;transition:background var(--dur2) var(--ease)}
+
+/* 主题：暗（默认） */
+.window,.window[data-theme="dark"]{
+  --main:#121214;--main-dark:#05070a;--main-light:#2E3338;
+  --text:#d6dae2;--text-light:#fff;--text-dark:#8a909b;--text-disabled:#6b7280;
+  --primary:#3b82f6;--pc:#fff;--info:#FFD166;--success:#34d399;--error:#ef4444;--warn:#f59e0b;
+}
+/* 主题：亮 */
+.window[data-theme="light"]{
+  --main:#f4f5f7;--main-dark:#e7e9ee;--main-light:#ffffff;
+  --text:#2b303b;--text-light:#0d1117;--text-dark:#68707f;--text-disabled:#9aa1ad;
+  --primary:#2563eb;--pc:#fff;
+}
+/* ── 派生 token（全部 color-mix，主题自动适配）── */
+.window{
+  --s0:color-mix(in srgb,var(--primary) 5%,var(--main-dark));
+  --s1:color-mix(in srgb,var(--primary) 2%,var(--main));
+  --s2:var(--main-light);
+  --s3:color-mix(in srgb,var(--text) 6%,var(--main));
+  --bd:color-mix(in srgb,var(--text) 12%,transparent);
+  --bds:color-mix(in srgb,var(--text) 22%,transparent);
+  --hov:color-mix(in srgb,var(--text) 7%,transparent);
+  --act:color-mix(in srgb,var(--primary) 16%,transparent);
+  --glow:0 0 0 1px color-mix(in srgb,var(--primary) 45%,transparent),0 2px 16px color-mix(in srgb,var(--primary) 28%,transparent);
+  --ok-bg:color-mix(in srgb,var(--success) 15%,var(--main));
+  --err-bg:color-mix(in srgb,var(--error) 15%,var(--main));
+  --sh1:0 1px 2px rgba(0,0,0,.28);--sh2:0 6px 18px rgba(0,0,0,.34);
+}
+
+/* ══ ① 标题栏（新增：全局命令入口 + 工作区） ══ */
+.titlebar{height:38px;flex:none;display:flex;align-items:center;gap:10px;padding:0 6px 0 12px;
+  background:var(--s0);border-bottom:1px solid var(--bd)}
+.brand{display:flex;align-items:center;gap:8px;color:var(--text);font-weight:600;font-size:12.5px}
+.brand .logo{width:16px;height:16px;border-radius:5px;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 55%,var(--info)));box-shadow:0 0 10px color-mix(in srgb,var(--primary) 45%,transparent)}
+.wsname{color:var(--text-dark);font-size:12px;font-family:var(--mono)}
+.cmdk{margin-left:18px;flex:1;max-width:380px;height:24px;display:flex;align-items:center;gap:8px;padding:0 10px;
+  border:1px solid var(--bd);border-radius:var(--r-pill);color:var(--text-dark);background:var(--s1);cursor:text;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.cmdk:hover{border-color:var(--bds)}
+.cmdk kbd{margin-left:auto;font-family:var(--mono);font-size:10.5px;border:1px solid var(--bd);border-radius:4px;padding:0 5px;color:var(--text-dark)}
+.spacer{flex:1}
+.wc{display:flex;align-items:center}
+.wc i{width:38px;height:38px;display:grid;place-items:center;cursor:pointer;color:var(--text-dark);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.wc i:hover{background:var(--hov);color:var(--text)}
+.wc i.close:hover{background:var(--error);color:#fff}
+.wc i svg{width:11px;height:11px}
+
+/* ══ ② 标签栏 ══ */
+.tabbar{height:38px;flex:none;display:flex;align-items:flex-end;gap:2px;padding:0 8px;background:var(--s0);
+  border-bottom:1px solid var(--bd);overflow:hidden}
+.tab{display:flex;align-items:center;gap:7px;height:32px;padding:0 12px;cursor:pointer;white-space:nowrap;
+  color:var(--text-dark);border-radius:var(--r-sm) var(--r-sm) 0 0;position:relative;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.tab:hover{background:var(--hov);color:var(--text)}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--success);flex:none;box-shadow:0 0 6px color-mix(in srgb,var(--success) 60%,transparent)}
+.tab .dot.err{background:var(--error);box-shadow:0 0 6px color-mix(in srgb,var(--error) 60%,transparent)}
+.tab .dot.idle{background:var(--text-disabled);box-shadow:none}
+.tab .x{color:var(--text-dark);font-size:13px;line-height:1;opacity:0;transition:opacity var(--dur) var(--ease)}
+.tab:hover .x{opacity:.7}
+.tab .x:hover{color:var(--error)}
+.tab.active{background:var(--s1);color:var(--text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 26%,transparent)}
+.tab.active::before{content:"";position:absolute;left:0;right:22%;top:0;height:2px;border-radius:0 0 2px 2px;
+  background:linear-gradient(90deg,var(--primary),transparent)}
+.tab .cnt{font-family:var(--mono);font-size:9.5px;background:var(--act);color:color-mix(in srgb,var(--primary) 75%,var(--text));border-radius:var(--r-pill);padding:0 5px}
+.tab-add{width:30px;height:32px;display:grid;place-items:center;color:var(--text-dark);cursor:pointer;border-radius:var(--r-sm) var(--r-sm) 0 0}
+.tab-add:hover{background:var(--hov);color:var(--text)}
+.tabbar .grow{flex:1}
+
+/* ══ ③ 主体 ══ */
+.body{flex:1;display:flex;min-height:0}
+/* 左图标栏 */
+.rail{width:50px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0;
+  background:var(--s0);border-right:1px solid var(--bd)}
+.rail .ri{width:36px;height:36px;border-radius:var(--r);display:grid;place-items:center;color:var(--text-dark);cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);position:relative}
+.rail .ri:hover{background:var(--hov);color:var(--text)}
+.rail .ri.on{background:var(--act);color:color-mix(in srgb,var(--primary) 80%,var(--text))}
+.rail .ri.on::before{content:"";position:absolute;left:-7px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--primary)}
+.rail .ri svg{width:17px;height:17px}
+.rail .ribot{margin-top:auto}
+.rail .av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 50%,var(--info)));color:var(--pc);display:grid;place-items:center;font-size:11px;font-weight:700}
+
+/* 左面板 */
+.panel-l{width:236px;flex:none;background:var(--s0);border-right:1px solid var(--bd);display:flex;flex-direction:column;min-height:0}
+.panel-hd{height:34px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--text-dark);font-size:11px;letter-spacing:.4px;text-transform:uppercase}
+.panel-hd .grow{flex:1}
+.panel-hd i{width:22px;height:22px;border-radius:var(--r-xs);display:grid;place-items:center;cursor:pointer;color:var(--text-dark)}
+.panel-hd i:hover{background:var(--hov);color:var(--text)}
+.search{margin:0 10px 8px;height:26px;display:flex;align-items:center;gap:7px;padding:0 9px;background:var(--s1);
+  border:1px solid var(--bd);border-radius:var(--r-sm);color:var(--text-dark);font-size:12px}
+.search:focus-within{border-color:color-mix(in srgb,var(--primary) 55%,transparent);box-shadow:0 0 0 2px var(--act)}
+.tree{flex:1;overflow:auto;padding:2px 6px 10px}
+.tree .grp{display:flex;align-items:center;gap:7px;padding:5px 8px;color:var(--text-dark);font-size:11px;margin-top:6px}
+.tree .grp .grow{flex:1}
+.node{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 10px;border-radius:var(--r-sm);cursor:pointer;color:var(--text);position:relative;
+  transition:background var(--dur) var(--ease)}
+.node:hover{background:var(--hov)}
+.node.on{background:var(--act)}
+.node.on::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;border-radius:2px;background:var(--primary)}
+.node .st{width:6px;height:6px;border-radius:50%;background:var(--success);flex:none}
+.node .st.off{background:var(--text-disabled)}
+.node .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node .tag{font-family:var(--mono);font-size:9.5px;color:var(--text-dark);border:1px solid var(--bd);border-radius:4px;padding:0 5px}
+
+/* 内容区 */
+.content{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--s1)}
+.crumb{height:32px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--bd);color:var(--text-dark);font-size:11.5px}
+.crumb .host{color:var(--text);font-weight:600}
+.crumb .sep{color:var(--text-disabled)}
+.crumb .grow{flex:1}
+.badge{font-family:var(--mono);font-size:10px;border-radius:var(--r-pill);padding:1px 8px;border:1px solid var(--bd);color:var(--text-dark)}
+.badge.ok{background:var(--ok-bg);border-color:color-mix(in srgb,var(--success) 40%,transparent);color:color-mix(in srgb,var(--success) 75%,var(--text))}
+.badge.live{background:var(--err-bg);border-color:color-mix(in srgb,var(--error) 40%,transparent);color:color-mix(in srgb,var(--error) 78%,var(--text))}
+.crumb .iact{display:flex;gap:4px}
+.crumb .iact i{width:24px;height:24px;border-radius:var(--r-xs);display:grid;place-items:center;color:var(--text-dark);cursor:pointer}
+.crumb .iact i:hover{background:var(--hov);color:var(--text)}
+
+/* 终端 */
+.term{flex:1;min-height:0;overflow:auto;padding:14px 16px;font-family:var(--mono);font-size:12.5px;line-height:1.7;background:
+  radial-gradient(600px 240px at 78% -60px,color-mix(in srgb,var(--primary) 8%,transparent),transparent 70%),var(--s1)}
+.term .ln{white-space:pre-wrap;word-break:break-all}
+.term .g{color:color-mix(in srgb,var(--success) 80%,var(--text))}
+.term .c{color:color-mix(in srgb,var(--primary) 85%,var(--text))}
+.term .y{color:color-mix(in srgb,var(--warn) 85%,var(--text))}
+.term .d{color:var(--text-dark)}
+.term .b{color:var(--text-light);font-weight:600}
+.term .err{color:color-mix(in srgb,var(--error) 86%,var(--text))}
+.term .prompt{color:var(--text)}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--primary);vertical-align:-2px;animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* 底部快捷键条 */
+.kbar{height:30px;flex:none;display:flex;align-items:center;gap:6px;padding:0 10px;border-top:1px solid var(--bd);background:var(--s0);overflow-x:auto}
+.kbar .k{display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:var(--r-sm);color:var(--text-dark);font-size:11px;cursor:pointer;white-space:nowrap;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.kbar .k:hover{background:var(--hov);color:var(--text)}
+.kbar .k kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--bd);border-radius:4px;padding:0 4px}
+
+/* ══ 右面板 ══ */
+.panel-r{width:308px;flex:none;background:var(--s0);border-left:1px solid var(--bd);display:flex;flex-direction:column;min-height:0}
+.ptabs{height:34px;flex:none;display:flex;align-items:center;gap:2px;padding:0 8px;border-bottom:1px solid var(--bd)}
+.ptabs .pt{display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:var(--r-sm);color:var(--text-dark);font-size:11.5px;cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ptabs .pt:hover{background:var(--hov);color:var(--text)}
+.ptabs .pt.on{background:var(--act);color:color-mix(in srgb,var(--primary) 80%,var(--text))}
+.ptabs .grow{flex:1}
+.pbody{flex:1;overflow:auto;padding:12px}
+.card-r{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:11px 12px;margin-bottom:10px}
+.card-r h4{font-size:11px;color:var(--text-dark);letter-spacing:.4px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.card-r h4 .grow{flex:1}
+.metric{display:flex;align-items:center;gap:9px;margin:7px 0;font-size:11.5px}
+.metric .lb{width:34px;color:var(--text-dark);font-family:var(--mono)}
+.metric .bar{flex:1;height:6px;border-radius:var(--r-pill);background:var(--s3);overflow:hidden}
+.metric .bar i{display:block;height:100%;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--primary),color-mix(in srgb,var(--primary) 55%,var(--info)))}
+.metric .bar i.warn{background:linear-gradient(90deg,var(--warn),color-mix(in srgb,var(--warn) 55%,var(--error)))}
+.metric .vl{width:52px;text-align:right;font-family:var(--mono);color:var(--text-dark)}
+.ai-msg{font-size:12px;padding:9px 11px;border-radius:var(--r);margin-bottom:8px;border:1px solid var(--bd);background:var(--s1)}
+.ai-msg.me{margin-left:34px;background:var(--act);border-color:color-mix(in srgb,var(--primary) 30%,transparent)}
+.ai-msg .who{font-size:10px;color:var(--text-dark);margin-bottom:3px;font-family:var(--mono)}
+.ai-msg code{font-family:var(--mono);font-size:11px;background:var(--s3);border-radius:4px;padding:1px 5px}
+.ai-input{margin:10px 0 0;display:flex;gap:8px;align-items:center;background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:8px 10px}
+.ai-input .grow{flex:1;color:var(--text-dark);font-size:12px}
+.ai-input i{width:26px;height:26px;border-radius:var(--r-sm);display:grid;place-items:center;background:var(--primary);color:var(--pc);cursor:pointer}
+
+/* ══ ④ 状态栏 ══ */
+.statusbar{height:26px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;background:var(--s0);border-top:1px solid var(--bd);
+  font-size:11px;color:var(--text-dark);font-family:var(--mono)}
+.statusbar .sp{flex:1}
+.statusbar .it{display:flex;align-items:center;gap:6px}
+.statusbar .it .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.statusbar .it b{color:var(--text);font-weight:600}
+
+/* ══ 悬浮：命令面板（体现新交互）══ */
+.palette{position:absolute;left:50%;top:96px;transform:translateX(-50%);width:520px;background:var(--s2);
+  border:1px solid var(--bds);border-radius:var(--r-lg);box-shadow:var(--sh2);overflow:hidden;display:none}
+.palette.show{display:block;animation:pop var(--dur2) var(--ease)}
+@keyframes pop{from{opacity:0;transform:translateX(-50%) translateY(-6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.palette .pin{height:38px;display:flex;align-items:center;gap:9px;padding:0 14px;border-bottom:1px solid var(--bd);color:var(--text-dark)}
+.palette .lst{padding:6px;max-height:260px;overflow:auto}
+.palette .it{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);cursor:pointer;font-size:12.5px}
+.palette .it:hover,.palette .it.sel{background:var(--act)}
+.palette .it .ic{width:22px;height:22px;border-radius:6px;background:var(--s3);display:grid;place-items:center;font-size:11px}
+.palette .it .grow{flex:1}
+.palette .it kbd{font-family:var(--mono);font-size:10px;color:var(--text-dark);border:1px solid var(--bd);border-radius:4px;padding:0 5px}
+
+/* 视图切换 */
+.view{display:none;flex:1;min-height:0;flex-direction:column}
+.view.on{display:flex}
+/* 文件视图 */
+.files{flex:1;display:flex;min-height:0}
+.fpane{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bd)}
+.fpane:last-child{border-right:0}
+.frow{display:flex;align-items:center;gap:9px;padding:6px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid color-mix(in srgb,var(--bd) 45%,transparent)}
+.frow:hover{background:var(--hov)}
+.frow .ic{width:16px;text-align:center;color:var(--text-dark)}
+.frow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .sz{color:var(--text-dark);font-family:var(--mono);font-size:11px}
+/* 首页 */
+.home{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px;
+  background:radial-gradient(560px 260px at 50% -40px,color-mix(in srgb,var(--primary) 16%,transparent),transparent 72%),var(--s1)}
+.home .ring{width:72px;height:72px;border-radius:26px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 55%,var(--info)));box-shadow:var(--glow)}
+.home .ring svg{width:34px;height:34px;color:#fff}
+.home h2{font-size:19px;color:var(--text-light);font-weight:600}
+.home p{color:var(--text-dark);font-size:12.5px}
+.home .acts{display:flex;gap:10px;margin-top:4px}
+.home .acts button{font:inherit;font-size:12.5px;padding:8px 20px;border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent;
+  transition:transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.home .acts .pri{background:var(--primary);color:var(--pc)}
+.home .acts .pri:hover{transform:translateY(-1px);box-shadow:0 6px 18px color-mix(in srgb,var(--primary) 40%,transparent)}
+.home .acts .gh{background:transparent;color:var(--text);border-color:var(--bds)}
+.home .acts .gh:hover{background:var(--hov)}
+.home .recent{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:640px;margin-top:6px}
+.home .rc{display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--bd);border-radius:var(--r-pill);font-size:11.5px;color:var(--text-dark);cursor:pointer}
+.home .rc:hover{border-color:color-mix(in srgb,var(--primary) 45%,transparent);color:var(--text)}
+.legend{max-width:1280px;width:100%;color:#7c8494;font-size:11.5px;line-height:1.9}
+.legend b{color:#aeb6c4}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>electerm UI 重设计 · 整体真实界面<small>v5 高保真草图 · 允许结构优化 · 颜色由基色 color-mix 派生（12 主题自适应）</small></h1>
+  <div class="seg" id="segTheme">
+    <button class="on" data-theme="dark">暗色</button>
+    <button data-theme="light">亮色</button>
+  </div>
+  <div class="seg" id="segView">
+    <button class="on" data-view="term">终端</button>
+    <button data-view="files">文件</button>
+    <button data-view="home">首页</button>
+  </div>
+  <div class="toggle" id="btnPalette">⌘K 命令面板</div>
+</div>
+
+<!-- ══════════ 应用窗口 ══════════ -->
+<div class="window" id="win" data-theme="dark">
+
+  <!-- ① 标题栏 -->
+  <div class="titlebar">
+    <div class="brand"><span class="logo"></span>electerm</div>
+    <span class="wsname">default</span>
+    <div class="cmdk" id="cmdk"><span>搜索会话、命令、主机…</span><kbd>⌘K</kbd></div>
+    <div class="spacer"></div>
+    <div class="wc">
+      <i title="最小化"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 6h8"/></svg></i>
+      <i title="最大化"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg></i>
+      <i class="close" title="关闭"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 3l6 6M9 3l-6 6"/></svg></i>
+    </div>
+  </div>
+
+  <!-- ② 标签栏 -->
+  <div class="tabbar">
+    <div class="tab active"><span class="dot"></span>ubuntu-prod<span class="x">×</span></div>
+    <div class="tab"><span class="dot idle"></span>db-primary<span class="cnt">2</span><span class="x">×</span></div>
+    <div class="tab"><span class="dot err"></span>staging<span class="x">×</span></div>
+    <div class="tab"><span class="dot"></span>sftp://10.0.0.7<span class="x">×</span></div>
+    <div class="tab-add">＋</div>
+    <div class="grow"></div>
+  </div>
+
+  <!-- ③ 主体 -->
+  <div class="body">
+    <!-- 左图标栏 -->
+    <div class="rail">
+      <div class="ri on" title="会话"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3.5" width="15" height="11" rx="2"/><path d="M6 7l2.5 2.5L6 12M10.5 12.5h3.5"/></svg></div>
+      <div class="ri" title="文件"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 5.5A1.5 1.5 0 014 4h3.5l1.5 2h7A1.5 1.5 0 0117.5 7.5v7A1.5 1.5 0 0116 16H4a1.5 1.5 0 01-1.5-1.5z"/></svg></div>
+      <div class="ri" title="隧道"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10h14M3 6h14M3 14h9"/></svg></div>
+      <div class="ri" title="书签"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 3.5h9v13l-4.5-3-4.5 3z"/></svg></div>
+      <div class="ri" title="传输"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3v9m0 0l-3.5-3.5M10 12l3.5-3.5M4 16h12"/></svg></div>
+      <div class="ribot"><div class="ri" title="设置"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="2.6"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6L15 15M15 5l-1.4 1.4M6.4 13.6L5 15"/></svg></div></div>
+      <div class="av">XD</div>
+    </div>
+
+    <!-- 左面板：会话树 -->
+    <div class="panel-l">
+      <div class="panel-hd">会话<span class="grow"></span>
+        <i title="新建"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3.5v9M3.5 8h9"/></svg></i>
+        <i title="导入"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5v7m0 0L5 6.5M8 9.5l3-3M3 12.5h10"/></svg></i>
+      </div>
+      <div class="search"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>筛选…</div>
+      <div class="tree">
+        <div class="grp"><span>生产环境</span><span class="grow"></span><span>4</span></div>
+        <div class="node on"><span class="st"></span><span class="nm">ubuntu-prod</span><span class="tag">SSH</span></div>
+        <div class="node"><span class="st"></span><span class="nm">db-primary</span><span class="tag">DB</span></div>
+        <div class="node"><span class="st off"></span><span class="nm">cache-redis</span></div>
+        <div class="node"><span class="st"></span><span class="nm">api-gateway</span><span class="tag">:8080</span></div>
+        <div class="grp"><span>开发 / 测试</span><span class="grow"></span><span>3</span></div>
+        <div class="node"><span class="st"></span><span class="nm">staging</span></div>
+        <div class="node"><span class="st off"></span><span class="nm">dev-local</span></div>
+        <div class="node"><span class="st"></span><span class="nm">win-bastion</span><span class="tag">RDP</span></div>
+        <div class="grp"><span>串口 / 网络设备</span><span class="grow"></span><span>2</span></div>
+        <div class="node"><span class="st"></span><span class="nm">switch-core</span><span class="tag">com</span></div>
+        <div class="node"><span class="st"></span><span class="nm">router-edge</span><span class="tag">telnet</span></div>
+      </div>
+    </div>
+
+    <!-- 内容区 -->
+    <div class="content">
+      <div class="crumb">
+        <span class="host">ubuntu-prod</span><span class="sep">·</span><span>root@10.0.2.15</span>
+        <span class="badge ok">已连接</span><span class="badge">SSH / zsh</span><span class="badge live">● REC</span>
+        <span class="grow"></span>
+        <div class="iact">
+          <i title="分屏"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M8 3v10"/></svg></i>
+          <i title="SFTP"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 5A1.5 1.5 0 014 3.5h2.5L8 5.5h4A1.5 1.5 0 0113.5 7v5A1.5 1.5 0 0112 13.5H4A1.5 1.5 0 012.5 12z"/></svg></i>
+          <i title="AI"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5l1.4 3.6L13 7.5l-3.6 1.4L8 12.5 6.6 8.9 3 7.5l3.6-1.4z"/></svg></i>
+        </div>
+      </div>
+
+      <!-- 视图：终端 -->
+      <div class="view on" data-view="term">
+        <div class="term">
+          <div class="ln d">Last login: Mon Sep 29 09:12:44 2026 from 10.0.2.2</div>
+          <div class="ln"><span class="c">➜</span> <span class="b">~</span> docker ps --format <span class="d">'{{.Names}}\t{{.Status}}'</span></div>
+          <div class="ln"><span class="g">api-gateway</span>      Up 6 days (healthy)</div>
+          <div class="ln"><span class="g">postgres-1</span>       Up 6 days</div>
+          <div class="ln"><span class="g">redis-cache</span>      Up 6 days</div>
+          <div class="ln"><span class="y">worker-batch</span>     Restarting (1) 12s ago</div>
+          <div class="ln">&nbsp;</div>
+          <div class="ln"><span class="c">➜</span> <span class="b">~</span> journalctl -u worker-batch -n 3 --no-pager</div>
+          <div class="ln d">-- Logs begin --</div>
+          <div class="ln err">Sep 29 09:14:02 ERROR failed to acquire lock: timeout after 30s</div>
+          <div class="ln err">Sep 29 09:14:32 ERROR retrying (attempt 4/5)…</div>
+          <div class="ln"><span class="c">➜</span> <span class="b">~</span> <span class="cursor"></span></div>
+        </div>
+        <div class="kbar">
+          <div class="k"><kbd>⌘K</kbd>命令面板</div>
+          <div class="k"><kbd>⌘⇧F</kbd>SFTP</div>
+          <div class="k"><kbd>⌘⇧S</kbd>分屏</div>
+          <div class="k"><kbd>⌘I</kbd>AI 助手</div>
+          <div class="k"><kbd>⌘R</kbd>录制</div>
+          <div class="k"><kbd>⌥T</kbd>批量执行</div>
+        </div>
+      </div>
+
+      <!-- 视图：文件 -->
+      <div class="view" data-view="files">
+        <div class="files">
+          <div class="fpane">
+            <div class="crumb" style="border-bottom:1px solid var(--bd)">本地 · /home/user</div>
+            <div class="frow"><span class="ic">▸</span><span class="nm">projects</span><span class="sz">—</span></div>
+            <div class="frow"><span class="ic">▸</span><span class="nm">.ssh</span><span class="sz">—</span></div>
+            <div class="frow"><span class="ic">📄</span><span class="nm">deploy.sh</span><span class="sz">2.1K</span></div>
+            <div class="frow"><span class="ic">📄</span><span class="nm">notes.md</span><span class="sz">8.4K</span></div>
+          </div>
+          <div class="fpane">
+            <div class="crumb" style="border-bottom:1px solid var(--bd)">远程 · /var/www/app</div>
+            <div class="frow"><span class="ic">▸</span><span class="nm">dist</span><span class="sz">—</span></div>
+            <div class="frow"><span class="ic">▸</span><span class="nm">node_modules</span><span class="sz">—</span></div>
+            <div class="frow"><span class="ic">📄</span><span class="nm">package.json</span><span class="sz">1.2K</span></div>
+            <div class="frow"><span class="ic">📄</span><span class="nm">server.log</span><span class="sz">48M</span></div>
+          </div>
+        </div>
+        <div class="kbar">
+          <div class="k"><kbd>F5</kbd>刷新</div>
+          <div class="k"><kbd>⌘U</kbd>上传</div>
+          <div class="k"><kbd>⌘D</kbd>下载</div>
+          <div class="k"><kbd>⌘⌫</kbd>删除</div>
+        </div>
+      </div>
+
+      <!-- 视图：首页 -->
+      <div class="view" data-view="home">
+        <div class="home">
+          <div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M7 8l3 3-3 3M12.5 14h4.5"/></svg></div>
+          <h2>开始一个会话</h2>
+          <p>连接 SSH 主机、打开本地终端，或继续最近的会话</p>
+          <div class="acts"><button class="pri">＋ 新建会话</button><button class="gh">打开本地终端</button><button class="gh">⌘K 命令面板</button></div>
+          <div class="recent">
+            <div class="rc"><span class="st" style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>ubuntu-prod</div>
+            <div class="rc">db-primary</div>
+            <div class="rc">staging</div>
+            <div class="rc">10.0.0.7 (SFTP)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右面板 -->
+    <div class="panel-r">
+      <div class="ptabs">
+        <div class="pt on">AI</div>
+        <div class="pt">传输</div>
+        <div class="pt">监控</div>
+        <div class="grow"></div>
+        <div class="pt">⋯</div>
+      </div>
+      <div class="pbody">
+        <div class="ai-msg"><div class="who">AI</div>检测到 <code>worker-batch</code> 反复重启，可能因 Redis 锁超时。要我查看 <code>worker</code> 配置吗？</div>
+        <div class="ai-msg me"><div class="who">你</div>看一下锁的 TTL 和重试次数</div>
+        <div class="ai-msg"><div class="who">AI</div>当前 TTL=30s、重试 5 次；建议将 TTL 提到 60s 并加指数退避。可执行：<br><code>sed -i 's/TTL=30/TTL=60/' /etc/worker.env</code></div></div>
+        <div class="ai-input"><span class="grow">继续提问，或 ⌘⏎ 执行建议…</span><i>↑</i></div>
+
+        <div class="card-r" style="margin-top:14px">
+          <h4>系统负载<span class="grow"></span><span style="text-transform:none;color:var(--text-dark)">ubuntu-prod</span></h4>
+          <div class="metric"><span class="lb">CPU</span><span class="bar"><i style="width:18%"></i></span><span class="vl">18%</span></div>
+          <div class="metric"><span class="lb">MEM</span><span class="bar"><i style="width:63%"></i></span><span class="vl">63%</span></div>
+          <div class="metric"><span class="lb">DISK</span><span class="bar"><i class="warn" style="width:82%"></i></span><span class="vl">82%</span></div>
+          <div class="metric"><span class="lb">NET</span><span class="bar"><i style="width:34%"></i></span><span class="vl">↑2.1M</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 状态栏 -->
+  <div class="statusbar">
+    <div class="it"><span class="dot"></span>已连接 <b>ubuntu-prod</b></div>
+    <div class="it">ssh2 · aes-256-gcm</div>
+    <div class="it">zsh 5.9</div>
+    <div class="sp"></div>
+    <div class="it">UTF-8</div>
+    <div class="it">↑ 2.1 MB/s ↓ 8.4 MB/s</div>
+    <div class="it">⌘K 命令面板</div>
+  </div>
+
+  <!-- 命令面板（悬浮） -->
+  <div class="palette" id="palette">
+    <div class="pin">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>
+      输入命令、主机或动作…
+    </div>
+    <div class="lst">
+      <div class="it sel"><span class="ic">▸</span><span class="grow">连接到 <b>ubuntu-prod</b></span><kbd>⏎</kbd></div>
+      <div class="it"><span class="ic">＋</span><span class="grow">新建 SSH 会话</span><kbd>⌘N</kbd></div>
+      <div class="it"><span class="ic">⌗</span><span class="grow">打开数据库客户端（P1 规划）</span><kbd>⌘⇧D</kbd></div>
+      <div class="it"><span class="ic">⇄</span><span class="grow">新建 SFTP 传输</span><kbd>⌘⇧F</kbd></div>
+      <div class="it"><span class="ic">⚙</span><span class="grow">设置 / 主题</span><kbd>⌘,</kbd></div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <b>这是"整体真实界面"草图</b>：完整还原 electerm 主窗口并重绘（标题栏 → 标签栏 → 左图标栏/会话树 → 终端 → 右 AI/监控面板 → 状态栏），支持右上切换<b>暗/亮主题</b>与<b>终端/文件/首页视图</b>，点 <b>⌘K 命令面板</b>查看新交互。<br>
+  <b>可改结构项</b>：① 新增顶栏"全局命令入口"；② 标签栏独立成行并加状态圆点/计数；③ 左栏改为"图标栏 + 树面板"两级；④ 终端上方加面包屑（连接信息 + 操作）；⑤ 新增底部快捷键条与状态栏；⑥ 右面板改为"AI/传输/监控"页签；⑦ 新增命令面板（⌘K）与首页聚合。
+</div>
+
+<script>
+const win=document.getElementById('win');
+document.querySelectorAll('#segTheme button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#segTheme button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');win.dataset.theme=b.dataset.theme;
+}));
+document.querySelectorAll('#segView button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#segView button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.dataset.view===b.dataset.view));
+}));
+const pal=document.getElementById('palette');
+document.getElementById('cmdk').addEventListener('click',()=>pal.classList.toggle('show'));
+document.getElementById('btnPalette').addEventListener('click',()=>pal.classList.toggle('show'));
+win.addEventListener('click',e=>{if(!pal.contains(e.target)&&e.target.id!=='cmdk'&&!e.target.closest('#cmdk'))pal.classList.remove('show')});
+</script>
+</body>
+</html>

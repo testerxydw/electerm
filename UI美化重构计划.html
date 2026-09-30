@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>electerm UI 美化与重构计划 · v5</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --font:system-ui,-apple-system,'Noto Sans CJK SC','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace;
+  --dur:120ms;--dur2:200ms;--ease:cubic-bezier(.4,0,.2,1);
+  --main:#121214;--main-dark:#0a0c10;--main-light:#1d2027;
+  --text:#d6dae2;--text-light:#fff;--text-dark:#8a909b;--text-disabled:#6b7280;
+  --primary:#3b82f6;--pc:#fff;--info:#FFD166;--success:#34d399;--error:#ef4444;--warn:#f59e0b;
+  --s0:color-mix(in srgb,var(--primary) 5%,var(--main-dark));
+  --s1:color-mix(in srgb,var(--primary) 2%,var(--main));
+  --s2:var(--main-light);
+  --s3:color-mix(in srgb,var(--text) 6%,var(--main));
+  --bd:color-mix(in srgb,var(--text) 12%,transparent);
+  --bds:color-mix(in srgb,var(--text) 22%,transparent);
+  --hov:color-mix(in srgb,var(--text) 7%,transparent);
+  --act:color-mix(in srgb,var(--primary) 16%,transparent);
+  --glow:0 0 0 1px color-mix(in srgb,var(--primary) 45%,transparent),0 2px 16px color-mix(in srgb,var(--primary) 28%,transparent);
+  --ok-bg:color-mix(in srgb,var(--success) 15%,var(--main));
+  --err-bg:color-mix(in srgb,var(--error) 15%,var(--main));
+  --warn-bg:color-mix(in srgb,var(--warn) 15%,var(--main));
+  --r-xs:4px;--r-sm:8px;--r:10px;--r-lg:14px;--r-pill:999px;
+  --sh1:0 1px 2px rgba(0,0,0,.28);--sh2:0 6px 18px rgba(0,0,0,.34);
+}
+body{background:#0b0d11;color:var(--text);font-family:var(--font);font-size:13px;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+a{color:color-mix(in srgb,var(--primary) 80%,var(--text))}
+
+/* ── Hero ── */
+.hero{position:relative;margin-top:24px;padding:34px 32px;border:1px solid var(--bd);border-radius:var(--r-lg);overflow:hidden;
+  background:radial-gradient(620px 260px at 20% -40%,color-mix(in srgb,var(--primary) 22%,transparent),transparent 70%),var(--s0)}
+.hero h1{font-size:26px;font-weight:700;letter-spacing:.3px;color:var(--text-light)}
+.hero h1 em{font-style:normal;color:var(--primary);text-shadow:0 0 22px color-mix(in srgb,var(--primary) 45%,transparent)}
+.hero p{color:var(--text-dark);margin-top:8px;max-width:820px}
+.hero .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.hero .meta span{font-size:11.5px;color:var(--text-dark);border:1px solid var(--bd);border-radius:var(--r-pill);padding:3px 11px;background:var(--s1);font-family:var(--mono)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:20px}
+.kpi{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:13px 15px}
+.kpi b{display:block;font-size:20px;color:var(--primary);font-family:var(--mono)}
+.kpi span{font-size:11.5px;color:var(--text-dark)}
+
+/* ── 导航 ── */
+.nav{position:sticky;top:0;z-index:9;display:flex;gap:6px;flex-wrap:wrap;padding:12px 0;margin-top:18px;
+  background:linear-gradient(#0b0d11 60%,transparent);backdrop-filter:blur(6px)}
+.nav a{font-size:12.5px;color:var(--text-dark);border:1px solid var(--bd);border-radius:var(--r-pill);padding:5px 14px;text-decoration:none;
+  transition:all var(--dur) var(--ease)}
+.nav a:hover{border-color:color-mix(in srgb,var(--primary) 45%,transparent);color:var(--text);background:var(--hov)}
+
+section{margin-top:30px;scroll-margin-top:64px}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+.sec-h h2{font-size:19px;color:var(--text-light)}
+.sec-h .tag{font-size:11.5px;color:color-mix(in srgb,var(--primary) 80%,var(--text));background:var(--act);border:1px solid color-mix(in srgb,var(--primary) 35%,transparent);border-radius:var(--r-pill);padding:2px 10px;font-family:var(--mono)}
+.sec-d{color:var(--text-dark);font-size:12.5px;margin-bottom:14px;max-width:900px}
+
+/* ── 卡片/网格 ── */
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.card:hover{border-color:color-mix(in srgb,var(--primary) 38%,transparent)}
+.card h4{font-size:13.5px;color:var(--text-light);margin-bottom:7px;display:flex;align-items:center;gap:8px}
+.card p,.card li{font-size:12.5px;color:var(--text-dark)}
+.card ul{padding-left:16px;margin-top:6px}
+.card li{margin:3px 0}
+.sev{font-size:10.5px;border-radius:var(--r-pill);padding:1px 8px;font-family:var(--mono);border:1px solid}
+.sev.red{background:var(--err-bg);border-color:color-mix(in srgb,var(--error) 40%,transparent);color:color-mix(in srgb,var(--error) 80%,var(--text))}
+.sev.orange{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 40%,transparent);color:color-mix(in srgb,var(--warn) 80%,var(--text))}
+.sev.yellow{background:color-mix(in srgb,var(--info) 12%,var(--main));border-color:color-mix(in srgb,var(--info) 35%,transparent);color:color-mix(in srgb,var(--info) 70%,var(--text))}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{color:var(--text-dark);font-weight:600;font-size:11.5px;letter-spacing:.3px}
+td code,.mono{font-family:var(--mono);font-size:11.5px;color:color-mix(in srgb,var(--primary) 70%,var(--text))}
+tr:hover td{background:var(--hov)}
+
+/* ── token 展示 ── */
+.sw{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.sw i{flex:1;min-width:86px;height:44px;border-radius:var(--r-sm);display:flex;align-items:flex-end;justify-content:center;font-size:10px;font-style:normal;font-family:var(--mono);color:#e7ecf4;padding:4px;border:1px solid var(--bd)}
+.rrow{display:flex;gap:10px;align-items:center;margin:8px 0;font-size:12px}
+.rbox{width:52px;height:34px;background:var(--act);border:1px solid color-mix(in srgb,var(--primary) 40%,transparent)}
+.shbox{width:52px;height:34px;background:var(--s2);border-radius:var(--r-sm)}
+
+/* ── 阶段计划 ── */
+.ph{position:relative;padding-left:26px;margin-top:14px}
+.ph::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:var(--bd)}
+.step{position:relative;background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;cursor:pointer;
+  transition:border-color var(--dur) var(--ease)}
+.step:hover{border-color:color-mix(in srgb,var(--primary) 38%,transparent)}
+.step::before{content:"";position:absolute;left:-24px;top:20px;width:12px;height:12px;border-radius:50%;background:var(--s0);border:2px solid var(--primary);box-shadow:0 0 10px color-mix(in srgb,var(--primary) 50%,transparent)}
+.step .hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.step .hd b{font-size:14px;color:var(--text-light)}
+.step .id{font-family:var(--mono);font-size:11px;color:var(--pc);background:var(--primary);border-radius:var(--r-xs);padding:1px 7px}
+.step .dur{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--text-dark);border:1px solid var(--bd);border-radius:var(--r-pill);padding:1px 9px}
+.step .bd{max-height:0;overflow:hidden;transition:max-height var(--dur2) var(--ease)}
+.step.open .bd{max-height:900px}
+.step .bd-in{padding-top:10px}
+.task{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--text-dark);padding:4px 0}
+.task .bx{width:14px;height:14px;border:1.6px solid var(--bds);border-radius:4px;flex:none;margin-top:3px;display:grid;place-items:center;font-size:9px;color:transparent}
+.task.done .bx{background:var(--success);border-color:var(--success);color:#062b1e}
+.task.done{color:var(--text-disabled);text-decoration:line-through}
+.pill{font-size:10.5px;font-family:var(--mono);border:1px solid var(--bd);border-radius:var(--r-pill);padding:1px 8px;color:var(--text-dark)}
+
+/* ── 甘特 ── */
+.gantt{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;overflow:auto}
+.grow{display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center;margin:7px 0;min-width:640px}
+.grow .lb{font-size:12px;color:var(--text-dark);font-family:var(--mono)}
+.gtrack{position:relative;height:20px;background:var(--s3);border-radius:var(--r-pill)}
+.gbar{position:absolute;top:0;height:20px;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--primary),color-mix(in srgb,var(--primary) 55%,var(--info)));display:flex;align-items:center;justify-content:center;font-size:10.5px;color:#fff;font-family:var(--mono)}
+.axes{display:grid;grid-template-columns:110px 1fr;gap:10px;min-width:640px;margin-bottom:4px}
+.axes .wn{display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-disabled);font-family:var(--mono)}
+
+/* 验收 */
+.chk{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--bd);font-size:12.5px}
+.chk:last-child{border-bottom:0}
+.chk .bx{width:15px;height:15px;border:1.6px solid var(--bds);border-radius:4px;flex:none;margin-top:2px}
+.chk b{color:var(--text-light);font-weight:600}
+
+.foot{margin-top:34px;text-align:center;color:var(--text-disabled);font-size:11.5px;font-family:var(--mono)}
+.legend{font-size:11.5px;color:var(--text-disabled);margin-top:8px}
+@media(max-width:640px){.hero{padding:22px 18px}.hero h1{font-size:20px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ══ Hero ══ -->
+  <div class="hero">
+    <h1>electerm UI <em>美化与重构计划</em></h1>
+    <p>从"能用的终端工具"到"精致的一体化工作台"：先立 <b>设计底座（token）</b>，再改 <b>界面结构</b>，随后 <b>组件重绘 → 交互动效 → 区域精修 → 双主题校验</b>。每阶段独立可验证、可回滚。</p>
+    <div class="meta">
+      <span>v5 · 2026-09-29</span><span>范围：src/client 67 个 .styl + layout/tabs/sidebar</span>
+      <span>约束：12 主题兼容 · token 派生 · 对比度 ≥4.5:1</span>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><b>15 → 40+</b><span>设计 token（全是颜色 → 色阶/圆角/阴影/动效）</span></div>
+      <div class="kpi"><b>12 / 22 → 4 / 3</b><span>圆角 / 阴影 档位收敛</span></div>
+      <div class="kpi"><b>8 → 60+</b><span>带动效的样式文件</span></div>
+      <div class="kpi"><b>6 阶段</b><span>S0–S5 · 约 4–5 周</span></div>
+    </div>
+  </div>
+
+  <!-- ══ 导航 ══ -->
+  <div class="nav">
+    <a href="#why">现状诊断</a>
+    <a href="#goal">目标与原则</a>
+    <a href="#system">设计体系</a>
+    <a href="#plan">分阶段计划</a>
+    <a href="#gantt">进度安排</a>
+    <a href="#accept">验收标准</a>
+    <a href="#risk">风险与回滚</a>
+    <a href="#map">代码落点映射</a>
+  </div>
+
+  <!-- ══ 现状诊断 ══ -->
+  <section id="why">
+    <div class="sec-h"><h2>一、现状诊断：为什么"粗糙、简陋、不好看"</h2><span class="tag">6 类根因</span></div>
+    <p class="sec-d">基于《UI-美化设计规范》《美化实施七维度审计报告》与实测代码（见 `similar` 审计）。</p>
+    <div class="grid g3">
+      <div class="card"><h4>设计 token 太薄 <span class="sev orange">体验</span></h4><p>全库仅 15 个<b>颜色</b>变量，<b>没有</b>分隔线/悬停底/遮罩/阴影/圆角/间距/字号/动效/焦点环变量。</p></div>
+      <div class="card"><h4>圆角 / 阴影不成体系 <span class="sev orange">体验</span></h4><p><b>12 种</b>圆角值 / 45 处；<b>22 种</b>阴影写法，甚至"用背景色假装阴影"。</p></div>
+      <div class="card"><h4>4 个变量静默失效 <span class="sev red">缺陷</span></h4><p><code>--border</code> / <code>--hover-bg</code> / <code>--text-color-2</code> / <code>--text-color-secondary</code> 被引用但从未定义。</p></div>
+      <div class="card"><h4>darker() 产生非法颜色 <span class="sev red">缺陷</span></h4><p>缺上界钳制，<code>#121214 → #0</code>，导致 <b>29 处</b>声明整条失效。</p></div>
+      <div class="card"><h4>几乎零动效 <span class="sev orange">体验</span></h4><p>67 个 .styl 中仅 <b>8 个</b>有 <code>transition</code>，界面"死板、无反馈"。</p></div>
+      <div class="card"><h4>浅色对比度不达标 <span class="sev red">无障碍</span></h4><p><code>--success</code> 在 <code>#ededed</code> 上仅 <b>1.61:1</b>；且无全局键盘焦点可视化。</p></div>
+    </div>
+    <div class="legend">另有：33 处硬编码颜色、46 处 <code>!important</code>、默认主题 3 份副本不一致、antd 桥接不完整（圆角硬编码 / 动效被关）。</div>
+  </section>
+
+  <!-- ══ 目标与原则 ══ -->
+  <section id="goal">
+    <div class="sec-h"><h2>二、目标与设计原则</h2><span class="tag">为什么要改</span></div>
+    <div class="grid g2">
+      <div class="card"><h4>目标</h4>
+        <ul>
+          <li><b>观感</b>：从"工具"到"产品"——分层、留白、统一节奏、品牌克制点缀；</li>
+          <li><b>一致性</b>：圆角 4 档 / 阴影 3 档 / 动效 2 档，全库统一；</li>
+          <li><b>可维护</b>：token 化 + 契约单测，杜绝"未定义变量"回归；</li>
+          <li><b>结构现代化</b>：命令面板、状态栏、页签化右栏、两级左栏（允许改 DOM）。</li>
+        </ul>
+      </div>
+      <div class="card"><h4>原则（红线）</h4>
+        <ul>
+          <li>颜色<b>只从既有 12 基色派生</b>（color-mix），<b>不新增必填主题变量</b>（否则主题编辑器保存失败）；</li>
+          <li>主色面积 ≤10%；分隔用 1px 或 <code>inset box-shadow</code>（避免布局位移）；</li>
+          <li>正文对比度 ≥4.5:1；全局 <code>:focus-visible</code>；支持 <code>prefers-reduced-motion</code>；</li>
+          <li>结构可改，但<b>功能零回归</b>、快捷键习惯尽量保留（或给迁移说明）。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 设计体系 ══ -->
+  <section id="system">
+    <div class="sec-h"><h2>三、设计体系（要落地的 token）</h2><span class="tag">全部 color-mix 派生</span></div>
+    <div class="grid g2">
+      <div class="card"><h4>色阶 4 层 + 交互色</h4>
+        <div class="sw">
+          <i style="background:var(--s0)">--s0</i><i style="background:var(--s1)">--s1</i><i style="background:var(--s2)">--s2</i><i style="background:var(--s3)">--s3</i>
+          <i style="background:var(--hov)">--hov</i><i style="background:var(--act)">--act</i>
+        </div>
+        <p style="margin-top:8px">底→内容→浮起→更高浮起；hover / 激活底。品牌光晕 <code>--glow</code> 用于选中/焦点。</p>
+      </div>
+      <div class="card"><h4>圆角 4 档 / 阴影 3 档</h4>
+        <div class="rrow"><span class="rbox" style="border-radius:var(--r-xs)"></span><span class="mono">--r-xs 4px</span><span class="rbox" style="border-radius:var(--r-sm)"></span><span class="mono">--r-sm 8px</span></div>
+        <div class="rrow"><span class="rbox" style="border-radius:var(--r)"></span><span class="mono">--r 10px</span><span class="rbox" style="border-radius:var(--r-lg)"></span><span class="mono">--r-lg 14px</span></div>
+        <div class="rrow"><span class="shbox" style="box-shadow:var(--sh1)"></span><span class="mono">--sh1</span><span class="shbox" style="box-shadow:var(--sh2)"></span><span class="mono">--sh2</span><span class="shbox" style="box-shadow:0 30px 80px rgba(0,0,0,.6)"></span><span class="mono">--sh3</span></div>
+      </div>
+      <div class="card"><h4>动效 2 档 + 缓动</h4>
+        <p><code>--dur 120ms</code>（微交互）/ <code>--dur2 200ms</code>（浮层）；统一 <code>--ease cubic-bezier(.4,0,.2,1)</code>；只动 <code>background/color/transform/box-shadow/opacity</code>。</p>
+      </div>
+      <div class="card"><h4>字体与栅格</h4>
+        <p>UI：系统栈 + <b>CJK 回退</b>；终端：等宽栈（含 CJK 等宽）。间距 4px 栅格，行高 20/24/28。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 分阶段计划 ══ -->
+  <section id="plan">
+    <div class="sec-h"><h2>四、分阶段计划</h2><span class="tag">点击展开任务</span></div>
+    <p class="sec-d">原则：<b>先底座、后结构、再组件与精修</b>；每阶段结束即可跑通并出包验证。若求稳，可只做 S0+S2（不动结构）先拿约 60% 观感提升。</p>
+    <div class="ph" id="ph">
+
+      <div class="step open"><div class="hd"><span class="id">S0</span><b>设计底座 · Token 层</b><span class="pill">零结构风险</span><span class="dur">2–3 天</span></div>
+        <div class="bd"><div class="bd-in">
+          <div class="task done"><span class="bx">✓</span>在 <code>theme.styl</code> 定义色阶/线/圆角/阴影/动效/字体 token（静态兜底）</div>
+          <div class="task"><span class="bx"></span>在 <code>ui-theme.jsx</code> 运行时注入派生值（color-mix），12 主题自适应</div>
+          <div class="task"><span class="bx"></span>补 4 个未定义变量：<code>--border</code>/<code>--hover-bg</code>/<code>--text-color-2</code>/<code>--text-color-secondary</code></div>
+          <div class="task"><span class="bx"></span>修 <code>darker()</code> 上界钳制（非法色 → 合法）</div>
+          <div class="task"><span class="bx"></span>补契约单测：变量已定义 / 未被非法值使用</div>
+          <p class="pill" style="margin-top:8px">产出：token 层 + 单测；验收：compile + 单测通过</p>
+        </div></div>
+      </div>
+
+      <div class="step"><div class="hd"><span class="id">S1</span><b>结构骨架 · 布局重构</b><span class="pill">允许改 DOM</span><span class="dur">约 1 周</span></div>
+        <div class="bd"><div class="bd-in">
+          <div class="task"><span class="bx"></span>标题栏：加全局命令入口 + 工作区名 + 窗口控制（沿用自绘三键）</div>
+          <div class="task"><span class="bx"></span>标签栏：独立成行 + 状态圆点 + 计数 badge</div>
+          <div class="task"><span class="bx"></span>左栏两级：图标栏（会话/文件/隧道/书签/传输/设置）+ 可折叠树面板</div>
+          <div class="task"><span class="bx"></span>内容区：加面包屑（连接信息 + 分屏/SFTP/AI 操作）</div>
+          <div class="task"><span class="bx"></span>新增底部快捷键条 + 状态栏</div>
+          <div class="task"><span class="bx"></span>右栏页签化：AI / 传输 / 监控</div>
+          <div class="task"><span class="bx"></span>首页聚合：新建会话 / 最近会话</div>
+          <p class="pill" style="margin-top:8px">产出：新布局骨架（可空样式）；验收：功能零回归</p>
+        </div></div>
+      </div>
+
+      <div class="step"><div class="hd"><span class="id">S2</span><b>组件重绘</b><span class="pill">通用类</span><span class="dur">约 1 周</span></div>
+        <div class="bd"><div class="bd-in">
+          <div class="task"><span class="bx"></span>标签 / 会话节点 / 按钮 / 输入 / 卡片 / 徽标 / 进度条 统一重绘</div>
+          <div class="task"><span class="bx"></span>收敛 12 种圆角 → 4 档、22 种阴影 → 3 档</div>
+          <div class="task"><span class="bx"></span>清 33 处硬编码颜色（除主题定义）；整治 46 处 <code>!important</code></div>
+          <div class="task"><span class="bx"></span>antd 桥接对齐（圆角 token、按需开启动效）</div>
+        </div></div>
+      </div>
+
+      <div class="step"><div class="hd"><span class="id">S3</span><b>交互与动效</b><span class="pill">体验</span><span class="dur">3–5 天</span></div>
+        <div class="bd"><div class="bd-in">
+          <div class="task"><span class="bx"></span>统一 transition（时长/缓动/属性白名单）</div>
+          <div class="task"><span class="bx"></span>全局 <code>:focus-visible</code> 焦点环（键盘可达）</div>
+          <div class="task"><span class="bx"></span>⌘K 命令面板（主机/动作/命令搜索）</div>
+          <div class="task"><span class="bx"></span><code>prefers-reduced-motion</code> 全局兜底</div>
+          <div class="task"><span class="bx"></span>状态反馈：连接中/错误/上传进度 呼吸与进度语言</div>
+        </div></div>
+      </div>
+
+      <div class="step"><div class="hd"><span class="id">S4</span><b>逐区域精修</b><span class="pill">67 个 .styl</span><span class="dur">1–2 周</span></div>
+        <div class="bd"><div class="bd-in">
+          <div class="task"><span class="bx"></span>高频优先：右键菜单 <code>sys-menu</code> / 快捷命令 <code>qm</code> / 会话树</div>
+          <div class="task"><span class="bx"></span>终端区：搜索、复制提示、快捷键条、监控详情</div>
+          <div class="task"><span class="bx"></span>SFTP / 传输 / 对比 / AI 面板 / 设置面板</div>
+          <div class="task"><span class="bx"></span>RDP/VNC/SPICE 公共外壳；移动端 <code>mobile.styl</code> 适配</div>
+        </div></div>
+      </div>
+
+      <div class="step"><div class="hd"><span class="id">S5</span><b>双主题校验与放行</b><span class="pill">质检</span><span class="dur">2–3 天</span></div>
+        <div class="bd"><div class="bd-in">
+          <div class="task"><span class="bx"></span>12 主题 × 亮/暗 全走查；对比度实测（≥4.5:1）</div>
+          <div class="task"><span class="bx"></span>视觉回归（改前后截图比对）；真机安装复测</div>
+          <div class="task"><span class="bx"></span>走《美化实施七维度审计报告》流程并归档</div>
+          <div class="task"><span class="bx"></span>打包测试 deb（<code>npm run bdebfast</code>）供体验</div>
+        </div></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ 甘特 ══ -->
+  <section id="gantt">
+    <div class="sec-h"><h2>五、进度安排（约 4–5 周）</h2><span class="tag">相对工期</span></div>
+    <div class="gantt">
+      <div class="axes"><span></span><span class="wn"><span>第1周</span><span>第2周</span><span>第3周</span><span>第4周</span><span>第5周</span></span></div>
+      <div class="grow"><span class="lb">S0 Token</span><span class="gtrack"><span class="gbar" style="left:0%;width:10%">2–3d</span></span></div>
+      <div class="grow"><span class="lb">S1 结构</span><span class="gtrack"><span class="gbar" style="left:8%;width:20%">1 周</span></span></div>
+      <div class="grow"><span class="lb">S2 组件</span><span class="gtrack"><span class="gbar" style="left:26%;width:20%">1 周</span></span></div>
+      <div class="grow"><span class="lb">S3 交互</span><span class="gtrack"><span class="gbar" style="left:44%;width:12%">3–5d</span></span></div>
+      <div class="grow"><span class="lb">S4 区域</span><span class="gtrack"><span class="gbar" style="left:54%;width:32%">1–2 周</span></span></div>
+      <div class="grow"><span class="lb">S5 校验</span><span class="gtrack"><span class="gbar" style="left:86%;width:12%">2–3d</span></span></div>
+    </div>
+    <div class="legend">关键路径：S0 → S1 → S2；S3/S4 可部分并行；每个阶段末均产出可安装测试包。</div>
+  </section>
+
+  <!-- ══ 验收 ══ -->
+  <section id="accept">
+    <div class="sec-h"><h2>六、验收标准</h2><span class="tag">Definition of Done</span></div>
+    <div class="card">
+      <div class="chk"><span class="bx"></span><div><b>主题正确</b>：12 主题 × 亮/暗 无颜色错乱，正文对比度 ≥4.5:1</div></div>
+      <div class="chk"><span class="bx"></span><div><b>语言统一</b>：圆角 ≤4 档、阴影 ≤3 档；除主题定义外无硬编码颜色</div></div>
+      <div class="chk"><span class="bx"></span><div><b>可访问</b>：全局键盘焦点可见；<code>prefers-reduced-motion</code> 生效</div></div>
+      <div class="chk"><span class="bx"></span><div><b>零回归</b>：连接 / 终端 / SFTP / AI / RDP / 串口 全功能正常</div></div>
+      <div class="chk"><span class="bx"></span><div><b>契约安全</b>：未新增必填主题变量，主题编辑器可正常保存</div></div>
+      <div class="chk"><span class="bx"></span><div><b>结构可用</b>：快捷键与交互习惯不退化（或提供迁移说明）</div></div>
+    </div>
+  </section>
+
+  <!-- ══ 风险 ══ -->
+  <section id="risk">
+    <div class="sec-h"><h2>七、风险与回滚</h2><span class="tag">工程保障</span></div>
+    <table>
+      <tr><th>风险</th><th>影响</th><th>应对</th></tr>
+      <tr><td>结构改动引发功能回归</td><td><span class="sev red">高</span></td><td>S1 只动布局不动逻辑；先跑 e2e/单测；分小步提交，每步可 <code>git revert</code></td></tr>
+      <tr><td>token 新增导致主题保存失败</td><td><span class="sev red">高</span></td><td>严格"派生不新增"；契约单测拦截 <code>requiredThemeProps</code> 越界</td></tr>
+      <tr><td>浅色主题对比度不达标</td><td><span class="sev orange">中</span></td><td>S5 用 WebAIM 实测；状态色在浅底改用深一档</td></tr>
+      <tr><td>视觉回归（改一处坏一片）</td><td><span class="sev orange">中</span></td><td>截图对比（BackstopJS/Percy 可选）+ 区域清单逐个核对</td></tr>
+      <tr><td>Electron 体积/性能</td><td><span class="sev yellow">低</span></td><td>动效只动合成属性；避免大面积 blur</td></tr>
+    </table>
+  </section>
+
+  <!-- ══ 落点映射 ══ -->
+  <section id="map">
+    <div class="sec-h"><h2>八、代码落点映射</h2><span class="tag">施工索引</span></div>
+    <table>
+      <tr><th>层</th><th>文件</th><th>改动</th></tr>
+      <tr><td>Token</td><td><code>src/client/css/includes/theme.styl</code></td><td>定义全部派生 token 的静态兜底</td></tr>
+      <tr><td>运行时</td><td><code>src/client/components/main/ui-theme.jsx</code></td><td>注入 color-mix 派生值；修 <code>darker()</code></td></tr>
+      <tr><td>antd</td><td><code>src/client/store/store.js</code></td><td>对齐圆角 token、按需开动效</td></tr>
+      <tr><td>骨架</td><td><code>layout/</code>、<code>tabs/</code>、<code>sidebar/</code></td><td>标题栏/标签栏/两级左栏/面包屑/状态栏</td></tr>
+      <tr><td>组件</td><td><code>common/*.styl</code>、<code>css/basic.styl</code></td><td>统一按钮/输入/卡片/焦点环</td></tr>
+      <tr><td>区域</td><td>67 个 <code>.styl</code></td><td>S4 逐区域精修（高频优先）</td></tr>
+      <tr><td>测试</td><td><code>src/test/unit-ci/</code></td><td>token 契约单测</td></tr>
+    </table>
+    <div class="legend">关联文档：<code>UI-重设计方案.md</code> · <code>UI-重设计草图.html</code> · <code>UI-美化设计规范.md</code> · <code>美化实施七维度审计报告.md</code>。</div>
+  </section>
+
+  <div class="foot">electerm UI 美化与重构计划 · v5 · 生成于 2026-09-29 · 颜色/尺寸均由基色与基准尺派生（12 主题自适应）</div>
+</div>
+
+<script>
+// 阶段折叠
+document.querySelectorAll('.step').forEach(s=>{
+  s.querySelector('.hd').addEventListener('click',()=>s.classList.toggle('open'));
+});
+// 导航平滑滚动
+document.querySelectorAll('.nav a').forEach(a=>a.addEventListener('click',e=>{
+  e.preventDefault();
+  document.querySelector(a.getAttribute('href')).scrollIntoView({behavior:'smooth',block:'start'});
+}));
+</script>
+</body>
+</html>
