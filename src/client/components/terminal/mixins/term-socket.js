@@ -78,7 +78,8 @@ export const socketMixin = {
   async remoteInit (term = this.term) {
     this.setState({
       loading: true,
-      terminalError: null
+      terminalError: null,
+      sessionStopped: false
     })
     const { cols, rows } = term
     const { config } = this.props
@@ -124,6 +125,10 @@ export const socketMixin = {
       }
     }
     const keepaliveInterval = tab.keepaliveInterval || config.keepaliveInterval
+    // Remember which executable this session actually spawned (profile- and
+    // bookmark-applied). `cd()` in term-attach needs the same answer to pick
+    // CMD vs PowerShell syntax; the global setting alone is not enough.
+    this.localShell = execOpts[execPropName] || ''
     const opts = clone({
       cols,
       rows,
@@ -188,6 +193,10 @@ export const socketMixin = {
         return
       }
       this.setStatus(statusMap.error)
+      // The pane is dead even though the socket never opened. The notice itself
+      // stays hidden while `terminalError` is set - the error alert is already
+      // the message.
+      this.setState({ sessionStopped: true })
       return
     }
     this.port = r.port
@@ -207,7 +216,7 @@ export const socketMixin = {
       // instead of leaving an unhandled rejection behind
       try {
         await this.initAttachAddon()
-        this.startupQueue.runInitScript()
+        this.startupQueue.runInitScript(opts[execPropName])
       } catch (e) {
         console.error(e)
         this.handleError({ message: e.message })
@@ -319,6 +328,7 @@ export const socketMixin = {
     if (this.userTypeExit) {
       return this.props.delTab(this.props.tab.id)
     }
+    this.setState({ sessionStopped: true })
     const { autoReconnectTerminal } = this.props.config
     if (autoReconnectTerminal) {
       this.scheduleAutoReconnect(3000)

@@ -18,6 +18,8 @@ import uid from '../common/uid'
 import newTerm, { updateCount } from '../common/new-terminal.js'
 import { action } from 'manate'
 import { shouldCaptureTerminalReloadState } from '../components/terminal/ssh-reload-state.js'
+import dangerousSessionFields from '../common/dangerous-session-fields'
+import { distributeTabsEvenly } from '../common/distribute-tabs'
 
 function captureSshSessionState (tab, config) {
   return shouldCaptureTerminalReloadState(tab, config)
@@ -415,23 +417,9 @@ export default Store => {
     store.updateHistory(newTab)
   }
 
-  // Dangerous props that should not be accepted from IPC
-  const dangerousTabProps = [
-    'execLinux',
-    'execMac',
-    'execWindows',
-    'execWindowsArgs',
-    'execMacArgs',
-    'execLinuxArgs',
-    'setEnv',
-    'runScripts',
-    'interactiveValues',
-    'triggers'
-  ]
-
   Store.prototype.ipcOpenTab = function (parsed) {
     const safeTab = Object.fromEntries(
-      Object.entries(parsed).filter(([key]) => !dangerousTabProps.includes(key))
+      Object.entries(parsed).filter(([key]) => !dangerousSessionFields.includes(key))
     )
     return window.store.addTab(safeTab)
   }
@@ -504,12 +492,45 @@ export default Store => {
     }
     ntb.batch = (currentLayoutBatch + 1) % maxBatch
     if (layout === 'c1') {
-      store.setLayout('c2')
+      store.setLayout('c2', false)
     }
     store.addTab(ntb)
   }
 
-  Store.prototype.setLayout = function (layout) {
+  // Spread tabs over the panes of a layout with more panes.
+  // Only used when leaving the single layout: once more than one pane is on
+  // screen the arrangement is the user's, and is left alone.
+  Store.prototype.distributeTabs = function (newCount) {
+    const { store } = window
+    const { tabs } = store
+    if (tabs.length < 2) {
+      return
+    }
+    // contiguous chunks keep the tab order: [A B C D E] -> [A B] [C D] [E]
+    const batches = distributeTabsEvenly(tabs.length, newCount)
+    tabs.forEach((t, i) => {
+      t.batch = batches[i]
+    })
+  }
+
+  // make sure every pane has a valid active tab
+  Store.prototype.fixActiveTabIds = function (count) {
+    const { store } = window
+    for (let b = 0; b < count; b++) {
+      const inBatch = store.tabs.filter(t => t.batch === b)
+      const key = `activeTabId${b}`
+      if (!inBatch.some(t => t.id === store[key])) {
+        store[key] = inBatch.length ? inBatch[0].id : ''
+      }
+    }
+    const active = store.tabs.find(t => t.id === store.activeTabId)
+    if (active) {
+      store[`activeTabId${active.batch}`] = active.id
+      store.currentLayoutBatch = active.batch
+    }
+  }
+
+  Store.prototype.setLayout = function (layout, redistribute = true) {
     const { store } = window
     const prevLayout = store.layout
     const { activeTabId } = store
@@ -546,6 +567,15 @@ export default Store => {
       if (store.currentLayoutBatch >= newBatchCount) {
         store.currentLayoutBatch = newBatchCount - 1
       }
+    } else if (
+      redistribute &&
+      store.config.autoDistributeTabsWhenLayoutChange &&
+      prevBatchCount === 1 &&
+      newBatchCount > 1
+    ) {
+      // leaving the single layout: hand the tabs out evenly
+      store.distributeTabs(newBatchCount)
+      store.fixActiveTabIds(newBatchCount)
     }
     store.focus()
   }

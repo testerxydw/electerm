@@ -24,6 +24,7 @@ const {
   stopWidget,
   runWidgetFunc
 } = require('../widgets/load-widget')
+const widgetLog = require('../widgets/instance-log')
 const {
   checkMigrate,
   migrate
@@ -68,6 +69,11 @@ const initApp = require('./init-app')
 const { encryptAsync, decryptAsync } = require('./enc')
 const { safeEncrypt, safeDecrypt } = require('./safe-storage')
 const { initCommandLine } = require('./command-line')
+const {
+  getCommandStatus,
+  installCommand,
+  uninstallCommand
+} = require('./install-command')
 const { watchFile, unwatchFile } = require('./watch-file')
 const lookup = require('../common/lookup')
 const {
@@ -75,7 +81,8 @@ const {
   AIchatWithTools,
   AIlistModels,
   getStreamContent,
-  stopStream
+  stopStream,
+  abortAIRequest
 } = require('./ai')
 
 // Security: whitelist of safe environment variables for Linux/Mac/Windows
@@ -165,7 +172,10 @@ function initIpc () {
       installSrc,
       appPath,
       exePath,
-      isPortable
+      isPortable,
+      // where running widgets write their logs; the widget manager reads them
+      // straight off disk (see widgets/instance-log.js)
+      widgetLogPath: widgetLog.getLogDir()
     }
     initApp(langMap, config)
     initShortCut(globalShortcut, globalState.get('win'), config)
@@ -239,6 +249,7 @@ function initIpc () {
     AIlistModels,
     getStreamContent,
     stopStream,
+    abortAIRequest,
     setTitle: (title) => {
       const win = globalState.get('win')
       win && win.setTitle(packInfo.name + ' - ' + title)
@@ -249,6 +260,14 @@ function initIpc () {
     },
     changeHotkey: changeHotkeyReg(globalShortcut, globalState.get('win')),
     initCommandLine,
+    // No renderer-supplied options: the main process owns platform/execPath.
+    // `packaged` is the guard against a dev run, where execPath is Electron.
+    getElectermCommandStatus: () =>
+      getCommandStatus({ packaged: app.isPackaged }),
+    installElectermCommand: () =>
+      installCommand({ packaged: app.isPackaged }),
+    uninstallElectermCommand: () =>
+      uninstallCommand({ packaged: app.isPackaged }),
     watchFile,
     unwatchFile,
     openFileWithEditor,

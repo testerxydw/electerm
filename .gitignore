@@ -133,3 +133,5 @@ ftp-root
 .cursor
 /.codebuddy
 /.test-build-num
+.lintcache
+.npmcache
