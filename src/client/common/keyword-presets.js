@@ -2,7 +2,40 @@
  * Built-in keyword highlight presets, offered next to keyword import/export.
  * Applying a preset adds its rules after the user's existing ones (skipping
  * rules already present), so it never discards custom keywords.
+ *
+ * These rule sets are written for terminal output. The open-source
+ * collections that exist are close, but none of them is drop-in:
+ *   - grc (github.com/garabik/grc) ships ~60 per-command `conf.*` files
+ *     (conf.dockerps, conf.kubectl, conf.systemctl, conf.gcc, conf.log, ...).
+ *   - tailspin (github.com/bensadeh/tailspin) ships fixed highlight groups:
+ *     dates, durations, keywords (severities, booleans, nulls, HTTP methods),
+ *     URLs, numbers, IPv4, quotes, unix paths, HTTP methods, UUIDs,
+ *     key-value pairs, pointer addresses, unix processes.
+ *   - VS Code Log File Highlighter
+ *     (github.com/emilast/vscode-logfile-highlighter) ships a log4net-style
+ *     TextMate grammar: dates/times, log levels, numeric and .NET constants,
+ *     strings, GUIDs, MACs, exception types, stack traces, URLs, namespaces.
+ *   - lnav (github.com/tstack/lnav) ships ~60 JSON log format definitions
+ *     (access_log, error_log, journald_json, java_log, redis_log, ...).
+ * They are per-command shell wrappers or editor grammars, and none of them
+ * uses ANSI colour names, so these presets follow their categories rather
+ * than their files.
  */
+
+// Patterns shared by several presets. mergeKeywordPreset dedupes on the
+// pattern string, so a rule that appears in two presets is only added once.
+const ipv4 = '\\b(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(/\\d{1,2})?\\b'
+const ipv6 = '(?<![\\w:])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|:(?::[0-9a-f]{1,4}){1,7}|::)(?![\\w:])'
+const mac = '\\b([0-9a-f]{2}[:-]){5}[0-9a-f]{2}\\b|\\b[0-9a-f]{4}\\.[0-9a-f]{4}\\.[0-9a-f]{4}\\b'
+const srcExt = 'c|cc|cpp|cxx|h|hh|hpp|hxx|m|mm|go|rs|java|kt|kts|scala|ts|tsx|js|jsx|mjs|cjs|py|pyi|rb|php|cs|swift|zig|lua|pl|pm|ex|exs|erl|dart|sh|bash|zsh|ps1|sql|json|ya?ml|toml|ini|cfg|conf|properties|styl|css|scss|sass|less|html|vue|svelte|md|txt|log|csv|tsv'
+// source file name, and file:line(:col) as printed by compilers and stack traces
+const srcFile = '\\b[\\w./~-]+\\.(' + srcExt + ')\\b'
+const srcLoc = '\\b[\\w./~-]+\\.(' + srcExt + ')\\b(:\\d+){1,2}'
+
+// ISO8601/BSD/纯时钟时间戳,带 JSON 边界排除(前后有 ":"" 时不匹配,避免误伤 JSON 字段值)
+const tsIso8601 = '(?<![":])\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}([.,]\\d{1,6})?(Z|[+-]\\d{2}:?\\d{2})?(?![":])'
+const tsBsd = '(?<![":])\\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2}\\b(?![":])'
+const tsClock = '(?<![":])\\b\\d{2}:\\d{2}:\\d{2}([.,]\\d{1,6})?\\b(?![":])'
 
 export const keywordPresets = [
   {
@@ -21,9 +54,9 @@ export const keywordPresets = [
       { keyword: '(?<![":])\\b(up|connected|link up|permit(ted)?|forwarding|fwd|full|established|active|success(ful)?|enabled?|ok|online|reachable|root)\\b(?![":])|\\bu/u\\b', color: 'green' },
       { keyword: '(?<![":])\\b(warning|warn|half|learning|lrn|listening|lis|standby|disabled?|shutdown|pending|unknown|desg|altn|alternate|backup)\\b(?![":])', color: 'yellow' },
       // MAC addresses: aa:bb:cc:dd:ee:ff, aa-bb-..., aabb.ccdd.eeff
-      { keyword: '\\b([0-9a-f]{2}[:-]){5}[0-9a-f]{2}\\b|\\b[0-9a-f]{4}\\.[0-9a-f]{4}\\.[0-9a-f]{4}\\b', color: 'magenta' },
+      { keyword: mac, color: 'magenta' },
       // IPv4 with optional prefix length
-      { keyword: '\\b(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(/\\d{1,2})?\\b', color: 'cyan' },
+      { keyword: ipv4, color: 'cyan' },
       // interface names. Cisco/Arista/Dell: Gi1/0/1, GigabitEthernet1/0/1, Et1, Ma1, Po1, Vlan600.
       // Huawei: XGigabitEthernet0/0/1, 40GE1/0/1, Eth-Trunk1, Vlanif10. HP Comware: XGE1/0/1,
       // Bridge-Aggregation1, BAGG1. ProCurve: Trk1. MikroTik: ether1, sfp-sfpplus1, bridge1.
@@ -36,30 +69,118 @@ export const keywordPresets = [
     ]
   },
   {
-    name: 'Log Levels',
-    description: 'Generic application logs: severity words used by most frameworks and shippers (log4j/logback, zap, pino, logrus, syslog clients, nginx/error.log)',
+    name: 'Syslog & systemd',
+    description: 'journalctl, /var/log/syslog and messages, systemd unit output: severity, unit lifecycle states, unit names, timestamps, PIDs',
     keywords: [
-      { keyword: '\\b(FATAL|PANIC)\\b', color: 'red' },
-      { keyword: '\\b(ERROR|ERR)\\b', color: 'red' },
-      { keyword: '\\b(WARN|WARNING)\\b', color: 'yellow' },
-      { keyword: '\\b(INFO|NOTICE)\\b', color: 'cyan' },
-      { keyword: '\\b(DEBUG|TRACE|VERBOSE)\\b', color: 'blue' }
+      // severity, worst first so the more specific word wins
+      { keyword: '\\b(emerg(ency)?|alert|crit(ical)?|panic|fatal)\\b', color: 'red' },
+      { keyword: '\\b(err(or)?|fail(ed|ure|ures)?|denied|refused|timeout|timed out|unreachable|corrupt(ed)?|segfault|core[- ]dump(ed)?)\\b', color: 'red' },
+      { keyword: '\\b(warn(ing)?)\\b', color: 'yellow' },
+      { keyword: '\\b(notice)\\b', color: 'cyan' },
+      { keyword: '\\b(info(rmational)?)\\b', color: 'cyan' },
+      { keyword: '\\b(debug)\\b', color: 'blue' },
+      // systemd unit lifecycle
+      { keyword: '\\b(failed|dead|inactive|killed|masked|not[- ]found)\\b', color: 'red' },
+      { keyword: '\\b(started|starting|active|running|reached|succeeded|success(fully)?|listening|mounted|finished|enabled)\\b', color: 'green' },
+      { keyword: '\\b(stopping|stopped|reloading|reload(ed)?|deactivating|activating|waiting|pending|scheduled|restart(ing|ed)?|retrying|degraded)\\b', color: 'yellow' },
+      // unit names: nginx.service, ssh.socket, systemd-tmpfiles-clean.timer
+      { keyword: '\\b[a-z0-9][a-z0-9@._-]*\\.(service|socket|target|timer|mount|automount|device|path|slice|scope|swap)\\b', color: 'blue' },
+      // ISO-8601 and syslog timestamps (带 JSON 边界排除)
+      { keyword: tsIso8601, color: 'cyan' },
+      { keyword: tsBsd, color: 'cyan' },
+      { keyword: tsClock, color: 'cyan' },
+      { keyword: '\\b(pid|PID)[= ]\\d+\\b', color: 'magenta' },
+      { keyword: '\\b(sshd|sudo|systemd|crond?|dbus-daemon|NetworkManager|polkitd|rsyslogd|logind|kernel)\\[[0-9]+\\]', color: 'blue' },
+      { keyword: ipv4, color: 'cyan' },
+      { keyword: ipv6, color: 'magenta' }
     ]
   },
   {
-    name: 'Timestamps',
-    description: 'Common timestamp shapes: ISO 8601, classic BSD syslog dates, bracketed timers and bare clock times',
+    name: 'Linux kernel & dmesg',
+    description: 'dmesg, the kernel ring buffer and boot messages: OOM killer, segfaults, hardware and I/O errors, device, link and driver events',
     keywords: [
-      // 排除 JSON 字段值中的时间戳(前后有 ":"")
-      { keyword: '(?<![":])\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?(?![":])', color: 'magenta' },
-      { keyword: '\\b(?:mon|tue|wed|thu|fri|sat|sun)\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}\\b', color: 'cyan' },
-      { keyword: '\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?\\]', color: 'cyan' },
-      { keyword: '(?<![":])\\b\\d{2}:\\d{2}:\\d{2}\\b(?![":])', color: 'blue' }
+      { keyword: '\\b(kernel panic|general protection fault|unable to handle (kernel )?paging request|segfault|out of memory|oom[- ]kill(er)?|killed process|call trace|hardware error|machine check|medium error|unrecoverable (read|error)|i/o error|buffer i/o error|ext4-fs error|xfs .*corruption|reset .* failed|device not ready|link is not ready|firmware (bug|error)|stack corruption|bad rip value|blocked for more than)\\b', color: 'red' },
+      { keyword: '\\b(error|err|fail(ed|ure)?|fatal|denied|timeout|timed out|dropped|refused|corrupt)\\b', color: 'red' },
+      { keyword: '\\b(warn(ing)?|deprecated|falling back|retry(ing)?|deferred|link is down|disconnected|removed|suspended|unstable|degraded|overcurrent|throttl(ed|ing)|thermal|under-voltage|over-voltage)\\b', color: 'yellow' },
+      { keyword: '\\b(link is up|link up|registered|initialized|attached|mounted|enabled|detected|ready|success(ful)?|started|inserted|now attached|power on|resumed|link becomes ready)\\b', color: 'green' },
+      // device names
+      { keyword: '\\b(ata\\d+(\\.\\d+)?|sd[a-z]\\d*|nvme\\d+n\\d+(p\\d+)?|mmcblk\\d+(p\\d+)?|dm-\\d+|md\\d+|eth\\d+|wlan\\d+|enp\\d+s\\d+|eno\\d+|wlp\\d+s\\d+|usb \\d+-\\d+(\\.\\d+)?|tty(S|USB|ACM)\\d+|br-\\d+|veth[0-9a-f]+)\\b', color: 'blue' },
+      { keyword: '\\b[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.\\d\\b|\\b[0-9a-f]{4}:[0-9a-f]{4}\\b', color: 'magenta' },
+      { keyword: '\\bcpu\\d+\\b', color: 'magenta' },
+      { keyword: '\\bLinux version \\S+\\b', color: 'cyan' },
+      // dmesg's own [   12.345678] prefix
+      { keyword: '\\[\\s*\\d+\\.\\d+\\]', color: 'cyan' },
+      { keyword: '\\b\\d+(\\.\\d+)?\\s?(MB|GB|KB|TB)/s\\b|\\b\\d+(\\.\\d+)?\\s?(MiB|GiB|KiB|TiB)\\b', color: 'cyan' }
+    ]
+  },
+  {
+    name: 'HTTP & web logs',
+    description: 'nginx and Apache access and error logs, and most web framework request logs: methods, status codes by class, latency, upstream hosts, user agents, paths',
+    keywords: [
+      // Apache / nginx timestamp, first so the date parts are not picked up
+      // by the path or host:port rules
+      { keyword: '\\[\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2} [+-]\\d{4}\\]', color: 'cyan' },
+      { keyword: tsClock, color: 'cyan' },
+      // status code, coloured by class. The lookbehind requires the closing
+      // quote of the request line, so arbitrary three-digit numbers are left alone
+      { keyword: '(?<="\\s)5\\d{2}\\b', color: 'red' },
+      { keyword: '(?<="\\s)4\\d{2}\\b', color: 'yellow' },
+      { keyword: '(?<="\\s)3\\d{2}\\b', color: 'cyan' },
+      { keyword: '(?<="\\s)[12]\\d{2}\\b', color: 'green' },
+      { keyword: '\\bstatus[=: ]\\s*5\\d{2}\\b', color: 'red' },
+      { keyword: '\\bstatus[=: ]\\s*4\\d{2}\\b', color: 'yellow' },
+      // URLs, then the request line: method + path + protocol
+      { keyword: '\\bhttps?://[^\\s"\']+', color: 'blue' },
+      { keyword: '\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\\s+\\S+\\s+HTTP/', color: 'blue' },
+      { keyword: '\\bHTTP/\\d(\\.\\d)?', color: 'blue' },
+      // absolute paths, but not the "/09" in a date, the "//" in a URL or the
+      // "/or" in "and/or"
+      { keyword: '(?<![\\w/])/[\\w.~%!$&()*+,;=:@-]{2,}', color: 'blue' },
+      // latency
+      { keyword: '\\b\\d+(\\.\\d+)?\\s?(ms|us|µs)\\b', color: 'cyan' },
+      { keyword: '\\b(request_time|upstream_response_time|request_time_ms|duration|latency|elapsed|took)[=:]\\s*\\d+(\\.\\d+)?', color: 'cyan' },
+      // host:port, but not the "08:57" inside a timestamp
+      { keyword: '\\bupstream\\b', color: 'magenta' },
+      { keyword: '\\b(?:[a-z][a-z0-9.-]*|\\d{1,3}(?:\\.\\d{1,3}){3}):\\d{2,5}\\b', color: 'magenta' },
+      { keyword: '\\b(Mozilla/5\\.0|curl/\\S+|Wget/\\S+|Googlebot(?:/\\S+)?|bingbot(?:/\\S+)?|python-requests/\\S+|Go-http-client/\\S+|okhttp/\\S+|PostmanRuntime/\\S+|Apache-HttpClient/\\S+|axios/\\S+|node-fetch/\\S+|Electron/\\S+)\\b', color: 'magenta' },
+      { keyword: ipv4, color: 'cyan' },
+      // error-log severity in brackets
+      { keyword: '\\[(emerg|alert|crit|error)\\]', color: 'red' },
+      { keyword: '\\[(warn|notice)\\]', color: 'yellow' },
+      { keyword: '\\[(info|debug)\\]', color: 'cyan' }
+    ]
+  },
+  {
+    name: 'Application log levels',
+    description: 'Generic application logs (log4j/slf4j, Python logging, Go slog, Rust tracing, Node winston/pino): levels, timestamps, thread and logger names, exception types, tracing ids',
+    keywords: [
+      { keyword: '\\b(FATAL|CRITICAL|PANIC|EMERG(ENCY)?|ALERT|SEVERE)\\b', color: 'red' },
+      { keyword: '\\b(ERROR|ERR|EXCEPTION|TRACEBACK|STACK ?TRACE|CAUSED BY|FAIL(ED|URE)?)\\b', color: 'red' },
+      { keyword: '\\b(WARN(ING)?)\\b', color: 'yellow' },
+      { keyword: '\\b(NOTICE)\\b', color: 'cyan' },
+      { keyword: '\\b(INFO(RMATION)?)\\b', color: 'green' },
+      { keyword: '\\b(DEBUG|TRACE|VERBOSE)\\b', color: 'blue' },
+      { keyword: '\\b(true|false|null|nil|undefined|None|NaN)\\b', color: 'magenta' },
+      // 带 JSON 边界排除,避免误伤 JSON 字段值
+      { keyword: tsIso8601, color: 'cyan' },
+      { keyword: tsClock, color: 'cyan' },
+      { keyword: '\\b\\d+(\\.\\d+)?\\s?(ms|us|µs|ns)\\b', color: 'cyan' },
+      // tracing / correlation ids, in "k=v" and in JSON "k": "v" form
+      { keyword: '\\b(trace_?id|span_?id|request_?id|correlation_?id|session_?id|user_?id)["\']?\\s*[=:]\\s*["\']?[\\w.:-]+', color: 'magenta' },
+      // exception class names
+      { keyword: '\\b[A-Z][A-Za-z0-9]*(Error|Exception|Throwable|Fault|Panic)\\b', color: 'red' },
+      // logger / package names: com.example.Foo, my.pkg.module
+      { keyword: '\\b([A-Za-z_][A-Za-z0-9_]*\\.){2,}[A-Za-z_][A-Za-z0-9_]*\\b', color: 'blue' },
+      // thread names: [main], [worker-3], [pool-2-thread-1]
+      { keyword: '\\[(main|worker[- ]?\\d+|pool-\\d+-thread-\\d+|Thread-\\d+|goroutine \\d+|[A-Za-z0-9_-]{1,20}-\\d+)\\]', color: 'blue' },
+      { keyword: srcLoc, color: 'magenta' },
+      { keyword: ipv4, color: 'cyan' },
+      { keyword: ipv6, color: 'magenta' }
     ]
   },
   {
     name: 'Exceptions & Stack Traces',
-    description: 'Crash signatures: Java exceptions and frames, Python tracebacks, Go panics and native signal aborts',
+    description: 'Java/Python/Go crash signatures: exception classes, Caused by chains, at frames, Traceback blocks, native signal aborts and panic lines',
     keywords: [
       { keyword: '\\b(?:[\\w$]+\\.)*[A-Z][\\w$]*(?:Exception|Error)\\b', color: 'red' },
       { keyword: '\\bCaused by:', color: 'red' },
@@ -71,52 +192,111 @@ export const keywordPresets = [
     ]
   },
   {
-    name: 'Containers & Kubernetes',
-    description: 'kubectl / Docker status vocabulary: pod phases and restart reasons across get events, describe and CI logs',
+    name: 'Timestamps',
+    description: 'Standalone timestamp shapes for mixed-format output: ISO 8601, BSD syslog dates, bracketed timers, bare clock times and durations',
     keywords: [
-      { keyword: '\\b(CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|Evicted|OOMKilled|Failed)\\b', color: 'red' },
-      { keyword: '\\b(Running|Completed|Succeeded|Ready|Healthy)\\b', color: 'green' },
-      { keyword: '\\b(Pending|ContainerCreating|ContainerStatusUnknown|Terminating|Progressing)\\b', color: 'yellow' },
-      { keyword: '\\b(?:pod|deployment|daemonset|statefulset|replicaset|service|ingress|configmap|secret|namespace)/[\\w.-]+', color: 'blue' }
+      { keyword: tsIso8601, color: 'magenta' },
+      { keyword: tsBsd, color: 'cyan' },
+      { keyword: '\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?\\]', color: 'cyan' },
+      { keyword: tsClock, color: 'blue' },
+      { keyword: '\\b\\d+(?:\\.\\d+)?\\s?(ms|us|µs|ns|s|sec|secs|seconds|min|mins|minute|minutes|h|hr|hrs|hour|hours)\\b', color: 'cyan' }
     ]
   },
   {
-    name: 'Git & VCS',
-    description: 'Git CLI output: conflict markers, fatal errors, merge/rebase state and commit hashes',
+    name: 'Docker & Kubernetes',
+    description: 'docker ps/images/compose and kubectl get/describe/logs output: container states, pod phases and events, resource references, image tags and digests, ports, ages, restart counts',
     keywords: [
+      // container states and pod phases that mean trouble
+      { keyword: '\\b(CrashLoopBackOff|ErrImagePull|ImagePullBackOff|CreateContainerConfigError|CreateContainerError|InvalidImageName|OOMKilled|Evicted|Failed|FailedScheduling|Error|BackOff|Unhealthy|Dead|Removing|NotReady|Terminating|NoSchedule)\\b', color: 'red' },
+      { keyword: '\\bExited \\([1-9]\\d*\\)', color: 'red' },
+      { keyword: '\\b(Pending|ContainerCreating|Init:\\d+/\\d+|PodInitializing|Waiting|SchedulingDisabled|Unknown|Paused|Restarting|Preempting|Completed|Succeeded|Warning)\\b', color: 'yellow' },
+      { keyword: '\\b(Running|Ready|Healthy|Active|Bound|Started|Pulled|Created|Available|Deployed|Up \\d+ (second|minute|hour|day|week|month|year)s?|Exited \\(0\\))\\b', color: 'green' },
+      // resource references: deployment/nginx, pods/nginx-1, svc/api
+      { keyword: '\\b(pods?|deploy(ment)?s?|svc|services?|ingress(es)?|configmaps?|secrets?|statefulsets?|daemonsets?|replicasets?|jobs?|cronjobs?|namespaces?|nodes?|pv|pvc|endpoints?|hpa|events?)/[a-z0-9][a-z0-9.-]*\\b', color: 'blue' },
+      // generated pod / container names: nginx-7d9f8c6b5-x2k4p
+      { keyword: '\\b[a-z0-9][a-z0-9-]*-[0-9a-f]{5,10}-[a-z0-9]{4,6}\\b', color: 'magenta' },
+      // AGE column: 12m, 45s, 3d4h
+      { keyword: '\\b\\d+[dhms](\\d+[dhms])*\\b', color: 'cyan' },
+      // restart counts: "3 (4m ago)"
+      { keyword: '\\b\\d+ \\(\\d+[dhms]+ ago\\)', color: 'magenta' },
+      // well-known image names, with or without a tag. The trailing lookahead
+      // keeps the "nginx" in a pod name like nginx-7d9f8c6b5-x2k4p intact
+      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w-])', color: 'magenta' },
+      // registry references and digests
+      { keyword: '\\b[a-z0-9-]+(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b', color: 'magenta' },
+      { keyword: '\\bsha256:[0-9a-f]{12,64}\\b', color: 'magenta' },
+      // ports and port mappings. Two rules, not one alternation: a single rule
+      // that matches "0.0.0.0:8080" would resume scanning after it and never
+      // see the "8080->80/tcp" that sits inside that span
+      { keyword: '\\b\\d{1,5}->\\d{1,5}/(tcp|udp)\\b', color: 'magenta' },
+      { keyword: '(?<![\\w])(0\\.0\\.0\\.0|\\*|::):\\d{1,5}\\b', color: 'magenta' },
+      { keyword: ipv4, color: 'cyan' },
+      { keyword: ipv6, color: 'magenta' }
+    ]
+  },
+  {
+    name: 'Build & test output',
+    description: 'gcc/clang, tsc, eslint, make, maven/gradle, go build and pytest/jest/go test/cargo test: diagnostics, file:line:col locations, pass/fail/skip results, timings',
+    keywords: [
+      { keyword: '\\b(error|errors|failed|failure|failures|fatal|cannot find|not found|no such file|undefined reference|undefined symbol|unresolved|cannot resolve|permission denied|eacces|enoent|segmentation fault|abort(ed)?|core dumped|panicked)\\b', color: 'red' },
+      { keyword: '\\b(FAIL|FAILED|FAILURES?|✗|✘|✖)\\b', color: 'red' },
+      { keyword: '\\b(vulnerabilit(y|ies))\\b', color: 'red' },
+      { keyword: '\\b(warning|warnings|warn|deprecated|deprecation|outdated|hint)\\b', color: 'yellow' },
+      { keyword: '\\b(skip|skipped|pending|todo|xfail|xpass|ignored)\\b', color: 'yellow' },
+      { keyword: '\\b(PASS|PASSED|passed|ok|success|successful|SUCCESS|✔|✓|√)\\b', color: 'green' },
+      { keyword: '\\b(build succeeded|build success(ful)?|compilation complete|compiled successfully|nothing to do|up to date|all tests passed|done|finished)\\b', color: 'green' },
+      { keyword: '\\b(building|compiling|linking|bundling|transpiling|minifying|installing|resolving|downloading|fetching|running|executing|starting|cleaning|caching|packaging|publishing)\\b', color: 'blue' },
+      { keyword: srcLoc, color: 'magenta' },
+      { keyword: srcFile, color: 'blue' },
+      { keyword: '\\b\\d+(\\.\\d+)?\\s?(ms|us|µs|ns|s|sec|secs|seconds|m|min|mins)\\b', color: 'cyan' },
+      { keyword: '\\b\\d+(\\.\\d+)?%', color: 'cyan' },
+      { keyword: '\\b(elapsed|took|duration|wall time)[=: ]+\\d+(\\.\\d+)?\\s?\\w*', color: 'cyan' },
+      // 数字+名词组合会与下一行的 green/red 状态词冲突(42 passed 中 passed 应染绿),
+      // 故单独的数字+名词组合不再添加,green/red 单词规则直接覆盖 passed/failed 等
+      { keyword: ipv4, color: 'cyan' }
+    ]
+  },
+  {
+    name: 'Git',
+    description: 'git status/log/diff/fetch/push/pull/merge output: branch and tracking state, changed and untracked files, conflicts, commit ids, diff hunks',
+    keywords: [
+      // 冲突标记优先于普通 conflict 单词(因为短符号不构成单词边界)
       { keyword: '<{7}|={7}|>{7}', color: 'red' },
-      { keyword: '\\bfatal:', color: 'red' },
-      { keyword: '\\bconflict(?:s|ed)?\\b', color: 'red' },
-      { keyword: '\\b(staged|untracked|detached HEAD|fast-forward|rebasing|merging|bisect)\\b', color: 'cyan' },
-      { keyword: '\\bcommit [0-9a-f]{7,40}\\b', color: 'magenta' }
+      { keyword: '\\b(conflict|conflicts|both modified|both added|both deleted|deleted by (us|them)|added by (us|them)|unmerged|rejected|non-fast-forward|failed to push|detached HEAD|fatal|error|aborting|aborted|refusing to|would be overwritten|not possible to fast-forward)\\b', color: 'red' },
+      { keyword: '\\b(up[- ]to[- ]date|already up to date|everything up-to-date|fast-forward|nothing to commit|working tree clean|successfully|created|deleted branch|merged|rebase(d)? successfully)\\b', color: 'green' },
+      { keyword: '\\b(modified|deleted|renamed|copied|untracked|staged|unstaged|ahead of|behind|diverged|no changes added to commit|changes not staged|changes to be committed)\\b', color: 'yellow' },
+      { keyword: '\\b(ahead of|behind) \\S+ by \\d+ commits?\\b', color: 'cyan' },
+      { keyword: '\\bon branch \\S+', color: 'green' },
+      { keyword: '\\b(Merge branch|Merge pull request|Merge remote-tracking branch|Merge tag)\\b', color: 'cyan' },
+      { keyword: '\\b(HEAD|FETCH_HEAD|ORIG_HEAD|origin|upstream|main|master|develop|trunk|staging|production|release)/[\\w./-]+\\b', color: 'blue' },
+      { keyword: '\\b(origin|upstream)/[\\w.-]+\\b', color: 'blue' },
+      { keyword: '\\bcommit [0-9a-f]{7,40}\\b', color: 'magenta' },
+      { keyword: '\\b[0-9a-f]{40}\\b', color: 'magenta' },
+      { keyword: '\\bindex [0-9a-f]{7,}\\.\\.[0-9a-f]{7,}( \\d+)?\\b', color: 'magenta' },
+      { keyword: '@@ -\\d+(,\\d+)? \\+\\d+(,\\d+)? @@', color: 'cyan' },
+      { keyword: '\\bdiff --git\\b|\\bdiff --stat\\b', color: 'blue' },
+      { keyword: '(?<!\\S)(\\+\\+\\+|---) [ab]/\\S+', color: 'blue' },
+      { keyword: srcFile, color: 'blue' }
     ]
   },
   {
-    name: 'Build & Test',
-    description: 'Compilers, bundlers and test runners: error/warning counts, build results, check marks and npm error lines',
+    name: 'Auth & security',
+    description: 'sshd, sudo, PAM, fail2ban, nftables/iptables and TLS handshake output: logins, authentication failures, permission denials, blocked and allowed connections, key fingerprints',
     keywords: [
-      { keyword: '\\b\\d+ errors?\\b', color: 'red' },
-      { keyword: '\\b\\d+ warnings?\\b', color: 'yellow' },
-      { keyword: '\\berror TS\\d+:', color: 'red' },
-      { keyword: '\\bBUILD (?:SUCCESS|SUCCESSFUL)\\b', color: 'green' },
-      { keyword: '\\bBUILD (?:FAILED|FAILURE)\\b', color: 'red' },
-      { keyword: '\\b\\d+ (?:passed|passing)\\b', color: 'green' },
-      { keyword: '\\b\\d+ (?:failed|failing)\\b', color: 'red' },
-      { keyword: '[✔✓]', color: 'green' },
-      { keyword: '[✘✗]', color: 'red' },
-      { keyword: '\\bnpm (?:ERR|WARN)!', color: 'red' }
-    ]
-  },
-  {
-    name: 'Security & Auth',
-    description: 'Auth and access-control signals: denials, SSH auth.log lines, web error statuses and sudo events',
-    keywords: [
-      { keyword: '\\b(permission denied|access denied|unauthorized|forbidden|authentication fail\\w*|auth fail\\w*|invalid credentials?)\\b', color: 'red' },
-      { keyword: '\\b(Failed password|Invalid user)\\b', color: 'red' },
-      { keyword: '\\b(Internal Server Error|Bad Gateway|Service Unavailable)\\b', color: 'red' },
-      { keyword: '\\b(Accepted password|Accepted publickey|session opened)\\b', color: 'green' },
-      { keyword: '\\bNot Found\\b', color: 'yellow' },
-      { keyword: '\\bsudo:', color: 'yellow' }
+      { keyword: '\\b(failed password|authentication failure|auth(entication)? fail(ed|ure)?|invalid user|permission denied|access denied|not allowed|unauthorized|forbidden|break-in|refused|reject(ed)?|denied|dropped|blocked|banned|revoked|expired|certificate (has )?expired|self[- ]signed|unable to authenticate|too many authentication failures|connection closed by authenticating user|possible break-in attempt)\\b', color: 'red' },
+      { keyword: '\\b(Accepted (password|publickey|keyboard-interactive|none|gssapi[\\w-]*)|session opened|session closed|successful(ly)?|logged in|login successful|authenticated|granted|new session|established|reverse mapping checking .* successful|COMMAND=)\\b', color: 'green' },
+      { keyword: '\\b(warning|deprecated|weak|insecure|legacy|retrying|attempt|partial|unknown key|reverse mapping|not permitted|no matching host key)\\b', color: 'yellow' },
+      { keyword: '\\b(DROP|REJECT|ACCEPT|DNAT|SNAT|MASQUERADE)\\b', color: 'magenta' },
+      { keyword: '\\b(sshd|sudo|pam_[a-z]+|fail2ban|nft|iptables|firewalld|ufw|polkit|openssl|openssh|gssapi)\\b', color: 'blue' },
+      // user names only where the surrounding words make it unambiguous
+      { keyword: '(?<=\\buser )[a-z_][a-z0-9_-]*\\b', color: 'blue' },
+      { keyword: '(?<=\\bfor )[a-z_][a-z0-9_-]*(?= from )', color: 'blue' },
+      { keyword: '\\bport \\d{1,5}\\b', color: 'magenta' },
+      { keyword: '\\b(SHA256:[A-Za-z0-9+/]{43}=?|MD5:[0-9a-f]{2}(:[0-9a-f]{2}){15})', color: 'magenta' },
+      { keyword: '\\b(TLSv1(\\.[0-3])?|SSLv3|TLS_AES_\\w+|ECDHE[\\w-]*|cipher|handshake|verify (returned|ok|error)|Cipher is)\\b', color: 'cyan' },
+      { keyword: '(?<![\\w])(/(?:etc|var|home|root|usr|opt|tmp|srv|run|proc|sys|dev)/[\\w./-]*)', color: 'blue' },
+      { keyword: ipv4, color: 'cyan' },
+      { keyword: ipv6, color: 'magenta' }
     ]
   }
 ]

@@ -38,7 +38,8 @@ const whitelist = new Set([
   'footer-stack-height', // main.jsx:174
   'shortcut-bar-h', // shortcut-bar.jsx:160
   'shortcut-bar-kb-offset', // shortcut-bar.jsx:148
-  'ai-watermark' // ai-chat-empty.jsx:23
+  'ai-watermark', // ai-chat-empty.jsx:23
+  'wco-controls-width' // 上游 title-bar-overlay: tabs.styl L29 局部定义,依赖 env(titlebar-area-*)
 ])
 
 // 收集全部 var(--x) 引用（含 var(--x, fallback) 形式，取逗号前的变量名）
