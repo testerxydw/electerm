@@ -16,9 +16,10 @@ export const keywordPresets = [
       // link / port state. Comware "ADM" and EdgeOS "A/D" are admin down,
       // EdgeOS "u/D" is admin up with the link down, "u/u" is up/up
       { keyword: '\\b(administratively down|err-?disabled|notconnect|not connected|link down|down|adm)\\b|\\b[Au]/D\\b', color: 'red' },
-      { keyword: '\\b(errors?|fail(ed|ure|s)?|denied|deny|invalid|incomplete|unreachable|timeout|timed out|crc|runts|giants|collisions?|input errors|output errors|discard(s|ed)?|drop(s|ped)?|blocking|blk|bkn|broken|alarm|critical|access denied)\\b', color: 'red' },
-      { keyword: '\\b(up|connected|link up|permit(ted)?|forwarding|fwd|full|established|active|success(ful)?|enabled?|ok|online|reachable|root)\\b|\\bu/u\\b', color: 'green' },
-      { keyword: '\\b(warning|warn|half|learning|lrn|listening|lis|standby|disabled?|shutdown|pending|unknown|desg|altn|alternate|backup)\\b', color: 'yellow' },
+      // 前后排除引号和冒号,避免误伤 JSON 键名("errors":0 / "denied_count")
+      { keyword: '(?<![":])\\b(errors?|fail(ed|ure|s)?|denied|deny|invalid|incomplete|unreachable|timeout|timed out|crc|runts|giants|collisions?|input errors|output errors|discard(s|ed)?|drop(s|ped)?|blocking|blk|bkn|broken|alarm|critical|access denied)\\b(?![":])', color: 'red' },
+      { keyword: '(?<![":])\\b(up|connected|link up|permit(ted)?|forwarding|fwd|full|established|active|success(ful)?|enabled?|ok|online|reachable|root)\\b(?![":])|\\bu/u\\b', color: 'green' },
+      { keyword: '(?<![":])\\b(warning|warn|half|learning|lrn|listening|lis|standby|disabled?|shutdown|pending|unknown|desg|altn|alternate|backup)\\b(?![":])', color: 'yellow' },
       // MAC addresses: aa:bb:cc:dd:ee:ff, aa-bb-..., aabb.ccdd.eeff
       { keyword: '\\b([0-9a-f]{2}[:-]){5}[0-9a-f]{2}\\b|\\b[0-9a-f]{4}\\.[0-9a-f]{4}\\.[0-9a-f]{4}\\b', color: 'magenta' },
       // IPv4 with optional prefix length
@@ -49,10 +50,11 @@ export const keywordPresets = [
     name: 'Timestamps',
     description: 'Common timestamp shapes: ISO 8601, classic BSD syslog dates, bracketed timers and bare clock times',
     keywords: [
-      { keyword: '\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?', color: 'magenta' },
+      // 排除 JSON 字段值中的时间戳(前后有 ":"")
+      { keyword: '(?<![":])\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?(?![":])', color: 'magenta' },
       { keyword: '\\b(?:mon|tue|wed|thu|fri|sat|sun)\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}\\b', color: 'cyan' },
       { keyword: '\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?\\]', color: 'cyan' },
-      { keyword: '\\b\\d{2}:\\d{2}:\\d{2}\\b', color: 'blue' }
+      { keyword: '(?<![":])\\b\\d{2}:\\d{2}:\\d{2}\\b(?![":])', color: 'blue' }
     ]
   },
   {
