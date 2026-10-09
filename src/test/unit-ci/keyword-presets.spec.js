@@ -52,6 +52,38 @@ describe('keyword presets', () => {
     assert.equal(addon.highlightKeywords(prose), prose)
   })
 
+  test('every built-in preset rule compiles with the flags the addon uses', async () => {
+    const { keywordPresets } = await loadPresets()
+    assert.ok(keywordPresets.length >= 8, 'expected the built-in preset catalogue')
+    const allowed = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+    for (const preset of keywordPresets) {
+      assert.ok(preset.name && preset.description, `${preset.name || '?'} needs name + description`)
+      assert.ok(preset.keywords.length, `${preset.name} has no rules`)
+      for (const { keyword, color } of preset.keywords) {
+        assert.doesNotThrow(() => new RegExp(keyword, 'gi'), `${preset.name}: ${keyword}`)
+        assert.ok(allowed.includes(color), `${preset.name}: colour ${color} not in the addon map`)
+      }
+    }
+  })
+
+  test('presets highlight representative lines', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const byName = n => keywordPresets.find(p => p.name === n)
+    const out = (name, line) => new KeywordHighlighterAddon(byName(name).keywords).highlightKeywords(line)
+
+    assert.ok(out('Log Levels', '2026-10-09 ERROR boom').includes('\u001b[31mERROR'))
+    assert.ok(out('Timestamps', 'up since 2026-10-09T08:00:00Z').includes('\u001b[35m2026-10-09T08:00:00Z'))
+    assert.ok(out('Exceptions & Stack Traces', 'java.lang.NullPointerException: x').includes('\u001b[31mjava.lang.NullPointerException'))
+    assert.ok(out('Containers & Kubernetes', 'pod/web-0 CrashLoopBackOff').includes('\u001b[31mCrashLoopBackOff'))
+    assert.ok(out('Git & VCS', '<<<<<<< HEAD').includes('\u001b[31m<<<<<<<'))
+    assert.ok(out('Build & Test', '42 passed, 3 failed').includes('\u001b[32m42 passed'))
+    assert.ok(out('Security & Auth', 'sudo: permission denied for x').includes('\u001b[31mpermission denied'))
+    // plain prose stays untouched (negative control)
+    const prose = 'the weather is fine today'
+    assert.equal(out('Log Levels', prose), prose)
+  })
+
   test('applying a preset keeps custom rules and skips duplicates', async () => {
     const { keywordPresets, mergeKeywordPreset } = await loadPresets()
     const preset = keywordPresets[0]

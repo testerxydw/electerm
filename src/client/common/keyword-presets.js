@@ -33,6 +33,89 @@ export const keywordPresets = [
       // slot/port: 1/1, HPE Aruba CX 1/1/1; Hirschmann cpu/1, lag/1
       { keyword: '\\b(cpu|vlan|lag|ch)\\s?/?\\d+(/\\d+)?\\b|\\b\\d/\\d{1,2}(/\\d{1,2})?\\b', color: 'blue' }
     ]
+  },
+  {
+    name: 'Log Levels',
+    description: 'Generic application logs: severity words used by most frameworks and shippers (log4j/logback, zap, pino, logrus, syslog clients, nginx/error.log)',
+    keywords: [
+      { keyword: '\\b(FATAL|PANIC)\\b', color: 'red' },
+      { keyword: '\\b(ERROR|ERR)\\b', color: 'red' },
+      { keyword: '\\b(WARN|WARNING)\\b', color: 'yellow' },
+      { keyword: '\\b(INFO|NOTICE)\\b', color: 'cyan' },
+      { keyword: '\\b(DEBUG|TRACE|VERBOSE)\\b', color: 'blue' }
+    ]
+  },
+  {
+    name: 'Timestamps',
+    description: 'Common timestamp shapes: ISO 8601, classic BSD syslog dates, bracketed timers and bare clock times',
+    keywords: [
+      { keyword: '\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?', color: 'magenta' },
+      { keyword: '\\b(?:mon|tue|wed|thu|fri|sat|sun)\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}\\b', color: 'cyan' },
+      { keyword: '\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?\\]', color: 'cyan' },
+      { keyword: '\\b\\d{2}:\\d{2}:\\d{2}\\b', color: 'blue' }
+    ]
+  },
+  {
+    name: 'Exceptions & Stack Traces',
+    description: 'Crash signatures: Java exceptions and frames, Python tracebacks, Go panics and native signal aborts',
+    keywords: [
+      { keyword: '\\b(?:[\\w$]+\\.)*[A-Z][\\w$]*(?:Exception|Error)\\b', color: 'red' },
+      { keyword: '\\bCaused by:', color: 'red' },
+      { keyword: '\\bat [\\w$.]+\\([^)]*\\)', color: 'blue' },
+      { keyword: 'Traceback \\(most recent call last\\)', color: 'red' },
+      { keyword: 'File "[^"]+", line \\d+', color: 'yellow' },
+      { keyword: '\\b(SIGSEGV|SIGABRT|SIGKILL|core dumped)\\b', color: 'red' },
+      { keyword: '\\bpanic:', color: 'red' }
+    ]
+  },
+  {
+    name: 'Containers & Kubernetes',
+    description: 'kubectl / Docker status vocabulary: pod phases and restart reasons across get events, describe and CI logs',
+    keywords: [
+      { keyword: '\\b(CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|Evicted|OOMKilled|Failed)\\b', color: 'red' },
+      { keyword: '\\b(Running|Completed|Succeeded|Ready|Healthy)\\b', color: 'green' },
+      { keyword: '\\b(Pending|ContainerCreating|ContainerStatusUnknown|Terminating|Progressing)\\b', color: 'yellow' },
+      { keyword: '\\b(?:pod|deployment|daemonset|statefulset|replicaset|service|ingress|configmap|secret|namespace)/[\\w.-]+', color: 'blue' }
+    ]
+  },
+  {
+    name: 'Git & VCS',
+    description: 'Git CLI output: conflict markers, fatal errors, merge/rebase state and commit hashes',
+    keywords: [
+      { keyword: '<{7}|={7}|>{7}', color: 'red' },
+      { keyword: '\\bfatal:', color: 'red' },
+      { keyword: '\\bconflict(?:s|ed)?\\b', color: 'red' },
+      { keyword: '\\b(staged|untracked|detached HEAD|fast-forward|rebasing|merging|bisect)\\b', color: 'cyan' },
+      { keyword: '\\bcommit [0-9a-f]{7,40}\\b', color: 'magenta' }
+    ]
+  },
+  {
+    name: 'Build & Test',
+    description: 'Compilers, bundlers and test runners: error/warning counts, build results, check marks and npm error lines',
+    keywords: [
+      { keyword: '\\b\\d+ errors?\\b', color: 'red' },
+      { keyword: '\\b\\d+ warnings?\\b', color: 'yellow' },
+      { keyword: '\\berror TS\\d+:', color: 'red' },
+      { keyword: '\\bBUILD (?:SUCCESS|SUCCESSFUL)\\b', color: 'green' },
+      { keyword: '\\bBUILD (?:FAILED|FAILURE)\\b', color: 'red' },
+      { keyword: '\\b\\d+ (?:passed|passing)\\b', color: 'green' },
+      { keyword: '\\b\\d+ (?:failed|failing)\\b', color: 'red' },
+      { keyword: '[✔✓]', color: 'green' },
+      { keyword: '[✘✗]', color: 'red' },
+      { keyword: '\\bnpm (?:ERR|WARN)!', color: 'red' }
+    ]
+  },
+  {
+    name: 'Security & Auth',
+    description: 'Auth and access-control signals: denials, SSH auth.log lines, web error statuses and sudo events',
+    keywords: [
+      { keyword: '\\b(permission denied|access denied|unauthorized|forbidden|authentication fail\\w*|auth fail\\w*|invalid credentials?)\\b', color: 'red' },
+      { keyword: '\\b(Failed password|Invalid user)\\b', color: 'red' },
+      { keyword: '\\b(Internal Server Error|Bad Gateway|Service Unavailable)\\b', color: 'red' },
+      { keyword: '\\b(Accepted password|Accepted publickey|session opened)\\b', color: 'green' },
+      { keyword: '\\bNot Found\\b', color: 'yellow' },
+      { keyword: '\\bsudo:', color: 'yellow' }
+    ]
   }
 ]
 
