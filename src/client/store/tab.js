@@ -500,7 +500,7 @@ export default Store => {
     store.addTab(ntb)
   }
 
-  // 原地拆分会话: 克隆当前 tab + 切到带新 pane 的 layout + 放进新 pane
+  // 拆分会话: 克隆当前 tab + 切到带新 pane 的 layout + 放进新 pane
   // direction: 'h'=水平分栏(左右), 'v'=垂直分行(上下)
   Store.prototype.splitTab = function (direction = 'h') {
     const { store } = window
