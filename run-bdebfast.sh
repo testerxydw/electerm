@@ -1,8 +1,10 @@
 #!/bin/bash
 # 编译 + 打测试 deb + 清缓存 + 安装 + 重启 electerm
-# 用法: ./run-bdebfast.sh [--skip-compile] [--prepare]
+# 用法: ./run-bdebfast.sh [--skip-compile] [--prepare] [--ui]
 #   --skip-compile   跳过 npm run compile (只改了非客户端资源时用)
 #   --prepare        强制重建 work/app/node_modules (node-pty 缺失等)
+#   --ui             UI 测试包: 版本号带 -ui 后缀 (如 test.82-ui),
+#                    用于 ui-beautification 分支验证, 与 master 包区分
 # 历史坑:
 #   - work/app 有独立的 node_modules (bdebfast npm i --omit=dev),
 #     patch-locales 必须同时 patch 两处
@@ -20,12 +22,16 @@ cd "$ROOT"
 
 SKIP_COMPILE=0
 FORCE_PREPARE=0
+UI_MODE=0
 for arg in "$@"; do
   case "$arg" in
     --skip-compile) SKIP_COMPILE=1 ;;
     --prepare)      FORCE_PREPARE=1 ;;
+    --ui)           UI_MODE=1 ;;
   esac
 done
+UI_FLAG=""
+[ "$UI_MODE" -eq 1 ] && UI_FLAG="--ui"
 
 echo "========== [1/5] patch locales =========="
 node build/patch-locales.js
@@ -55,15 +61,20 @@ fi
 
 echo "========== [3/5] bdebfast =========="
 if [ "$FORCE_PREPARE" -eq 1 ]; then
-  node build/bin/build-deb-fast.js --prepare
+  node build/bin/build-deb-fast.js --prepare $UI_FLAG
 else
-  npm run bdebfast
+  npm run bdebfast -- $UI_FLAG
 fi
 
 # 找最新 deb
 DEB=$(ls -t dist/electerm-*-test.*-linux-amd64.deb 2>/dev/null | head -1)
 if [ -z "$DEB" ]; then
   echo "[FAIL] 未找到测试包 deb"
+  exit 1
+fi
+# UI 模式校验: 必须拿到 -ui 包, 防止误装 master 包
+if [ "$UI_MODE" -eq 1 ] && [[ "$DEB" != *"-ui-linux-amd64.deb" ]]; then
+  echo "[FAIL] UI 模式但拿到的不是 UI 包: $DEB"
   exit 1
 fi
 echo "[ok] deb: $DEB"

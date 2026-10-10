@@ -35,6 +35,8 @@ const distDir = path.join(root, 'dist')
 const args = process.argv.slice(2)
 const skipCompile = args.includes('--skip-compile')
 const forcePrepare = args.includes('--prepare')
+// --ui: UI 测试包, 版本号带 -ui 后缀 (如 5.5.79~test.82-ui), 用于 UI 分支验证
+const isUi = args.includes('--ui')
 
 function echo (s) { process.stdout.write(s + '\n') }
 function run (cmd) {
@@ -62,8 +64,9 @@ if (exists(counterPath)) {
 num += 1
 fs.writeFileSync(counterPath, String(num))
 const base = readJson(path.join(root, 'package.json')).version // 5.0.6（不改它）
-const debVersion = `${base}~test.${num}` // DEBIAN control 里的版本（~ 为预发布分隔符）
-const fileName = `electerm-${base}-test.${num}-linux-amd64.deb`
+const suffix = isUi ? `${num}-ui` : String(num)
+const debVersion = `${base}~test.${suffix}` // DEBIAN control 里的版本（~ 为预发布分隔符）
+const fileName = `electerm-${base}-test.${suffix}-linux-amd64.deb`
 echo(`[deb-fast] 测试版本：${debVersion}  ->  dist/${fileName}`)
 
 // 2. 重编译客户端到 work/app/assets（源码变更时必需）
