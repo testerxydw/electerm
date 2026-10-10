@@ -27,6 +27,7 @@ import { action } from 'manate'
 import iconsMap from '../sys-menu/icons-map.jsx'
 import { shortcutDescExtend } from '../shortcuts/shortcut-handler.js'
 import { isDropAfterHalf } from '../../common/drop-position'
+import { splitConfig } from '../../common/constants'
 
 const e = window.translate
 const onDragCls = 'ondrag-tab'
@@ -414,10 +415,29 @@ class Tab extends Component {
         extra: reloadAllShortcut
       }
     ].filter(Boolean)
+    // 多 pane 时: 迁移当前 tab 到其他 pane (编号按布局位置, 从 1 开始: 左→右, 上→下)
+    const paneCount = splitConfig[window.store.layout]?.children || 1
+    let insertAt = x.findIndex(item => item.key === 'splitVertical')
+    if (insertAt > -1 && paneCount > 1) {
+      insertAt += 1
+      for (let b = 0; b < paneCount; b++) {
+        if (b === tab.batch) {
+          continue
+        }
+        x.splice(insertAt++, 0, {
+          key: `moveToPane-${b}`,
+          icon: <iconsMap.SendOutlined />,
+          label: `${e('moveToPane')} ${b + 1}`
+        })
+      }
+    }
     return x
   }
 
   onContextMenu = ({ key }) => {
+    if (key.startsWith('moveToPane-')) {
+      return window.store.moveTabToPane(this.props.tab.id, Number(key.split('-')[1]))
+    }
     this[key]()
   }
 

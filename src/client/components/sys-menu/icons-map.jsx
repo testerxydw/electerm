@@ -30,6 +30,7 @@ import {
   StopOutlined,
   DownloadOutlined,
   SwapOutlined,
+  SendOutlined,
   PushpinOutlined,
   PushpinFilled
 } from '@ant-design/icons'
@@ -65,6 +66,7 @@ export default {
   StopOutlined,
   DownloadOutlined,
   SwapOutlined,
+  SendOutlined,
   PushpinOutlined,
   PushpinFilled
 }

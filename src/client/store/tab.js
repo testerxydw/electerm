@@ -525,6 +525,21 @@ export default Store => {
     store.fixActiveTabIds(splitConfig[targetLayout].children)
   }
 
+  // 迁移 tab 到指定 pane (targetBatch 从 0 开始), 同 layout 内跨 pane 移动, 终端历史保留
+  Store.prototype.moveTabToPane = function (tabId, targetBatch) {
+    const { store } = window
+    const tab = store.tabs.find(t => t.id === tabId)
+    if (!tab || tab.batch === targetBatch) {
+      return
+    }
+    tab.batch = targetBatch
+    store[`activeTabId${targetBatch}`] = tab.id
+    store.activeTabId = tab.id
+    store.currentLayoutBatch = targetBatch
+    // 原 pane 失去 active tab, 修正各 pane 的 activeTabId
+    store.fixActiveTabIds(splitConfig[store.layout].children)
+  }
+
   // Spread tabs over the panes of a layout with more panes.
   // Only used when leaving the single layout: once more than one pane is on
   // screen the arrangement is the user's, and is left alone.
