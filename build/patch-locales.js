@@ -7,10 +7,6 @@
 const fs = require('fs')
 const path = require('path')
 
-const locales = path.resolve(
-  __dirname, '..', 'node_modules/@electerm/electerm-locales'
-)
-
 // 格式: langCode → { key: value }
 // en_us 是其他语言的参考基准, key 顺序与 en_us 保持一致
 const additions = {
@@ -30,9 +26,18 @@ const additions = {
     cannotSplitFurther: '已到最大布局, 無法繼續拆分'
   },
   // 其他语言 fallback 到英文
-  ar_ar: null, de_de: null, es_es: null, fr_fr: null,
-  hu_hu: null, id_id: null, ja_jp: null, ko_kr: null,
-  pl_pl: null, pt_br: null, ru_ru: null, tr_tr: null
+  ar_ar: null,
+  de_de: null,
+  es_es: null,
+  fr_fr: null,
+  hu_hu: null,
+  id_id: null,
+  ja_jp: null,
+  ko_kr: null,
+  pl_pl: null,
+  pt_br: null,
+  ru_ru: null,
+  tr_tr: null
 }
 
 function patchOne (filePath, dict) {
@@ -63,8 +68,8 @@ function patchOne (filePath, dict) {
 
 function run () {
   const roots = [
-    path.resolve(__dirname, '..'),          // 项目根 node_modules
-    path.resolve(__dirname, '..', 'work/app')  // bdebfast 打包用的独立 node_modules
+    path.resolve(__dirname, '..'), // 项目根 node_modules
+    path.resolve(__dirname, '..', 'work/app') // bdebfast 打包用的独立 node_modules
   ]
   let patchedAny = false
   for (const root of roots) {

@@ -10,8 +10,6 @@ import {
   paneMap,
   maxHistory
 } from '../common/constants'
-
-const e = window.translate
 import { refs, refsTabs } from '../components/common/ref'
 import message from '../components/common/message'
 import * as ls from '../common/safe-local-storage'
@@ -23,6 +21,8 @@ import { action } from 'manate'
 import { shouldCaptureTerminalReloadState } from '../components/terminal/ssh-reload-state.js'
 import dangerousSessionFields from '../common/dangerous-session-fields'
 import { distributeTabsEvenly } from '../common/distribute-tabs'
+
+const e = window.translate
 
 function captureSshSessionState (tab, config) {
   return shouldCaptureTerminalReloadState(tab, config)
