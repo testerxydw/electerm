@@ -10,10 +10,7 @@ import SideBarPanel from './sidebar-panel'
 import MenuBtn from '../sys-menu/menu-btn'
 import {
   settingMap,
-  modals,
-  footerHeight,
-  statusBarHeight,
-  appKbarHeight
+  modals
 } from '../../common/constants'
 import SideIcon from './side-icon'
 import SidePanel from './side-panel'
@@ -26,7 +23,6 @@ const e = window.translate
 
 export default function Sidebar (props) {
   const {
-    height,
     upgradeInfo,
     settingTab,
     settingItem,
@@ -140,16 +136,12 @@ export default function Sidebar (props) {
     : {
         className: 'sidebar-list'
       }
-  // 侧栏高度由外部传入（≈视口高），需自行避让底部常显区
-  // （快捷键条 + footer + 状态栏），否则图标栏底部（设置/头像）被遮挡
-  const bottomStack = footerHeight + statusBarHeight + (isMobile ? 0 : appKbarHeight)
+  // 高度完全由 CSS 决定（top var(--title-bar-height) + bottom 避让底部常显区），
+  // 禁止内联 height：绝对定位下 top+height 会顶掉 bottom，导致底边多出标题栏高度
   const sidebarProps = {
     className: `sidebar type-${openedSideBar}${leftSideBarWidth === 0 ? ' collapsed' : ''}`,
     style: {
-      width: leftSideBarWidth,
-      height: typeof height === 'number' && height > 0
-        ? Math.max(0, height - bottomStack)
-        : height
+      width: leftSideBarWidth
     }
   }
   const transferProps = {
