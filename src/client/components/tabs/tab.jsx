@@ -322,6 +322,14 @@ class Tab extends Component {
     window.store.pinTab(tab.id, !tab.isPinned)
   }
 
+  splitHorizontal = () => {
+    window.store.splitTab('h')
+  }
+
+  splitVertical = () => {
+    window.store.splitTab('v')
+  }
+
   renderContext = () => {
     const { tabs, tabIndex, tab } = this.props
     const len = tabs.length
@@ -332,6 +340,8 @@ class Tab extends Component {
     const cloneToNextShortcut = this.getShortcut('app_cloneToNextLayout')
     const duplicateShortcut = this.getShortcut('app_duplicateTab')
     const reloadAllShortcut = this.getShortcut('app_reloadAll')
+    const splitHShortcut = this.getShortcut('app_splitHorizontal')
+    const splitVShortcut = this.getShortcut('app_splitVertical')
 
     const x = [
       {
@@ -360,6 +370,18 @@ class Tab extends Component {
         icon: <iconsMap.CopyOutlined />,
         label: e('duplicate'),
         extra: duplicateShortcut
+      },
+      {
+        key: 'splitHorizontal',
+        icon: <iconsMap.SwapOutlined />,
+        label: e('splitHorizontal'),
+        extra: splitHShortcut
+      },
+      {
+        key: 'splitVertical',
+        icon: <iconsMap.BorderHorizontalOutlined />,
+        label: e('splitVertical'),
+        extra: splitVShortcut
       },
       {
         key: 'cloneToNextLayout',

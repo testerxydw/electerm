@@ -27,6 +27,16 @@ export default () => {
       shortcutMac: 'alt+/'
     },
     {
+      name: 'app_splitHorizontal',
+      shortcut: 'alt+w alt+h',
+      shortcutMac: 'alt+w alt+h'
+    },
+    {
+      name: 'app_splitVertical',
+      shortcut: 'alt+w alt+v',
+      shortcutMac: 'alt+w alt+v'
+    },
+    {
       name: 'app_duplicateTab',
       shortcut: 'alt+c',
       shortcutMac: 'alt+c'

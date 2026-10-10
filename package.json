@@ -14,7 +14,7 @@
     "prepare-file": "node build/bin/prepare",
     "pb": "node build/bin/prepare-electron-build.js",
     "prepare-test": "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -E playwright@1.49.1 --no-save && npm i -E @playwright/test@1.49.1 --no-save",
-    "postinstall": "node build/bin/post-install",
+    "postinstall": "node build/bin/post-install && node build/patch-locales.js",
     "lint": "./node_modules/.bin/standard --verbose",
     "fix": "./node_modules/.bin/standard --fix",
     "test": "npm run test1 && npm run test2",

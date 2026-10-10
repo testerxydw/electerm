@@ -422,6 +422,19 @@ export const splitConfig = {
     handle: 2
   }
 }
+
+// 原地拆分会话: 当前 layout + 方向(h=水平分栏/左右, v=垂直分行/上下) → 目标 layout
+// 覆盖常见路径, 未匹配的 layout 返回 undefined → splitTab 提示"无法继续拆分"
+export const splitLayoutMap = {
+  c1:  { h: 'c2',    v: 'r2'    },
+  c2:  { h: 'c3',    v: 'c1r2'  },
+  r2:  { h: 'r1c2',  v: 'r3'    },
+  c3:  { h: 'c2x2',  v: 'c2x2'  },
+  r3:  { h: 'c2x2',  v: 'c2x2'  },
+  c1r2:{ h: 'c2x2',  v: 'c2x2'  },
+  r1c2:{ h: 'c2x2',  v: 'c2x2'  }
+}
+
 export const syncDataMaps = {
   settings: ['config'],
   bookmarks: ['bookmarks', 'bookmarkGroups'],

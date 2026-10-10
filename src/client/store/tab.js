@@ -5,10 +5,15 @@
 import { debounce, isEqual } from 'lodash-es'
 import {
   splitConfig,
+  splitLayoutMap,
   statusMap,
   paneMap,
   maxHistory
 } from '../common/constants'
+
+const e = typeof window !== 'undefined' && window.translate
+  ? window.translate
+  : (k) => k
 import { refs, refsTabs } from '../components/common/ref'
 import message from '../components/common/message'
 import * as ls from '../common/safe-local-storage'
@@ -495,6 +500,55 @@ export default Store => {
       store.setLayout('c2', false)
     }
     store.addTab(ntb)
+  }
+
+  // 原地拆分会话: 克隆当前 tab + 切到带新 pane 的 layout + 放进新 pane
+  // direction: 'h'=水平分栏(左右), 'v'=垂直分行(上下)
+  Store.prototype.splitTab = function (direction = 'h') {
+    const { store } = window
+    const tab = store.currentTab
+    if (!tab) {
+      return
+    }
+    const curLayout = store.layout
+    const targetLayout = splitLayoutMap[curLayout]?.[direction]
+    if (!targetLayout || targetLayout === curLayout) {
+      return message.warning(e('cannotSplitFurther'))
+    }
+    const newBatch = splitConfig[targetLayout].children - 1
+    // 切 layout, 禁止 distributeTabs 自动重分配, 我们自己放
+    store.setLayout(targetLayout, false)
+    store.duplicateTabToBatch(tab.id, newBatch)
+  }
+
+  // 复用 duplicateTab 逻辑但允许指定目标 batch, 用于 splitTab 精确放置
+  Store.prototype.duplicateTabToBatch = function (tabId, targetBatch) {
+    const { store } = window
+    const { tabs } = store
+    const targetIndex = tabs.findIndex(t => t.id === tabId)
+    if (targetIndex === -1) {
+      return
+    }
+    const sourceTab = tabs[targetIndex]
+    const sessionState = captureSshSessionState(sourceTab, store.config)
+    const duplicatedTab = {
+      ...deepCopy(sourceTab),
+      id: generate(),
+      tabCount: store.nextTabCount(),
+      status: statusMap.processing,
+      isTransporting: undefined,
+      batch: targetBatch
+    }
+    delete duplicatedTab._reloadState
+    if (sessionState) {
+      duplicatedTab._reloadState = sessionState
+    }
+    // 插到当前 tab 后面, 保持顺序
+    tabs.splice(targetIndex + 1, 0, duplicatedTab)
+    store.updateHistory(duplicatedTab)
+    store.activeTabId = duplicatedTab.id
+    store[`activeTabId${targetBatch}`] = duplicatedTab.id
+    store.currentLayoutBatch = targetBatch
   }
 
   // Spread tabs over the panes of a layout with more panes.
