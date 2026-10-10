@@ -5,6 +5,20 @@
 
 ---
 
+## test.85-ui（2026-10-10 1x:xx）· **底栏三合一**
+- **提交**：`eafc8434`（statusbar/app-kbar 并入 footer 单条 36px）
+- **修改点**：底部三条（kbar 30+footer 36+statusbar 26=92px）→ 一条 36px；左区会话状态（状态点/主机/类型/tab 数），右区全局动作（新建会话/命令面板 Ctrl+K/设置），AI/快捷命令/命令历史去重保留 footer 版；`--footer-stack-height` 简化为 footerHeight+monitor（62→36），6 处避让公式同步；删除 app-kbar 目录与 status-bar/index.jsx+styl（format.js+单测保留）；终端区净增 56px
+- **验证点**：752 单测全绿；lint ok；CDP 实测 `.main-footer` h=36 贴底、`.sidebar` 底边=innerH-36、状态区/全局组常显、终端级按钮活动终端才显示、600px 窄窗右区不挤
+- **已知语义**：rdp/vnc/spice 全屏时合并条随 `.fullscreen .main-footer display:none` 整体隐藏（原 kbar/statusbar 可见）——接受"全屏让屏"
+- **已安装**：待用户手动 `sudo dpkg -i --force-overwrite`（缓存已由脚本清理，装完直接启动）
+
+## test.83-ui（2026-10-10 17:2x）· **修复左下角露缝**
+- **提交**：`3698df4e`（sidebar 高度回归 CSS top+bottom）
+- **根因**：title-bar 引入前的遗留 JS 给 `.sidebar` 写内联 `height: 视口高-92px`（不含标题栏），绝对定位下 top+height 顶掉 CSS bottom（92px），底边多出标题栏高度 38px → 左下角露缝
+- **修改点**：删除 sidebar/index.jsx 内联 height 计算（保留 width），高度完全交由 CSS `top var(--title-bar-height)` + `bottom calc(footer-stack + app-kbar)`；新增守卫单测 `sidebar-layout.spec.js`（3 例，含反向验证）
+- **验证点**：752 单测全绿；lint ok；CDP 实测 `.sidebar` 无内联 height、底边应为 `1440-92=1348`（与 kbar 顶对齐）
+- **已安装**：待用户手动 `sudo dpkg -i --force-overwrite`（脚本内 sudo 被 no new privileges 拦截）
+
 ## test.60（2026-09-30 14:11）· **master 回退版**
 - **提交**：master 重置到 `d3855c68`（「建立统一设计 token 体系并优化可访问性与视觉体验」）
 - **背景**：用户要求把未推送的 38 个提交（UI 美化/重构全部成果）备份到 `ui-beautification` 分支（`ee10ecb3`，含调研文档修改），master 回到 token 体系落地点
