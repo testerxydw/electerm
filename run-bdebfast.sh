@@ -1,10 +1,11 @@
 #!/bin/bash
 # 编译 + 打测试 deb + 清缓存 + 安装 + 重启 electerm
-# 用法: ./run-bdebfast.sh [--skip-compile] [--prepare] [--ui]
+# 用法: ./run-bdebfast.sh [--skip-compile] [--prepare] [--ui] [--no-ui]
 #   --skip-compile   跳过 npm run compile (只改了非客户端资源时用)
 #   --prepare        强制重建 work/app/node_modules (node-pty 缺失等)
-#   --ui             UI 测试包: 版本号带 -ui 后缀 (如 test.82-ui),
-#                    用于 ui-beautification 分支验证, 与 master 包区分
+#   --ui             强制 UI 测试包: 版本号带 -ui 后缀 (如 test.82-ui)
+#   --no-ui          在 ui-beautification 分支上豁免自动 -ui 标识
+#   ui-beautification 分支自动使用 -ui 包标识, 与 master 包区分
 # 历史坑:
 #   - work/app 有独立的 node_modules (bdebfast npm i --omit=dev),
 #     patch-locales 必须同时 patch 两处
@@ -23,13 +24,21 @@ cd "$ROOT"
 SKIP_COMPILE=0
 FORCE_PREPARE=0
 UI_MODE=0
+NO_UI=0
 for arg in "$@"; do
   case "$arg" in
     --skip-compile) SKIP_COMPILE=1 ;;
     --prepare)      FORCE_PREPARE=1 ;;
     --ui)           UI_MODE=1 ;;
+    --no-ui)        NO_UI=1 ;;
   esac
 done
+# UI 分支自动打 UI 包 (--no-ui 可豁免)
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ "$UI_MODE" -eq 0 ] && [ "$NO_UI" -eq 0 ] && [ "$BRANCH" = "ui-beautification" ]; then
+  UI_MODE=1
+  echo "[auto] 当前分支 ui-beautification, 自动使用 -ui 包标识 (--no-ui 可关闭)"
+fi
 UI_FLAG=""
 [ "$UI_MODE" -eq 1 ] && UI_FLAG="--ui"
 
