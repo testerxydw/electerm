@@ -500,7 +500,7 @@ export default Store => {
     store.addTab(ntb)
   }
 
-  // 拆分会话: 克隆当前 tab + 切到带新 pane 的 layout + 放进新 pane
+  // 拆分会话: 当前 tab 迁移到新 pane (同一个会话, 终端历史保留), 其余 tab 留在原 pane
   // direction: 'h'=水平分栏(左右), 'v'=垂直分行(上下)
   Store.prototype.splitTab = function (direction = 'h') {
     const { store } = window
@@ -516,37 +516,13 @@ export default Store => {
     const newBatch = splitConfig[targetLayout].children - 1
     // 切 layout, 禁止 distributeTabs 自动重分配, 我们自己放
     store.setLayout(targetLayout, false)
-    store.duplicateTabToBatch(tab.id, newBatch)
-  }
-
-  // 复用 duplicateTab 逻辑但允许指定目标 batch, 用于 splitTab 精确放置
-  Store.prototype.duplicateTabToBatch = function (tabId, targetBatch) {
-    const { store } = window
-    const { tabs } = store
-    const targetIndex = tabs.findIndex(t => t.id === tabId)
-    if (targetIndex === -1) {
-      return
-    }
-    const sourceTab = tabs[targetIndex]
-    const sessionState = captureSshSessionState(sourceTab, store.config)
-    const duplicatedTab = {
-      ...deepCopy(sourceTab),
-      id: generate(),
-      tabCount: store.nextTabCount(),
-      status: statusMap.processing,
-      isTransporting: undefined,
-      batch: targetBatch
-    }
-    delete duplicatedTab._reloadState
-    if (sessionState) {
-      duplicatedTab._reloadState = sessionState
-    }
-    // 插到当前 tab 后面, 保持顺序
-    tabs.splice(targetIndex + 1, 0, duplicatedTab)
-    store.updateHistory(duplicatedTab)
-    store.activeTabId = duplicatedTab.id
-    store[`activeTabId${targetBatch}`] = duplicatedTab.id
-    store.currentLayoutBatch = targetBatch
+    // 只改 batch, tab 本体不动: 同一个 id/term 实例, 滚动历史跟着走
+    tab.batch = newBatch
+    store[`activeTabId${newBatch}`] = tab.id
+    store.activeTabId = tab.id
+    store.currentLayoutBatch = newBatch
+    // 原 pane 失去 active tab, 修正各 pane 的 activeTabId
+    store.fixActiveTabIds(splitConfig[targetLayout].children)
   }
 
   // Spread tabs over the panes of a layout with more panes.
