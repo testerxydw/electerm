@@ -5,6 +5,14 @@
 
 ---
 
+## test.60（2026-09-30 14:11）· **master 回退版**
+- **提交**：master 重置到 `d3855c68`（「建立统一设计 token 体系并优化可访问性与视觉体验」）
+- **背景**：用户要求把未推送的 38 个提交（UI 美化/重构全部成果）备份到 `ui-beautification` 分支（`ee10ecb3`，含调研文档修改），master 回到 token 体系落地点
+- **修改点**：无新增（回退）—— 包内**不含** title-bar / app-kbar / status-bar / 命令面板等新 UI 组件
+- **验证点**：从 deb 提取 CSS，`app-kbar / main-statusbar / titlebar-logo` 均为 **0** ✅（确认是纯 d3855c68 版本）
+- **已安装** ✅
+- **注**：`reset --hard` 曾删除已跟踪的 UI 文档，已从备份分支恢复（本提交含恢复）
+
 ## test.59（2026-09-30 11:46）
 - **提交**：`5feebbfb`（标签栏收尾）
 - **修改点**：`.tab-close` 由 display 突变改为 **opacity 0→0.7 淡入**（对齐草图 `.tab .x`）；核对多标签拖拽插入线/计数徽标/状态圆点均已对齐

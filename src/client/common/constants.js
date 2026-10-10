@@ -211,6 +211,29 @@ export const commonLineEndings = commonTxLineEndings
 
 export const maxBatchInput = 30
 export const windowControlWidth = 94
+// Fallback room for Windows' native min/max/close drawn over the tab bar.
+// The real width is measured at runtime (getWindowControlsOverlayWidth) or, in
+// CSS, read from env(titlebar-area-*); this is only for when neither is
+// available. Keep the number in step with the env() fallback in
+// components/tabs/tabs.styl and css/mobile.styl.
+export const windowControlsOverlayWidthFallback = 140
+
+// Width the native caption buttons take from the right edge of the tab bar.
+// navigator.windowControlsOverlay reports the real titlebar rect, so the
+// layout does not have to hardcode it (Chromium's caption buttons are 46 DIP
+// each, but the OS can lay them out differently).
+export const getWindowControlsOverlayWidth = () => {
+  const overlay = window.navigator && window.navigator.windowControlsOverlay
+  if (overlay && typeof overlay.getTitlebarAreaRect === 'function') {
+    const rect = overlay.getTitlebarAreaRect()
+    const width = window.innerWidth - rect.x - rect.width
+    // 0 when the overlay is hidden (empty rect) — fall back then
+    if (width > 0 && width < window.innerWidth) {
+      return width
+    }
+  }
+  return windowControlsOverlayWidthFallback
+}
 export const mobileBreakpoint = 600
 // breakpoint matching the setting panel's `@media (max-width: 800px)` CSS —
 // must be kept in sync with setting-wrap.styl
@@ -305,7 +328,20 @@ export const proxyHelpLink = 'https://github.com/electerm/electerm/wiki/proxy-fo
 export const regexHelpLink = 'https://github.com/electerm/electerm/wiki/Terminal-keywords-highlight-regular-expression-exmaples'
 export const connectionHoppingWikiLink = 'https://github.com/electerm/electerm/wiki/Connection-Hopping-Behavior-Change-in-electerm-since-v1.50.65'
 export const aiConfigWikiLink = 'https://github.com/electerm/electerm/wiki/AI-model-config-guide'
+export const installCommandHelpLink = 'https://github.com/electerm/electerm/wiki/Install-electerm-command'
+
+// Toggle options that have a wiki page explaining what they actually change.
+// renderToggle() looks the config key up here and renders a HelpIcon only for
+// the keys listed, so a toggle without an explanation stays clean. Add a page
+// under https://github.com/electerm/electerm/wiki first, then add its key here.
+export const toggleWikiMap = {
+  mouseEventsRequireAlt:
+    'https://github.com/electerm/electerm/wiki/Mouse-events-require-alt',
+  sftpPathFollowSsh:
+    'https://github.com/electerm/electerm/wiki/Warning-about-sftp-follow-ssh-path-function'
+}
 export const aiChatModeLsKey = 'ai-chat-mode'
+export const aiAutoCompressLsKey = 'ai-auto-compress'
 export const lastAiChatSessionIdKey = 'last-ai-chat-session-id'
 export const aiTermOfUseConfirmedLsKey = 'ai-term-of-use-confirmed'
 export const syncTermOfUseConfirmedLsKey = 'sync-term-of-use-confirmed'
@@ -390,6 +426,19 @@ export const splitConfig = {
     handle: 2
   }
 }
+
+// 原地拆分会话: 当前 layout + 方向(h=水平分栏/左右, v=垂直分行/上下) → 目标 layout
+// 覆盖常见路径, 未匹配的 layout 返回 undefined → splitTab 提示"无法继续拆分"
+export const splitLayoutMap = {
+  c1: { h: 'c2', v: 'r2' },
+  c2: { h: 'c3', v: 'c1r2' },
+  r2: { h: 'r1c2', v: 'r3' },
+  c3: { h: 'c2x2', v: 'c2x2' },
+  r3: { h: 'c2x2', v: 'c2x2' },
+  c1r2: { h: 'c2x2', v: 'c2x2' },
+  r1c2: { h: 'c2x2', v: 'c2x2' }
+}
+
 export const syncDataMaps = {
   settings: ['config'],
   bookmarks: ['bookmarks', 'bookmarkGroups'],

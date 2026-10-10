@@ -1,4 +1,3 @@
-const axios = require('axios')
 const { StringDecoder } = require('string_decoder')
 const log = require('../common/log')
 const defaultSettings = require('../common/config-default')
@@ -22,6 +21,10 @@ const formatError = (e) => {
 // Store for ongoing streaming sessions
 const streamingSessions = new Map()
 
+// Store for ongoing non-streaming tool requests (the agent loop). Keyed by the
+// request id the renderer generated for that single HTTP call.
+const pendingToolRequests = new Map()
+
 // Stop an ongoing streaming session
 exports.stopStream = (sessionId) => {
   const session = streamingSessions.get(sessionId)
@@ -44,7 +47,27 @@ exports.stopStream = (sessionId) => {
   return { stopped: true }
 }
 
+// Abort one in-flight AIchatWithTools request. The agent loop only checks its
+// abort flag between iterations, so without destroying the socket here the
+// panel stays locked until the provider decides to answer -- which may be
+// never, since these requests carry no timeout.
+exports.abortAIRequest = (requestId) => {
+  const controller = pendingToolRequests.get(requestId)
+  if (!controller) {
+    return { error: 'Request not found' }
+  }
+  pendingToolRequests.delete(requestId)
+  controller.abort()
+  return { aborted: true }
+}
+
 const createAIClient = (baseURL, apiKey, proxy, authHeaderName, extraHeaders) => {
+  // Lazy: axios is only needed once the user actually talks to an AI provider,
+  // and this module is pulled in by ipc.js, which loads before the window is
+  // shown. Requiring it here keeps it off the startup path (~20ms of in-app
+  // module load; requiring axios standalone reports ~250ms, but most of that is
+  // first-require warm-up in a fresh process and does not happen in the app).
+  const axios = require('axios')
   const headerStr = authHeaderName || 'Authorization: Bearer'
   const parts = headerStr.split(': ')
   const headerKey = parts[0]
@@ -116,7 +139,13 @@ exports.AIlistModels = async (baseURL, apiKey, authHeaderName, proxy) => {
   }
 }
 
-exports.AIchatWithTools = async (messages, model, baseURL, path, apiKey, proxy, tools, authHeaderName, format) => {
+exports.AIchatWithTools = async (messages, model, baseURL, path, apiKey, proxy, tools, authHeaderName, format, requestId) => {
+  // `requestId` is optional so existing callers keep working; when present the
+  // request can be cancelled from the renderer via abortAIRequest.
+  const controller = requestId ? new AbortController() : null
+  if (controller) {
+    pendingToolRequests.set(requestId, controller)
+  }
   try {
     const fmt = detectFormat(path, format)
     const client = createAIClient(baseURL, apiKey, proxy, authHeaderName, headersForFormat(fmt))
@@ -126,7 +155,11 @@ exports.AIchatWithTools = async (messages, model, baseURL, path, apiKey, proxy, 
       tools,
       stream: false
     })
-    const response = await client.post(path, requestData)
+    const response = await client.post(
+      path,
+      requestData,
+      controller ? { signal: controller.signal } : {}
+    )
     const { message, error } = parseResponse(fmt, response.data)
     if (error) {
       return { error }
@@ -136,8 +169,17 @@ exports.AIchatWithTools = async (messages, model, baseURL, path, apiKey, proxy, 
     // only number that accounts for them.
     return { message, usage: parseUsage(fmt, response.data) }
   } catch (e) {
+    // A user-initiated stop is not an error: report it as such so the loop can
+    // tell "stopped" from "the provider failed".
+    if (controller && controller.signal.aborted) {
+      return { aborted: true }
+    }
     log.error('AI chat with tools error', e)
     return { error: formatError(e) }
+  } finally {
+    if (requestId) {
+      pendingToolRequests.delete(requestId)
+    }
   }
 }
 

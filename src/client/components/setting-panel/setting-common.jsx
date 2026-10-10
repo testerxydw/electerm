@@ -22,7 +22,8 @@ import TextareaConfirm from '../common/textarea-confirm'
 import {
   settingMap,
   proxyHelpLink,
-  webAppHiddenSettings
+  webAppHiddenSettings,
+  isWin
 } from '../../common/constants'
 import defaultSettings from '../../common/default-setting'
 import Link from '../common/external-link'
@@ -33,6 +34,7 @@ import HelpIcon from '../common/help-icon'
 import delay from '../../common/wait.js'
 import isColorDark from '../../common/is-color-dark'
 import DeepLinkControl from './deep-link-control'
+import InstallCommand from './install-command'
 import HotkeySetting from './hotkey'
 import SettingLeftSidebarIcons from './setting-left-sidebar-icons'
 import './setting.styl'
@@ -578,10 +580,15 @@ export default class SettingCommon extends Component {
             'disableTabIndex',
             'onlyShowTitleInTab',
             'disableShortcutBar',
+            'autoDistributeTabsWhenLayoutChange',
             'debug'
           ]
-            .filter(name => !isWebApp || !webAppHiddenSettings.includes(name))
+            .filter(name => (!isWebApp || !webAppHiddenSettings.includes(name)) &&
+              !(isWin && name === 'useSystemTitleBar'))
             .map(this.renderToggle)
+        }
+        {
+          window.et.isWebApp ? null : <InstallCommand />
         }
         {
           window.et.isWebApp ? null : <DeepLinkControl />

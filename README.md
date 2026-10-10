@@ -47,13 +47,23 @@ Besides mainstream Windows/macOS/Linux/Android, electerm also supports HarmonyOS
 ----
 
 <div align="center">
-  <a href="https://fluxionai.world/register?source=github&campaign=electerm-20260923&promo=ELECTERM&aff=7H7DERHU3GFF">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/fluxionai.png?raw=true" alt="FluxionAI" width="210" />
+  <a href="https://www.packyapi.ai/register?aff=DOZI">
+    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/packy-api.png?raw=true" alt="PackyCode" width="210" />
   </a>
 </div>
 
-[Fluxion AI](https://fluxionai.world/register?source=github&campaign=electerm-20260923&promo=ELECTERM&aff=7H7DERHU3GFF) — One gateway to the world's leading AI models, One API, multi-route delivery, transparent usage and pricing, Chinese Models — 60% OFF, Claude & OpenAI — 70% OFF [Register through the partner link
-Get $3 in API credit](https://fluxionai.world/register?source=github&campaign=electerm-20260923&promo=ELECTERM&aff=7H7DERHU3GFF).
+[PackyCode](https://www.packyapi.ai/register?aff=DOZI) — Access leading AI models through PackyCode with one API endpoint and one API key. Enjoy fast, reliable access with automatic failover and dedicated high-speed routes for Codex and Claude Code. Get started with $1 in free credits, a discount on your first top-up, and savings of up to 80% on eligible routes. Pay in RMB with no currency conversion markups or extra top-up fees.
+
+----
+
+<div align="center">
+  <a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-electerm&promo=SDRELECTERM&aff=7H7DERHU3GFF">
+    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/sidrune.png?raw=true" alt="Sidrune" width="210" />
+  </a>
+</div>
+
+[Sidrune AI](https://fluxionai.space/register?source=github&campaign=github-sidrune-electerm&promo=SDRELECTERM&aff=7H7DERHU3GFF) — One gateway to the world's leading AI models, one unified API with multi-route delivery; transparent usage and pricing, Claude & OpenAI — 70% OFF [Register through the partner link
+Get $3 in API credit](https://fluxionai.space/register?source=github&campaign=github-sidrune-electerm&promo=SDRELECTERM&aff=7H7DERHU3GFF).
 
 ----
 

@@ -1,12 +1,25 @@
 export const defaultAIPresets = [
   {
+    id: 'packycode',
+    nameAI: 'PackyCode',
+    baseURLAI: 'https://cf.api.fan/v1',
+    apiPathAI: '/chat/completions',
+    modelAI: 'deepseek-flash',
+    authHeaderNameAI: 'Authorization: Bearer',
+    siteUrl: 'https://www.packyapi.ai/register?aff=DOZI',
+    modelAIs: [
+      { value: 'deepseek-flash' },
+      { value: 'deepseek-v4-pro' }
+    ]
+  },
+  {
     id: 'fluxionai',
-    nameAI: 'FluxionAI',
-    baseURLAI: 'https://fluxionai.world/v1',
+    nameAI: 'Sidrune',
+    baseURLAI: 'https://sidrune.ai/v1',
     apiPathAI: '/chat/completions',
     modelAI: 'deepseek-v4-flash-0731',
     authHeaderNameAI: 'Authorization: Bearer',
-    siteUrl: 'https://fluxionai.world/register?source=github&campaign=electerm-20260923&promo=ELECTERM&aff=7H7DERHU3GFF'
+    siteUrl: 'https://fluxionai.space/register?source=github&campaign=github-sidrune-electerm&promo=SDRELECTERM&aff=7H7DERHU3GFF'
   },
   {
     id: 'atlascloud',
@@ -65,21 +78,6 @@ export const defaultAIPresets = [
     apiPathAI: '/chat/completions',
     modelAI: 'gpt-4o',
     authHeaderNameAI: 'Authorization: Bearer',
-    siteUrl: 'https://platform.openai.com/api-keys?utm_source=electerm_app&utm_medium=link&utm_campaign=electerm'
-  },
-  {
-    id: 'openai-responses',
-    nameAI: 'OpenAI (Responses API)',
-    baseURLAI: 'https://api.openai.com/v1',
-    apiPathAI: '/responses',
-    modelAI: 'gpt-4o',
-    authHeaderNameAI: 'Authorization: Bearer',
-    modelAIs: [
-      { value: 'gpt-4o' },
-      { value: 'gpt-4o-mini' },
-      { value: 'gpt-4.1' },
-      { value: 'o4-mini' }
-    ],
     siteUrl: 'https://platform.openai.com/api-keys?utm_source=electerm_app&utm_medium=link&utm_campaign=electerm'
   },
   {

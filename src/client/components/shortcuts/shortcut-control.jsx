@@ -149,6 +149,16 @@ class ShortcutControl extends React.PureComponent {
     window.store.cloneToNextLayout()
   }, 500)
 
+  splitHorizontalShortcut = throttle((e) => {
+    e.stopPropagation()
+    window.store.splitTab('h')
+  }, 500)
+
+  splitVerticalShortcut = throttle((e) => {
+    e.stopPropagation()
+    window.store.splitTab('v')
+  }, 500)
+
   duplicateTabShortcut = throttle((e) => {
     e.stopPropagation()
     const { activeTabId } = window.store

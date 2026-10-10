@@ -27,6 +27,7 @@ import { action } from 'manate'
 import iconsMap from '../sys-menu/icons-map.jsx'
 import { shortcutDescExtend } from '../shortcuts/shortcut-handler.js'
 import { isDropAfterHalf } from '../../common/drop-position'
+import { splitConfig } from '../../common/constants'
 
 const e = window.translate
 const onDragCls = 'ondrag-tab'
@@ -322,6 +323,14 @@ class Tab extends Component {
     window.store.pinTab(tab.id, !tab.isPinned)
   }
 
+  splitHorizontal = () => {
+    window.store.splitTab('h')
+  }
+
+  splitVertical = () => {
+    window.store.splitTab('v')
+  }
+
   renderContext = () => {
     const { tabs, tabIndex, tab } = this.props
     const len = tabs.length
@@ -332,6 +341,8 @@ class Tab extends Component {
     const cloneToNextShortcut = this.getShortcut('app_cloneToNextLayout')
     const duplicateShortcut = this.getShortcut('app_duplicateTab')
     const reloadAllShortcut = this.getShortcut('app_reloadAll')
+    const splitHShortcut = this.getShortcut('app_splitHorizontal')
+    const splitVShortcut = this.getShortcut('app_splitVertical')
 
     const x = [
       {
@@ -360,6 +371,18 @@ class Tab extends Component {
         icon: <iconsMap.CopyOutlined />,
         label: e('duplicate'),
         extra: duplicateShortcut
+      },
+      {
+        key: 'splitHorizontal',
+        icon: <iconsMap.SwapOutlined />,
+        label: e('splitHorizontal'),
+        extra: splitHShortcut
+      },
+      {
+        key: 'splitVertical',
+        icon: <iconsMap.BorderHorizontalOutlined />,
+        label: e('splitVertical'),
+        extra: splitVShortcut
       },
       {
         key: 'cloneToNextLayout',
@@ -392,10 +415,29 @@ class Tab extends Component {
         extra: reloadAllShortcut
       }
     ].filter(Boolean)
+    // 多 pane 时: 迁移当前 tab 到其他 pane (编号按布局位置, 从 1 开始: 左→右, 上→下)
+    const paneCount = splitConfig[window.store.layout]?.children || 1
+    let insertAt = x.findIndex(item => item.key === 'splitVertical')
+    if (insertAt > -1 && paneCount > 1) {
+      insertAt += 1
+      for (let b = 0; b < paneCount; b++) {
+        if (b === tab.batch) {
+          continue
+        }
+        x.splice(insertAt++, 0, {
+          key: `moveToPane-${b}`,
+          icon: <iconsMap.SendOutlined />,
+          label: `${e('moveToPane')} ${b + 1}`
+        })
+      }
+    }
     return x
   }
 
   onContextMenu = ({ key }) => {
+    if (key.startsWith('moveToPane-')) {
+      return window.store.moveTabToPane(this.props.tab.id, Number(key.split('-')[1]))
+    }
     this[key]()
   }
 

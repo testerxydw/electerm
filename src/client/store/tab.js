@@ -5,6 +5,7 @@
 import { debounce, isEqual } from 'lodash-es'
 import {
   splitConfig,
+  splitLayoutMap,
   statusMap,
   paneMap,
   maxHistory
@@ -18,6 +19,10 @@ import uid from '../common/uid'
 import newTerm, { updateCount } from '../common/new-terminal.js'
 import { action } from 'manate'
 import { shouldCaptureTerminalReloadState } from '../components/terminal/ssh-reload-state.js'
+import dangerousSessionFields from '../common/dangerous-session-fields'
+import { distributeTabsEvenly } from '../common/distribute-tabs'
+
+const e = window.translate
 
 function captureSshSessionState (tab, config) {
   return shouldCaptureTerminalReloadState(tab, config)
@@ -415,23 +420,9 @@ export default Store => {
     store.updateHistory(newTab)
   }
 
-  // Dangerous props that should not be accepted from IPC
-  const dangerousTabProps = [
-    'execLinux',
-    'execMac',
-    'execWindows',
-    'execWindowsArgs',
-    'execMacArgs',
-    'execLinuxArgs',
-    'setEnv',
-    'runScripts',
-    'interactiveValues',
-    'triggers'
-  ]
-
   Store.prototype.ipcOpenTab = function (parsed) {
     const safeTab = Object.fromEntries(
-      Object.entries(parsed).filter(([key]) => !dangerousTabProps.includes(key))
+      Object.entries(parsed).filter(([key]) => !dangerousSessionFields.includes(key))
     )
     return window.store.addTab(safeTab)
   }
@@ -504,12 +495,85 @@ export default Store => {
     }
     ntb.batch = (currentLayoutBatch + 1) % maxBatch
     if (layout === 'c1') {
-      store.setLayout('c2')
+      store.setLayout('c2', false)
     }
     store.addTab(ntb)
   }
 
-  Store.prototype.setLayout = function (layout) {
+  // 拆分会话: 当前 tab 迁移到新 pane (同一个会话, 终端历史保留), 其余 tab 留在原 pane
+  // direction: 'h'=水平分栏(左右), 'v'=垂直分行(上下)
+  Store.prototype.splitTab = function (direction = 'h') {
+    const { store } = window
+    const tab = store.currentTab
+    if (!tab) {
+      return
+    }
+    const curLayout = store.layout
+    const targetLayout = splitLayoutMap[curLayout]?.[direction]
+    if (!targetLayout || targetLayout === curLayout) {
+      return message.warning(e('cannotSplitFurther'))
+    }
+    const newBatch = splitConfig[targetLayout].children - 1
+    // 切 layout, 禁止 distributeTabs 自动重分配, 我们自己放
+    store.setLayout(targetLayout, false)
+    // 只改 batch, tab 本体不动: 同一个 id/term 实例, 滚动历史跟着走
+    tab.batch = newBatch
+    store[`activeTabId${newBatch}`] = tab.id
+    store.activeTabId = tab.id
+    store.currentLayoutBatch = newBatch
+    // 原 pane 失去 active tab, 修正各 pane 的 activeTabId
+    store.fixActiveTabIds(splitConfig[targetLayout].children)
+  }
+
+  // 迁移 tab 到指定 pane (targetBatch 从 0 开始), 同 layout 内跨 pane 移动, 终端历史保留
+  Store.prototype.moveTabToPane = function (tabId, targetBatch) {
+    const { store } = window
+    const tab = store.tabs.find(t => t.id === tabId)
+    if (!tab || tab.batch === targetBatch) {
+      return
+    }
+    tab.batch = targetBatch
+    store[`activeTabId${targetBatch}`] = tab.id
+    store.activeTabId = tab.id
+    store.currentLayoutBatch = targetBatch
+    // 原 pane 失去 active tab, 修正各 pane 的 activeTabId
+    store.fixActiveTabIds(splitConfig[store.layout].children)
+  }
+
+  // Spread tabs over the panes of a layout with more panes.
+  // Only used when leaving the single layout: once more than one pane is on
+  // screen the arrangement is the user's, and is left alone.
+  Store.prototype.distributeTabs = function (newCount) {
+    const { store } = window
+    const { tabs } = store
+    if (tabs.length < 2) {
+      return
+    }
+    // contiguous chunks keep the tab order: [A B C D E] -> [A B] [C D] [E]
+    const batches = distributeTabsEvenly(tabs.length, newCount)
+    tabs.forEach((t, i) => {
+      t.batch = batches[i]
+    })
+  }
+
+  // make sure every pane has a valid active tab
+  Store.prototype.fixActiveTabIds = function (count) {
+    const { store } = window
+    for (let b = 0; b < count; b++) {
+      const inBatch = store.tabs.filter(t => t.batch === b)
+      const key = `activeTabId${b}`
+      if (!inBatch.some(t => t.id === store[key])) {
+        store[key] = inBatch.length ? inBatch[0].id : ''
+      }
+    }
+    const active = store.tabs.find(t => t.id === store.activeTabId)
+    if (active) {
+      store[`activeTabId${active.batch}`] = active.id
+      store.currentLayoutBatch = active.batch
+    }
+  }
+
+  Store.prototype.setLayout = function (layout, redistribute = true) {
     const { store } = window
     const prevLayout = store.layout
     const { activeTabId } = store
@@ -546,6 +610,15 @@ export default Store => {
       if (store.currentLayoutBatch >= newBatchCount) {
         store.currentLayoutBatch = newBatchCount - 1
       }
+    } else if (
+      redistribute &&
+      store.config.autoDistributeTabsWhenLayoutChange &&
+      prevBatchCount === 1 &&
+      newBatchCount > 1
+    ) {
+      // leaving the single layout: hand the tabs out evenly
+      store.distributeTabs(newBatchCount)
+      store.fixActiveTabIds(newBatchCount)
     }
     store.focus()
   }

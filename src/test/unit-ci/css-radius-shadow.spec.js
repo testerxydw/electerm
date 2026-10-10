@@ -46,12 +46,23 @@ const SHADOW_ATOM = [
   /^0 0 0 0 var\(--primary\)$/,
   /^0 0 8px 2px var\(--primary\)$/,
   /^0 0 0 1px var\(--border\)$/,
+  /^0 0 0 2px var\(--active-bg\)$/,
   /^inset 3px 0 0 0 var\(--(success|error|warn|info)\)$/,
   /^inset 0 1px 0 0 var\(--border\)$/,
   /^inset 1px 0 0 0 var\(--border\)$/
 ]
 
+// token 基 color-mix 光晕（如 0 0 6px color-mix(in srgb, var(--success) 60%, transparent)）：
+// 色值来自 var(--token)，无裸 hex/rgba，允许整体出现。color-mix 内含逗号，
+// 必须在 split(',') 之前整值判定。
+const COLOR_MIX_TOKEN =
+  /unquote\('color-mix\(in srgb, var\(--[a-z-]+\) \d+%, transparent\)'\)/
+
 function shadowOk (value) {
+  if (COLOR_MIX_TOKEN.test(value)) {
+    const rest = value.replace(COLOR_MIX_TOKEN, '')
+    return !/(#[0-9a-fA-F]{3,8}|rgba?\()/i.test(rest)
+  }
   return value.split(',').every(part => {
     const v = part.trim()
       // 组合形式里 token 本身含逗号（var(--accent-glow) 展开? 不会——var 引用是原子的）
