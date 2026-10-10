@@ -23,7 +23,7 @@ describe('sidebar-layout: 高度只由 CSS top+bottom 决定', () => {
     const m = styl.match(/\.sidebar\n([\s\S]*?)\n\.sidebar-pin-top/)
     assert.ok(m, 'sidebar.styl 中未找到 .sidebar 规则块')
     assert.match(m[1], /top\s+var\(--title-bar-height/, '缺 top 定位')
-    assert.match(m[1], /bottom\s+calc\(var\(--footer-stack-height/, '缺 bottom 避让')
+    assert.match(m[1], /bottom\s+var\(--footer-stack-height/, '缺 bottom 避让')
   })
 
   it('反向验证：守卫正则能捕获内联 height 回归', () => {

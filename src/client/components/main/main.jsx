@@ -21,8 +21,6 @@ import classnames from 'classnames'
 import ShortcutControl from '../shortcuts/shortcut-control.jsx'
 import {
   footerHeight,
-  appKbarHeight,
-  statusBarHeight,
   titleBarHeight,
   isMac,
   isWin,
@@ -54,8 +52,6 @@ import TerminalInfo from '../terminal-info/terminal-info-entry'
 import ShortcutBarEntry from '../terminal/shortcut-bar-entry'
 import LazyBoundary from '../common/lazy-boundary'
 import CommandPalette from '../command-palette'
-import StatusBar from '../status-bar'
-import AppKbar from '../app-kbar'
 import MonitorPanel from '../remote-monitor/monitor-panel'
 import TransferPanel from '../file-transfer/transfer-panel'
 import TitleBar from '../title-bar'
@@ -187,23 +183,14 @@ export default auto(function Index (props) {
     'is-touch-device': store.isTouchDevice,
     'remote-monitor-bar-on': remoteMonitorBarVisible
   })
-  const sbHeight = store.isMobile ? 0 : statusBarHeight
   const tbHeight = store.isMobile || store.config.useSystemTitleBar || isMac ? 0 : titleBarHeight
   const ext1 = {
     className: cls,
     style: {
       '--left-side-bar-width': store.leftSideBarWidth + 'px',
-      '--status-bar-height': `${sbHeight}px`,
       '--title-bar-height': `${tbHeight}px`,
-      '--footer-stack-height': `${footerHeight + sbHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`,
-      // 底部紧贴 footer 之上的常显条（应用快捷键条）：侧栏/面板需避开，否则底部内容被遮挡
-      '--app-kbar-height': `${store.isMobile ? 0 : appKbarHeight}px`,
-      // 右面板停靠(dock)时占用的宽度：快捷键条据此右边界让位（三栏并排）
-      '--right-panel-dock-width': `${
-        store.rightPanelVisible && store.rightPanelPinned && !store.isMobile
-          ? store.rightPanelWidth
-          : 0
-      }px`
+      // 底栏三合一（statusbar/kbar 并入 footer）：底部常显区仅剩一条 footer
+      '--footer-stack-height': `${footerHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`
     }
   }
   // Get active tab IDs
@@ -427,8 +414,6 @@ export default auto(function Index (props) {
         <BookmarkFromHistoryModal />
         <NotificationContainer />
         <CommandPalette store={store} />
-        <AppKbar store={store} />
-        <StatusBar store={store} />
         <BatchOpRunner />
         <ImportProgress />
         <ShortcutBarEntry store={store} />

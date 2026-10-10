@@ -5,7 +5,8 @@
   position absolute
   left calc(var(--left-side-bar-width, 43px) + 1px)
   right 0
-  bottom var(--status-bar-height, 0px)
+  // 底栏三合一：statusbar/kbar 已并入本条，直接贴底
+  bottom 0
   z-index 200
 .pinned
   .main-footer
@@ -16,6 +17,70 @@
   display flex
   .terminal-footer-unit .ant-select-selector .ant-select-selection-placeholder
     line-height 24px
+
+// 底栏三合一：左区会话状态（原 statusbar 内容并入，样式随迁）
+// 可收缩截断：窄窗时先牺牲状态文本，右区按钮永不缩
+.terminal-footer-status
+  flex 0 1 auto
+  min-width 0
+  overflow hidden
+  display flex
+  align-items center
+  gap 14px
+  padding-left 12px
+  font-size 11px
+  font-family var(--font-mono)
+  color var(--text-dark)
+  white-space nowrap
+
+.statusbar-unit
+  display inline-flex
+  align-items center
+  gap 6px
+  white-space nowrap
+
+// 主机名加粗（对齐草图 .statusbar .it b）
+.statusbar-host
+  color var(--text)
+  font-weight 600
+
+.statusbar-dot
+  width 6px
+  height 6px
+  border-radius var(--radius-pill)
+  background var(--text-disabled)
+  &.ok
+    background var(--success)
+  &.err
+    background var(--error)
+
+// 底栏三合一：右区全局动作（原 app-kbar 独有项），分隔线与中区按钮区分
+.terminal-footer-global
+  flex none
+  display flex
+  align-items center
+  gap 4px
+  margin-left 10px
+  padding-left 10px
+  border-left 1px solid var(--border)
+  .terminal-footer-global-item
+    display inline-flex
+    align-items center
+    justify-content center
+    width 24px
+    height 24px
+    font-size 13px
+    color var(--text-dark)
+    cursor pointer
+    border-radius var(--radius-xs)
+    transition color var(--dur-1) var(--ease), background var(--dur-1) var(--ease)
+    &:hover
+      color var(--text-light)
+      background var(--hover-bg)
+    &:focus-visible
+      box-shadow inset 0 0 0 1px var(--primary)
+      outline none
+
 .terminal-footer-unit
   margin-left 10px
   line-height 39px

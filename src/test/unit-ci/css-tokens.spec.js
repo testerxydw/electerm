@@ -34,16 +34,13 @@ for (const f of definitionFiles) {
 
 // 上游 5.5.26 运行时注入 / jsx 内联注入的变量白名单
 const whitelist = new Set([
-  'left-side-bar-width', // main.jsx:173
-  'footer-stack-height', // main.jsx:174
+  'left-side-bar-width', // main.jsx:190
+  'footer-stack-height', // main.jsx:193（底栏三合一后仅一条 footer）
   'shortcut-bar-h', // shortcut-bar.jsx:160
   'shortcut-bar-kb-offset', // shortcut-bar.jsx:148
   'ai-watermark', // ai-chat-empty.jsx:23
   'wco-controls-width', // 上游 title-bar-overlay: tabs.styl L29 局部定义,依赖 env(titlebar-area-*)
-  'status-bar-height', // main.jsx:196
-  'title-bar-height', // main.jsx:197
-  'app-kbar-height', // main.jsx:200
-  'right-panel-dock-width' // main.jsx:202
+  'title-bar-height' // main.jsx:191
 ])
 
 // 收集全部 var(--x) 引用（含 var(--x, fallback) 形式，取逗号前的变量名）
