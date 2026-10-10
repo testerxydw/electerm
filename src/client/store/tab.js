@@ -11,9 +11,7 @@ import {
   maxHistory
 } from '../common/constants'
 
-const e = typeof window !== 'undefined' && window.translate
-  ? window.translate
-  : (k) => k
+const e = window.translate
 import { refs, refsTabs } from '../components/common/ref'
 import message from '../components/common/message'
 import * as ls from '../common/safe-local-storage'
