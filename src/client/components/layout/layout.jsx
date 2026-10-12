@@ -79,17 +79,22 @@ export default auto(function Layout (props) {
 
   const layoutSize = calcLayoutStyle()
   const {
-    width,
     height,
     termLeft,
     termWidth
   } = layoutSize
-  // 标签栏层（Layouts）全宽 / 终端层（Sessions）按终端列定位，两个叠层分离
+  // 标签栏层（Layouts）与终端层（Sessions）同网格对齐, 否则多格分屏时
+  // 标签栏与其终端错位。仅单格布局让标签栏横贯全宽（只让位常驻图标栏,
+  // 面板宽只挤压终端尺寸）—— 多格时格子网格跟随终端列
+  const paneCount = (splitConfig[layout] && splitConfig[layout].children) || 1
+  const isSinglePane = paneCount === 1
+  const wrapLeft = isSinglePane ? layoutSize.left : termLeft
+  const wrapWidth = isSinglePane ? layoutSize.width : termWidth
   const pixedLayoutStyle = pixed({
     height: layoutSize.height,
     top: layoutSize.top,
-    left: layoutSize.left,
-    width: layoutSize.width
+    left: wrapLeft,
+    width: wrapWidth
   })
   const pixedTermStyle = pixed({
     height: layoutSize.height,
@@ -97,9 +102,7 @@ export default auto(function Layout (props) {
     left: termLeft,
     width: termWidth
   })
-  const styles = layoutAlg(layout, width, height)
-  // session-wrap 定位相对窄的终端列容器（.sessions），格子层（含标签栏）相对全宽容器
-  const termStyles = layoutAlg(layout, termWidth, height)
+  const styles = layoutAlg(layout, wrapWidth, height)
   const layoutProps = {
     layout,
     ...styles,
@@ -176,7 +179,7 @@ export default auto(function Layout (props) {
     store
   }
   const sessionsProps = {
-    styles: termStyles.wrapStyles,
+    styles: styles.wrapStyles,
     sizes,
     width: termWidth,
     height,
