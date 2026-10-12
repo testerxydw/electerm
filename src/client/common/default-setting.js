@@ -2,6 +2,8 @@
  * default setting
  */
 
+import { defaultLeftSideBarIcons } from './left-sidebar-icon-defs'
+
 export default {
   hotkey: 'Control+2',
   sshReadyTimeout: 50000,
@@ -99,13 +101,6 @@ export default {
   autoDistributeTabsWhenLayoutChange: false,
   disableConfirmForLargeClipboardContent: false,
   doubleClickToOpenBookmark: false,
-  leftSideBarIcons: [
-    'newBookmark',
-    'quickConnect',
-    'bookmarks',
-    'terminalThemes',
-    'setting',
-    'settingSync',
-    'widgets'
-  ]
+  // 左栏图标默认列表单一来源: left-sidebar-icon-defs (勿在此手写副本)
+  leftSideBarIcons: defaultLeftSideBarIcons
 }

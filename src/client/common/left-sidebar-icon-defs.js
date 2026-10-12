@@ -25,6 +25,19 @@ export const leftSidebarIconOptions = [
 // default ordered list of icon ids — mirrors the order above
 export const defaultLeftSideBarIcons = leftSidebarIconOptions.map(o => o.id)
 
+// 旧版默认列表（新增右面板页签入口前的 7 项）：
+// 存量用户 DB 里的 config.leftSideBarIcons 持久化的正是这份值，
+// 迁移时据此判定"从未自定义过图标"并升级到新默认，自定义过的配置不动
+export const legacyDefaultLeftSideBarIcons = [
+  'newBookmark',
+  'quickConnect',
+  'bookmarks',
+  'terminalThemes',
+  'setting',
+  'settingSync',
+  'widgets'
+]
+
 // valid ids, for sanitizing persisted/synced config
 export const leftSidebarIconIds = new Set(leftSidebarIconOptions.map(o => o.id))
 
@@ -36,5 +49,14 @@ export function normalizeLeftSideBarIcons (value) {
   if (!Array.isArray(value)) {
     return [...defaultLeftSideBarIcons]
   }
-  return value.filter(id => leftSidebarIconIds.has(id))
+  const filtered = value.filter(id => leftSidebarIconIds.has(id))
+  // 从未自定义过（恰为旧默认列表）的存量配置升级到新默认；
+  // 用户自定义过的列表（增删过任意项）保持原样，缺失项视为有意移除
+  if (
+    filtered.length === legacyDefaultLeftSideBarIcons.length &&
+    legacyDefaultLeftSideBarIcons.every((id, i) => filtered[i] === id)
+  ) {
+    return [...defaultLeftSideBarIcons]
+  }
+  return filtered
 }

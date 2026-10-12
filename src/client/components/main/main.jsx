@@ -54,6 +54,7 @@ import CommandPalette from '../command-palette'
 import MonitorPanel from '../remote-monitor/monitor-panel'
 import TransferPanel from '../file-transfer/transfer-panel'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
+import { normalizeLeftSideBarIcons } from '../../common/left-sidebar-icon-defs'
 import '../../common/fs.js'
 import './term-fullscreen.styl'
 
@@ -248,7 +249,8 @@ export default auto(function Index (props) {
     upgradeInfo,
     pinned,
     isMobile: store.isMobile,
-    leftSideBarIcons: config.leftSideBarIcons,
+    // 过 normalize: 清洗未知 id + 存量旧默认配置迁移 (补右面板页签入口)
+    leftSideBarIcons: normalizeLeftSideBarIcons(config.leftSideBarIcons),
     widgetInstancesLength: widgetInstances.length
   }
 
