@@ -64,14 +64,15 @@ function patchOne (filePath, dict, force = false) {
   }
   let content = fs.readFileSync(filePath, 'utf8')
   // key 已存在时: force 模式覆盖值, 否则跳过 (增量 patch)
+  // key 匹配兼容单/双引号值 (历史 append 产物为双引号, 不兼容会破坏幂等导致重复插入)
   // key 前界定为 , 或 { 避免误匹配其他含该子串的 key
-  // 全部全局替换: mjs 内含 export const + export default 两份对象, 需同步 patch
+  // 全局替换: cjs (module.exports/exports.default) 与 mjs (export const/default) 含多份对象, 需同步 patch
   const append = []
   for (const [k, v] of Object.entries(dict)) {
-    const testRe = new RegExp(`([,{])${k}:'[^']*'`)
+    const testRe = new RegExp(`([,{])${k}:(?:'[^']*'|"[^"]*")`)
     if (testRe.test(content)) {
       if (force) {
-        const re = new RegExp(`([,{])${k}:'[^']*'`, 'g')
+        const re = new RegExp(`([,{])${k}:(?:'[^']*'|"[^"]*")`, 'g')
         content = content.replace(re, `$1${k}:${JSON.stringify(v)}`)
       }
     } else {
@@ -87,8 +88,10 @@ function patchOne (filePath, dict, force = false) {
   }
   // minified 单行格式: ...,moveToFooter:'move to footer'},name:'English',...
   // 插入到最后一个 lang key 之后, name/match/flag 之前
+  // append 用单引号写入 (与文件风格一致, 保证脚本幂等)
+  const quote = s => "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"
   const dictStr = append
-    .map(([k, v]) => `${k}:${JSON.stringify(v)}`)
+    .map(([k, v]) => `${k}:${quote(v)}`)
     .join(',')
   // 找 },name: 分界点
   const marker = /\},name:'/g
