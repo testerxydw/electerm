@@ -5,6 +5,12 @@
 
 ---
 
+## test.87-ui（2026-10-12）· **启动时侧栏默认收起**（86 同代码重打）
+- **提交**：`ccd20505`
+- **修改点**：`rightPanelVisible` 默认 true→false；`openedSideBar` 默认 'bookmarks'→''；手动开/关持久化语义不变（setOpenedSideBar/ls）
+- **验证点**：752 单测全绿；CDP 实测 `openedSideBar:''`、`rightPanelVisible:false`、右面板未渲染、ls 无残留
+- **已安装** ✅（86 由脚本自动安装成功，87 用户重打，代码相同）
+
 ## test.85-ui（2026-10-10 1x:xx）· **底栏三合一**
 - **提交**：`eafc8434`（statusbar/app-kbar 并入 footer 单条 36px）
 - **修改点**：底部三条（kbar 30+footer 36+statusbar 26=92px）→ 一条 36px；左区会话状态（状态点/主机/类型/tab 数），右区全局动作（新建会话/命令面板 Ctrl+K/设置），AI/快捷命令/命令历史去重保留 footer 版；`--footer-stack-height` 简化为 footerHeight+monitor（62→36），6 处避让公式同步；删除 app-kbar 目录与 status-bar/index.jsx+styl（format.js+单测保留）；终端区净增 56px
