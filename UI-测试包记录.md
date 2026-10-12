@@ -5,6 +5,13 @@
 
 ---
 
+## test.104-ui（2026-10-12）· **patch-locales 幂等修复**（103 的 locales 重复 key 清理重打）
+- **提交**：`dc054b5c`
+- **根因**：patchOne 的 testRe 只认单引号 `k:'…'` 而 append 写入双引号 `k:"…"` → 每次执行都误判 missing 重复插入（zh_cn newTab 堆到 3 处、additions keys 在 cjs 堆到 4 处/esm 6 处，**所有语言**的 additions keys 都受累，非仅 zh_cn）；运行时无害（重复值相同）但文件脏且持续膨胀
+- **修改点**：testRe/force 替换兼容单双引号；append 改单引号写入（与 minified 文件风格一致）恢复幂等；两处（项目根 + work/app）locales 包重装后重新 patch
+- **验证点**：patch 连跑两次 key 计数不变；15 语言 cjs 实载 + esm 双段 key 完整；其他语言 newTab 保持上游（en 'new tab'/繁 '新增分頁'/日 '新規タブ'/德 'Neuer Tab'）；asar 指纹 newTab 45 处 = 15×(cjs1+esm2) 干净基数；ja_jp fallback 英文正常
+- **已安装** ✅
+
 ## test.103-ui（2026-10-12）· **"新建"入口文案纠正：本地终端**
 - **提交**：`dbe1ee49`
 - **背景**：用户反馈"新建中缺一个直接打开本地"——**入口本就存在**（+ 菜单第二项 / 空状态首按钮 / tab 右键 / 命令面板，共 5 处 `newTab`，点击即 `addTab()` 无参开 local tab），但上游 zh_cn 把 `newTab` 译成"**新建连接**"，完全看不出是本地终端
