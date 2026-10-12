@@ -135,8 +135,8 @@ export default () => {
     activeTabId2: '',
     activeTabId3: '',
     terminalInfoProps: {},
-    // 对齐重设计草图：右侧面板默认显示（仍可由用户隐藏）
-    rightPanelVisible: true,
+    // 右侧面板启动时默认收起（用户手动打开后由交互控制）
+    rightPanelVisible: false,
     // 对齐重设计草图：右面板默认 AI 页
     rightPanelTab: 'ai',
     // 右面板「监控」页的资源采集：默认关闭，用户手动开启后才采集
@@ -200,8 +200,8 @@ export default () => {
     shortcutBarKbOffset: 0,
 
     // sidebar
-    // 对齐重设计草图：左侧会话面板默认展开（仍可由用户收起）
-    openedSideBar: ls.getItem(openedSidebarKey) || 'bookmarks',
+    // 左侧会话面板启动时默认收起（手动开/关经 setOpenedSideBar 持久化）
+    openedSideBar: ls.getItem(openedSidebarKey) || '',
     _leftSidePanelWidth: parseInt(ls.getItem(leftSidePanelWidthKey), 10) || 236,
     // whether the far-left icon bar is open (hide/show works on every platform)
     _leftSideBarOpen: leftSideBarOpen,
