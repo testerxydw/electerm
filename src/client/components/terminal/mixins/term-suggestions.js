@@ -96,6 +96,30 @@ export const suggestionsMixin = {
   },
 
   /**
+   * SSH echo may not have rendered the just-typed characters yet when Enter
+   * fires (onData is synchronous, the echo comes from the remote side), so
+   * the current cursor line can still be a bare prompt. The echo usually
+   * lands together with the newline, leaving the typed command on the line
+   * above — fall back to it before giving up on manual history.
+   */
+  getPreviousLineInput () {
+    if (!this.term) return ''
+    const buffer = this.term.buffer.active
+    const line = buffer.getLine(buffer.baseY + buffer.cursorY - 1)
+    if (!line) return ''
+    const lineText = line.translateToString(true)
+    const promptEndings = ['$ ', '# ', '> ', '% ', '] ', ') ']
+    let commandStart = 0
+    for (const ending of promptEndings) {
+      const idx = lineText.lastIndexOf(ending)
+      if (idx !== -1 && idx + ending.length > commandStart) {
+        commandStart = idx + ending.length
+      }
+    }
+    return lineText.slice(commandStart)
+  },
+
+  /**
    * Handle special input events for command history tracking
    * The actual input reading is done via getCurrentInput from buffer
    */
@@ -107,7 +131,10 @@ export const suggestionsMixin = {
     }
     // Handle Enter - add command to history
     if (d === '\r' || d === '\n') {
-      const currentCmd = this.getCurrentInput()
+      let currentCmd = this.getCurrentInput()
+      if (!currentCmd.trim()) {
+        currentCmd = this.getPreviousLineInput()
+      }
       if (currentCmd && currentCmd.trim() && this.shouldUseManualHistory()) {
         window.store.addCmdHistory(currentCmd.trim())
       }

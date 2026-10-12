@@ -25,7 +25,10 @@ describe('sidebar-layout: 高度只由 CSS top+bottom 决定', () => {
     // 顶栏已还原 master 式：.sidebar 从窗口顶开始，不得再引入 title-bar 偏移
     assert.match(m[1], /top\s+0/, 'top 应为 0（无独立顶栏）')
     assert.doesNotMatch(m[1], /--title-bar-height/, '不得引用已退役的 --title-bar-height')
-    assert.match(m[1], /bottom\s+var\(--footer-stack-height/, '缺 bottom 避让')
+    // 图标栏直通窗口底部（bottom 0，footer 已常驻让位图标栏宽度）；
+    // 不得回退为 bottom var(--footer-stack-height)（会让头像悬空被截断）
+    assert.match(m[1], /bottom\s+0/, 'bottom 应为 0（图标栏直通底部）')
+    assert.doesNotMatch(m[1], /bottom\s+var\(--footer-stack-height/, '不得恢复 bottom 底栏避让（头像会悬空截断）')
   })
 
   it('反向验证：守卫正则能捕获内联 height 回归', () => {
