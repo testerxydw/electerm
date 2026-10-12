@@ -5,6 +5,13 @@
 
 ---
 
+## test.98-ui（2026-10-12）· **修复动态页签不出现 + 缓存根治**
+- **提交**：`31307bdc`（main.jsx 补传双 home props）+ `d25e3dea`（file-server no-cache）
+- **根因（两个叠加）**：① 3752f140 动态页签**只提交了 side-panel-r，main.jsx 传参遗漏** → props 恒 undefined，页签永不出现（用户"切换过显示位置后不显示"即此）② 静态服务 maxAge 365 天强缓存 + 固定文件名 bundle → 升级后浏览器仍加载旧 JS（test.94-96 连续踩坑总根源，排查时 fetch/curl/asar 三方数据互相矛盾即此）
+- **修改点**：rightPanelProps 补 `cmdHistoryInRightPanel/quickCommandsInRightPanel` 传参；file-server 改 no-cache 协商缓存（本地回环，更新即时生效，**以后不再需要手动清缓存**）
+- **验证点**：771 单测全绿；asar 指纹 cmdHistoryInRightPanel 5→7 处；CDP 实测用户 profile（双 true）页签 6 项 `AI*|传输|监控|终端日志|命令历史|快速命令`；curl 响应头 `Cache-Control: no-cache` ✓
+- **已安装** ✅
+
 ## test.96-ui（2026-10-12）· **终端日志更名 + 打包 CPU 限核**
 - **提交**：`6272c0d2`
 - **修改点**：① "文件信息"更名**"终端日志"**（patch-locales 增 terminalLog key 三语，右面板页签 + 底栏信息按钮 title 统一）② run-bdebfast 增 **CPU 限核**：默认 min(核数×70%, 10)，`--limit-cpu N` 可调/0 不限/超核数回落，taskset 重执行防递归；顺手修 set -e 下 && 短路误退隐患
