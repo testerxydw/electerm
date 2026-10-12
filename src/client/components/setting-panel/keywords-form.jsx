@@ -6,10 +6,12 @@ import {
 } from 'antd'
 import { formItemLayout } from '../../common/form-layout'
 import {
+  DownOutlined,
   MinusCircleOutlined,
-  PlusOutlined
+  PlusOutlined,
+  UpOutlined
 } from '@ant-design/icons'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import InputConfirm from '../common/input-confirm'
 
 const FormItem = Form.Item
@@ -17,11 +19,17 @@ const FormList = Form.List
 const OptionSel = Select.Option
 const e = window.translate
 
+// 折叠态可见高度 (约 6 行)；条目少于该阈值不出现折叠按钮
+const COLLAPSED_MAX_HEIGHT = 220
+const COLLAPSE_THRESHOLD = 8
+
 export default function KeywordForm (props) {
   const {
     formData
   } = props
   const [formChild] = Form.useForm()
+  // 预设条目多 (100+)，默认折叠展示，全部渲染保证表单提交完整
+  const [expanded, setExpanded] = useState(false)
   function handleTrigger () {
     formChild.submit()
   }
@@ -112,23 +120,47 @@ export default function KeywordForm (props) {
         >
           {
             (fields, { add, remove }, { errors }) => {
+              // 全量渲染 (未渲染字段不进 onFinish 会丢数据), 折叠仅裁视觉高度
+              const collapsedStyle = expanded
+                ? { marginBottom: 8 }
+                : { maxHeight: COLLAPSED_MAX_HEIGHT, overflow: 'hidden', marginBottom: 8 }
               return (
                 <>
-                  {
-                    fields.map((field, i) => {
-                      return renderItem(field, i, add, remove)
-                    })
-                  }
+                  <div style={collapsedStyle}>
+                    {
+                      fields.map((field, i) => {
+                        return renderItem(field, i, add, remove)
+                      })
+                    }
+                  </div>
                   <FormItem>
                     <Button
                       type='dashed'
-                      onClick={() => add({
-                        color: 'red'
-                      })}
+                      onClick={() => {
+                        add({
+                          color: 'red'
+                        })
+                        setExpanded(true)
+                      }}
                       icon={<PlusOutlined />}
                     >
                       {e('keyword')}
                     </Button>
+                    {
+                      fields.length > COLLAPSE_THRESHOLD && (
+                        <Button
+                          type='text'
+                          icon={expanded ? <UpOutlined /> : <DownOutlined />}
+                          onClick={() => setExpanded(!expanded)}
+                        >
+                          {
+                            expanded
+                              ? e('collapseAll')
+                              : `${e('expandAll')} (${fields.length})`
+                          }
+                        </Button>
+                      )
+                    }
                   </FormItem>
                 </>
               )
