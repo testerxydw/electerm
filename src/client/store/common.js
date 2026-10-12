@@ -429,6 +429,27 @@ export default Store => {
     store.handleOpenAIPanel()
   }
 
+  // 传输/监控页签开关（对齐 toggleAIPanel 的 toggle 语义），供底栏与左侧图标栏共用
+  Store.prototype.toggleTransferPanel = function () {
+    const { store } = window
+    if (store.rightPanelVisible && store.rightPanelTab === 'transfer') {
+      store.rightPanelVisible = false
+      return
+    }
+    store.rightPanelVisible = true
+    store.rightPanelTab = 'transfer'
+  }
+
+  Store.prototype.toggleMonitorPanel = function () {
+    const { store } = window
+    if (store.rightPanelVisible && store.rightPanelTab === 'monitor') {
+      store.rightPanelVisible = false
+      return
+    }
+    store.rightPanelVisible = true
+    store.rightPanelTab = 'monitor'
+  }
+
   Store.prototype.explainWithAi = function (txt) {
     const { store } = window
     store.handleOpenAIPanel()

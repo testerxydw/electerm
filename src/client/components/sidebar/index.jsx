@@ -170,6 +170,8 @@ export default function Sidebar (props) {
           widgetsActive={widgetsActive}
           isSyncingSetting={isSyncingSetting}
           widgetInstancesLength={widgetInstancesLength}
+          rightPanelVisible={store.rightPanelVisible}
+          rightPanelTab={store.rightPanelTab}
         />
         <TransferList {...transferProps} />
         <SideIcon

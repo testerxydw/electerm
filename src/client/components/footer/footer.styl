@@ -92,6 +92,13 @@
     &::-webkit-scrollbar
       width 0
 
+// 传输/监控按钮：面板打开时与 AI 图标同款"点亮"色
+.terminal-transfer-icon
+.terminal-monitor-icon
+  transition color var(--dur-1) var(--ease)
+  &.active
+    color var(--success)
+
 .terminal-footer-center
   flex-grow 1
 .terminal-footer-info

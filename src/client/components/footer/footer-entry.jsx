@@ -7,12 +7,14 @@ import {
 } from 'antd'
 import {
   BarChartOutlined,
+  DashboardOutlined,
   TranslationOutlined,
   DoubleRightOutlined,
   FunctionOutlined,
   PlusOutlined,
   SettingOutlined,
-  SearchOutlined
+  SearchOutlined,
+  SwapOutlined
 } from '@ant-design/icons'
 import './footer.styl'
 import { statusMap } from '../../common/constants'
@@ -135,6 +137,35 @@ export default auto(function FooterEntry (props) {
         <AIIcon
           onClick={handleAIPanel}
           className={active ? 'active' : ''}
+        />
+      </div>
+    )
+  }
+
+  // 传输/监控：与 AI 同款灯态 toggle（与右面板页签/左侧图标栏相互补齐）
+  function renderTransferIcon () {
+    const { rightPanelVisible, rightPanelTab } = props.store
+    const active = rightPanelVisible && rightPanelTab === 'transfer'
+    return (
+      <div className='terminal-footer-unit terminal-footer-transfer'>
+        <SwapOutlined
+          onClick={() => window.store.toggleTransferPanel()}
+          className={'pointer font14 terminal-transfer-icon' + (active ? ' active' : '')}
+          title='传输'
+        />
+      </div>
+    )
+  }
+
+  function renderMonitorIcon () {
+    const { rightPanelVisible, rightPanelTab } = props.store
+    const active = rightPanelVisible && rightPanelTab === 'monitor'
+    return (
+      <div className='terminal-footer-unit terminal-footer-monitor'>
+        <DashboardOutlined
+          onClick={() => window.store.toggleMonitorPanel()}
+          className={'pointer font14 terminal-monitor-icon' + (active ? ' active' : '')}
+          title='监控'
         />
       </div>
     )
@@ -356,6 +387,8 @@ export default auto(function FooterEntry (props) {
         {!isMobile && renderStatusInfo()}
         {showSidebarIcon}
         {inActiveTerminal && !isAIDisabled() && renderAIIcon()}
+        {inActiveTerminal && !isAIDisabled() && renderTransferIcon()}
+        {inActiveTerminal && !isAIDisabled() && renderMonitorIcon()}
         {inActiveTerminal && renderCmdHistory()}
         {inActiveTerminal && renderQuickCommands()}
         {inActiveTerminal && renderTriggers()}
