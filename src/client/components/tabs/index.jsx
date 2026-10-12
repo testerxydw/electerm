@@ -39,7 +39,10 @@ export default class Tabs extends Component {
       overflow: false,
       // tabs-wrapper 总宽（不含 extraTabWidth）：commit 后实测写入，
       // 未测前为 null，render 用保守估算兜底（见 getTabsWidthAll）
-      wrapWidth: null
+      wrapWidth: null,
+      // 窗口角控件组是否压住本格子标签栏右缘（决定 166px 预留与
+      // tabs-extra 让位是否需要），commit 后实测写入
+      cornerOverlap: true
     }
   }
 
@@ -100,6 +103,17 @@ export default class Tabs extends Component {
     const w = tabMargin * len + 10 + this.tabsWidth()
     if (w !== this.state.wrapWidth) {
       this.setState({ wrapWidth: w })
+    }
+    // 窗口角控件组(fixed)是否压住本格子标签栏右缘: 右面板打开会把终端区
+    // 右缘推离窗口角, 此时 166px 预留与 tabs-extra 让位区域暴露为空白,
+    // 需要释放; 面板关闭或标签栏横贯全宽(单格/全宽行布局)时仍需预留。
+    // 未知时保守按重叠处理(渲染首帧), commit 后实测修正
+    const bar = this.tabsRef.current && this.tabsRef.current.getBoundingClientRect()
+    const overlap = !bar
+      ? true
+      : Math.abs(bar.right - window.innerWidth) < 2
+    if (overlap !== this.state.cornerOverlap) {
+      this.setState({ cornerOverlap: overlap })
     }
   }
 
@@ -310,11 +324,16 @@ export default class Tabs extends Component {
     const left = overflow
       ? '100%'
       : tabsWidthAll
-    const w1 = isMacJs && (window.store.isSystemTitleBar || window.et.isWebApp)
-      ? 30
-      : this.getExtraTabWidth()
+    // 右侧控件区预留仅在窗口角控件组压住本格子标签栏右缘时需要；
+    // 右面板打开时控件组在窗口角, 预留区域会暴露为空白, 全部释放。
+    // 非主格子无窗口角控件, 维持上游恒扣 166px 的既有行为
+    const isPrimary = this.shouldRenderWindowControl()
+    const reserve = isPrimary && this.state.cornerOverlap !== false
+    const w1 = reserve
+      ? (isMacJs && (window.store.isSystemTitleBar || window.et.isWebApp) ? 30 : this.getExtraTabWidth())
+      : 0
     const style = {
-      width: width - w1 - 166
+      width: width - w1 - (reserve || !isPrimary ? 166 : 0)
     }
     return (
       <div
@@ -430,9 +449,12 @@ export default class Tabs extends Component {
     return classNames('tabs', extra, {
       // still used by the mobile WCO rule (mobile.styl)
       'wco-bar': window.store.isWindowControlsOverlay && this.shouldRenderWindowControl(),
+      // has-corner 同时驱动 tabs-extra 的让位宽度（tabs.styl）；窗口角控件组
+      // 不压住本格子右缘（右面板挤压终端区）时无需让位，避免暴露空白
       'has-corner': !this.props.isMobile &&
         !window.store.hasNativeTitleStrip &&
-        this.shouldRenderWindowControl()
+        this.shouldRenderWindowControl() &&
+        this.state.cornerOverlap !== false
     })
   }
 
