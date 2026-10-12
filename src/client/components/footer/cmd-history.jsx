@@ -436,8 +436,11 @@ export default auto(function CmdHistory (props) {
     )
   }
 
-  const rightPanelActive = store.rightPanelVisible &&
-    store.rightPanelTab === 'cmdHistory'
+  // 灯态契约与 AI/传输/监控/信息一致: 面板停靠右面板且可见时点亮;
+  // 弹层(底栏 home)打开时同样点亮
+  const rightPanelActive = (store.rightPanelVisible &&
+    store.rightPanelTab === 'cmdHistory') ||
+    (!store.cmdHistoryInRightPanel && open)
 
   return (
     <>

@@ -84,12 +84,13 @@ export default auto(function FooterEntry (props) {
   }
 
   function renderQuickCommands () {
-    const { rightPanelVisible, rightPanelTab, quickCommandsInRightPanel } = props.store
+    const { rightPanelVisible, rightPanelTab, quickCommandsInRightPanel, openQuickCommandBar } = props.store
     // the Q button only owns the right panel while the panel lives there; in
-    // the footer it toggles the floating box instead, which shows its own state
-    const active = quickCommandsInRightPanel &&
-      rightPanelVisible &&
-      rightPanelTab === 'quickCommands'
+    // the footer it toggles the floating box instead, which shows its own state.
+    // 浮动框打开时按钮同样点亮 (与 AI/传输/监控/信息的灯态契约一致)
+    const active = quickCommandsInRightPanel
+      ? rightPanelVisible && rightPanelTab === 'quickCommands'
+      : openQuickCommandBar
     return (
       <div className='terminal-footer-unit terminal-footer-qm'>
         <Qm active={active} />

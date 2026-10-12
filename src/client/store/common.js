@@ -224,6 +224,8 @@ export default Store => {
     const { store } = window
     store.setCmdHistoryInRightPanel(false)
     if (store.rightPanelTab === 'cmdHistory') {
+      // tab 重置回默认页: 该 key 的页签已随 home 迁走, 残留会让面板重开时页签全不亮
+      store.rightPanelTab = 'ai'
       store.rightPanelVisible = false
     }
     refsStatic.get('CmdHistory')?.openPopover()
@@ -274,6 +276,8 @@ export default Store => {
     const { store } = window
     store.setQuickCommandsInRightPanel(false)
     if (store.rightPanelTab === 'quickCommands') {
+      // tab 重置回默认页 (理由同 moveCmdHistoryToFooter)
+      store.rightPanelTab = 'ai'
       store.rightPanelVisible = false
     }
     store.openQuickCommandBar = true

@@ -20,7 +20,9 @@ export default memo(function RightSidePanel (
     children,
     title,
     rightPanelTab,
-    isMobile
+    isMobile,
+    cmdHistoryInRightPanel,
+    quickCommandsInRightPanel
   }
 ) {
   const panelRef = useRef(null)
@@ -58,7 +60,8 @@ export default memo(function RightSidePanel (
   // would make it full height over the footer for no reachable reason.
   const pinned = rightPanelPinned && !isMobile
   // 对齐重设计草图的右面板页签：AI / 传输 / 监控；
-  // 文件信息与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动
+  // 文件信息与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动；
+  // 命令历史/快捷命令寄居右面板时（双 home），顶栏动态出现对应页签并选中
   const aiDisabled = isAIDisabled()
   const tabs = [
     { key: 'ai', label: 'AI' },
@@ -66,6 +69,12 @@ export default memo(function RightSidePanel (
     { key: 'monitor', label: '监控' },
     { key: 'info', label: e('info') }
   ]
+  if (cmdHistoryInRightPanel) {
+    tabs.push({ key: 'cmdHistory', label: e('cmdHistory') })
+  }
+  if (quickCommandsInRightPanel) {
+    tabs.push({ key: 'quickCommands', label: e('quickCommands') })
+  }
 
   function onDragEnd (nw) {
     window.store.setRightSidePanelWidth(nw)
