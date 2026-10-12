@@ -15,7 +15,8 @@
     .list-item-remove
       display none !important
 .sidebar-panel
-  top 36px
+  // 对齐 tabs 栏 38px（tabs.styl）：面板永不盖标题栏（与右面板统一）
+  top 38px
 .sidebar
   position absolute
   left 0
@@ -158,6 +159,9 @@
   bottom 0
   z-index 200
   width 0
+  // 面板可见即挤压终端（layout.jsx），常驻列与右面板一致，拖拽把手常显
+  .drag-handle
+    display block
 
 // icon bar: fills sidebar height, scrolls when overflow on small screens,
 // scrollbar hidden but scrolling still works
@@ -234,14 +238,9 @@
   .sidebar-bar
     display none
 
+// pin 仅保留"点击外部不关闭"行为差异（sidebar.js handleClickOutside），
+// 不再有贴顶停靠样式：面板两种状态都从 38px 标题栏下开始（.sidebar-panel）
 .pinned
-  .sidebar-list
-    top 0
-    .sidebar-panel
-      top 0
-      padding-top 36px
-  .drag-handle
-    display block
   .sidebar-panel
     .pinned
       color var(--success)

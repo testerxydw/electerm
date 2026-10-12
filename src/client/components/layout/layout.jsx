@@ -40,7 +40,7 @@ export default auto(function Layout (props) {
       quickCommandsInRightPanel,
       leftSidePanelWidth,
       leftSideBarWidth,
-      pinned,
+      openedSideBar,
       rightPanelVisible,
       rightPanelWidth,
       resizeTrigger,
@@ -58,9 +58,11 @@ export default auto(function Layout (props) {
       : 0
     // 底栏三合一：底部常显区仅剩一条 footer（statusbar/kbar 已并入）
     const h = height - footerHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
-    const l = pinned && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth
+    // 左面板可见即预留宽度（无论是否停靠）：面板列独占左侧，终端不被遮挡。
+    // 停靠(pin)仅保留"点击外部不关闭"的行为差异，不再差遮挡行为
+    const l = openedSideBar && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth
     // 右面板可见即预留宽度（无论是否固定）：面板列独占右侧，终端始终不被遮挡。
-    // 固定与不固定仅差通顶停靠与快捷命令寄居位置，不再差遮挡行为
+    // 固定与不固定仅差快捷命令寄居位置，不再差遮挡行为
     const r = rightPanelVisible && !isMobile ? rightPanelWidth : 0
     return {
       height: h,

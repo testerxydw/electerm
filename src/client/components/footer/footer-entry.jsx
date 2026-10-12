@@ -339,13 +339,10 @@ export default auto(function FooterEntry (props) {
   }
 
   const {
-    leftSidePanelWidth,
     leftSideBarWidth,
-    openedSideBar,
     inActiveTerminal,
     isMobile
   } = props.store
-  const w = leftSideBarWidth + leftSidePanelWidth
   // icon bar hidden: show a control on the left of the footer to bring the
   // sidebar back
   const showSidebarIcon = leftSideBarWidth === 0
@@ -358,20 +355,12 @@ export default auto(function FooterEntry (props) {
       </div>
       )
     : null
-  // The footer mirrors the space layout.jsx reserves on the left.
-  // Left: reserve while the panel is open OR pinned. A pinned left panel is
-  // always open, so this is a superset of the pin state — and it is what keeps
-  // the footer from painting over the panel, which spans bottom 0 in both
-  // states. Right: nothing to reserve — the right panel stops above the whole
-  // bottom stack (right-side-panel.styl), so the footer keeps its full width
-  // in both pin states.
-  const footerStyle = {}
-  if (openedSideBar && !isMobile) {
-    footerStyle.left = `${w}px`
-  }
+  // Nothing to reserve on either side: both side panels stop above the whole
+  // bottom stack (sidebar.styl / right-side-panel.styl), so the footer keeps
+  // its full width. Mobile drawers do cover the footer on purpose (mobile.styl)
+  // and are dismissed from their own header, not the footer.
   const sideProps = {
-    className: 'main-footer',
-    style: footerStyle
+    className: 'main-footer'
   }
   // 底栏三合一后单一路径：状态区与全局组常显（原 statusbar/kbar 语义，
   // 不受 inActiveTerminal 门控），终端级按钮仅活动终端时显示

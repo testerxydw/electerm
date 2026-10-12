@@ -101,8 +101,8 @@ test('remote monitor styles, panel geometry and mobile overflow', async () => {
                 const { store } = window
                 const monitor = document.querySelector('.remote-monitor-bar').getBoundingClientRect()
                 const terminal = document.querySelector('.sessions').getBoundingClientRect()
-                const left = store.leftSideBarWidth + (!store.isMobile && store.pinned ? store.leftSidePanelWidth : 0)
-                const right = !store.isMobile && store.rightPanelPinned && store.rightPanelVisible ? store.rightPanelWidth : 0
+                const left = store.leftSideBarWidth + (!store.isMobile && store.openedSideBar ? store.leftSidePanelWidth : 0)
+                const right = !store.isMobile && store.rightPanelVisible ? store.rightPanelWidth : 0
                 return Math.abs(monitor.left - left) < 1 &&
                   Math.abs(monitor.right - (store.width - right)) < 1 &&
                   Math.abs(monitor.left - terminal.left) < 1 &&
