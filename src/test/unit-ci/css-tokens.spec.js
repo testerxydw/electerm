@@ -36,6 +36,7 @@ for (const f of definitionFiles) {
 const whitelist = new Set([
   'left-side-bar-width', // main.jsx:187
   'footer-stack-height', // main.jsx:189（底栏三合一后仅一条 footer）
+  'qm-bar-h', // main.jsx:199（快捷命令盒钉在底栏时 180px，右面板底部避让用）
   'shortcut-bar-h', // shortcut-bar.jsx:160
   'shortcut-bar-kb-offset', // shortcut-bar.jsx:148
   'ai-watermark', // ai-chat-empty.jsx:23

@@ -1,26 +1,21 @@
 .right-side-panel
   position absolute
   right 0
-  top 36px
-  // The panel owns the right column in both pin states: layout.jsx squeezes
-  // the terminal out of the way, so nothing behind is ever covered. 36px is
-  // footerHeight (common/constants.js) — the unpinned panel stops above the
-  // footer, which holds the very icon that toggles this panel. Two cases move
-  // or remove the footer, and are handled where their sibling rules already
-  // live — see shortcut-bar.styl (.shortcut-bar-on lifts the footer) and
-  // term-fullscreen.styl (rdp/vnc/spice fullscreen hides it).
-  bottom 36px
+  // Stay below the 38px tab bar (tabs.styl) — the panel never covers it in
+  // either pin state; pin only changes where quick commands live.
+  top 38px
+  // Stay above the whole bottom stack so the footer chrome is never covered:
+  // footer (+ optional monitor row) via --footer-stack-height (main.jsx), the
+  // pinned quick-command box (180px) via --qm-bar-h (main.jsx), and the
+  // shortcut bar via its vars (shortcut-bar.jsx sets/removes them). Two cases
+  // move or remove the footer, and are handled where their sibling rules
+  // already live — see shortcut-bar.styl (.shortcut-bar-on lifts the footer)
+  // and term-fullscreen.styl (rdp/vnc/spice fullscreen hides it).
+  bottom calc(var(--footer-stack-height, 36px) + var(--qm-bar-h, 0px) + var(--shortcut-bar-h, 0px) + var(--shortcut-bar-kb-offset, 0px))
   z-index 200
   background var(--main)
   color var(--text)
   border-left 1px solid var(--border)
-  // Pinned additionally docks to the very top (top 0) and reaches the footer
-  // bottom edge; the layout already reserves the width in both states
-  // (layout.jsx), so covering the footer is intended.
-  &.right-side-panel-pinned
-    top 0
-    // 停靠时与内容区同高：避让底部单条 footer（三合一），否则面板会盖住 footer
-    bottom var(--footer-stack-height, 36px)
 
   .drag-handle
     left 0

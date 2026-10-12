@@ -44,6 +44,12 @@
   .right-side-panel
     bottom 0
 
+// Fullscreen hides the tab bar, so the panel's "stay below the tab bar" rule
+// would leave a 38px dead strip — dock to the very top there.
+.fullscreen
+  .right-side-panel
+    top 0
+
 // Terminal fullscreen keeps the footer (and the quick-command popup above it)
 // visible; the session shrinks to sit on top of the footer. RDP/VNC/Spice
 // fullscreen stays footer-less — inActiveTerminal is false for those tabs, so

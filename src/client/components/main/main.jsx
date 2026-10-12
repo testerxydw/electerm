@@ -23,6 +23,7 @@ import {
   footerHeight,
   isMac,
   isWin,
+  quickCommandBoxHeight,
   remoteMonitorBarHeight,
   textTerminalBgValue
 } from '../../common/constants'
@@ -193,7 +194,12 @@ export default auto(function Index (props) {
     style: {
       '--left-side-bar-width': store.leftSideBarWidth + 'px',
       // 底栏三合一（statusbar/kbar 并入 footer）：底部常显区仅剩一条 footer
-      '--footer-stack-height': `${footerHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`
+      '--footer-stack-height': `${footerHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`,
+      // 右面板据其抬高底部避让：快捷命令盒钉在底栏时占 180px（与 layout.jsx
+      // 的 qmPinnedHeight、term-fullscreen.styl 的 180px 同口径），否则 0
+      '--qm-bar-h': pinnedQuickCommandBar && !quickCommandsInRightPanel && store.inActiveTerminal
+        ? `${quickCommandBoxHeight}px`
+        : '0px'
     }
   }
   // Get active tab IDs

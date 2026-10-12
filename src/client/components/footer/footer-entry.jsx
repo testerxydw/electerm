@@ -343,8 +343,6 @@ export default auto(function FooterEntry (props) {
     leftSideBarWidth,
     openedSideBar,
     inActiveTerminal,
-    rightPanelVisible,
-    rightPanelWidth,
     isMobile
   } = props.store
   const w = leftSideBarWidth + leftSidePanelWidth
@@ -360,20 +358,16 @@ export default auto(function FooterEntry (props) {
       </div>
       )
     : null
-  // The footer mirrors the space layout.jsx reserves on both sides.
+  // The footer mirrors the space layout.jsx reserves on the left.
   // Left: reserve while the panel is open OR pinned. A pinned left panel is
   // always open, so this is a superset of the pin state — and it is what keeps
   // the footer from painting over the panel, which spans bottom 0 in both
-  // states. Right: reserve whenever the panel is visible — it owns the right
-  // column in both pin states now, so the footer must always keep clear.
-  // Mobile reserves nothing on either side, matching layout.jsx, and the
-  // right panel has no pin control there at all.
+  // states. Right: nothing to reserve — the right panel stops above the whole
+  // bottom stack (right-side-panel.styl), so the footer keeps its full width
+  // in both pin states.
   const footerStyle = {}
   if (openedSideBar && !isMobile) {
     footerStyle.left = `${w}px`
-  }
-  if (rightPanelVisible && !isMobile) {
-    footerStyle.right = `${rightPanelWidth}px`
   }
   const sideProps = {
     className: 'main-footer',

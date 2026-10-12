@@ -51,7 +51,6 @@ export default auto(function QuickCommandsFooterBox (props) {
     leftSideBarWidth,
     openedSideBar,
     rightPanelVisible,
-    rightPanelPinned,
     rightPanelWidth,
     isMobile
   } = pick(store, [
@@ -64,7 +63,6 @@ export default auto(function QuickCommandsFooterBox (props) {
     'leftSideBarWidth',
     'openedSideBar',
     'rightPanelVisible',
-    'rightPanelPinned',
     'rightPanelWidth',
     'isMobile'
   ])
@@ -282,14 +280,14 @@ export default auto(function QuickCommandsFooterBox (props) {
     ? leftSideBarWidth + leftSidePanelWidth
     : leftSideBarWidth
   // Keep the popup's horizontal extent in step with the footer (same `w`
-  // expression above). A pinned right panel is a dock that reserves its width
-  // in layout.jsx, so give that width up here too — otherwise the popup's right
-  // end slides under the dock. Unpinned is an overlay and reserves nothing, and
-  // mobile is excluded to match layout.jsx.
+  // expression above). The right panel is visible in both pin states and owns
+  // the right column (layout.jsx reserves its width), so give that width up
+  // here too — otherwise the popup's right end slides under the panel.
+  // Mobile is excluded to match layout.jsx.
   const qmStyle = {
     left: w
   }
-  if (rightPanelVisible && rightPanelPinned && !isMobile) {
+  if (rightPanelVisible && !isMobile) {
     qmStyle.right = rightPanelWidth
   }
   const qmProps = {
