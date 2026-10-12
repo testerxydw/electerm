@@ -9,7 +9,7 @@ import { refsStatic } from '../../common/ref.js'
 const exitCommandReg = /^(?:exit|logout)(?:\s|$)/
 
 // 终端提示符结束标记（含尾部空格）：从行文本中提取用户键入命令时
-// 定位命令起点用，getCurrentInput / getPreviousLineInput 共用
+// 定位命令起点用，getCurrentInput / 键入缓冲回退读 buffer 共用
 const PROMPT_ENDINGS = ['$ ', '# ', '> ', '% ', '] ', ') ']
 
 /**
@@ -97,31 +97,54 @@ export const suggestionsMixin = {
   },
 
   /**
-   * SSH echo may not have rendered the just-typed characters yet when Enter
-   * fires (onData is synchronous, the echo comes from the remote side), so
-   * the current cursor line can still be a bare prompt. The echo usually
-   * lands together with the newline, leaving the typed command on the line
-   * above — fall back to it before giving up on manual history.
+   * Maintain the client-side typed-input buffer used for manual command
+   * history. Reading the terminal buffer at Enter time loses commands over
+   * SSH: onData fires synchronously while the echo comes from the remote
+   * side, so the just-typed characters are not in the buffer yet. Local
+   * echo (local pty) is immediate, which is why local terminals record
+   * history fine while remote ones silently lose it.
+   *
+   * Best-effort rules: printable characters accumulate, backspace deletes,
+   * Ctrl+C / Enter clear the line, any escape sequence (arrow keys, history
+   * navigation) invalidates the buffer — after navigation the buffer read
+   * fallback below is used instead, since the remote has echoed the full
+   * command line by then.
    */
-  getPreviousLineInput () {
-    if (!this.term) return ''
-    const buffer = this.term.buffer.active
-    const line = buffer.getLine(buffer.baseY + buffer.cursorY - 1)
-    if (!line) return ''
-    const lineText = line.translateToString(true)
-    let commandStart = 0
-    for (const ending of PROMPT_ENDINGS) {
-      const idx = lineText.lastIndexOf(ending)
-      if (idx !== -1 && idx + ending.length > commandStart) {
-        commandStart = idx + ending.length
+  handleKeyBuffer (d) {
+    if (!this._keyBuf) {
+      this._keyBuf = ''
+    }
+    this._pendingSubmit = []
+    for (const ch of d) {
+      if (this._escSeq) {
+        if (/[a-zA-Z~]/.test(ch)) {
+          this._escSeq = false
+        }
+        continue
+      }
+      if (ch === '\x1b') {
+        this._escSeq = true
+        this._keyBuf = ''
+        continue
+      }
+      if (ch === '\r' || ch === '\n') {
+        // 行提交（单键回车或粘贴段内换行）：攒下的缓冲是一条完整命令
+        if (this._keyBuf.trim()) {
+          this._pendingSubmit.push(this._keyBuf.trim())
+        }
+        this._keyBuf = ''
+      } else if (ch === '\x03') {
+        this._keyBuf = ''
+      } else if (ch === '\x7f' || ch === '\b') {
+        this._keyBuf = this._keyBuf.slice(0, -1)
+      } else if (ch >= ' ') {
+        this._keyBuf += ch
       }
     }
-    return lineText.slice(commandStart)
   },
 
   /**
    * Handle special input events for command history tracking
-   * The actual input reading is done via getCurrentInput from buffer
    */
   handleInputEvent (d) {
     // Ctrl+D on an empty line is EOF, which ends the shell like `exit`. Typed
@@ -129,24 +152,33 @@ export const suggestionsMixin = {
     if (d === '\x04') {
       this.userTypeExit = !this.getCurrentInput().trim()
     }
-    // Handle Enter - add command to history
-    if (d === '\r' || d === '\n') {
-      let currentCmd = this.getCurrentInput()
-      if (!currentCmd.trim()) {
-        currentCmd = this.getPreviousLineInput()
-      }
-      if (currentCmd && currentCmd.trim() && this.shouldUseManualHistory()) {
-        window.store.addCmdHistory(currentCmd.trim())
-      }
-      // Recomputed on every submitted line rather than only ever set: an
-      // `exit` that did not actually end the shell must not silence the next
-      // real disconnect.
-      this.userTypeExit = !!currentCmd && exitCommandReg.test(currentCmd.trim())
-      this.closeSuggestions()
+    if (!d.includes('\r') && !d.includes('\n')) {
+      return
     }
+    const manual = this.shouldUseManualHistory()
+    if (manual) {
+      // 键入缓冲攒下的行（单键回车或粘贴多行段）；单键回车但缓冲为空
+      // （方向键导航历史后）回退读 buffer —— 远端已回显完整命令行
+      const submits = this._pendingSubmit || []
+      if (!submits.length && (d === '\r' || d === '\n')) {
+        const fb = this._keyBuf || this.getCurrentInput()
+        if (fb && fb.trim()) {
+          submits.push(fb.trim())
+        }
+      }
+      submits.forEach(cmd => window.store.addCmdHistory(cmd))
+    }
+    this._pendingSubmit = []
+    // Recomputed on every submitted line rather than only ever set: an
+    // `exit` that did not actually end the shell must not silence the next
+    // real disconnect.
+    const currentCmd = this._keyBuf || this.getCurrentInput()
+    this.userTypeExit = !!currentCmd && exitCommandReg.test(currentCmd.trim())
+    this.closeSuggestions()
   },
 
   onData (d) {
+    this.handleKeyBuffer(d)
     this.handleInputEvent(d)
     // Skip normal suggestion logic when in password mode
     const suggestions = refsStatic.get('terminal-suggestions')
