@@ -240,7 +240,7 @@ export default auto(function FooterEntry (props) {
         <BarChartOutlined
           onClick={handleInfoPanel}
           className={'pointer font14 terminal-info-icon' + (active ? ' active' : '')}
-          title={e('info')}
+          title={e('terminalLog')}
         />
       </div>
     )
