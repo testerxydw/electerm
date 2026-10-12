@@ -5,3 +5,15 @@
   overflow hidden
   &.drag-over
     border 2px solid var(--primary)
+// 顶部标题栏装饰带: 多格分屏且侧面板打开时, 右侧面板上方一段没有格子
+// tabs 栏覆盖 —— 用与 .tabs 同色背景补齐, 视觉上标题栏横贯窗口不收缩
+// (面板 top 38px 起, 与此带不重叠; 格子 tabs 栏绘制在其上层)
+.layout-wrap::before
+  content ''
+  position absolute
+  left 0
+  right 0
+  top 0
+  height 38px
+  background var(--surface-0)
+  border-bottom 1px solid var(--border)

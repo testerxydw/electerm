@@ -83,18 +83,19 @@ export default auto(function Layout (props) {
     termLeft,
     termWidth
   } = layoutSize
-  // 标签栏层（Layouts）与终端层（Sessions）同网格对齐, 否则多格分屏时
-  // 标签栏与其终端错位。仅单格布局让标签栏横贯全宽（只让位常驻图标栏,
-  // 面板宽只挤压终端尺寸）—— 多格时格子网格跟随终端列
+  // 标签栏层容器恒全宽（仅让位常驻图标栏）—— 标题栏永不随面板收缩。
+  // 格子定位分两种:
+  //  - 单格: 全宽格子, 标签栏横贯(含右侧面板上方, 面板 top 38px 起不重叠)
+  //  - 多格: 格子取终端列网格(termStyles)并平移到容器坐标系, 保证每个
+  //    格子的标签栏贴在其终端正上方; 面板上方空隙由 .layout-wrap::before
+  //    顶部装饰带补齐(layout.styl), 视觉上标题栏仍横贯
   const paneCount = (splitConfig[layout] && splitConfig[layout].children) || 1
   const isSinglePane = paneCount === 1
-  const wrapLeft = isSinglePane ? layoutSize.left : termLeft
-  const wrapWidth = isSinglePane ? layoutSize.width : termWidth
   const pixedLayoutStyle = pixed({
     height: layoutSize.height,
     top: layoutSize.top,
-    left: wrapLeft,
-    width: wrapWidth
+    left: layoutSize.left,
+    width: layoutSize.width
   })
   const pixedTermStyle = pixed({
     height: layoutSize.height,
@@ -102,10 +103,24 @@ export default auto(function Layout (props) {
     left: termLeft,
     width: termWidth
   })
-  const styles = layoutAlg(layout, wrapWidth, height)
+  const styles = layoutAlg(layout, layoutSize.width, height)
+  const termStyles = layoutAlg(layout, termWidth, height)
+  const shift = termLeft - layoutSize.left
+  const paneGap = layoutSize.width - termWidth
+  const shiftNum = (v, delta) => (typeof v === 'number' ? v + delta : `calc(${v} + ${delta}px)`)
+  const paneWrapStyles = termStyles.wrapStyles.map(s => ({
+    ...s,
+    left: typeof s.left !== 'undefined' ? shiftNum(s.left, shift) : s.left,
+    right: typeof s.right !== 'undefined' ? shiftNum(s.right, paneGap) : s.right
+  }))
+  const paneHandleStyles = termStyles.handleStyles.map(h => ({
+    ...h,
+    left: typeof h.left !== 'undefined' ? shiftNum(h.left, shift) : h.left
+  }))
   const layoutProps = {
     layout,
-    ...styles,
+    wrapStyles: isSinglePane ? styles.wrapStyles : paneWrapStyles,
+    handleStyles: isSinglePane ? styles.handleStyles : paneHandleStyles,
     layoutStyle: pixedLayoutStyle,
     handleMousedown
   }
@@ -179,7 +194,7 @@ export default auto(function Layout (props) {
     store
   }
   const sessionsProps = {
-    styles: styles.wrapStyles,
+    styles: isSinglePane ? styles.wrapStyles : termStyles.wrapStyles,
     sizes,
     width: termWidth,
     height,
