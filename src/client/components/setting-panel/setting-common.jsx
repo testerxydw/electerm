@@ -567,6 +567,7 @@ export default class SettingCommon extends Component {
             'showHiddenFilesOnSftpStart',
             'screenReaderMode',
             'initDefaultTabOnStart',
+            'restoreLastSession',
             'disableConnectionHistory',
             'disableTransferHistory',
             'checkUpdateOnStart',

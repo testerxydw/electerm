@@ -15,21 +15,24 @@ const additions = {
     splitVertical: 'split vertically',
     cannotSplitFurther: 'already at max layout, cannot split further',
     moveToPane: 'move to pane',
-    terminalLog: 'Terminal Log'
+    terminalLog: 'Terminal Log',
+    restoreLastSession: 'Restore last session on start'
   },
   zh_cn: {
     splitHorizontal: '水平拆分',
     splitVertical: '垂直拆分',
     cannotSplitFurther: '已到最大布局, 无法继续拆分',
     moveToPane: '迁移到窗格',
-    terminalLog: '终端日志'
+    terminalLog: '终端日志',
+    restoreLastSession: '启动时恢复上次会话'
   },
   zh_tw: {
     splitHorizontal: '水平拆分',
     splitVertical: '垂直拆分',
     cannotSplitFurther: '已到最大布局, 無法繼續拆分',
     moveToPane: '遷移到窗格',
-    terminalLog: '終端日誌'
+    terminalLog: '終端日誌',
+    restoreLastSession: '啟動時恢復上次會話'
   },
   // 其他语言 fallback 到英文
   ar_ar: null,

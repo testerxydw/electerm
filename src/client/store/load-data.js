@@ -232,17 +232,25 @@ export default (Store) => {
     const { store } = window
     const onStartSessions = store.config.onStartSessions
 
-    // If onStartSessions is a string, it's a workspace ID
-    if (typeof onStartSessions === 'string' && onStartSessions) {
-      store.loadWorkspace(onStartSessions)
-    } else {
-      // Otherwise, it's an array of bookmark IDs
-      const arr = Array.isArray(onStartSessions) ? onStartSessions : []
-      for (const s of arr) {
-        store.onSelectBookmark(s)
-      }
-      if (!arr.length && store.config.initDefaultTabOnStart) {
-        store.initFirstTab()
+    // 优先恢复上次会话快照 (退出前自动保存; 显式配置了启动会话时以配置为准)
+    let restored = false
+    if (store.config.restoreLastSession) {
+      restored = store.restoreLastWorkspace()
+    }
+
+    if (!restored) {
+      // If onStartSessions is a string, it's a workspace ID
+      if (typeof onStartSessions === 'string' && onStartSessions) {
+        store.loadWorkspace(onStartSessions)
+      } else {
+        // Otherwise, it's an array of bookmark IDs
+        const arr = Array.isArray(onStartSessions) ? onStartSessions : []
+        for (const s of arr) {
+          store.onSelectBookmark(s)
+        }
+        if (!arr.length && store.config.initDefaultTabOnStart) {
+          store.initFirstTab()
+        }
       }
     }
 

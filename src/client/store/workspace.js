@@ -3,7 +3,8 @@
  */
 
 import {
-  settingMap
+  settingMap,
+  lastWorkspaceKey
 } from '../common/constants'
 import getInitItem from '../common/init-setting-item'
 import generate from '../common/uid'
@@ -68,8 +69,15 @@ export default Store => {
     if (!workspace) {
       return
     }
-    const { layout, tabsByBatch } = workspace
+    store.openWorkspaceState(workspace)
+  }
 
+  /**
+   * Open tabs from a workspace state object ({ layout, tabsByBatch }).
+   * Shared by loadWorkspace and the last-session auto-restore.
+   */
+  Store.prototype.openWorkspaceState = function ({ layout, tabsByBatch }) {
+    const { store } = window
     // Close all existing tabs first
     store.removeTabs(() => true)
 
@@ -91,6 +99,44 @@ export default Store => {
           }
         }
       }
+    }
+  }
+
+  /**
+   * 自动保存当前会话快照 (layout + 有书签来源的 tabs) 到 localStorage,
+   * 退出前由 beforeExit 调用, 供下次启动恢复 (restoreLastWorkspace)。
+   * 本地 shell 等无书签来源的 tab 无法按书签重开, 不在快照内。
+   */
+  Store.prototype.saveLastWorkspace = function () {
+    const { store } = window
+    try {
+      window.localStorage.setItem(lastWorkspaceKey, JSON.stringify(store.getCurrentWorkspaceState()))
+    } catch (e) {
+      // localStorage 不可用/序列化失败时静默跳过, 不阻塞退出
+    }
+  }
+
+  /**
+   * 恢复上次会话快照, 成功返回 true (无快照/损坏返回 false)
+   */
+  Store.prototype.restoreLastWorkspace = function () {
+    const { store } = window
+    try {
+      const raw = window.localStorage.getItem(lastWorkspaceKey)
+      if (!raw) {
+        return false
+      }
+      const state = JSON.parse(raw)
+      // 空快照 (无可恢复的书签 tab) 走默认启动逻辑, 避免恢复后零 tab
+      const hasTabs = !!state.tabsByBatch &&
+        Object.values(state.tabsByBatch).some(list => list.length)
+      if (!hasTabs) {
+        return false
+      }
+      store.openWorkspaceState(state)
+      return true
+    } catch (e) {
+      return false
     }
   }
 

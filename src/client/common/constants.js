@@ -87,6 +87,8 @@ export const remoteMonitorBarHeight = 28
 export const quickCommandBoxHeight = 180
 export const shortcutBarHeight = 44
 export const shortcutBarLsKey = 'shortcut-bar-buttons'
+// 上次会话快照 (退出前自动保存的 workspace 状态, 启动时恢复)
+export const lastWorkspaceKey = 'last-workspace'
 export { isWin, isMac, isMacJs } from './platform.js'
 export const ctrlOrCmd = isMacJs ? 'cmd' : 'ctrl'
 export const typeMap = buildConst([

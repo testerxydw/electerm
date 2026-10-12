@@ -101,6 +101,8 @@ export default {
   autoDistributeTabsWhenLayoutChange: false,
   disableConfirmForLargeClipboardContent: false,
   doubleClickToOpenBookmark: false,
+  // 启动时恢复上次退出前的 tab 页 (退出前自动保存快照)
+  restoreLastSession: true,
   // 左栏图标默认列表单一来源: left-sidebar-icon-defs (勿在此手写副本)
   leftSideBarIcons: defaultLeftSideBarIcons
 }

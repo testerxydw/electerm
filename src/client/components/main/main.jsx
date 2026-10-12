@@ -93,8 +93,14 @@ export default auto(function Index (props) {
       e.stopPropagation()
     })
     window.addEventListener('offline', store.setOffline)
-    if (window.et.isWebApp) {
-      window.onbeforeunload = store.beforeExit
+    // 退出/刷新前自动保存会话快照, 供下次启动恢复上次 tab 页。
+    // 桌面端原无 onbeforeunload (退出确认走主进程), 这里仅保存快照不碰 returnValue;
+    // webapp 端同时走 beforeExit 的退出确认。
+    window.onbeforeunload = evt => {
+      store.saveLastWorkspace()
+      if (window.et.isWebApp) {
+        store.beforeExit(evt)
+      }
     }
     store.isSecondInstance = window.pre.runSync('isSecondInstance')
     store.initData()

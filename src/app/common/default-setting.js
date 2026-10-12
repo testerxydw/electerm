@@ -37,6 +37,7 @@ module.exports = exports.default = {
   terminalWordSeparator: './\\()"\'-:,.;<>~!@#$%^&*|+=[]{}`~ ?',
   confirmBeforeExit: false,
   initDefaultTabOnStart: true,
+  restoreLastSession: true,
   screenReaderMode: false,
   autoRefreshWhenSwitchToSftp: false,
   addTimeStampToTermLog: false,
