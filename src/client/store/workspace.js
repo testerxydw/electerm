@@ -23,11 +23,18 @@ export default Store => {
       if (!tabsByBatch[batch]) {
         tabsByBatch[batch] = []
       }
-      // Store srcId (bookmark id) if available, otherwise store basic connection info
+      // Store srcId (bookmark id) if available; local shell tabs (no host,
+      // no bookmark) are recorded by type so they can be reopened with the
+      // default shell. Temp ssh tabs (host but no srcId) need full connection
+      // params + credentials and stay out of the snapshot.
       if (tab.srcId) {
         tabsByBatch[batch].push({
           srcId: tab.srcId,
           sshSftpSplitView: tab.sshSftpSplitView
+        })
+      } else if (!tab.host && (!tab.type || tab.type === 'local')) {
+        tabsByBatch[batch].push({
+          type: 'local'
         })
       }
     }
@@ -97,15 +104,19 @@ export default Store => {
               sshSftpSplitView: tabInfo.sshSftpSplitView
             })
           }
+        } else if (tabInfo.type === 'local') {
+          // Local shell tab: reopen with the default shell in its batch
+          store.addTab(undefined, undefined, batch)
         }
       }
     }
   }
 
   /**
-   * 自动保存当前会话快照 (layout + 有书签来源的 tabs) 到 localStorage,
-   * 退出前由 beforeExit 调用, 供下次启动恢复 (restoreLastWorkspace)。
-   * 本地 shell 等无书签来源的 tab 无法按书签重开, 不在快照内。
+   * 自动保存当前会话快照 (layout + tabs: 书签来源按 srcId、本地 shell 按类型)
+   * 到 localStorage, 退出前由 beforeExit 调用, 供下次启动恢复
+   * (restoreLastWorkspace)。临时 ssh tab (host 无书签) 需完整连接参数,
+   * 不在快照内。
    */
   Store.prototype.saveLastWorkspace = function () {
     const { store } = window
