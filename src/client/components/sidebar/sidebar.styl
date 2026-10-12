@@ -15,11 +15,11 @@
     .list-item-remove
       display none !important
 .sidebar-panel
-  top calc(36px + var(--title-bar-height, 0px))
+  top 36px
 .sidebar
   position absolute
   left 0
-  top var(--title-bar-height, 0px)
+  top 0
   // 用注入的宽度 token（原硬编码 36px，与 sidebarWidth=43 不一致 → 底部/面板 left 偏移 7px）
   width var(--left-side-bar-width, 50px)
   z-index 100
@@ -35,14 +35,14 @@
   position absolute
   left 0
   right 0
-  top var(--title-bar-height, 0px)
+  top 0
   height 112px
 .sidebar-panel-bookmarks
 .sidebar-panel-history
   position absolute
   left 0
   right 0
-  top calc(112px + var(--title-bar-height, 0px))
+  top 112px
   bottom 0
   overflow hidden
   display flex

@@ -5,8 +5,6 @@ import {
   splitConfig,
   quickCommandBoxHeight,
   footerHeight,
-  titleBarHeight,
-  isMacJs,
   remoteMonitorBarHeight,
   shortcutBarHeight
 } from '../../common/constants'
@@ -60,13 +58,12 @@ export default auto(function Layout (props) {
       ? quickCommandBoxHeight
       : 0
     // 底栏三合一：底部常显区仅剩一条 footer（statusbar/kbar 已并入）
-    const tbHeight = isMobile || props.store.config.useSystemTitleBar || isMacJs ? 0 : titleBarHeight
-    const h = height - footerHeight - tbHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
+    const h = height - footerHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
     const l = pinned && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth
     const r = rightPanelVisible && rightPanelPinned && !isMobile ? rightPanelWidth : 0
     return {
       height: h,
-      top: tbHeight,
+      top: 0,
       left: l,
       width: Math.max(0, width - l - r)
     }

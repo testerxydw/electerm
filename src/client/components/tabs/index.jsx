@@ -10,10 +10,9 @@ import TabTitle from './tab-title'
 import {
   DownOutlined,
   LeftOutlined,
-  RightOutlined,
-  SearchOutlined
+  RightOutlined
 } from '@ant-design/icons'
-import { Dropdown, Tooltip } from 'antd'
+import { Dropdown } from 'antd'
 import Tab from './tab'
 import LayoutMenu from './layout-menu'
 import './tabs.styl'
@@ -21,14 +20,15 @@ import {
   tabWidth,
   tabMargin,
   extraTabWidth,
+  windowControlWidth,
+  getWindowControlsOverlayWidth,
   isMacJs
 } from '../../common/constants'
+import WindowControl from './window-control'
 import AddBtn from './add-btn'
 import AppDrag from './app-drag'
 import NoSession from './no-session'
 import classNames from 'classnames'
-
-const e = window.translate
 
 export default class Tabs extends Component {
   constructor (props) {
@@ -213,21 +213,9 @@ export default class Tabs extends Component {
     )
   }
 
-  renderCmdEntry = () => {
-    return (
-      <Tooltip title={`${e('commandPalette') || 'Command Palette'} (Ctrl/Cmd+K)`} placement='bottom'>
-        <SearchOutlined
-          className='iblock pointer font12 tab-scroll-icon tabs-cmd-entry'
-          onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
-        />
-      </Tooltip>
-    )
-  }
-
   renderNoExtra () {
     return (
       <div className='tabs-extra pd1x'>
-        {this.renderCmdEntry()}
         {this.renderLayoutMenu()}
       </div>
     )
@@ -252,7 +240,6 @@ export default class Tabs extends Component {
     }
     return (
       <div className='tabs-extra pd1x'>
-        {this.renderCmdEntry()}
         {this.renderAddBtn()}
         <LeftOutlined
           className='mg1l iblock pointer font12 tab-scroll-icon'
@@ -371,8 +358,12 @@ export default class Tabs extends Component {
   }
 
   getExtraTabWidth = () => {
-    // 窗口控制三键已迁移到独立标题栏，标签区不再为其预留宽度
-    return 0
+    if (!this.shouldRenderWindowControl()) {
+      return 0
+    }
+    return window.store.isWindowControlsOverlay
+      ? getWindowControlsOverlayWidth()
+      : windowControlWidth
   }
 
   // The pane whose tab bar sits under Windows' native caption buttons is the
@@ -385,6 +376,13 @@ export default class Tabs extends Component {
   }
 
   renderWindowControl = () => {
+    if (this.shouldRenderWindowControl()) {
+      return (
+        <WindowControl
+          store={window.store}
+        />
+      )
+    }
     return null
   }
 

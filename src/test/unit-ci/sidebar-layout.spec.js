@@ -22,7 +22,9 @@ describe('sidebar-layout: 高度只由 CSS top+bottom 决定', () => {
   it('sidebar.styl 的 .sidebar 必须同时有 top 与 bottom 定位', () => {
     const m = styl.match(/\.sidebar\n([\s\S]*?)\n\.sidebar-pin-top/)
     assert.ok(m, 'sidebar.styl 中未找到 .sidebar 规则块')
-    assert.match(m[1], /top\s+var\(--title-bar-height/, '缺 top 定位')
+    // 顶栏已还原 master 式：.sidebar 从窗口顶开始，不得再引入 title-bar 偏移
+    assert.match(m[1], /top\s+0/, 'top 应为 0（无独立顶栏）')
+    assert.doesNotMatch(m[1], /--title-bar-height/, '不得引用已退役的 --title-bar-height')
     assert.match(m[1], /bottom\s+var\(--footer-stack-height/, '缺 bottom 避让')
   })
 
