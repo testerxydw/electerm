@@ -5,6 +5,13 @@
 
 ---
 
+## test.103-ui（2026-10-12）· **"新建"入口文案纠正：本地终端**
+- **提交**：`dbe1ee49`
+- **背景**：用户反馈"新建中缺一个直接打开本地"——**入口本就存在**（+ 菜单第二项 / 空状态首按钮 / tab 右键 / 命令面板，共 5 处 `newTab`，点击即 `addTab()` 无参开 local tab），但上游 zh_cn 把 `newTab` 译成"**新建连接**"，完全看不出是本地终端
+- **修改点**：patch-locales 新增 **overrides 覆盖段**（区别于 additions 补缺，force 替换已有 key）；zh_cn `newTab` → **"本地终端"**（en_us/zh_tw 保持上游）；patchOne 改全局替换——mjs 内含 `export const` + `export default` 双份对象，此前非全局 replace 只改得动第一段
+- **验证点**：cjs/esm 双通道 `lang.newTab === '本地终端'`（node 实载）；CDP 实测：`translate('newTab')`='本地终端'、+ 菜单 `新书签|本地终端|AI 智能创建书签`、addTab 后 tab `type:local`
+- **已安装** ✅
+
 ## test.102-ui（2026-10-12）· **记住上次关闭时的 tab 页，启动自动恢复**（100/101 的根因修复重打）
 - **提交**：`2ae0af45`
 - **修改点**：退出/刷新前 `onbeforeunload` 自动快照（layout + 有书签来源的 tabs）到 `localStorage['last-workspace']`；启动 `openInitSessions` 优先恢复快照（`restoreLastSession` 默认开，设置-通用可关，patch-locales 三语）；`loadWorkspace` 主体抽 `openWorkspaceState` 共用；空快照回退默认启动逻辑（防零 tab）。本地 shell 等**无书签来源的 tab 不在快照内**（无法按书签重开）
