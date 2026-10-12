@@ -36,7 +36,10 @@ export default class Tabs extends Component {
     this.tabsRef = React.createRef()
     this.domRef = React.createRef()
     this.state = {
-      overflow: false
+      overflow: false,
+      // tabs-wrapper 总宽（不含 extraTabWidth）：commit 后实测写入，
+      // 未测前为 null，render 用保守估算兜底（见 getTabsWidthAll）
+      wrapWidth: null
     }
   }
 
@@ -47,9 +50,11 @@ export default class Tabs extends Component {
     tabsRef.current.addEventListener('wheel', this.handleWheelEvent, {
       passive: false
     })
+    this.measureWrapWidth()
   }
 
   componentDidUpdate (prevProps) {
+    this.measureWrapWidth()
     if (
       prevProps.currentBatchTabId !== this.props.currentBatchTabId ||
       prevProps.width !== this.props.width ||
@@ -81,6 +86,30 @@ export default class Tabs extends Component {
     ).reduce((prev, c) => {
       return prev + c.clientWidth
     }, 0)
+  }
+
+  // commit 后实测 tabs-wrapper 总宽并写入 state；render 期间读 DOM 拿的是
+  // 提交前的旧值——分屏挂载新格子时 .tab 尚未入 DOM（测到 0），wrapper 被
+  // 写成 134px 的窄宽度导致 tab 换行、胶囊冒出标签条，直到下一次无关
+  // 重渲染才自愈。只在 commit 后（componentDidMount/Update）测量可根治
+  measureWrapWidth = () => {
+    if (this.props.isMobile || !this.domRef.current) {
+      return
+    }
+    const len = (this.props.tabs || []).length
+    const w = tabMargin * len + 10 + this.tabsWidth()
+    if (w !== this.state.wrapWidth) {
+      this.setState({ wrapWidth: w })
+    }
+  }
+
+  // render 用：优先实测值；未测前按 tab 标称上限保守估算（偏大不换行）
+  getTabsWidthAll = () => {
+    if (this.state.wrapWidth !== null) {
+      return this.state.wrapWidth
+    }
+    const len = (this.props.tabs || []).length
+    return tabMargin * len + 10 + len * (tabWidth + 40)
   }
 
   isOverflow = () => {
@@ -276,7 +305,7 @@ export default class Tabs extends Component {
     const { width } = this.props
     const tabs = this.getSortedTabs()
     const len = tabs.length
-    const tabsWidthAll = tabMargin * len + 10 + this.tabsWidth()
+    const tabsWidthAll = this.getTabsWidthAll()
     const { overflow } = this.state
     const left = overflow
       ? '100%'
@@ -334,11 +363,37 @@ export default class Tabs extends Component {
   }
 
   renderLayoutMenu = () => {
+    // 系统标题栏模式没有可钉住的窗口顶带，布局菜单留在标签栏右缘；
+    // 自定义标题栏 / WCO 模式下它移入窗口角控件组（renderCornerControls），
+    // 两种模式互斥渲染，避免重复
+    if (!window.store.hasNativeTitleStrip) {
+      return null
+    }
     return (
       <LayoutMenu
         layout={this.props.layout}
         visible={this.shouldRenderWindowControl()}
       />
+    )
+  }
+
+  // 窗口角固定控件组：布局菜单 + 自绘窗口三键，fixed 定位恒在窗口右上角，
+  // 不随右侧面板开合移动（面板打开时落在面板上方的标题装饰带上）。
+  // 仅主格子渲染一份；系统标题栏模式不渲染（见 renderLayoutMenu 分流）
+  renderCornerControls = () => {
+    if (window.store.hasNativeTitleStrip || !this.shouldRenderWindowControl()) {
+      return null
+    }
+    return (
+      <div className='tabs-corner'>
+        <LayoutMenu
+          layout={this.props.layout}
+          visible
+        />
+        <WindowControl
+          store={window.store}
+        />
+      </div>
     )
   }
 
@@ -366,12 +421,18 @@ export default class Tabs extends Component {
       : windowControlWidth
   }
 
-  // The pane whose tab bar sits under Windows' native caption buttons is the
-  // same pane that owns the window controls; only it has to clear that strip.
-  // The class is inert unless the root also has .wco.
+  // The pane that owns the window-level corner controls (.tabs-corner: layout
+  // menu + custom window buttons) gets .has-corner, so its tabs-extra reserves
+  // their width (see tabs.styl). Native title strip
+  // modes keep the layout menu inside tabs-extra instead — there is no
+  // window-owned top strip to pin the corner controls to.
   tabsClassName = (extra) => {
     return classNames('tabs', extra, {
-      'wco-bar': window.store.isWindowControlsOverlay && this.shouldRenderWindowControl()
+      // still used by the mobile WCO rule (mobile.styl)
+      'wco-bar': window.store.isWindowControlsOverlay && this.shouldRenderWindowControl(),
+      'has-corner': !this.props.isMobile &&
+        !window.store.hasNativeTitleStrip &&
+        this.shouldRenderWindowControl()
     })
   }
 
@@ -466,9 +527,7 @@ export default class Tabs extends Component {
     return (
       <div className={this.tabsClassName()} ref={this.tabsRef}>
         {this.renderContent()}
-        {
-          this.renderWindowControl()
-        }
+        {this.renderCornerControls()}
         {
           overflow
             ? this.renderExtra()

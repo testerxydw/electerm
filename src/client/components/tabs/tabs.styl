@@ -19,8 +19,10 @@
   .tabs-inner
     margin-left 0
 .not-system-ui.not-mac.not-webapp
-  .tabs-extra
-    right 96px
+  .tabs.has-corner
+    .tabs-extra
+      // 布局按钮(~44px) + 自绘窗口三键(94px)，溢出控制区整体让位
+      right 140px
 // Windows system title bar: native min/max/close are drawn over the tab bar's
 // top-right (window controls overlay). The strip they occupy is whatever the
 // titlebar area does not cover; 140px is the fallback for when the env() vars
@@ -28,13 +30,12 @@
 // common/constants.js (the JS side of the same measurement).
 .wco
   --wco-controls-width calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px)))
-  // Only the pane whose tab bar sits under those buttons has to clear them —
-  // the same pane that owns the window controls (shouldRenderWindowControl in
-  // index.jsx). In a split layout the other panes' tab bars are not under the
-  // buttons, so their own buttons stay at their own right edge.
-  .tabs.wco-bar
+  // 窗口角控件组让开原生按钮；其格子内的溢出控制区同步让位
+  .tabs-corner
+    right var(--wco-controls-width)
+  .tabs.has-corner
     .tabs-extra
-      right var(--wco-controls-width)
+      right calc(var(--wco-controls-width) + 44px)
 .tabs-inner
   position relative
   z-index 2
@@ -217,6 +218,28 @@
   .tabs-add-btn
     margin-top 0
 
+// 窗口角控件组（布局菜单 + 自绘三键）：fixed 定位恒在窗口右上角，不随
+// 右侧面板开合移动；面板打开时落在面板上方的标题装饰带上。仅在自定义
+// 标题栏 / WCO 模式渲染（系统标题栏无可钉住的窗口顶带，见 index.jsx）。
+// 承载它的格子（.has-corner）的溢出控制区按各模式的控件组宽度让位
+.tabs.has-corner
+  .tabs-extra
+    // 默认仅布局按钮宽（mac 无自绘三键）
+    right 44px
+.tabs-corner
+  position fixed
+  top 0
+  right 0
+  z-index 20
+  display flex
+  align-items flex-start
+  height 38px
+  .tabs-dd-icon
+    font-size 12px
+    line-height 38px
+  .window-controls
+    position static
+
 .window-controls
   position absolute
   right 0
@@ -376,4 +399,5 @@
   .tab-close
   .tab-reload
   .tabs-extra
+  .tabs-corner
     -webkit-app-region no-drag
