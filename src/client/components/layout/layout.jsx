@@ -143,10 +143,8 @@ export default auto(function Layout (props) {
           'pinnedQuickCommandBar',
           'tabsHeight',
           'appPath',
-          'leftSidePanelWidth',
           'addPanelWidth',
           'pinned',
-          'openedSideBar',
           'isMobile'
         ])
       }
@@ -196,9 +194,7 @@ export default auto(function Layout (props) {
       'pinnedQuickCommandBar',
       'tabsHeight',
       'appPath',
-      'leftSidePanelWidth',
       'pinned',
-      'openedSideBar',
       'config',
       'fullscreen'
     ]),

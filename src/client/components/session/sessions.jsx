@@ -76,9 +76,7 @@ export default class Sessions extends Component {
           'pinnedQuickCommandBar',
           'tabsHeight',
           'appPath',
-          'leftSidePanelWidth',
           'pinned',
-          'openedSideBar',
           'fullscreen'
         ]),
         config,
