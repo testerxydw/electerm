@@ -8,6 +8,10 @@ import { refsStatic } from '../../common/ref.js'
  */
 const exitCommandReg = /^(?:exit|logout)(?:\s|$)/
 
+// 终端提示符结束标记（含尾部空格）：从行文本中提取用户键入命令时
+// 定位命令起点用，getCurrentInput / getPreviousLineInput 共用
+const PROMPT_ENDINGS = ['$ ', '# ', '> ', '% ', '] ', ') ']
+
 /**
  * Command suggestions: reading the current input straight from the terminal
  * buffer, positioning the dropdown at the cursor, and the password prompt
@@ -77,11 +81,8 @@ export const suggestionsMixin = {
     const lineText = line.translateToString(true, 0, cursorX)
 
     // Try to extract command after prompt
-    // Common prompt endings with trailing space
-    const promptEndings = ['$ ', '# ', '> ', '% ', '] ', ') ']
-
     let commandStart = 0
-    for (const ending of promptEndings) {
+    for (const ending of PROMPT_ENDINGS) {
       const idx = lineText.lastIndexOf(ending)
       if (idx !== -1 && idx + ending.length > commandStart) {
         commandStart = idx + ending.length
@@ -108,9 +109,8 @@ export const suggestionsMixin = {
     const line = buffer.getLine(buffer.baseY + buffer.cursorY - 1)
     if (!line) return ''
     const lineText = line.translateToString(true)
-    const promptEndings = ['$ ', '# ', '> ', '% ', '] ', ') ']
     let commandStart = 0
-    for (const ending of promptEndings) {
+    for (const ending of PROMPT_ENDINGS) {
       const idx = lineText.lastIndexOf(ending)
       if (idx !== -1 && idx + ending.length > commandStart) {
         commandStart = idx + ending.length
