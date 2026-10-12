@@ -278,7 +278,10 @@ export default auto(function Index (props) {
     rightPanelWidth: store.rightPanelWidth,
     title: rightPanelTitle,
     rightPanelTab,
-    isMobile: store.isMobile
+    isMobile: store.isMobile,
+    // 双 home 工具 (命令历史/快捷命令) 寄居右面板时, 顶栏据此出现动态页签
+    cmdHistoryInRightPanel: store.cmdHistoryInRightPanel,
+    quickCommandsInRightPanel: store.quickCommandsInRightPanel
   }
   const sshConfigProps = {
     ...pick(store, [
