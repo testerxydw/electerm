@@ -5,6 +5,13 @@
 
 ---
 
+## test.102-ui（2026-10-12）· **记住上次关闭时的 tab 页，启动自动恢复**（100/101 的根因修复重打）
+- **提交**：`2ae0af45`
+- **修改点**：退出/刷新前 `onbeforeunload` 自动快照（layout + 有书签来源的 tabs）到 `localStorage['last-workspace']`；启动 `openInitSessions` 优先恢复快照（`restoreLastSession` 默认开，设置-通用可关，patch-locales 三语）；`loadWorkspace` 主体抽 `openWorkspaceState` 共用；空快照回退默认启动逻辑（防零 tab）。本地 shell 等**无书签来源的 tab 不在快照内**（无法按书签重开）
+- **根因（100/101 打包后冷启动不恢复）**：`store.config` getter 返回主进程 `getConfig` 合并结果 `{...defaultSetting, ...userConfig}`——默认值来自 **`src/app/common/default-setting.js`（主进程副本）**，只加渲染层那份时合并出的 config 缺 `restoreLastSession` key → 恢复分支被跳过
+- **验证点**：771 单测全绿；lint 8 文件通过；CDP 全链路：①写入快照 `{layout:c1, tabsByBatch:{0:[{srcId,sshSftpSplitView}]}}` ②冷启动自动恢复（2 个书签 tab 重开且 SSH 连接 success、layout 正确）③**负向**：关闭开关后快照保留但启动开默认"新连接" ④reload 场景同链路恢复 ✓
+- **已安装** ✅
+
 ## test.99-ui（2026-10-12）· **关键词高亮列表折叠**
 - **提交**：`e38f46b2`
 - **修改点**：预设套用后 config.keywords 可达 160+ 条全量铺开占满整页——keywords-form **默认折叠 220px**，>8 条时显示"展开所有 (N)/收起所有"按钮，新增行自动展开；**全量渲染不变**（未渲染字段不进 onFinish 会丢数据，折叠只裁视觉高度）
