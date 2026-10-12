@@ -344,7 +344,6 @@ export default auto(function FooterEntry (props) {
     openedSideBar,
     inActiveTerminal,
     rightPanelVisible,
-    rightPanelPinned,
     rightPanelWidth,
     isMobile
   } = props.store
@@ -365,15 +364,15 @@ export default auto(function FooterEntry (props) {
   // Left: reserve while the panel is open OR pinned. A pinned left panel is
   // always open, so this is a superset of the pin state — and it is what keeps
   // the footer from painting over the panel, which spans bottom 0 in both
-  // states. Right: reserve only for a pinned panel, because the unpinned right
-  // panel is an overlay that stops above the footer and so never needs the
-  // space. Mobile reserves nothing on either side, matching layout.jsx, and the
+  // states. Right: reserve whenever the panel is visible — it owns the right
+  // column in both pin states now, so the footer must always keep clear.
+  // Mobile reserves nothing on either side, matching layout.jsx, and the
   // right panel has no pin control there at all.
   const footerStyle = {}
   if (openedSideBar && !isMobile) {
     footerStyle.left = `${w}px`
   }
-  if (rightPanelVisible && rightPanelPinned && !isMobile) {
+  if (rightPanelVisible && !isMobile) {
     footerStyle.right = `${rightPanelWidth}px`
   }
   const sideProps = {
