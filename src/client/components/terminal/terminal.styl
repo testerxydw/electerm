@@ -234,10 +234,8 @@
   padding 8px 14px
   background var(--main)
   color var(--text)
-  border 1px solid var(--main-lighter)
+  // electron 44 下移除 border/box-shadow/font-size (对齐上游 40b14fee), radius 保留等值 token
   border-radius var(--radius-xs)
-  box-shadow var(--shadow-2)
-  font-size 12px
   line-height 1.7
   white-space nowrap
   z-index 110

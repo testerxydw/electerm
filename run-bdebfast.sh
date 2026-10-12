@@ -43,7 +43,7 @@ UI_FLAG=""
 [ "$UI_MODE" -eq 1 ] && UI_FLAG="--ui"
 
 echo "========== [1/5] patch locales =========="
-node build/patch-locales.js
+node src/build/patch-locales.js
 # 验证 work/app 里也 patch 到了
 PATTERNS=("splitHorizontal" "水平拆分" "splitVertical" "垂直拆分")
 for p in "${PATTERNS[@]}"; do

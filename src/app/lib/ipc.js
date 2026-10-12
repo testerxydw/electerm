@@ -41,6 +41,7 @@ const {
 const { saveUserConfig } = require('./user-config-controller')
 const { changeHotkeyReg, initShortCut } = require('./shortcut')
 const lastStateManager = require('./last-state')
+const { createDialogLastDir } = require('./dialog-last-dir')
 const {
   registerDeepLink,
   unregisterDeepLink,
@@ -130,6 +131,15 @@ function isTrustedIpcSender (event) {
   return !!win && event.sender === win.webContents
 }
 
+// Electron 43 made file dialogs default to Downloads and stopped the OS from
+// restoring the last used directory, so we keep that memory ourselves. See
+// ./dialog-last-dir.js.
+const dialogLastDir = createDialogLastDir({
+  get: (key) => lastStateManager.get(key),
+  set: (key, value) => lastStateManager.set(key, value),
+  log: console
+})
+
 async function initAppServer () {
   const {
     config
@@ -192,7 +202,29 @@ function initIpc () {
       console.error('[security] blocked IPC call: ' + name)
       return
     }
-    event.returnValue = ipcSyncFuncs[name](...args)
+    const result = ipcSyncFuncs[name](...args)
+    // Electron 44 made the clipboard module async: clipboard.readText() now
+    // returns a Promise. A Promise cannot be structured-cloned into a sync IPC
+    // reply, so assigning one to event.returnValue throws "An object could not
+    // be cloned." and the renderer's sendSync fails with "reply was never sent".
+    // Settling it here keeps window.pre.readClipboard() synchronous, which the
+    // client depends on -- hasFileInClipboardText() is called during render.
+    // Assigning event.returnValue asynchronously is supported: the renderer
+    // blocks until it is set.
+    if (result && typeof result.then === 'function') {
+      result.then(
+        (value) => {
+          event.returnValue = value
+        },
+        (err) => {
+          // Must always reply, or the renderer's sendSync blocks forever.
+          console.error('[ipc] sync-func ' + name + ' failed:', err)
+          event.returnValue = null
+        }
+      )
+    } else {
+      event.returnValue = result
+    }
   })
   const asyncGlobals = {
     confirmExit: () => {
@@ -312,11 +344,22 @@ function initIpc () {
   })
   ipcMain.handle('show-open-dialog-sync', async (event, ...args) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    return dialog.showOpenDialogSync(win, ...args)
+    const opts = args[0] && typeof args[0] === 'object' ? args[0] : {}
+    const res = dialog.showOpenDialogSync(
+      win,
+      ...await dialogLastDir.withDefaultPath(args, 'open')
+    )
+    dialogLastDir.rememberOpenResult(opts, res)
+    return res
   })
   ipcMain.handle('show-save-dialog', async (event, ...args) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    return dialog.showSaveDialog(win, ...args)
+    const res = await dialog.showSaveDialog(
+      win,
+      ...await dialogLastDir.withDefaultPath(args, 'save')
+    )
+    dialogLastDir.rememberSaveResult(res)
+    return res
   })
 }
 
