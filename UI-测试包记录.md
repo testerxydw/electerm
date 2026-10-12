@@ -5,6 +5,12 @@
 
 ---
 
+## test.92-ui（2026-10-12）· **左栏/底栏补齐右面板页签入口**（91 的存量迁移重打）
+- **提交**：`554a2b18` + `ae7ee1a8`
+- **修改点**：左栏图标 registry 增 aiPanel/transferPanel/monitorPanel（默认列表追加，灯态跟随面板状态）；底栏 AI 后补传输/监控按钮（success 灯态）；store 增 toggleTransferPanel/toggleMonitorPanel；**存量迁移**：default-setting 的图标副本改单一来源，恰为旧默认 7 项的 DB 配置升级到新默认，自定义过的不动
+- **验证点**：771 单测全绿；CDP 实测左栏出现 AI/传输/监控（位于终端主题与设置之间）、点击左栏传输 → 面板切页签+点亮、底栏/左栏监控 toggle 开→关→开 原子验证通过
+- **已安装** ✅
+
 ## test.90-ui（2026-10-12）· **合并上游 + Electron 44**（89 的 locales 修复重打）
 - **提交**：`ef46d164`（merge）+ `cc3b9a3e`（脚本修复）
 - **上游内容**：目录结构调整 build→src/build、Electron 42→44.7.0、locales 2.3.31、文件对话框记忆目录、私钥输入安全化、Fix CI/build script
