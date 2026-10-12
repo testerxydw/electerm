@@ -70,7 +70,7 @@ fi
 
 echo "========== [3/5] bdebfast =========="
 if [ "$FORCE_PREPARE" -eq 1 ]; then
-  node build/bin/build-deb-fast.js --prepare $UI_FLAG
+  node src/build/bin/build-deb-fast.js --prepare $UI_FLAG
 else
   npm run bdebfast -- $UI_FLAG
 fi

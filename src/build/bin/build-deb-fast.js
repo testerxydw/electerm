@@ -106,6 +106,9 @@ if (forcePrepare || !appReady()) {
   p.main = 'app.js'
   writeJson(path.join(workApp, 'package.json'), p)
   run(`cd "${workApp}" && npm i --omit=dev --legacy-peer-deps && cd "${root}"`)
+  // prepare 重建的 work/app 独立依赖树在 [1/5] patch-locales 之后才存在，
+  // 必须在此补 patch, 否则测试包缺新增翻译 key
+  run('node src/build/patch-locales.js')
   run(`npx electron-rebuild -f -m "${workApp}"`)
   // 清理 windows 专用文件（省体积）
   run(`rm -rf "${path.join(workApp, 'node_modules/node-pty/lib/windows*')}" "${path.join(workApp, 'node_modules/node-pty/deps/winpty')}"`)

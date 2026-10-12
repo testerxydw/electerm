@@ -72,8 +72,8 @@ function patchOne (filePath, dict) {
 
 function run () {
   const roots = [
-    path.resolve(__dirname, '..'), // 项目根 node_modules
-    path.resolve(__dirname, '..', 'work/app') // bdebfast 打包用的独立 node_modules
+    path.resolve(__dirname, '..', '..'), // 项目根 node_modules (本文件位于 src/build/ 下, 需上两级)
+    path.resolve(__dirname, '..', '..', 'work/app') // bdebfast 打包用的独立 node_modules
   ]
   let patchedAny = false
   for (const root of roots) {
