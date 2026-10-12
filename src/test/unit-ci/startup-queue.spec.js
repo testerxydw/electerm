@@ -67,6 +67,12 @@ const makeQueue = async (options) => {
   return { queue: new StartupQueue(host), addon, host }
 }
 
+// 默认注入（命令历史为基础功能）后, 队列首条是 bash 集成命令
+const getIntegrationCmd = async () => {
+  const { getShellIntegrationCommand } = await import('../../client/components/terminal/shell.js')
+  return getShellIntegrationCommand('bash')
+}
+
 describe('startup queue', () => {
   test('runs every script once, in order', async () => {
     const { queue, addon } = await makeQueue({
@@ -80,13 +86,13 @@ describe('startup queue', () => {
     queue.runInitScript()
     await tick()
 
-    assert.deepEqual(addon.sent, ['one\r', 'two\r', 'three\r'])
+    assert.deepEqual(addon.sent, [await getIntegrationCmd(), 'one\r', 'two\r', 'three\r'])
   })
 
   test('a new generation replaces the pending one instead of mixing', async () => {
     const { queue, addon, host } = await makeQueue()
     // Hold every settle until `hold` is cleared, so the loop stays parked
-    // inside item 1 while the queue is rebuilt underneath it.
+    // inside the shell-integration item while the queue is rebuilt underneath.
     let hold = true
     const pending = []
     addon.waitForOutputIdle = () => hold
@@ -100,16 +106,19 @@ describe('startup queue', () => {
     host.props.tab.runScripts = [{ script: 'old-1', delay: 0 }, { script: 'old-2', delay: 0 }]
     queue.runInitScript()
     await tick(5)
-    assert.deepEqual(addon.sent, ['old-1\r'])
+    // the integration item settles before any script is typed
+    assert.deepEqual(addon.sent, [await getIntegrationCmd()])
 
-    // reconnect / rebuild: the stale item must never be typed
+    // reconnect / rebuild: the stale items must never be typed
     host.props.tab.runScripts = [{ script: 'new-1', delay: 0 }, { script: 'new-2', delay: 0 }]
     queue.runInitScript()
 
     unhold()
     await tick(30)
 
-    assert.deepEqual(addon.sent, ['old-1\r', 'new-1\r', 'new-2\r'])
+    // shell integration is injected only once per queue; the stale generation
+    // (parked before old-1 was typed) is dropped entirely
+    assert.deepEqual(addon.sent, [await getIntegrationCmd(), 'new-1\r', 'new-2\r'])
   })
 
   test('shell integration is injected before the scripts and only once', async () => {
@@ -159,20 +168,29 @@ describe('startup queue', () => {
       runScripts: [{ script: 'one', delay: 0 }, { script: 'two', delay: 0 }]
     })
     let release = null
-    addon.waitForOutputIdle = () => new Promise(resolve => {
-      release = resolve
-    })
+    // hold only the second idle wait (after 'one' is typed, before 'two'), so
+    // the dispose guard is exercised between 'one' and 'two'
+    let idleCalls = 0
+    addon.waitForOutputIdle = () => {
+      idleCalls++
+      if (idleCalls === 2) {
+        return new Promise(resolve => {
+          release = resolve
+        })
+      }
+      return Promise.resolve(true)
+    }
     queue.runInitScript()
 
     await tick(5)
-    assert.deepEqual(addon.sent, ['one\r'])
+    assert.deepEqual(addon.sent, [await getIntegrationCmd(), 'one\r'])
 
     queue.dispose()
     release(true)
     await tick(30)
 
     // 'two' must never be typed after dispose
-    assert.deepEqual(addon.sent, ['one\r'])
+    assert.deepEqual(addon.sent, [await getIntegrationCmd(), 'one\r'])
     assert.equal(queue.running, false)
   })
 })

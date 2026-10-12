@@ -9,11 +9,19 @@ global.window = {
 
 const loadCommands = () => import('../../client/components/terminal/ssh-reload-state.js')
 
+const tick = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms))
+
 const startupCommand = async ({ shell, resolvedShell, cwd, reloadCwd, remote = false }) => {
   const { StartupQueue } = await import('../../client/components/terminal/startup-queue.js')
   const sent = []
   const host = {
-    attachAddon: { _sendData: data => sent.push(data) },
+    // onInitialData fires immediately: the injection sends on first output.
+    // startOutputSuppression ends right away so the injection completes.
+    attachAddon: {
+      _sendData: data => sent.push(data),
+      onInitialData: cb => cb(),
+      startOutputSuppression: (t, onEnd) => onEnd && onEnd()
+    },
     props: {
       tab: { type: remote ? 'ssh' : 'local', startDirectory: cwd, _reloadState: { cwd: reloadCwd } },
       config: { execWindows: shell, restoreTerminalSessionOnReload: !!reloadCwd }
@@ -21,11 +29,21 @@ const startupCommand = async ({ shell, resolvedShell, cwd, reloadCwd, remote = f
     isLocal: () => !remote,
     isSsh: () => remote
   }
-  const queue = new StartupQueue(host)
+  const queue = new StartupQueue(host, {
+    // remote probe stub: without it the default falls back to 'sh' and the
+    // injection is skipped (a real sh has no command tracking)
+    detectRemoteShell: () => Promise.resolve('bash')
+  })
   queue.runInitScript(resolvedShell)
+  // remote tabs type the bash shell-integration line first; give the async
+  // queue a tick so it lands before dispose
+  await tick(5)
   queue.dispose()
-  assert.equal(sent.length, 1)
-  return sent[0]
+  // remote tabs get the bash shell-integration line typed first (command
+  // history is a base feature now); the caller wants the cd command itself
+  const offset = remote ? 1 : 0
+  assert.equal(sent.length, offset + 1)
+  return sent[offset]
 }
 
 describe('Windows startup directory', () => {

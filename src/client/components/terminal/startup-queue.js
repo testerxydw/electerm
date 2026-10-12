@@ -322,17 +322,21 @@ export class StartupQueue {
   // ---- shell integration ----
 
   canInjectShellIntegration = () => {
-    const { config, sftpPathFollowSsh } = this.term.props
+    // Command history is a base feature: inject by default for any supported
+    // shell type instead of gating on opt-in flags (showCmdSuggestions etc.).
+    // Injection goes through the main pty as simulated typing, so it does not
+    // depend on the auxiliary exec channel that MaxSessions limits. When the
+    // injected OSC never comes back (non-bash shells), the manual typed-buffer
+    // history takes over automatically (shouldUseManualHistory).
+    // Windows local shells (cmd/powershell) are excluded: the bash-flavoured
+    // one-liner is meaningless there.
     return (
-      config.showCmdSuggestions ||
-      sftpPathFollowSsh ||
-      (config.restoreTerminalSessionOnReload && this.isRestorable())
-    ) &&
-    (
-      this.isSsh() ||
-      this.isTelnet() ||
-      this.isSerial() ||
-      (this.isLocal() && !isWin)
+      (
+        this.isSsh() ||
+        this.isTelnet() ||
+        this.isSerial() ||
+        (this.isLocal() && !isWin)
+      )
     )
   }
 
@@ -361,16 +365,31 @@ export class StartupQueue {
       shellType = await Promise.race([
         this.detectRemoteShell(this.term.pid),
         new Promise(resolve => {
-          setTimeout(() => resolve('sh'), remoteShellDetectTimeoutMs)
+          // null = detection failed/timed out (exec channel may be rejected
+          // under sshd MaxSessions pressure). Distinct from a real 'sh': the
+          // fallback below still tries a bash-flavoured injection instead of
+          // giving up on command tracking entirely.
+          setTimeout(() => resolve(null), remoteShellDetectTimeoutMs)
         })
       ])
     }
 
+    // Detection failed (exec channel rejected / timed out): the remote is very
+    // likely bash. The bash injection is harmless on other shells — zsh/dash
+    // treat PROMPT_COMMAND/trap syntax as plain assignments (no OSC comes back
+    // and manual history takes over); fish parse errors are swallowed by the
+    // output suppression window.
+    if (!shellType) {
+      shellType = 'bash'
+    }
+
     this.shellType = shellType
 
-    // sh/ash only reports cwd via PS1 (no command tracking), so it is only
-    // worth injecting when something actually needs the cwd: sftp follow or
-    // session restore. Command suggestions alone stay disabled on sh.
+    // A real sh/ash (explicitly reported by $SHELL) only reports cwd via PS1
+    // (no command tracking), so it is only worth injecting when something
+    // actually needs the cwd: sftp follow or session restore. Command
+    // suggestions alone stay disabled on sh — and enabling hasShellIntegration
+    // from its 633;A would wrongly disable the manual history fallback.
     const { config, sftpPathFollowSsh } = this.term.props
     if (
       shellType === 'sh' &&

@@ -18,19 +18,21 @@ export async function detectRemoteShell (pid) {
   const r = await runCmd(pid, cmd, { silent: true })
     .catch((err) => {
       // Non-fatal: the interactive shell already opened, so the terminal keeps
-      // working. We just can't inject OSC 633 shell integration for command
-      // tracking. This commonly happens when the server limits concurrent
+      // working. We just can't detect the remote shell type for OSC 633 shell
+      // integration. This commonly happens when the server limits concurrent
       // sessions (sshd MaxSessions) or the account uses a forced/restricted
       // command, which rejects the auxiliary exec channel with
       // "(SSH) Channel open failure: open failed".
-      console.warn('detectRemoteShell: exec channel rejected by server, shell integration disabled, falling back to sh —', err?.message || err)
-      return 'sh'
+      // null means "unknown" — distinct from a real 'sh' so the startup queue
+      // can still try a bash-flavoured injection (harmless on other shells).
+      console.warn('detectRemoteShell: exec channel rejected by server, shell type unknown —', err?.message || err)
+      return null
     })
 
-  const shell = r.trim().toLowerCase()
+  const shell = (r || '').trim().toLowerCase()
 
   if (!shell) {
-    return 'sh'
+    return null
   }
 
   return detectShellType(shell)
