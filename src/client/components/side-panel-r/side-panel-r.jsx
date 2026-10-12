@@ -10,6 +10,8 @@ import {
 } from 'antd'
 import { isAIDisabled } from '../../common/ai-feature'
 
+const e = window.translate
+
 export default memo(function RightSidePanel (
   {
     rightPanelVisible,
@@ -55,12 +57,14 @@ export default memo(function RightSidePanel (
   // from a desktop session must not turn the panel into a dock here — that
   // would make it full height over the footer for no reachable reason.
   const pinned = rightPanelPinned && !isMobile
-  // 对齐重设计草图的右面板页签：AI / 传输 / 监控
+  // 对齐重设计草图的右面板页签：AI / 传输 / 监控；
+  // 文件信息与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动
   const aiDisabled = isAIDisabled()
   const tabs = [
     { key: 'ai', label: 'AI' },
     { key: 'transfer', label: '传输' },
-    { key: 'monitor', label: '监控' }
+    { key: 'monitor', label: '监控' },
+    { key: 'info', label: e('info') }
   ]
 
   function onDragEnd (nw) {
