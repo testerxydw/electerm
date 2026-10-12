@@ -49,30 +49,55 @@ const additions = {
   tr_tr: null
 }
 
-function patchOne (filePath, dict) {
+// 覆盖上游已有 key 的翻译 (force 替换, 不影响 en_us/其他语言)
+// newTab 实为"打开本地终端", 上游 zh_cn 译"新建连接"易误解为新建 SSH
+const overrides = {
+  zh_cn: {
+    newTab: '本地终端'
+  }
+}
+
+function patchOne (filePath, dict, force = false) {
   if (!fs.existsSync(filePath)) {
     console.log('[patch-locales] skip, not found:', filePath)
     return
   }
-  const content = fs.readFileSync(filePath, 'utf8')
-  // 增量 patch: 只补缺失的 key, 已 patch 文件可追加新 key
-  const missing = Object.entries(dict).filter(([k]) => !content.includes(`${k}:`))
-  if (!missing.length) {
+  let content = fs.readFileSync(filePath, 'utf8')
+  // key 已存在时: force 模式覆盖值, 否则跳过 (增量 patch)
+  // key 前界定为 , 或 { 避免误匹配其他含该子串的 key
+  // 全部全局替换: mjs 内含 export const + export default 两份对象, 需同步 patch
+  const append = []
+  for (const [k, v] of Object.entries(dict)) {
+    const testRe = new RegExp(`([,{])${k}:'[^']*'`)
+    if (testRe.test(content)) {
+      if (force) {
+        const re = new RegExp(`([,{])${k}:'[^']*'`, 'g')
+        content = content.replace(re, `$1${k}:${JSON.stringify(v)}`)
+      }
+    } else {
+      append.push([k, v])
+    }
+  }
+  if (!append.length) {
+    if (force) {
+      fs.writeFileSync(filePath, content)
+      console.log('[patch-locales] overridden:', path.basename(filePath))
+    }
     return
   }
   // minified 单行格式: ...,moveToFooter:'move to footer'},name:'English',...
   // 插入到最后一个 lang key 之后, name/match/flag 之前
-  const dictStr = missing
+  const dictStr = append
     .map(([k, v]) => `${k}:${JSON.stringify(v)}`)
     .join(',')
   // 找 },name: 分界点
-  const marker = /\},name:'/
+  const marker = /\},name:'/g
   if (!marker.test(content)) {
     console.log('[patch-locales] skip, unexpected format:', filePath)
     return
   }
-  const patched = content.replace(marker, `,${dictStr}},name:'`)
-  fs.writeFileSync(filePath, patched)
+  content = content.replace(marker, `,${dictStr}},name:'`)
+  fs.writeFileSync(filePath, content)
   console.log('[patch-locales] patched:', path.basename(filePath))
 }
 
@@ -95,6 +120,10 @@ function run () {
       const realDict = dict || additions.en_us
       patchOne(path.join(cjsDir, `${code}.js`), realDict)
       patchOne(path.join(esmDir, `${code}.mjs`), realDict)
+    }
+    for (const [code, dict] of Object.entries(overrides)) {
+      patchOne(path.join(cjsDir, `${code}.js`), dict, true)
+      patchOne(path.join(esmDir, `${code}.mjs`), dict, true)
     }
   }
   if (!patchedAny) {
