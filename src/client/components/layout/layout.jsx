@@ -64,28 +64,49 @@ export default auto(function Layout (props) {
     // 右面板可见即预留宽度（无论是否固定）：面板列独占右侧，终端始终不被遮挡。
     // 固定与不固定仅差快捷命令寄居位置，不再差遮挡行为
     const r = rightPanelVisible && !isMobile ? rightPanelWidth : 0
+    // 面板宽只挤压终端区（.sessions + session 尺寸）；.layout-wrap 仅让位常驻
+    // 图标栏并保持全宽 —— 标签栏横贯（面板 top 38px 起，与其不重叠），
+    // 标题栏不再随面板"避让"变窄
     return {
       height: h,
       top: 0,
-      left: l,
-      width: Math.max(0, width - l - r)
+      left: leftSideBarWidth,
+      width: Math.max(0, width - leftSideBarWidth),
+      termLeft: l,
+      termWidth: Math.max(0, width - l - r)
     }
   }
 
   const layoutSize = calcLayoutStyle()
   const {
     width,
-    height
+    height,
+    termLeft,
+    termWidth
   } = layoutSize
-  const pixedLayoutStyle = pixed(layoutSize)
+  // 标签栏层（Layouts）全宽 / 终端层（Sessions）按终端列定位，两个叠层分离
+  const pixedLayoutStyle = pixed({
+    height: layoutSize.height,
+    top: layoutSize.top,
+    left: layoutSize.left,
+    width: layoutSize.width
+  })
+  const pixedTermStyle = pixed({
+    height: layoutSize.height,
+    top: layoutSize.top,
+    left: termLeft,
+    width: termWidth
+  })
   const styles = layoutAlg(layout, width, height)
+  // session-wrap 定位相对窄的终端列容器（.sessions），格子层（含标签栏）相对全宽容器
+  const termStyles = layoutAlg(layout, termWidth, height)
   const layoutProps = {
     layout,
     ...styles,
     layoutStyle: pixedLayoutStyle,
     handleMousedown
   }
-  const sizes = calcSessionSize(layout, width, height)
+  const sizes = calcSessionSize(layout, termWidth, height)
 
   function renderSessions (conf, layout) {
     const {
@@ -157,11 +178,11 @@ export default auto(function Layout (props) {
     store
   }
   const sessionsProps = {
-    styles: styles.wrapStyles,
+    styles: termStyles.wrapStyles,
     sizes,
-    width,
+    width: termWidth,
     height,
-    layoutStyle: pixedLayoutStyle,
+    layoutStyle: pixedTermStyle,
     ...pick(store, [
       'activeTabId',
       'activeTabId0',
@@ -200,7 +221,7 @@ export default auto(function Layout (props) {
     <RemoteMonitorBar
       key='RemoteMonitorBar'
       store={store}
-      style={{ left: layoutSize.left, width, height: remoteMonitorBarHeight }}
+      style={{ left: termLeft, width: termWidth, height: remoteMonitorBarHeight }}
     />,
     <Footer
       key='Footer'
