@@ -39,11 +39,33 @@ export default Store => {
     return window.store.tabs
   }
 
+  // 会话 socket 是否仍活着（WS OPEN 且组件未卸载）
+  function isSessionAlive (tab) {
+    const ref = refs.get(`term-${tab.id}`)
+    return !!(ref && ref.socket && ref.socket.readyState === 1 && !ref.onClose)
+  }
+
   Store.prototype.setOffline = function () {
     const { store } = window
     store.tabs.forEach(tab => {
-      if (tab.host && tab.status !== statusMap.error) {
+      if (!tab.host || tab.status === statusMap.error) {
+        return
+      }
+      // 浏览器 offline 事件存在误报（网卡抖动/网络饱和时的连通性探测失败），
+      // 而 ssh/pty 会话走本地子进程不受其影响 —— 仅对 socket 已死的会话标记
+      // 连接失败，活着的会话保持原状态
+      if (!isSessionAlive(tab)) {
         tab.status = statusMap.error
+      }
+    })
+  }
+
+  // offline 误报恢复：网络回来后，socket 仍活着却被误标"连接失败"的会话复位
+  Store.prototype.restoreOnline = function () {
+    const { store } = window
+    store.tabs.forEach(tab => {
+      if (tab.host && tab.status === statusMap.error && isSessionAlive(tab)) {
+        tab.status = statusMap.success
       }
     })
   }

@@ -94,6 +94,8 @@ export default auto(function Index (props) {
       e.stopPropagation()
     })
     window.addEventListener('offline', store.setOffline)
+    // 网络恢复时复位被 offline 误报标成"连接失败"但仍活着的会话
+    window.addEventListener('online', store.restoreOnline)
     // 退出/刷新前自动保存会话快照, 供下次启动恢复上次 tab 页。
     // 桌面端原无 onbeforeunload (退出确认走主进程), 这里仅保存快照不碰 returnValue;
     // webapp 端同时走 beforeExit 的退出确认。
