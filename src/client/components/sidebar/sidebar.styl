@@ -24,8 +24,9 @@
   // 用注入的宽度 token（原硬编码 36px，与 sidebarWidth=43 不一致 → 底部/面板 left 偏移 7px）
   width var(--left-side-bar-width, 50px)
   z-index 100
-  // 同上：图标栏底部（设置/头像）不被底部单条 footer 遮挡
-  bottom var(--footer-stack-height, 36px)
+  // 图标栏直通窗口底部：footer CSS 已常驻让位图标栏宽度（footer.styl left calc），
+  // 两者水平不重叠；底部头像(margin-top auto)贴底显示
+  bottom 0
   background var(--surface-0)
   display flex
   flex-direction column
