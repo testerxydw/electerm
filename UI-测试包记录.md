@@ -5,6 +5,15 @@
 
 ---
 
+## test.90-ui（2026-10-12）· **合并上游 + Electron 44**（89 的 locales 修复重打）
+- **提交**：`ef46d164`（merge）+ `cc3b9a3e`（脚本修复）
+- **上游内容**：目录结构调整 build→src/build、Electron 42→44.7.0、locales 2.3.31、文件对话框记忆目录、私钥输入安全化、Fix CI/build script
+- **冲突解决**：package.json（取上游路径+版本，保留 btest/bdebfast/test-unit-ci flag/patch-locales 挂接，均改指 src/build）；terminal.styl（跟随 electron44 删 border/box-shadow/font-size，radius 留等值 token）
+- **修复**：patch-locales root 上两级；build-deb-fast templateDir→src/build/deb-template；**prepare 段补 patch-locales**（work/app 依赖树重建晚于入口 patch 的历史漏）
+- **验证点**：771 单测全绿（+上游 19 例）；lint ok；aria2 预热 electron 44 缓存（sha256 校验一致）；CDP 实测 electron 44 下 tabs t=0/sidebar 对齐/footer 单条；两处 locales splitHorizontal=1
+- **已知坑（新记）**：`@electron/get` 镜像 env 必须大写 `ELECTRON_MIRROR`（小写不生效走 github）
+- **已安装** ✅
+
 ## test.88-ui（2026-10-12）· **去掉独立顶栏, 还原 master 式**
 - **提交**：`80706307`
 - **修改点**：删除 title-bar 组件与 `--title-bar-height` 注入（-182 行）；`tabs/index.jsx` 整体还原 master 版本（窗口三键 WindowControl 回归标签栏）；sidebar top 偏移还原（0/36px/112px）；layout top 回 0；`titleBarHeight` 常量退役；守卫测试同步（top 0 + 禁止再引用该变量）
