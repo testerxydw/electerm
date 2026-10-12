@@ -5,6 +5,13 @@
 
 ---
 
+## test.88-ui（2026-10-12）· **去掉独立顶栏, 还原 master 式**
+- **提交**：`80706307`
+- **修改点**：删除 title-bar 组件与 `--title-bar-height` 注入（-182 行）；`tabs/index.jsx` 整体还原 master 版本（窗口三键 WindowControl 回归标签栏）；sidebar top 偏移还原（0/36px/112px）；layout top 回 0；`titleBarHeight` 常量退役；守卫测试同步（top 0 + 禁止再引用该变量）
+- **保留**：标签样式美化（38px 标签栏/32px tab/关闭淡入/状态圆点）、sidebarWidth 50、底栏三合一、命令面板
+- **验证点**：752 单测全绿；CDP 实测 `.title-bar` 不存在、`.tabs` t=0/h=38、三键在右上角（t=0）、`.sidebar` t=0 且底边=footer 顶 1403、变量已退役
+- **已安装** ✅
+
 ## test.87-ui（2026-10-12）· **启动时侧栏默认收起**（86 同代码重打）
 - **提交**：`ccd20505`
 - **修改点**：`rightPanelVisible` 默认 true→false；`openedSideBar` 默认 'bookmarks'→''；手动开/关持久化语义不变（setOpenedSideBar/ls）
