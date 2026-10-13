@@ -1,6 +1,6 @@
 {
   "name": "electerm",
-  "version": "5.5.79",
+  "version": "5.6.0",
   "description": "Open-sourced terminal/ssh/sftp/telnet/serialport/RDP/VNC/Spice/ftp client(Linux, Mac, Windows, Android, HarmonyOS, iOS).",
   "main": "app.js",
   "scripts": {
@@ -70,7 +70,7 @@
     "@xterm/addon-unicode11": "0.10.0-beta.292",
     "@xterm/addon-web-links": "0.13.0-beta.292",
     "@xterm/addon-webgl": "0.20.0-beta.291",
-    "@xterm/xterm": "npm:@electerm/xterm@6.1.0-beta.292-electerm.1",
+    "@xterm/xterm": "npm:@electerm/xterm@6.1.0-beta.292-electerm.2",
     "antd": "6.5.1",
     "classnames": "2.5.1",
     "cross-env": "7.0.3",
@@ -100,7 +100,7 @@
     "vite": "8.1.0"
   },
   "dependencies": {
-    "@electerm/electerm-locales": "2.3.31",
+    "@electerm/electerm-locales": "^2.3.32",
     "@electerm/electerm-themes": "1.0.2",
     "@electerm/ftp-srv": "^1.0.6",
     "@electerm/nedb": "2.0.0",
@@ -131,7 +131,7 @@
     "socks-proxy-agent": "8.0.1",
     "socksv5-server": "^1.0.2",
     "ssh-config-loader": "1.1.2",
-    "ssh2-scp": "3.2.1",
+    "ssh2-scp": "3.3.0",
     "tar": "7.5.21",
     "trzsz2": "1.2.0",
     "zmodem2": "1.4.0"
