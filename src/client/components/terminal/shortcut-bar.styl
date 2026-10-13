@@ -107,13 +107,13 @@
   .main-footer
     bottom calc(var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px))
   .remote-monitor-bar
-    bottom calc(var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px) + 36px)
+    bottom calc(var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px) + 30px)
   // The right panel lifts itself via its own bottom calc, which already
   // includes --shortcut-bar-h + --shortcut-bar-kb-offset (right-side-panel.styl);
   // the vars are set by shortcut-bar.jsx while the bar is on. Mobile is
   // excluded there by its full-screen drawer override (mobile.styl).
   .qm-wrap-tooltip
-    bottom calc(var(--footer-stack-height, 36px) + var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px))
+    bottom calc(var(--footer-stack-height, 30px) + var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px))
 
 // --- edit modal -----------------------------------------------------------
 

@@ -82,7 +82,7 @@ export const authTypeMap = buildConst([
 
 // 底栏三合一：statusbar(26)/app-kbar(30) 已并入 footer 单条，仅保留 footerHeight
 // 顶栏已还原 master 式（无独立 title-bar 组件）
-export const footerHeight = 36
+export const footerHeight = 30
 export const remoteMonitorBarHeight = 28
 export const quickCommandBoxHeight = 180
 export const shortcutBarHeight = 44
