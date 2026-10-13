@@ -78,3 +78,50 @@
 .db-cell-null
   color var(--text)
   opacity 0.5
+
+// 主区 Tabs：去掉默认 margin，内容区撑满
+.db-tabs
+  height 100%
+  display flex
+  flex-direction column
+  &.ant-tabs
+    > .ant-tabs-nav
+      margin 0 0 8px
+    > .ant-tabs-content-holder
+      flex 1 1 0
+      min-height 0
+      overflow hidden
+      > .ant-tabs-content
+        height 100%
+        > .ant-tabs-tabpane
+          height 100%
+
+// SQL 编辑器区
+.db-sql-area
+  display flex
+  flex-direction column
+  height 100%
+  overflow hidden
+  gap 8px
+
+.db-sql-editor
+  flex none
+  font-family var(--font-mono)
+
+.db-sql-bar
+  display flex
+  align-items center
+  gap 8px
+  flex none
+
+.db-sql-result
+  flex 1 1 0
+  min-height 0
+  overflow auto
+  display flex
+  flex-direction column
+  gap 4px
+
+.db-sql-affected
+  color var(--text)
+  flex none

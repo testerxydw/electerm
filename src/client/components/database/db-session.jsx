@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, Tag } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import './db-session.styl'
@@ -32,6 +32,16 @@ export default function DbSession (props) {
     hasMore: false,
     orderBy: '',
     order: 'ascend'
+  })
+
+  // SQL 编辑器状态（MVP：textarea + Ctrl/Cmd+Enter 执行）
+  const [sqlText, setSqlText] = useState('')
+  const [sqlResult, setSqlResult] = useState({
+    loading: false,
+    rows: [],
+    fields: [],
+    affected: undefined,
+    error: ''
   })
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
@@ -148,6 +158,44 @@ export default function DbSession (props) {
     loadPage(sel, grid.page, orderBy, order)
   }
 
+  // 只读模式（默认开，书签 readOnly !== false）
+  const isReadonly = tab.readOnly !== false
+
+  const runSql = () => {
+    const sql = sqlText.trim()
+    if (!sql) {
+      return
+    }
+    setSqlResult(s => ({ ...s, loading: true, error: '' }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', { sql })
+      .then(res => {
+        setSqlResult({
+          loading: false,
+          rows: (res && res.rows) || [],
+          fields: (res && res.fields) || [],
+          affected: res ? res.affected : undefined,
+          error: ''
+        })
+      })
+      .catch(err => {
+        setSqlResult({
+          loading: false,
+          rows: [],
+          fields: [],
+          affected: undefined,
+          error: err && err.message ? err.message : String(err)
+        })
+      })
+  }
+
+  // Ctrl/Cmd+Enter 执行
+  const onSqlKeyDown = (ev) => {
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault()
+      runSql()
+    }
+  }
+
   const renderCell = (v) => {
     if (v === null || v === undefined) {
       return <span className='db-cell-null'>NULL</span>
@@ -169,6 +217,27 @@ export default function DbSession (props) {
       render: renderCell
     }))
     : []
+
+  // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
+  const sqlColumns = sqlResult.fields.length
+    ? sqlResult.fields.map(f => ({
+      title: f,
+      dataIndex: f,
+      key: f,
+      width: 220,
+      ellipsis: true,
+      render: renderCell
+    }))
+    : (sqlResult.rows.length
+        ? Object.keys(sqlResult.rows[0]).map(k => ({
+          title: k,
+          dataIndex: k,
+          key: k,
+          width: 220,
+          ellipsis: true,
+          render: renderCell
+        }))
+        : [])
 
   const treeData = metadata.map(db => ({
     title: db.name,
@@ -200,48 +269,108 @@ export default function DbSession (props) {
     )
   }
 
-  const gridArea = isRedis
-    ? <Empty description='redis keyspace browser (next step)' />
-    : (
-      <div className='db-grid-area'>
-        <div className='db-grid-head'>
-          <span className='db-grid-title'>
-            {sel ? `${sel.database}.${sel.table}` : ''}
-          </span>
-          {
-            sel
-              ? (
-                <div className='db-grid-pager'>
-                  <Button
-                    size='small'
-                    icon={<LeftOutlined />}
-                    disabled={grid.page <= 1 || grid.loading}
-                    onClick={() => turnPage(grid.page - 1)}
-                  />
-                  <span className='db-grid-page-no'>page {grid.page}</span>
-                  <Button
-                    size='small'
-                    icon={<RightOutlined />}
-                    disabled={!grid.hasMore || grid.loading}
-                    onClick={() => turnPage(grid.page + 1)}
-                  />
-                </div>
-                )
-              : null
-          }
-        </div>
+  const dataArea = (
+    <div className='db-grid-area'>
+      <div className='db-grid-head'>
+        <span className='db-grid-title'>
+          {sel ? `${sel.database}.${sel.table}` : ''}
+        </span>
+        {
+          sel
+            ? (
+              <div className='db-grid-pager'>
+                <Button
+                  size='small'
+                  icon={<LeftOutlined />}
+                  disabled={grid.page <= 1 || grid.loading}
+                  onClick={() => turnPage(grid.page - 1)}
+                />
+                <span className='db-grid-page-no'>page {grid.page}</span>
+                <Button
+                  size='small'
+                  icon={<RightOutlined />}
+                  disabled={!grid.hasMore || grid.loading}
+                  onClick={() => turnPage(grid.page + 1)}
+                />
+              </div>
+              )
+            : null
+        }
+      </div>
+      <Table
+        size='small'
+        loading={grid.loading}
+        columns={columns}
+        dataSource={grid.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+        rowKey='__rowKey'
+        pagination={false}
+        onChange={onTableChange}
+        scroll={{ x: 'max-content' }}
+        className='db-grid-table'
+      />
+    </div>
+  )
+
+  const sqlArea = (
+    <div className='db-sql-area'>
+      <Input.TextArea
+        value={sqlText}
+        onChange={ev => setSqlText(ev.target.value)}
+        onKeyDown={onSqlKeyDown}
+        placeholder='SELECT * FROM db.table LIMIT 10   (Ctrl/Cmd+Enter to run)'
+        autoSize={{ minRows: 4, maxRows: 12 }}
+        className='db-sql-editor'
+      />
+      <div className='db-sql-bar'>
+        <Button
+          type='primary'
+          size='small'
+          loading={sqlResult.loading}
+          onClick={runSql}
+        >
+          run
+        </Button>
+        {
+          isReadonly
+            ? <Tag>read-only</Tag>
+            : null
+        }
+      </div>
+      <div className='db-sql-result'>
+        {
+          sqlResult.error
+            ? <Alert type='error' showIcon message={sqlResult.error} />
+            : null
+        }
+        {
+          sqlResult.affected !== undefined
+            ? <div className='db-sql-affected'>affected rows: {sqlResult.affected}</div>
+            : null
+        }
         <Table
           size='small'
-          loading={grid.loading}
-          columns={columns}
-          dataSource={grid.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+          loading={sqlResult.loading}
+          columns={sqlColumns}
+          dataSource={sqlResult.rows.map((r, i) => ({ ...r, __rowKey: i }))}
           rowKey='__rowKey'
           pagination={false}
-          onChange={onTableChange}
           scroll={{ x: 'max-content' }}
           className='db-grid-table'
         />
       </div>
+    </div>
+  )
+
+  const mainArea = isRedis
+    ? <Empty description='redis keyspace browser (next step)' />
+    : (
+      <Tabs
+        className='db-tabs'
+        items={[
+          { key: 'data', label: 'data', forceRender: true, children: dataArea },
+          { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea }
+        ]}
+      />
       )
 
   return (
@@ -273,7 +402,7 @@ export default function DbSession (props) {
         </Spin>
       </div>
       <div className='db-main-panel'>
-        {gridArea}
+        {mainArea}
       </div>
     </div>
   )
