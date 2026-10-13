@@ -50,6 +50,10 @@
 
 .tabs-wrapper
   z-index 3
+  // 锁死单行: tab 为 inline-flex, wrapper 内联宽度偏小时(JS 实测的时序缺口)
+  // 会被压向 min-width 换行并锁定在换行态; nowrap 后宽度偏差只降级为
+  // 滚动范围一帧偏差, 由 measureWrapWidth 校准自愈
+  white-space nowrap
 .tab
   // 对齐草图 .tab：flex 行内布局（状态圆点 → 标题 → 关闭）
   display inline-flex
