@@ -13,10 +13,6 @@ export const leftSidebarIconOptions = [
   { id: 'quickConnect', text: 'quickConnect' },
   { id: 'bookmarks', text: 'bookmarks' },
   { id: 'terminalThemes', text: 'terminalThemes' },
-  // 右侧面板三页签入口（与底栏/右面板页签相互补齐）
-  { id: 'aiPanel', text: 'AI' },
-  { id: 'transferPanel', text: '传输' },
-  { id: 'monitorPanel', text: '监控' },
   { id: 'setting', text: 'setting' },
   { id: 'settingSync', text: 'settingSync' },
   { id: 'widgets', text: 'widgets' }

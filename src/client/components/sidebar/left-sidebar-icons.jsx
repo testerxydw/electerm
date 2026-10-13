@@ -11,17 +11,14 @@ import {
   AppstoreOutlined,
   BookOutlined,
   CloudSyncOutlined,
-  DashboardOutlined,
   PictureOutlined,
   PlusCircleOutlined,
   SettingOutlined,
-  SwapOutlined,
   ThunderboltOutlined
 } from '@ant-design/icons'
 import { Badge, Popover } from 'antd'
 import SideIcon from './side-icon'
 import QuickConnect from '../tabs/quick-connect'
-import AIIcon from '../icons/ai-icon'
 import { settingMap } from '../../common/constants'
 import { defaultLeftSideBarIcons } from '../../common/left-sidebar-icon-defs'
 
@@ -42,9 +39,7 @@ export default function LeftSidebarIcons (props) {
     syncActive,
     widgetsActive,
     isSyncingSetting,
-    widgetInstancesLength,
-    rightPanelVisible,
-    rightPanelTab
+    widgetInstancesLength
   } = props
 
   const ids = Array.isArray(iconIds) && iconIds.length
@@ -99,44 +94,6 @@ export default function LeftSidebarIcons (props) {
         <PictureOutlined
           className='font20 iblock pointer control-icon'
           onClick={openTerminalThemes}
-        />
-      </SideIcon>
-    ),
-    // 右侧面板三页签入口（与底栏/右面板页签相互补齐），
-    // 灯态跟随面板可见性 + 当前页签
-    aiPanel: (
-      <SideIcon
-        key='aiPanel'
-        title='AI'
-        active={rightPanelVisible && rightPanelTab === 'ai'}
-      >
-        <AIIcon
-          className='iblock font16 control-icon'
-          onClick={() => window.store.toggleAIPanel()}
-        />
-      </SideIcon>
-    ),
-    transferPanel: (
-      <SideIcon
-        key='transferPanel'
-        title='传输'
-        active={rightPanelVisible && rightPanelTab === 'transfer'}
-      >
-        <SwapOutlined
-          className='font20 iblock control-icon'
-          onClick={() => window.store.toggleTransferPanel()}
-        />
-      </SideIcon>
-    ),
-    monitorPanel: (
-      <SideIcon
-        key='monitorPanel'
-        title='监控'
-        active={rightPanelVisible && rightPanelTab === 'monitor'}
-      >
-        <DashboardOutlined
-          className='font20 iblock control-icon'
-          onClick={() => window.store.toggleMonitorPanel()}
         />
       </SideIcon>
     ),

@@ -43,7 +43,6 @@ export default function SettingLeftSidebarIcons (props) {
                 key={opt.id}
                 value={opt.id}
               >
-                {/* 右面板页签入口 (aiPanel/transferPanel/monitorPanel) 的 text 为显示文本非 locale key, 翻译缺失时兜底原文 */}
                 {e(opt.text) || opt.text}
               </Option>
             )
