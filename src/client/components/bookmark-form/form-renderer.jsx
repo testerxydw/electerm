@@ -186,11 +186,6 @@ export default function FormRenderer ({ config, props, onForm }) {
       submit(evt, obj)
     }
     if (evt !== 'save' && evt !== 'saveAndCreateNew') {
-      // 数据库书签：连接 = 测试连接，不打开终端 tab
-      if (obj.type === terminalDatabaseType) {
-        props.hide()
-        return window.store.testDbConnection(obj)
-      }
       window.store.currentLayoutBatch = window.openTabBatch || 0
       props.store.addTab({
         ...copy(obj),

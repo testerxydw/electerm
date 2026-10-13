@@ -22,7 +22,8 @@ import {
   terminalWebType,
   terminalTelnetType,
   terminalFtpType,
-  terminalSpiceType
+  terminalSpiceType,
+  terminalDatabaseType
 } from '../../common/constants'
 import { refs } from '../common/ref'
 import sanitizeFilename from '../../common/sanitize-filename.js'
@@ -32,6 +33,7 @@ import './session.styl'
 
 const RdpSession = lazy(() => import('../rdp/rdp-session'))
 const VncSession = lazy(() => import('../vnc/vnc-session'))
+const DbSession = lazy(() => import('../database/db-session'))
 const WebSession = lazy(() => import('../web/web-session.jsx'))
 const SpiceSession = lazy(() => import('../spice/spice-session'))
 const e = window.translate
@@ -231,6 +233,20 @@ export default class SessionWrapper extends Component {
     const {
       pane, type, sshSftpSplitView
     } = tab
+    if (type === terminalDatabaseType) {
+      const dbProps = {
+        tab,
+        width: this.props.width,
+        height: this.props.height
+      }
+      return (
+        <LazyBoundary>
+          <DbSession
+            {...dbProps}
+          />
+        </LazyBoundary>
+      )
+    }
     if (type === terminalWebType) {
       const webProps = {
         tab,

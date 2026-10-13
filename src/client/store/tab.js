@@ -263,10 +263,17 @@ export default Store => {
     const { tabs } = window.store
     const removedIds = []
 
+    // 关闭被移除的数据库连接（如有）
+    const closeRemovedDb = (tab) => {
+      if (tab.type === 'database') {
+        window.pre.runGlobalAsync('closeDbTab', tab.id).catch(() => {})
+      }
+    }
     if (typeof condition === 'function') {
       for (let i = tabs.length - 1; i >= 0; i--) {
         const tab = tabs[i]
         if (condition(tab, i)) {
+          closeRemovedDb(tab)
           removedIds.push(tab.id)
           tabs.splice(i, 1)
         }
@@ -279,6 +286,7 @@ export default Store => {
         for (let i = tabs.length - 1; i >= 0; i--) {
           const tab = tabs[i]
           if (tab[key] === value) {
+            closeRemovedDb(tab)
             removedIds.push(tab.id)
             tabs.splice(i, 1)
           }
@@ -294,6 +302,7 @@ export default Store => {
             }
           }
           if (match) {
+            closeRemovedDb(tab)
             removedIds.push(tab.id)
             tabs.splice(i, 1)
           }
