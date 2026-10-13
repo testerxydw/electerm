@@ -217,6 +217,10 @@
       min-width 360px
 .batch-input-holder
   width 100px
+  // antd v5 placeholder 默认黑色系(rgba(0,0,0,.25)), 暗色主题下不可见,
+  // 触发器整块看起来像空白; 换主题 token 让"批量输入"提示字可见
+  &::placeholder
+    color var(--text-disabled)
 .remote-monitor-bar-on
   .batch-input-outer.bi-show
     .bi-full
