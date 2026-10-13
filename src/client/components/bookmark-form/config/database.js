@@ -38,7 +38,10 @@ const databaseConfig = {
           label: () => e('dbType'),
           options: [
             { label: 'MySQL', value: dbTypeMap.mysql },
-            { label: 'Redis', value: dbTypeMap.redis }
+            { label: 'Redis', value: dbTypeMap.redis },
+            { label: 'PostgreSQL', value: dbTypeMap.postgres },
+            { label: 'TiDB', value: dbTypeMap.tidb },
+            { label: 'OceanBase', value: dbTypeMap.oceanbase }
           ]
         },
         { type: 'input', name: 'dbHost', label: () => e('host'), rules: [{ required: true, message: e('host') + ' required' }] },

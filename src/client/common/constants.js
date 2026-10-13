@@ -75,16 +75,22 @@ export const connectionMap = buildConst([
   'database'
 ])
 
-// 数据库引擎（阶段1 MVP：mysql/redis）
+// 数据库引擎（P0 mysql/redis；P1 postgres；P2 tidb/oceanbase 兼容 mysql 协议）
 export const dbTypeMap = buildConst([
   'mysql',
-  'redis'
+  'redis',
+  'postgres',
+  'tidb',
+  'oceanbase'
 ])
 
 // 各引擎默认端口
 export const dbDefaultPortMap = {
   mysql: 3306,
-  redis: 6379
+  redis: 6379,
+  postgres: 5432,
+  tidb: 4000,
+  oceanbase: 2881
 }
 
 export const authTypeMap = buildConst([

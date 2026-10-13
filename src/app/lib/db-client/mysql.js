@@ -4,9 +4,34 @@
  */
 
 const pools = new Map()
+// per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
+const refs = new Map()
 
 function sig (conn) {
   return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}`
+}
+
+// openDbTab 时调用：计数 +1 并确保连接建立（失败上抛）
+function acquire (conn) {
+  const key = sig(conn)
+  refs.set(key, (refs.get(key) || 0) + 1)
+  return getPool(conn)
+}
+
+// closeDbTab 时调用：计数 -1，归零才 end pool
+async function release (conn) {
+  const key = sig(conn)
+  const n = (refs.get(key) || 0) - 1
+  refs.set(key, n)
+  if (n > 0) {
+    return
+  }
+  refs.delete(key)
+  const pool = pools.get(key)
+  if (pool) {
+    pools.delete(key)
+    await pool.end().catch(() => {})
+  }
 }
 
 async function getPool (conn) {
@@ -132,15 +157,23 @@ async function executeSql (conn, { sql, readOnly }) {
   }
 }
 
-async function closeMysqlConnection () {
-  for (const pool of pools.values()) {
-    await pool.end().catch(() => {})
+// 无参全清（app 退出兜底）；有参按引用计数释放
+async function closeMysqlConnection (conn) {
+  if (!conn) {
+    for (const pool of pools.values()) {
+      await pool.end().catch(() => {})
+    }
+    pools.clear()
+    refs.clear()
+    return
   }
-  pools.clear()
+  await release(conn)
 }
 
 module.exports = {
   testMysqlConnection,
+  acquire,
+  release,
   getMetadata,
   getPageData,
   describeTable,

@@ -4,6 +4,8 @@
  */
 
 let client = null
+// per-tab 引用计数：redis 单例被多个 tab 共享，最后一个 tab 关闭时才真正断开
+let refCount = 0
 
 async function getClient (conn) {
   if (client) {
@@ -21,6 +23,43 @@ async function getClient (conn) {
   })
   client.on('error', () => {})
   return client
+}
+
+// openDbTab 时调用：计数 +1，首次建立真实连接并 ping 验证（失败上抛）
+async function acquire (conn) {
+  if (client) {
+    refCount++
+    return client
+  }
+  const Redis = require('ioredis')
+  client = new Redis({
+    host: conn.dbHost,
+    port: conn.dbPort,
+    password: conn.dbPassword || undefined,
+    connectTimeout: 8000,
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    retryStrategy: null,
+    enableOfflineQueue: false
+  })
+  client.on('error', () => {})
+  refCount = 1
+  await client.connect()
+  await client.ping()
+  return client
+}
+
+// closeDbTab 时调用：计数 -1，归零才 disconnect（redis 单例全局计数）
+async function release () {
+  refCount--
+  if (refCount > 0) {
+    return
+  }
+  refCount = 0
+  if (client) {
+    client.disconnect()
+    client = null
+  }
 }
 
 // per-request select (SCAN uses index numbers, TYPE etc need SELECT first)
@@ -147,15 +186,19 @@ async function expireKey (conn, { dbIndex, key, seconds, readOnly }) {
   return c.expire(key, s)
 }
 
+// 无参全清（app 退出兜底）
 async function closeRedisConnection () {
   if (client) {
     client.disconnect()
     client = null
   }
+  refCount = 0
 }
 
 module.exports = {
   testRedisConnection,
+  acquire,
+  release,
   getMetadata,
   getPageData,
   getKeyDetail,
