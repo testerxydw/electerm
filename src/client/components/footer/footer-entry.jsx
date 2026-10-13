@@ -20,6 +20,7 @@ import './footer.styl'
 import { statusMap } from '../../common/constants'
 import { statusText, typeText } from '../status-bar/format'
 import BatchInput from './batch-input'
+import QuickCmdStrip from './quick-cmd-strip'
 import encodes from '../bookmark-form/common/encodes'
 import { refs } from '../common/ref'
 import Qm from '../quick-commands/quick-commands-select'
@@ -79,6 +80,19 @@ export default auto(function FooterEntry (props) {
         <BatchInput
           {...batchProps}
         />
+      </div>
+    )
+  }
+
+  // 底栏快速命令带：常显在批量输入之后的中部空白区，分组可切换（见设计文档）
+  function renderQuickCmdStrip () {
+    const { store } = props
+    if (store.isMobile || !store.quickCommands.length) {
+      return null
+    }
+    return (
+      <div className='terminal-footer-unit quick-cmd-strip-unit'>
+        <QuickCmdStrip store={store} />
       </div>
     )
   }
@@ -376,6 +390,7 @@ export default auto(function FooterEntry (props) {
         {inActiveTerminal && renderQuickCommands()}
         {inActiveTerminal && renderTriggers()}
         {inActiveTerminal && renderBatchInputs()}
+        {inActiveTerminal && renderQuickCmdStrip()}
         {inActiveTerminal && renderEncodingInfo()}
         {inActiveTerminal && renderInfoIcon()}
         {!isMobile && renderGlobalActions()}
