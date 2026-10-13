@@ -240,6 +240,7 @@ function initIpc () {
     loadSshConfig,
     init,
     listSerialPorts,
+    testDbConnection: (...args) => require('./db-client').testDbConnection(...args),
     loadFontList,
     doUpgrade: (...args) => upgrade().doUpgrade(...args),
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
