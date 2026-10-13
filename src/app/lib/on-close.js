@@ -25,6 +25,12 @@ exports.onClose = async function (e) {
     return e.preventDefault()
   }
   log.debug('Closing app')
+  // 关闭所有数据库连接（如有）
+  try {
+    require('./db-client').closeAllDbTabs()
+  } catch (err) {
+    // ignore db client cleanup errors
+  }
   const childPid = globalState.get('childPid')
   childPid && process.kill(childPid)
   globalState.set('serverInited', false)
