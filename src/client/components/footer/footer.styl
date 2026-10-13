@@ -100,8 +100,9 @@
 .terminal-footer-center
   flex-grow 1
 // 底栏快速命令带：占满批量输入之后的中部空白，命令多时带内横向滚动
+// flex-basis 0：只分配剩余空间，胶囊内容再宽也不挤压左侧状态区（basis auto 会参与收缩挤压）
 .quick-cmd-strip-unit
-  flex-grow 1
+  flex 1 1 0
   min-width 0
   display flex
   align-items center
