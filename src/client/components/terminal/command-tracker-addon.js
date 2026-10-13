@@ -30,6 +30,10 @@ export class CommandTrackerAddon {
     this.lastExitCode = null
     this.cwd = ''
     this.shellIntegrationActive = false
+    // 是否收到过真实的 OSC 633;E 命令上报。633;A 激活信号可能假阳性
+    // （注入回显字面序列等），历史记录的 manual 兜底只有在确认
+    // 集成真的在上报命令后才让位，避免两头全空导致历史全丢
+    this.reportedCommand = false
 
     // Event callbacks for shell integration events
     this._onCommandExecuted = null // Called when OSC 633;E is received
@@ -143,6 +147,9 @@ export class CommandTrackerAddon {
         this.currentCommand = this.executedCommand
         // Call the callback if registered
         if (this._onCommandExecuted && this.executedCommand) {
+          // 真实上报才翻转标志：坏解析产生的空 E（或手动测试注入）
+          // 不能关闭 manual 兜底，否则 OSC 记不到、manual 又让位，两头全空
+          this.reportedCommand = true
           this._onCommandExecuted(this.executedCommand)
         }
         return true

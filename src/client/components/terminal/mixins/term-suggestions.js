@@ -278,7 +278,11 @@ export const suggestionsMixin = {
   },
 
   shouldUseManualHistory () {
-    return !this.cmdAddon || !this.cmdAddon.hasShellIntegration()
+    // 633;A 激活信号可能假阳性（注入回显字面序列/部分注入成功），
+    // manual 键入缓冲只有在集成真的上报过命令(633;E)后才让位，
+    // 避免激活信号假阳性时 manual 与 OSC 两头全空导致历史全丢
+    return !this.cmdAddon || !this.cmdAddon.hasShellIntegration() ||
+      !this.cmdAddon.reportedCommand
   },
 
   parse (rawText) {

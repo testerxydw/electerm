@@ -26,7 +26,7 @@ function getBashInlineIntegration () {
     'if [[ $- == *i* ]] && [[ -z "${ELECTERM_SHELL_INTEGRATION:-}" ]]',
     'then export ELECTERM_SHELL_INTEGRATION=1',
     '__e_esc() { local v="$1"; v="${v//\\\\/\\\\\\\\}"; v="${v//;/\\\\x3b}"; printf \'%s\' "$v"; }',
-    '__e_pre() { local p; [[ "$BASH_COMMAND" == __e_* || "$BASH_COMMAND" == PROMPT_COMMAND=* ]] && return; [[ "$BASH_COMMAND" == "$PROMPT_COMMAND" ]] && return; if [[ -n "${PROMPT_COMMAND:-}" ]]; then local IFS=\';\'; for p in $PROMPT_COMMAND; do p="${p#"${p%%[! ]*}"}"; [[ "$BASH_COMMAND" == "$p" ]] && return; done; fi; [[ "${__e_in:-0}" == "0" ]] && { __e_in=1; printf \'\\e]633;E;%s\\a\\e]633;C\\a\' "$(__e_esc "$BASH_COMMAND")"; }; }',
+    '__e_pre() { [[ "$BASH_COMMAND" == __e_* || "$BASH_COMMAND" == PROMPT_COMMAND=* ]] && return; [[ "$BASH_COMMAND" == "$PROMPT_COMMAND" ]] && return; [[ -n "${PROMPT_COMMAND:-}" && "$PROMPT_COMMAND" == *"$BASH_COMMAND"* ]] && return; [[ "${__e_in:-0}" == "0" ]] && { __e_in=1; printf \'\\e]633;E;%s\\a\\e]633;C\\a\' "$(__e_esc "$BASH_COMMAND")"; }; }',
     '__e_cmd() { local c="$?"; [[ "${__e_in:-0}" == "1" ]] && { printf \'\\e]633;D;%s\\a\' "$c"; __e_in=0; }; printf \'\\e]633;P;Cwd=%s\\a\\e]633;A\\a\' "$(__e_esc "$PWD")"; return "$c"; }',
     'trap \'__e_pre\' DEBUG',
     'PROMPT_COMMAND="__e_cmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"',
