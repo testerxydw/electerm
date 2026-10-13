@@ -125,3 +125,50 @@
 .db-sql-affected
   color var(--text)
   flex none
+
+// Redis 键空间
+.db-redis-area
+  display flex
+  flex-direction column
+  height 100%
+  overflow hidden
+  gap 8px
+
+.db-redis-bar
+  display flex
+  align-items center
+  gap 8px
+  flex none
+
+.db-redis-match
+  flex 1 1 0
+  min-width 120px
+  max-width 360px
+
+.db-redis-keys
+  flex none
+  max-height 45%
+  overflow auto
+
+.db-row-selected td
+  background var(--active-bg)
+
+.db-redis-detail
+  flex 1 1 0
+  min-height 0
+  overflow auto
+  display flex
+  flex-direction column
+  gap 4px
+
+.db-redis-detail-bar
+  display flex
+  align-items center
+  gap 8px
+  flex none
+
+.db-redis-key-name
+  max-width 40%
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap

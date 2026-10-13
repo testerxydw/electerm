@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, Tag } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import './db-session.styl'
@@ -43,6 +43,21 @@ export default function DbSession (props) {
     affected: undefined,
     error: ''
   })
+
+  // Redis 键空间状态（db 节点 → SCAN 键列表 → 类型化键详情）
+  const [redisDb, setRedisDb] = useState(-1)
+  const [keyList, setKeyList] = useState({
+    loading: false,
+    rows: [],
+    page: 1,
+    hasMore: false,
+    match: '*'
+  })
+  const [matchInput, setMatchInput] = useState('')
+  const [redisKey, setRedisKey] = useState('')
+  const [redisDetail, setRedisDetail] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [ttlInput, setTtlInput] = useState(undefined)
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
   const getSshBookmark = () => {
@@ -108,10 +123,20 @@ export default function DbSession (props) {
   }, [tabId])
 
   const onSelectTree = (keys, info) => {
-    if (!info.node.isLeaf) {
+    const node = info.node
+    if (isRedis) {
+      // redis 树：key = db index 字符串
+      const dbIndex = parseInt(node.key, 10)
+      setRedisDb(dbIndex)
+      setRedisKey('')
+      setRedisDetail(null)
+      loadRedisKeys(dbIndex, 1, matchInput)
       return
     }
-    const [database, table] = JSON.parse(info.node.key)
+    if (!node.isLeaf) {
+      return
+    }
+    const [database, table] = JSON.parse(node.key)
     const next = { database, table }
     setSel(next)
     loadPage(next, 1, '', 'ascend')
@@ -196,6 +221,80 @@ export default function DbSession (props) {
     }
   }
 
+  // ---- Redis 键空间 ----
+
+  const loadRedisKeys = (dbIndex, page, match) => {
+    setKeyList(s => ({ ...s, loading: true }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
+      dbIndex,
+      page,
+      pageSize: PAGE_SIZE,
+      match: match || '*'
+    }).then(res => {
+      setKeyList({
+        loading: false,
+        rows: (res && res.rows) || [],
+        page,
+        hasMore: !!(res && res.hasMore),
+        match: match || '*'
+      })
+    }).catch(err => {
+      setKeyList(s => ({ ...s, loading: false }))
+      message.error(err && err.message ? err.message : String(err))
+    })
+  }
+
+  const selectRedisKey = (key) => {
+    setRedisKey(key)
+    setDetailLoading(true)
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getKeyDetail', {
+      dbIndex: redisDb,
+      key
+    }).then(res => {
+      setRedisDetail(res || null)
+      setTtlInput(res && res.ttl > 0 ? res.ttl : undefined)
+      setDetailLoading(false)
+    }).catch(err => {
+      setRedisDetail(null)
+      setDetailLoading(false)
+      message.error(err && err.message ? err.message : String(err))
+    })
+  }
+
+  const applyTtl = () => {
+    if (!redisKey) {
+      return
+    }
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'expireKey', {
+      dbIndex: redisDb,
+      key: redisKey,
+      seconds: Number(ttlInput) || 0
+    }).then(() => {
+      message.success('ttl updated')
+      loadRedisKeys(redisDb, keyList.page, keyList.match)
+      selectRedisKey(redisKey)
+    }).catch(err => {
+      message.error(err && err.message ? err.message : String(err))
+    })
+  }
+
+  const delSelectedKey = () => {
+    if (!redisKey) {
+      return
+    }
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'delKey', {
+      dbIndex: redisDb,
+      key: redisKey
+    }).then(() => {
+      message.success('key deleted')
+      setRedisKey('')
+      setRedisDetail(null)
+      loadRedisKeys(redisDb, 1, keyList.match)
+    }).catch(err => {
+      message.error(err && err.message ? err.message : String(err))
+    })
+  }
+
   const renderCell = (v) => {
     if (v === null || v === undefined) {
       return <span className='db-cell-null'>NULL</span>
@@ -239,16 +338,22 @@ export default function DbSession (props) {
         }))
         : [])
 
-  const treeData = metadata.map(db => ({
-    title: db.name,
-    key: nodeKey(db.name, ''),
-    selectable: false,
-    children: (db.children || []).map(t => ({
-      title: t.name,
-      key: nodeKey(db.name, t.name),
-      isLeaf: true
+  const treeData = isRedis
+    ? metadata.map((db, i) => ({
+      title: db.name,
+      key: String(i),
+      isLeaf: false
     }))
-  }))
+    : metadata.map(db => ({
+      title: db.name,
+      key: nodeKey(db.name, ''),
+      selectable: false,
+      children: (db.children || []).map(t => ({
+        title: t.name,
+        key: nodeKey(db.name, t.name),
+        isLeaf: true
+      }))
+    }))
 
   if (error) {
     return (
@@ -361,8 +466,180 @@ export default function DbSession (props) {
     </div>
   )
 
+  const redisKeyColumns = [
+    { title: 'key', dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
+    { title: 'type', dataIndex: 'type', key: 'type', width: 90, render: renderCell },
+    { title: 'ttl', dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
+  ]
+
+  // 键详情：按类型渲染（string 文本框；hash/list/set/zset 网格）
+  const renderRedisDetail = () => {
+    const d = redisDetail
+    let body = null
+    if (!d) {
+      body = detailLoading ? <Spin size='small' /> : null
+    } else if (d.type === 'string') {
+      body = (
+        <Input.TextArea
+          value={String(d.value ?? '')}
+          readOnly
+          autoSize={{ minRows: 3, maxRows: 10 }}
+          className='db-sql-editor'
+        />
+      )
+    } else if (d.type === 'hash') {
+      body = (
+        <Table
+          size='small'
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          className='db-grid-table'
+          columns={[
+            { title: 'field', dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
+            { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+          ]}
+          dataSource={(d.fields || []).map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
+          rowKey='__rowKey'
+        />
+      )
+    } else if (d.type === 'list') {
+      body = (
+        <Table
+          size='small'
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          className='db-grid-table'
+          columns={[
+            { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
+            { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+          ]}
+          dataSource={(d.rows || []).map((v, i) => ({ index: i, value: v, __rowKey: i }))}
+          rowKey='__rowKey'
+        />
+      )
+    } else if (d.type === 'set') {
+      body = (
+        <Table
+          size='small'
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          className='db-grid-table'
+          columns={[
+            { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
+          ]}
+          dataSource={(d.rows || []).map((v, i) => ({ member: v, __rowKey: i }))}
+          rowKey='__rowKey'
+        />
+      )
+    } else if (d.type === 'zset') {
+      const list = []
+      const rows = d.rows || []
+      // zrange WITHSCORES 返回 [member, score, ...] 扁平数组
+      for (let i = 0; i < rows.length; i += 2) {
+        list.push({ member: rows[i], score: rows[i + 1], __rowKey: i })
+      }
+      body = (
+        <Table
+          size='small'
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          className='db-grid-table'
+          columns={[
+            { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
+            { title: 'score', dataIndex: 'score', key: 'score', width: 120, render: renderCell }
+          ]}
+          dataSource={list}
+          rowKey='__rowKey'
+        />
+      )
+    } else {
+      body = <span className='db-cell-null'>unsupported type: {d.type}</span>
+    }
+    return (
+      <div className='db-redis-detail'>
+        <div className='db-redis-detail-bar'>
+          <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
+          <span className='db-grid-page-no'>type: {d ? d.type : '...'}</span>
+          <span className='db-grid-page-no'>ttl: {d && d.ttl > 0 ? d.ttl + 's' : 'none'}</span>
+          <InputNumber
+            size='small'
+            min={0}
+            placeholder='seconds'
+            value={ttlInput}
+            onChange={setTtlInput}
+          />
+          <Button size='small' disabled={isReadonly} onClick={applyTtl}>set ttl</Button>
+          <Popconfirm title='delete this key?' onConfirm={delSelectedKey}>
+            <Button size='small' danger disabled={isReadonly}>delete</Button>
+          </Popconfirm>
+        </div>
+        {body}
+      </div>
+    )
+  }
+
+  const redisArea = (
+    <div className='db-redis-area'>
+      {
+        redisDb < 0
+          ? <Empty description='select a db node' />
+          : (
+            <>
+              <div className='db-redis-bar'>
+                <Input
+                  size='small'
+                  placeholder='match pattern, e.g. user:*'
+                  value={matchInput}
+                  onChange={ev => setMatchInput(ev.target.value)}
+                  onPressEnter={() => loadRedisKeys(redisDb, 1, matchInput)}
+                  className='db-redis-match'
+                  allowClear
+                />
+                <Button
+                  size='small'
+                  onClick={() => loadRedisKeys(redisDb, 1, matchInput)}
+                >
+                  filter
+                </Button>
+                <div className='db-grid-pager'>
+                  <Button
+                    size='small'
+                    icon={<LeftOutlined />}
+                    disabled={keyList.page <= 1 || keyList.loading}
+                    onClick={() => loadRedisKeys(redisDb, keyList.page - 1, keyList.match)}
+                  />
+                  <span className='db-grid-page-no'>page {keyList.page}</span>
+                  <Button
+                    size='small'
+                    icon={<RightOutlined />}
+                    disabled={!keyList.hasMore || keyList.loading}
+                    onClick={() => loadRedisKeys(redisDb, keyList.page + 1, keyList.match)}
+                  />
+                </div>
+              </div>
+              <Table
+                size='small'
+                loading={keyList.loading}
+                columns={redisKeyColumns}
+                dataSource={keyList.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+                rowKey='__rowKey'
+                pagination={false}
+                onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
+                rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
+                scroll={{ x: 'max-content' }}
+                className='db-grid-table db-redis-keys'
+              />
+              {
+                redisKey ? renderRedisDetail() : null
+              }
+            </>
+            )
+      }
+    </div>
+  )
+
   const mainArea = isRedis
-    ? <Empty description='redis keyspace browser (next step)' />
+    ? redisArea
     : (
       <Tabs
         className='db-tabs'
