@@ -82,14 +82,21 @@ async function getMetadata (conn) {
   return list
 }
 
-async function getPageData (conn, { table, page, pageSize, orderBy, order }) {
+function quoteIdent (name) {
+  return '`' + String(name).replace(/[`]/g, '') + '`'
+}
+
+async function getPageData (conn, { database, table, page, pageSize, orderBy, order }) {
   const pool = await getPool(conn)
   pageSize = Math.min(Number(pageSize) || 100, 1000)
   const offset = ((Number(page) || 1) - 1) * pageSize
-  let sql = 'SELECT * FROM `' + table + '`'
+  const fullTable = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  let sql = 'SELECT * FROM ' + fullTable
   if (orderBy) {
     const dir = order === 'descend' ? 'DESC' : 'ASC'
-    sql += ' ORDER BY `' + String(orderBy).replace(/[`]/g, '') + '` ' + dir
+    sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir
   }
   sql += ' LIMIT ' + pageSize + ' OFFSET ' + offset
   const [rows] = await pool.query(sql)

@@ -1,10 +1,80 @@
 .db-session-wrap
-  display: flex
-  flex-direction: column
-  height: 100%
-  width: 100%
-  overflow: hidden
-  padding: 8px
+  display flex
+  flex-direction row
+  height 100%
+  width 100%
+  overflow hidden
+  padding 8px
+  gap 8px
 
 .db-session-loading
-  min-height: 200px
+  display flex
+  align-items center
+  gap 8px
+  min-height 200px
+
+.db-session-loading-text
+  color var(--text)
+
+// 左侧元数据树
+.db-tree-panel
+  flex none
+  width 240px
+  min-width 180px
+  height 100%
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  padding 4px
+
+.db-tree-head
+  display flex
+  align-items center
+  justify-content space-between
+  padding 2px 4px
+
+.db-tree-title
+  color var(--text)
+  font-weight 500
+
+// 右侧主区
+.db-main-panel
+  flex 1 1 0
+  min-width 0
+  height 100%
+  display flex
+  flex-direction column
+  overflow hidden
+
+.db-grid-area
+  display flex
+  flex-direction column
+  height 100%
+  overflow hidden
+
+.db-grid-head
+  display flex
+  align-items center
+  justify-content space-between
+  padding 0 4px 8px
+
+.db-grid-title
+  color var(--text)
+  font-weight 500
+
+.db-grid-pager
+  display flex
+  align-items center
+  gap 8px
+
+.db-grid-page-no
+  color var(--text)
+
+.db-grid-table
+  flex 1 1 0
+  min-height 0
+  overflow auto
+
+.db-cell-null
+  color var(--text)
+  opacity 0.5

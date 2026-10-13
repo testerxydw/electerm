@@ -104,7 +104,7 @@ async function openDbTab (dbBookmark, sshBookmark) {
   // open metadata eagerly to surface connection errors at tab open
   const adapter = require('./' + inst.dbType)
   await withTimeout(adapter.getMetadata(inst.conn), OVERALL_TIMEOUT)
-  instances[dbBookmark.tabId] = inst
+  instances[dbBookmark.id] = inst
   return { ok: true }
 }
 
