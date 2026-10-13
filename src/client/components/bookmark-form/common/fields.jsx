@@ -20,6 +20,7 @@ import TriggersField from '../../triggers/triggers-field.jsx'
 import ProfileItem from './profile-item.jsx'
 import renderRunScripts from './run-scripts.jsx'
 import SerialPathSelector from './serial-path-selector.jsx'
+import DbTunnelSelect from './db-tunnel-select.jsx'
 import VvFileField from './vv-file-field.jsx'
 import SshHostSelector from './ssh-host-selector.jsx'
 import SshAuthTypeSelector from './ssh-auth-type-selector.jsx'
@@ -189,6 +190,13 @@ export function renderFormItem (item, formItemLayout, form, ctxProps, index) {
           loaddingSerials={ctxProps.loaddingSerials}
           store={ctxProps.store}
           {...item.props}
+        />
+      )
+    case 'dbTunnelSelect':
+      return (
+        <DbTunnelSelect
+          key={name}
+          bookmarks={ctxProps.bookmarks}
         />
       )
     case 'sshHostSelector':

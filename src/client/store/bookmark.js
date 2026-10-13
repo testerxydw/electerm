@@ -3,6 +3,7 @@
  */
 
 import uid from '../common/uid'
+import message from '../components/common/message'
 
 export default Store => {
   Store.prototype.handleGetSerials = async function () {
@@ -24,6 +25,25 @@ export default Store => {
     ids.forEach(id => {
       store.onSelectBookmark(id)
     })
+  }
+
+  // 数据库书签：测试连接并 toast，不打开终端 tab
+  Store.prototype.testDbConnection = async function (bookmark) {
+    const { store } = window
+    const sshBookmark = bookmark.sshTunnelBookmarkId
+      ? (store.bookmarks || []).find(d => d.id === bookmark.sshTunnelBookmarkId)
+      : null
+    const res = await window.pre.runGlobalAsync('testDbConnection', {
+      dbBookmark: bookmark,
+      sshBookmark
+    })
+      .catch(err => {
+        message.error(err.message)
+        return null
+      })
+    if (res && res.ok) {
+      message.success(res.message)
+    }
   }
 
   Store.prototype.addSshConfigs = function (items) {

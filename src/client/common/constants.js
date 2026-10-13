@@ -71,8 +71,21 @@ export const connectionMap = buildConst([
   'rdp',
   'vnc',
   'ftp',
-  'spice'
+  'spice',
+  'database'
 ])
+
+// 数据库引擎（阶段1 MVP：mysql/redis）
+export const dbTypeMap = buildConst([
+  'mysql',
+  'redis'
+])
+
+// 各引擎默认端口
+export const dbDefaultPortMap = {
+  mysql: 3306,
+  redis: 6379
+}
 
 export const authTypeMap = buildConst([
   'password',
@@ -155,6 +168,7 @@ export const terminalTelnetType = 'telnet'
 export const terminalLocalType = 'local'
 export const terminalFtpType = 'ftp'
 export const terminalSpiceType = 'spice'
+export const terminalDatabaseType = 'database'
 export const openedSidebarKey = 'opened-sidebar'
 export const sidebarPinnedKey = 'sidebar-pinned'
 export const leftSideBarOpenKey = 'left-side-bar-open'

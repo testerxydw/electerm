@@ -11,7 +11,8 @@ import {
   authTypeMap,
   settingMap,
   newBookmarkIdPrefix,
-  defaultBookmarkGroupId
+  defaultBookmarkGroupId,
+  terminalDatabaseType
 } from '../../common/constants'
 import copy from 'json-deep-copy'
 import generate from '../../common/uid'
@@ -134,6 +135,11 @@ export default function FormRenderer ({ config, props, onForm }) {
     })
     let msg = ''
     setTesting(true)
+    if (options.type === terminalDatabaseType) {
+      await window.store.testDbConnection(options)
+      setTesting(false)
+      return
+    }
     options = window.store.applyProfileToTabs(options)
     const res = await testCon(options)
       .then(r => r)
@@ -180,6 +186,11 @@ export default function FormRenderer ({ config, props, onForm }) {
       submit(evt, obj)
     }
     if (evt !== 'save' && evt !== 'saveAndCreateNew') {
+      // 数据库书签：连接 = 测试连接，不打开终端 tab
+      if (obj.type === terminalDatabaseType) {
+        props.hide()
+        return window.store.testDbConnection(obj)
+      }
       window.store.currentLayoutBatch = window.openTabBatch || 0
       props.store.addTab({
         ...copy(obj),

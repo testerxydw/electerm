@@ -9,6 +9,7 @@ import local from './local'
 import rdp from './rdp'
 import ftp from './ftp'
 import spice from './spice'
+import database from './database'
 
 const sessionConfig = {
   [connectionMap.ssh]: ssh,
@@ -19,7 +20,8 @@ const sessionConfig = {
   [connectionMap.rdp]: rdp,
   [connectionMap.ftp]: ftp,
   [connectionMap.web]: web,
-  [connectionMap.spice]: spice
+  [connectionMap.spice]: spice,
+  [connectionMap.database]: database
 }
 
 export default sessionConfig

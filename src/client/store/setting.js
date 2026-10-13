@@ -8,7 +8,8 @@ import {
   settingMap,
   settingCommonId,
   settingSyncId,
-  modals
+  modals,
+  terminalDatabaseType
 } from '../common/constants'
 import { buildNewTheme } from '../common/terminal-theme'
 import getInitItem from '../common/init-setting-item'
@@ -70,6 +71,10 @@ export default Store => {
     )
     if (!item) {
       return
+    }
+    // 数据库书签：双击 = 测试连接，不打开终端 tab
+    if (item.type === terminalDatabaseType) {
+      return store.testDbConnection(item)
     }
     store.addTab({
       ...item,
