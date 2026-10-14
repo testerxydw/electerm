@@ -14,7 +14,8 @@ import {
   terminalTelnetType,
   terminalFtpType,
   newBookmarkIdPrefix,
-  terminalSpiceType
+  terminalSpiceType,
+  terminalDatabaseType
 } from '../../common/constants'
 import { createTitleWithTag } from '../../common/create-title'
 import { LoadingOutlined, BookOutlined, RobotOutlined } from '@ant-design/icons'
@@ -31,6 +32,8 @@ export default class BookmarkIndex2 extends PureComponent {
   constructor (props) {
     super(props)
     let initType = props.formData.type
+    // 此白名单决定"编辑已有书签"时表单渲染成哪种类型（新书签可在表单内切换）。
+    // 缺项会被回退为 ssh —— database 曾遗漏于此，导致编辑数据库书签时只剩 SSH 表单、无法编辑连接参数。
     if (![
       terminalTelnetType,
       terminalWebType,
@@ -39,7 +42,8 @@ export default class BookmarkIndex2 extends PureComponent {
       terminalRdpType,
       terminalVncType,
       terminalFtpType,
-      terminalSpiceType
+      terminalSpiceType,
+      terminalDatabaseType
     ].includes(initType)) {
       initType = connectionMap.ssh
     }
