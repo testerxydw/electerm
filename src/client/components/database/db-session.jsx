@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
+import DbConnError from './db-conn-error'
 import clone from '../../common/to-simple-obj'
 import './db-session.styl'
 
@@ -108,7 +109,9 @@ export default function DbSession (props) {
   }
 
   // 连接类错误识别（触发顶部断线提示，而非仅 toast）
-  const CONN_ERR_RE = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|Server has gone away|Connection lost|connection is closed|Client has encountered|database tab not open/i
+  // ioredis 掉线时抛的是 "Stream isn't writeable and enableOfflineQueue options is false" /
+  // "Connection is closed."，而不是 errno，必须一并识别，否则掉线只会弹个 toast
+  const CONN_ERR_RE = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|Server has gone away|Connection lost|connection is closed|Stream isn't writeable|enableOfflineQueue|socket hang up|Client has encountered|database tab not open/i
   const isConnError = (err) => CONN_ERR_RE.test(
     String(err && err.message ? err.message : err)
   )
@@ -136,23 +139,30 @@ export default function DbSession (props) {
       })
   }
 
-  // 断线重连：先释放旧连接，再重新建连并刷新元数据（openDbTab 内部也会兜底关闭残留）
-  const reconnect = () => {
-    setConnError('')
-    setReady(false)
-    return window.pre.runGlobalAsync('closeDbTab', tabId)
-      .catch(() => {})
-      .then(() => window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark())))
-      .then(() => window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {}))
-      .then(data => {
-        setMetadata(data || [])
-        setReady(true)
-      })
-      .catch(err => {
-        setReady(true)
-        setConnError(err && err.message ? err.message : String(err))
-      })
-  }
+  // 重新建连：先释放旧连接（openDbTab 内部也会兜底关闭残留），再拉元数据
+  const doConnect = () => window.pre.runGlobalAsync('closeDbTab', tabId)
+    .catch(() => {})
+    .then(() => window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark())))
+    .then(() => window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {}))
+    .then(data => {
+      setMetadata(data || [])
+      setConnError('')
+      setReady(true)
+      return null
+    })
+
+  // 掉线后重连：失败仍留在界面上（顶部横幅提示），便于继续排查
+  const reconnect = () => doConnect()
+    .catch(err => {
+      setReady(true)
+      setConnError(err && err.message ? err.message : String(err))
+    })
+
+  // 初次建连失败后的重试：失败则继续停留在失败卡片上（而非进入空界面）
+  const retryConnect = () => doConnect()
+    .catch(err => {
+      setError(err && err.message ? err.message : String(err))
+    })
 
   // 挂载建连 + 首次拉元数据；卸载断开连接
   useEffect(() => {
@@ -394,8 +404,9 @@ export default function DbSession (props) {
         stack
       })
     }).catch(err => {
-      setKeyList(s => ({ ...s, loading: false }))
-      message.error(err && err.message ? err.message : String(err))
+      setKeyList(s => ({ ...s, loading: false, rows: [] }))
+      // 与 loadPage 一致：断线要置顶提示（带重连），而不是只弹个 toast
+      onOpError(err)
     })
   }
 
@@ -604,7 +615,11 @@ export default function DbSession (props) {
   if (error) {
     return (
       <div className='db-session-wrap db-session-error'>
-        <Alert type='error' showIcon message={error} />
+        <DbConnError
+          tab={tab}
+          error={error}
+          onRetry={retryConnect}
+        />
       </div>
     )
   }
@@ -1021,16 +1036,12 @@ export default function DbSession (props) {
         {
           connError
             ? (
-              <Alert
-                className='db-conn-error'
-                type='error'
-                showIcon
-                message={`${e('connectionLost')}: ${connError}`}
-                action={
-                  <Button size='small' onClick={reconnect}>
-                    {e('reconnect')}
-                  </Button>
-                }
+              <DbConnError
+                banner
+                tab={tab}
+                error={connError}
+                title={e('connectionLost')}
+                onRetry={reconnect}
               />
               )
             : null

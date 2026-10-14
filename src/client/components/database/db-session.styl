@@ -59,6 +59,16 @@
   &:active::after
     background var(--primary)
 
+.db-tree-head
+  display flex
+  align-items center
+  justify-content space-between
+  padding 2px 4px
+
+.db-tree-title
+  color var(--text)
+  font-weight 500
+
 // Redis 数据库节点：名称居左、键个数居右
 .db-tree-db
   display flex
@@ -71,16 +81,6 @@
   color var(--text-dark)
   font-size 12px
   font-variant-numeric tabular-nums
-
-.db-tree-head
-  display flex
-  align-items center
-  justify-content space-between
-  padding 2px 4px
-
-.db-tree-title
-  color var(--text)
-  font-weight 500
 
 // 右侧主区
 .db-main-panel
@@ -245,10 +245,56 @@
   min-height 0
   overflow auto
 
-// 断线提示：贴在主区顶部，不挤占左右分栏
-.db-conn-error
+// 连接失败卡片：标题 + 目标 + 原因 + 原始错误 + 重连/复制
+// （页面级：初次建连失败；区级 banner：操作中掉线）
+.db-conn-fail
+  max-width 560px
+  padding 12px 14px
+  border-radius 6px
+  background var(--error-bg)
+  box-shadow inset 3px 0 0 0 var(--error)
+  color var(--text)
+
+.db-conn-fail-banner
   flex none
+  max-width none
   margin-bottom 8px
+
+.db-conn-fail-head
+  display flex
+  align-items center
+  gap 6px
+  margin-bottom 8px
+  color var(--error)
+  font-weight 500
+
+.db-conn-fail-row
+  display flex
+  gap 8px
+
+.db-conn-fail-key
+  flex none
+  min-width 52px
+  opacity .65
+
+.db-conn-fail-val
+  word-break break-all
+
+// 原始错误：等宽 + 可滚动，方便复制给同事/工单，但不抢主信息
+.db-conn-fail-raw
+  margin 8px 0
+  padding 6px 8px
+  border-radius 4px
+  background unquote('color-mix(in srgb, var(--main) 55%, transparent)')
+  color var(--text-dark)
+  font-family var(--font-mono)
+  font-size 12px
+  max-height 96px
+  overflow auto
+  word-break break-all
+
+.db-conn-fail-actions
+  display flex
 
 // 多结果集：每个结果集一块（含 affected 行 + 网格）
 .db-sql-result-one

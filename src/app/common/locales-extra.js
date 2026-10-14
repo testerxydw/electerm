@@ -146,7 +146,23 @@ const en = {
   queryFailed: 'Query failed',
   yes: 'Yes',
   no: 'No',
-  dbNoPrimaryKey: 'No primary key: edit in the SQL tab instead (row cannot be located safely)'
+  dbNoPrimaryKey: 'No primary key: edit in the SQL tab instead (row cannot be located safely)',
+  // —— 连接失败提示（人话错误原因）——
+  connectionFailed: 'Failed to connect to database',
+  dbConnTarget: 'Target',
+  dbErrorCause: 'Cause',
+  copyError: 'Copy error',
+  dbErrRefused: 'Connection refused: the port is unreachable (service down, wrong port, or firewall)',
+  dbErrTimeout: 'Connection timed out: host unreachable or blocked by a firewall',
+  dbErrHostNotFound: 'Host name cannot be resolved: check the host address',
+  dbErrAuth: 'Authentication failed: wrong username/password, or the user may not connect from this host',
+  dbErrAuthRequired: 'A password is required or the password is wrong',
+  dbErrAuthProtocol: 'The server auth protocol is not supported by this client (e.g. MySQL 8 caching_sha2_password)',
+  dbErrNoDb: 'The database does not exist, or the user has no access to it',
+  dbErrReadOnly: 'This instance is read-only',
+  dbErrClosed: 'The connection was closed by the server: it may have restarted, or an idle timeout kicked in',
+  dbErrTunnel: 'The SSH tunnel could not be established: check the tunnel bookmark',
+  dbErrUnknown: 'Check host, port, credentials and network reachability'
 }
 
 // 简体中文
@@ -280,7 +296,23 @@ const zhCn = {
   queryFailed: '查询失败',
   yes: '是',
   no: '否',
-  dbNoPrimaryKey: '该表没有主键，无法安全定位行，请在 SQL 页手写 UPDATE'
+  dbNoPrimaryKey: '该表没有主键，无法安全定位行，请在 SQL 页手写 UPDATE',
+  // —— 连接失败提示（人话错误原因）——
+  connectionFailed: '连接数据库失败',
+  dbConnTarget: '目标',
+  dbErrorCause: '原因',
+  copyError: '复制错误信息',
+  dbErrRefused: '连接被拒绝：端口不可达（服务未启动、端口写错或被防火墙拦截）',
+  dbErrTimeout: '连接超时：主机不可达或被防火墙拦截',
+  dbErrHostNotFound: '主机名无法解析：请检查主机地址',
+  dbErrAuth: '认证失败：用户名或密码错误，或该用户不允许从当前主机连接',
+  dbErrAuthRequired: '需要密码，或密码不正确',
+  dbErrAuthProtocol: '服务端认证协议不被当前客户端支持（如 MySQL 8 的 caching_sha2_password）',
+  dbErrNoDb: '数据库不存在，或当前用户无权访问',
+  dbErrReadOnly: '该实例为只读',
+  dbErrClosed: '连接已被服务端关闭：服务端可能重启，或空闲超时被断开',
+  dbErrTunnel: 'SSH 隧道建立失败：请检查隧道书签',
+  dbErrUnknown: '请检查主机、端口、账号密码与网络连通性'
 }
 
 module.exports = {
