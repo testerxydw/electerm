@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import clone from '../../common/to-simple-obj'
@@ -273,8 +273,22 @@ export default function DbSession (props) {
     loadPage(sel, grid.page, orderBy, order)
   }
 
-  // 只读模式（默认开，书签 readOnly !== false）
-  const isReadonly = tab.readOnly !== false
+  // 只读模式（默认开，书签 readOnly !== false）。
+  // 用本地 state 而非直接读 tab：本组件是普通函数组件，父级不读 readOnly，
+  // tab 变更后不会重渲染，开关会停留在旧状态。
+  const [isReadonly, setIsReadonly] = useState(tab.readOnly !== false)
+
+  // 页面内切换只读：先同步主进程（白名单以主进程实例为权威），成功再改本地与 tab，
+  // 否则主进程失败时界面会显示成"可写"但实际仍被拦
+  const toggleReadonly = async (checked) => {
+    try {
+      await window.pre.runGlobalAsync('setDbReadOnly', tabId, checked)
+      setIsReadonly(checked)
+      window.store.updateTab(tabId, { readOnly: checked })
+    } catch (err) {
+      onOpError(err)
+    }
+  }
 
   const runSql = () => {
     const sql = sqlText.trim()
@@ -887,6 +901,14 @@ export default function DbSession (props) {
       >
         <div className='db-tree-head'>
           <span className='db-tree-title'>{tab.dbType}</span>
+          {/* 只读开关常驻页面顶栏：切换后主进程白名单同步生效（不用重开连接） */}
+          <Tooltip title={`${e('readOnly')} — ${e('readOnlyHint')}`}>
+            <Switch
+              size='small'
+              checked={isReadonly}
+              onChange={toggleReadonly}
+            />
+          </Tooltip>
           <Button
             type='text'
             size='small'

@@ -243,6 +243,7 @@ function initIpc () {
     testDbConnection: (...args) => require('./db-client').testDbConnection(...args),
     openDbTab: (...args) => require('./db-client').openDbTab(...args),
     dbClientOp: (...args) => require('./db-client').dbClientOp(...args),
+    setDbReadOnly: (...args) => require('./db-client').setDbReadOnly(...args),
     closeDbTab: (...args) => require('./db-client').closeDbTab(...args),
     closeAllDbTabs: (...args) => require('./db-client').closeAllDbTabs(...args),
     loadFontList,

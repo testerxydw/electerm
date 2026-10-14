@@ -175,6 +175,17 @@ async function dbClientOp (tabId, op, args) {
   return withTimeout(adapter[method](inst.conn, safeArgs), OVERALL_TIMEOUT)
 }
 
+// 页面上切换只读模式：白名单以主进程实例为权威（渲染层传参不可信），
+// 故前端改开关必须同步到这里，否则开关只是"看起来变了"而写操作仍被拦/仍放行
+async function setDbReadOnly (tabId, readOnly) {
+  const inst = instances[tabId]
+  if (!inst) {
+    throw new Error('database tab not open')
+  }
+  inst.readOnly = readOnly !== false
+  return { ok: true }
+}
+
 async function closeDbTab (tabId) {
   const inst = instances[tabId]
   if (!inst) {
@@ -207,6 +218,7 @@ module.exports = {
   testDbConnection,
   openDbTab,
   dbClientOp,
+  setDbReadOnly,
   closeDbTab,
   closeAllDbTabs
 }
