@@ -143,7 +143,9 @@ const en = {
   sshTunnel: 'SSH tunnel',
   approxRows: 'Approx rows',
   tableEmpty: 'Query ok, this table has no rows',
-  queryFailed: 'Query failed'
+  queryFailed: 'Query failed',
+  yes: 'Yes',
+  no: 'No'
 }
 
 // 简体中文
@@ -274,7 +276,9 @@ const zhCn = {
   sshTunnel: 'SSH 隧道',
   approxRows: '总行数（约）',
   tableEmpty: '查询成功，该表暂无数据',
-  queryFailed: '查询失败'
+  queryFailed: '查询失败',
+  yes: '是',
+  no: '否'
 }
 
 module.exports = {

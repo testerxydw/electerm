@@ -27,7 +27,7 @@ import { action } from 'manate'
 import iconsMap from '../sys-menu/icons-map.jsx'
 import { shortcutDescExtend } from '../shortcuts/shortcut-handler.js'
 import { isDropAfterHalf } from '../../common/drop-position'
-import { splitConfig } from '../../common/constants'
+import { splitConfig, terminalDatabaseType, dbTypeLabelMap } from '../../common/constants'
 
 const e = window.translate
 const onDragCls = 'ondrag-tab'
@@ -506,6 +506,34 @@ class Tab extends Component {
     )
   }
 
+  // 数据库会话：tooltip 展示「连接要点」（引擎 / 地址 / 库 / 用户），
+  // 而不是把被截断的 tab 标题再原样重复一遍
+  renderDbTitle (tab, title) {
+    const rows = [
+      [e('dbType'), dbTypeLabelMap[tab.dbType] || tab.dbType],
+      [e('host'), tab.dbHost ? `${tab.dbHost}:${tab.dbPort}` : ''],
+      [e('dbName'), tab.dbName],
+      [e('username'), tab.dbUser],
+      // readOnly 缺省即只读（与书签/主进程判定一致）
+      [e('readOnly'), tab.readOnly === false ? e('no') : e('yes')]
+    ].filter(d => d[1])
+    return (
+      <>
+        <div className='db-tip-title'>{title}</div>
+        <div className='db-tip-list'>
+          {
+            rows.map(([label, value]) => (
+              <div className='db-tip-row' key={label}>
+                <span className='db-tip-key'>{label}</span>
+                <span className='db-tip-val'>{value}</span>
+              </div>
+            ))
+          }
+        </div>
+      </>
+    )
+  }
+
   renderCloseIcon () {
     return (
       <span className='tab-close pointer'>
@@ -547,6 +575,8 @@ class Tab extends Component {
     let tooltipTitle = title
     if (sshTunnelResults) {
       tooltipTitle = this.renderTitle(sshTunnelResults, title)
+    } else if (tab.type === terminalDatabaseType) {
+      tooltipTitle = this.renderDbTitle(tab, title)
     }
     if (isEditting) {
       return this.renderEditting(tab, cls)
