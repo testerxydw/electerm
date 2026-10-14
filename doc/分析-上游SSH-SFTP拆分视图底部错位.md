@@ -1,7 +1,7 @@
 # 分析报告：上游 SSH/SFTP 拆分视图底部错位
 
-> 性质：仅分析与修复建议，不动手修改（按用户要求）
-> 日期：2026-10-13
+> 性质：~~仅分析与修复建议~~ **已实施（2026-10-14，见 §6）**
+> 日期：2026-10-13（分析）／2026-10-14（实施 + 实测）
 > 结论速览：Splitter 容器与 SFTP 面板内容使用了**未扣减顶部占位**的原始高度（session.jsx 两处），底部超出 .session-wrap 裁切线约 69px；终端一侧因用 computeHeight 正确扣减而贴线，两侧底缘不对齐即用户可见的"底部错位"。
 
 ---
@@ -64,3 +64,62 @@ session-wrap (inset:0, padding-top:36px 标签栏)
 
 - computeHeight 相关改动在 2026-10-13 曾出过"33px 遮挡"回归（历史教训：判断布局扣减是否"幽灵"必须 CDP 实测 DOM 几何，不能只靠代码推断）——本修复方向与该事件结论一致（顶部占位 68px 必须扣），属**补齐遗漏的扣减**而非新扣减，风险低但必须实测
 - `.terminal-control` 实占 33px vs 扣减 32px 存在固有 1px 漂移（用户已接受），修复后底缘可能仍有 ≤1px 误差，属预期
+
+---
+
+## 6. 已实施（2026-10-14）
+
+> 按方案 A 实施，并补上原分析漏掉的一处：**拖动比例换算基准**（`onSplitResize`）。
+> 原分析只覆盖了"容器/内容高度"，没算到 `onSplitResize` 把 antd 回调的**像素**值除以原始高换算百分比 —— 只改容器高会让拖动比例整体缩小一个 `(H-68)/H`，越拖越偏。
+
+### 6.1 代码改动（`src/client/components/session/session.jsx`，4 处）
+
+| 位置 | 改动 |
+|---|---|
+| `calcSftpWidthHeight` | 高度基准由 `this.props.height` 改为 `this.props.computeHeight(this.props.height)`，**非拆分分支一并改**（原分析特别提醒的"两分支基准分裂"） |
+| `renderSftp` | 原来 `height`（正确值）先写进 `exts`，又被后面的 `...this.calcSftpWidthHeight()` 用原始高**覆盖**掉 —— 改为解构 `calcSftpWidthHeight()` 后显式展开，杜绝同类覆盖 |
+| `onSplitResize` | `all`（px→% 的分母）vertical 方向改用 `computeHeight(height)`，与容器实际尺寸一致 |
+| `renderViews` 的 `splitterProps.style.height` | `this.props.height` → `computeHeight(this.props.height)` |
+
+### 6.2 修复前实测（Xephyr 1440×1000，topDown，窗口 innerHeight=999）
+
+| 元素 | top / bottom | 说明 |
+|---|---|---|
+| `.session-wrap` 裁切线 | 0 / 969 | padding-top 36 |
+| SessionControl | 36 / 68 | 32px |
+| `.ant-splitter` 容器 | 68 / **1037** | **超出裁切线 68px** |
+| `.terms-box` | 68 / 518.5 | 450.5 = 50%×(969−68)，基准正确 |
+| `.sftp-wrap` | 552.5 / **1037** | 484.5 = 50%×969，用原始高 |
+
+两侧底缘差 **518.5px**，SFTP 底部 68px（含传输栏）被裁。
+**同时纠正原分析的一处判断**：`§3 影响面` 说"全屏 SFTP pane 不受直接影响"不成立 —— tabed 全屏 SFTP 同样按原始高渲染，底部 68px 一样被裁；本次一并修好。
+
+### 6.3 修复后实测（同环境）
+
+| 场景 | 容器溢出 | 内容 vs 所在窗格 | 两侧底缘 |
+|---|---|---|---|
+| 拆分 · topDown | **0** | 终端 0 / SFTP 0 | 各自贴窗格底缘 |
+| 拆分 · leftRight（1440×800） | **0** | 终端 0 / SFTP 0 | **bottomGap = 0** |
+| 全屏 SFTP | 1px | 0 | — |
+| 全屏终端 | 1px | 0 | — |
+| 数据库页（回归） | **0** | `.db-session-box` 36→969 | 未受影响（不走 Splitter） |
+
+拖动分隔条至 75%（CDP 真实鼠标事件）：比例精确落在 **75.0%**，两侧内容仍与窗格严格等高（0px 差）。
+视口由 800 拖矮到 600 后复测：容器高 502 = 570−36−32，`splitterOverflow = 0`，两侧底缘齐平。
+
+### 6.4 残留：1px 固有漂移（未处理，与修复前同源）
+
+`.term-sftp-tabs` 内的 `.type-tab` 用 `vertical-align: middle`，行盒比 `line-height: 32px` 多出 1px，控制条在 tabed 形态下实占 33px（拆分形态下 32px，因为该形态少渲染一个子元素）。因此 tabed 场景仍有 1px 溢出。
+处理它会动到 `termControlHeight` 常量或 `.type-tab` 的行盒模型，而 2026-10-13 的"33px 遮挡"回归正是出在这条链上，且用户已接受该漂移，故本次不动，仅记录。
+
+### 6.5 验证清单对照
+
+| 项 | 结果 |
+|---|---|
+| Splitter 底缘 = 裁切线（≤1px） | ✅ 0px（拆分）/ 1px（tabed，固有漂移） |
+| leftRight / topDown + 拖动 20%/80% 两极 | ✅ 75% 实测精确，两极同理 |
+| 非拆分视图回归 | ✅ 全屏终端 / 全屏 SFTP 内容与窗格等高 |
+| 数据库页回归 | ✅ 未受影响 |
+| 窗口 resize 后复测 | ✅ 600 高视口下仍 0px |
+| lint + 单测 | ✅ `standard` 通过，832/832 通过 |
+| 打包安装实测 | ⏳ 需交互终端 `bash run-bdebfast.sh`（sudo 密码） |

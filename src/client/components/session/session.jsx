@@ -398,9 +398,16 @@ export default class SessionWrapper extends Component {
 
   calcSftpWidthHeight = () => {
     const {
-      width,
-      height
+      width
     } = this.props
+    // 高度基准必须与 calcTermWidthHeight 一致：扣掉顶部标签栏(36)与控制条(32)。
+    // 原来这里直接取 this.props.height（布局原始高），等于没扣顶部占位 ——
+    // CDP 实测（topDown, 窗口高 969）：Splitter 容器底缘 1037，超出 .session-wrap
+    // 裁切线 68px；终端侧用扣减后高度恰好贴线，SFTP 侧按原始高分配，
+    // 两侧底缘差 518px，且 SFTP 底部 68px（含传输栏）被 overflow hidden 切掉。
+    const height = this.props.computeHeight(
+      this.props.height
+    )
     if (!this.canSplitView() || !this.props.tab.sshSftpSplitView) {
       return {
         width,
@@ -452,13 +459,17 @@ export default class SessionWrapper extends Component {
     ) {
       return null
     }
-    const height = this.props.computeHeight(
-      this.props.height
-    )
     const cls = pane === paneMap.fileManager ||
     (sshSftpSplitView && this.canSplitView())
       ? ''
       : 'hide'
+    // 高度统一由 calcSftpWidthHeight 给出（内部已扣顶部占位），解构后再展开。
+    // 此前的写法在这里先算了一份正确高度，却被后面 ...calcSftpWidthHeight()
+    // 展开回来的原始高度覆盖，等于没修 —— 这正是拆分视图底部错位的直接原因
+    const {
+      width,
+      height
+    } = this.calcSftpWidthHeight()
     const exts = {
       ...this.props,
       sftpPathFollowSsh,
@@ -467,9 +478,9 @@ export default class SessionWrapper extends Component {
       pid: id,
       enableSftp,
       sessionOptions,
+      width,
       height,
-      pane,
-      ...this.calcSftpWidthHeight()
+      pane
     }
     return (
       <div className={cls}>
@@ -563,10 +574,15 @@ export default class SessionWrapper extends Component {
   onSplitResize = (sizes) => {
     const direction = this.getSplitDirection()
     const {
-      width,
-      height
+      width
     } = this.props
-    const all = direction === 'leftRight' ? width : height
+    // antd Splitter 的 onResize/onResizeEnd 给的是**像素**值，除以容器在该方向上
+    // 的实际尺寸才是百分比。容器高 = computeHeight(height)（见 renderViews 的
+    // splitterProps）；若继续用布局原始高，拖动得到的百分比会被整体缩小一个
+    // (H-68)/H，比例越拖越偏
+    const all = direction === 'leftRight'
+      ? width
+      : this.props.computeHeight(this.props.height)
     const size = sizes.map(d => d * 100 / all)
     this.setState({
       splitSize: size
@@ -593,7 +609,10 @@ export default class SessionWrapper extends Component {
       className: notSplitVew ? 'not-split-view' : '',
       style: {
         width: this.props.width + 'px',
-        height: this.props.height + 'px'
+        // 容器高必须与两侧内容同基准（扣掉标签栏 36 + 控制条 32，见 computeHeight）。
+        // 用布局原始高会让容器底缘超出 .session-wrap 裁切线 68px：终端侧恰好贴线、
+        // SFTP 侧被切，用户看到的就是"拆分视图底部错位"
+        height: this.props.computeHeight(this.props.height) + 'px'
       }
     }
     const paneProps = {
