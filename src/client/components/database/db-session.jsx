@@ -486,6 +486,15 @@ export default function DbSession (props) {
       width: 220,
       ellipsis: true,
       sorter: true,
+      // 双击命中区放在整个单元格（td）上：值短时后面的空白也能双击进编辑态，
+      // 之前挂在文字 span 上，只有精确双击到字符才生效
+      onCell: canEditCell
+        ? row => ({
+          onDoubleClick: () => startEdit(row, k),
+          className: 'db-cell-editable',
+          title: 'double click to edit'
+        })
+        : undefined,
       render: (v, row) => {
         if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
           return (
@@ -500,15 +509,7 @@ export default function DbSession (props) {
             />
           )
         }
-        return (
-          <span
-            className={canEditCell ? 'db-cell-editable' : undefined}
-            onDoubleClick={() => startEdit(row, k)}
-            title={canEditCell ? 'double click to edit' : undefined}
-          >
-            {renderCell(v)}
-          </span>
-        )
+        return renderCell(v)
       }
     }))
     : []

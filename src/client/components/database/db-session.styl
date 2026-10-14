@@ -164,8 +164,11 @@
   color var(--text)
 
 // 可编辑单元格（非只读且有主键）：hover 细线提示"可双击编辑"
-.db-cell-editable:hover
-  box-shadow inset 0 -1px 0 0 var(--primary)
+// 作用在 td 上（onCell），因此整格留白也是双击命中区
+.db-cell-editable
+  cursor text
+  &:hover
+    box-shadow inset 0 -1px 0 0 var(--primary)
 
 .db-cell-editor
   width 100%
