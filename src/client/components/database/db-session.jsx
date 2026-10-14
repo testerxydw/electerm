@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
+import clone from '../../common/to-simple-obj'
 import './db-session.styl'
 
 const PAGE_SIZE = 100
@@ -97,7 +98,8 @@ export default function DbSession (props) {
       orderBy: '',
       order: 'ascend'
     })
-    window.pre.runGlobalAsync('openDbTab', tab, getSshBookmark())
+    // tab/sshBookmark 来自 store（mobx proxy），IPC 结构化克隆前需转普通对象
+    window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark()))
       .then(() => {
         if (cancelled) {
           return undefined
