@@ -899,6 +899,8 @@ export default function DbSession (props) {
           }
         </Spin>
       </div>
+      {/* 拖拽条：样式上用负 margin 让它骑跨在左侧容器右边框上，
+          因此"拖的就是容器边缘"，而不是浮在面板与主区之间的独立竖条 */}
       <div
         className='db-tree-resizer'
         onMouseDown={startResize}

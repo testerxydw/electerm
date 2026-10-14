@@ -33,18 +33,30 @@
   border-radius var(--radius-sm)
   padding 4px
 
-// 拖拽条：按住左右拖动可调整元数据树宽度
+// 拖拽条：命中区骑跨在左侧容器右边框上，因此"拖的就是容器边缘"，
+// 而不是浮在面板与主区之间的独立竖条。
+// 定位算术：margin-left = -(gap 8 + 半宽 4) = -12 → 左边缘落在边框左 4px；
+// margin-right = +12 补回，净占位仍是 9px，故右侧主区位置与改动前完全一致。
 .db-tree-resizer
   flex none
-  width 5px
-  margin 0 2px
+  position relative
+  z-index 5
+  width 9px
+  margin 0 12px 0 -12px
   cursor col-resize
-  border-radius var(--radius-pill)
   background transparent
-  transition background var(--dur-1) var(--ease)
-  &:hover
-    background var(--border)
-  &:active
+  &::after
+    content ''
+    position absolute
+    top 0
+    bottom 0
+    left 4px
+    width 1px
+    background transparent
+    transition background var(--dur-1) var(--ease)
+  &:hover::after
+    background var(--primary)
+  &:active::after
     background var(--primary)
 
 .db-tree-head
