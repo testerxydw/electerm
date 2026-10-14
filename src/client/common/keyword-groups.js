@@ -50,22 +50,40 @@ const resetOff = (rule, on) => {
  * 视图
  * ------------------------------------------------------------------ */
 
-// 预设组视图：entries 带下标，便于单条开关
+/**
+ * 预设组视图
+ *
+ * entries 一律按**预设自身的规则表**展开（而不是只看配置里已存在的规则）：
+ * 没应用过的预设也能展开看到它到底有哪些规则，未应用的显示为未勾选、点击即应用。
+ * 已应用的条目带配置下标（index>=0）用于单条静音/恢复；未应用的 index=-1、on=false。
+ */
 export const presetGroupView = (list, preset) => {
-  const entries = []
+  const applied = new Map()
   clone(list).forEach((rule, index) => {
     if (rule.source === presetSource && rule.group === preset.name) {
-      entries.push({ rule, index })
+      applied.set(rule.keyword, { rule, index })
     }
   })
-  const on = entries.filter(({ rule }) => isRuleOn(rule)).length
+  const entries = preset.keywords.map(k => {
+    const hit = applied.get(k.keyword)
+    return {
+      keyword: k.keyword,
+      color: (hit && hit.rule.color) || k.color,
+      rule: hit
+        ? hit.rule
+        : { keyword: k.keyword, color: k.color, source: presetSource, group: preset.name },
+      index: hit ? hit.index : -1,
+      on: !!hit && isRuleOn(hit.rule)
+    }
+  })
+  const on = entries.filter(e => e.on).length
   return {
     name: preset.name,
     description: preset.description,
     total: preset.keywords.length,
     entries,
     on,
-    checked: entries.length > 0 && on === entries.length,
+    checked: on > 0 && on === entries.length,
     indeterminate: on > 0 && on < entries.length
   }
 }
@@ -85,8 +103,15 @@ export const userGroupViews = (list) => {
     }
     map.get(key).push({ rule, index })
   })
-  return [...map.entries()].map(([name, entries]) => {
-    const on = entries.filter(({ rule }) => isRuleOn(rule)).length
+  return [...map.entries()].map(([name, rawEntries]) => {
+    const entries = rawEntries.map(({ rule, index }) => ({
+      rule,
+      index,
+      on: isRuleOn(rule),
+      keyword: rule.keyword,
+      color: rule.color
+    }))
+    const on = entries.filter(e => e.on).length
     return {
       name,
       entries,
@@ -122,32 +147,55 @@ export const countOn = rules => (rules || []).filter(isRuleOn).length
 
 /**
  * 勾选/取消整个预设组
- * 取消 = 只打 off 保留规则（重新勾选即恢复，不丢配置）
+ * 勾选 = 该预设**全量**生效：已有的去掉 off，缺的按预设默认色补齐
+ *        （部分应用过时点组勾选，应补齐剩余规则，而不是只恢复已有的那几条）
+ * 取消 = 只打 off 保留已有规则（没应用过的无需处理）
  */
 export const setPresetGroupOn = (list, preset, on) => {
   const rules = clone(list)
   const mine = rules.filter(r => r.source === presetSource && r.group === preset.name)
-  if (!mine.length) {
-    if (!on) {
-      return rules
-    }
-    for (const k of preset.keywords) {
-      rules.push({
-        keyword: k.keyword,
-        color: k.color,
-        source: presetSource,
-        group: preset.name
-      })
-    }
+  const isMine = r => r.source === presetSource && r.group === preset.name
+  if (!on) {
+    return rules.map(r => (isMine(r) ? resetOff(r, false) : r))
+  }
+  const have = new Set(mine.map(r => r.keyword))
+  const missing = preset.keywords.filter(k => !have.has(k.keyword))
+  return [
+    ...rules.map(r => (isMine(r) ? resetOff(r, true) : r)),
+    ...missing.map(k => ({
+      keyword: k.keyword,
+      color: k.color,
+      source: presetSource,
+      group: preset.name
+    }))
+  ]
+}
+
+/**
+ * 预设组内单条开关（按关键字定位，因为它可能还没在配置里）
+ * 勾选：不存在就按预设默认色加进来，存在则去掉 off
+ * 取消：只打 off 保留（不存在则什么都不做）
+ */
+export const setPresetRuleOn = (list, preset, keyword, on) => {
+  const rules = clone(list)
+  const hit = rules.find(r => r.source === presetSource &&
+    r.group === preset.name && r.keyword === keyword)
+  if (hit) {
+    return rules.map(r => (r === hit ? resetOff(r, on) : r))
+  }
+  if (!on) {
     return rules
   }
-  // 注意用替换而不是 Object.assign：恢复时要真正删掉 off 字段
-  return rules.map(r => {
-    if (r.source !== presetSource || r.group !== preset.name) {
-      return r
+  const lib = preset.keywords.find(k => k.keyword === keyword) || {}
+  return [
+    ...rules,
+    {
+      keyword,
+      color: lib.color || 'red',
+      source: presetSource,
+      group: preset.name
     }
-    return resetOff(r, on)
-  })
+  ]
 }
 
 // 用户分组（含手动添加 group=''）整体开关

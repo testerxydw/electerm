@@ -45,6 +45,23 @@ describe('keyword groups', () => {
     assert.deepEqual(again.map(r => r.off), [undefined, undefined])
   })
 
+  test('组级勾选在部分应用时补齐剩余规则（而不是只恢复已有的）', async () => {
+    const { setPresetRuleOn, setPresetGroupOn, presetGroupView, activeKeywords } = await load()
+    // 只应用了其中一条
+    const partial = setPresetRuleOn([], preset, 'aa', true)
+    assert.equal(partial.length, 1)
+    assert.equal(presetGroupView(partial, preset).indeterminate, true)
+    // 组级勾选 → 补齐成整组
+    const full = setPresetGroupOn(partial, preset, true)
+    assert.equal(full.length, 2)
+    assert.deepEqual(activeKeywords(full).map(r => r.keyword), ['aa', 'bb'])
+    assert.equal(presetGroupView(full, preset).checked, true)
+    // 组级取消 → 保留规则只静音
+    const muted = setPresetGroupOn(full, preset, false)
+    assert.equal(muted.length, 2)
+    assert.deepEqual(muted.map(r => r.off), [true, true])
+  })
+
   test('single preset rule toggle leads to indeterminate group state', async () => {
     const { setPresetGroupOn, setEntryOn, presetGroupView } = await load()
     const on = setPresetGroupOn([], preset, true)
@@ -111,5 +128,31 @@ describe('keyword groups', () => {
     assert.equal(views.length, 11)
     assert.equal(views.every(v => v.on === 0 && !v.checked && !v.indeterminate), true)
     assert.equal(views.reduce((n, v) => n + v.total, 0), 147)
+  })
+
+  test('未应用的预设也能展开出完整规则清单（点击单条即应用）', async () => {
+    const { presetGroupView, setPresetRuleOn, activeKeywords } = await load()
+    // 配置里一条该预设的规则都没有
+    const view = presetGroupView([], preset)
+    assert.equal(view.entries.length, 2)
+    assert.deepEqual(view.entries.map(e => [e.keyword, e.index, e.on]), [['aa', -1, false], ['bb', -1, false]])
+    assert.equal(view.on, 0)
+    assert.equal(view.checked, false)
+
+    // 点单条 → 加进配置并使用预设默认色
+    const applied = setPresetRuleOn([], preset, 'bb', true)
+    assert.deepEqual(activeKeywords(applied), [{ keyword: 'bb', color: 'green' }])
+    const view2 = presetGroupView(applied, preset)
+    assert.deepEqual(view2.entries.map(e => [e.keyword, e.index, e.on]), [['aa', -1, false], ['bb', 0, true]])
+    assert.equal(view2.indeterminate, true)
+
+    // 再点一次 → 只打 off 保留
+    const muted = setPresetRuleOn(applied, preset, 'bb', false)
+    assert.equal(muted.length, 1)
+    assert.equal(muted[0].off, true)
+    assert.deepEqual(activeKeywords(muted), [])
+    const view3 = presetGroupView(muted, preset)
+    assert.equal(view3.entries.find(e => e.keyword === 'bb').on, false)
+    assert.equal(view3.entries.find(e => e.keyword === 'bb').index, 0)
   })
 })

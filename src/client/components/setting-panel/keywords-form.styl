@@ -79,6 +79,8 @@
   white-space nowrap
   overflow hidden
   text-overflow ellipsis
+  // 不参与收缩：否则长描述会把组名挤成 "Net." 这种；截断交给里面的省略号
+  flex 0 0 auto
   max-width 240px
 
 .kw-group-rename

@@ -24,6 +24,7 @@ import {
   renameUserGroup,
   setEntryOn,
   setPresetGroupOn,
+  setPresetRuleOn,
   setUserGroupOn,
   updateEntry,
   userGroupViews
@@ -79,7 +80,7 @@ function ColorSelect ({ value, onChange, themeConfig }) {
 // 单条规则：勾选 = 是否生效；用户规则可改颜色/正则/删除，预设规则只读
 function RuleRow (props) {
   const {
-    rule, editable, themeConfig, onToggle, onColor, onKeyword, onRemove, dupPreset
+    rule, editable, checked, themeConfig, onToggle, onColor, onKeyword, onRemove, dupPreset
   } = props
   const [text, setText] = useState(rule.keyword)
   const [invalid, setInvalid] = useState(false)
@@ -112,10 +113,12 @@ function RuleRow (props) {
     onKeyword(text)
   }
 
+  const isOn = checked === undefined ? isRuleOn(rule) : checked
+
   return (
-    <div className={'kw-rule' + (isRuleOn(rule) ? '' : ' off')}>
+    <div className={'kw-rule' + (isOn ? '' : ' off')}>
       <TriCheck
-        checked={isRuleOn(rule)}
+        checked={isOn}
         onChange={onToggle}
       />
       {
@@ -196,16 +199,17 @@ export default function KeywordForm (props) {
   const dupIndex = useMemo(presetKeywordIndex, [])
   const filtering = !!q || onlyOn
 
-  const match = (rule) => {
-    if (q && !rule.keyword.includes(q)) {
+  // entries 统一带 keyword/on（预设条目按预设规则表展开，未应用也在列表里）
+  const match = (entry) => {
+    if (q && !entry.keyword.includes(q)) {
       return false
     }
-    if (onlyOn && !isRuleOn(rule)) {
+    if (onlyOn && !entry.on) {
       return false
     }
     return true
   }
-  const visibleEntries = entries => entries.filter(({ rule }) => match(rule))
+  const visibleEntries = entries => entries.filter(match)
 
   const appliedPresets = presetViews.filter(v => v.on > 0)
   const presetRuleOn = presetViews.reduce((n, v) => n + v.on, 0)
@@ -213,7 +217,7 @@ export default function KeywordForm (props) {
   // 表单里可能有一条尚未填写的空规则（默认行），不计入统计
   const realEntries = entries => entries.filter(({ rule }) => rule.keyword)
   const userRuleOn = userGroups.reduce((n, g) => {
-    return n + realEntries(g.entries).filter(({ rule }) => isRuleOn(rule)).length
+    return n + realEntries(g.entries).filter(entry => entry.on).length
   }, 0)
   const userRuleTotal = userGroups.reduce((n, g) => n + realEntries(g.entries).length, 0)
 
@@ -240,19 +244,24 @@ export default function KeywordForm (props) {
     setOpenGrp(s => ({ ...s, [`u:${to}`]: true }))
   }
 
-  const renderRule = (entry) => {
+  // 预设规则按关键字定位（可能还没进配置），用户规则按下标
+  const renderRule = (entry, preset) => {
     const { rule, index } = entry
+    const isPreset = rule.source === 'preset'
     return (
       <RuleRow
-        key={'r' + index}
+        key={isPreset ? 'p' + entry.keyword : 'r' + index}
         rule={rule}
-        editable={rule.source !== 'preset'}
+        checked={entry.on}
+        editable={!isPreset}
         themeConfig={themeConfig}
-        onToggle={on => commit(setEntryOn(list, index, on))}
+        onToggle={on => commit(isPreset
+          ? setPresetRuleOn(list, preset, entry.keyword, on)
+          : setEntryOn(list, index, on))}
         onColor={color => commit(updateEntry(list, index, { color }))}
         onKeyword={keyword => commit(updateEntry(list, index, { keyword }))}
         onRemove={() => commit(removeEntry(list, index))}
-        dupPreset={rule.source === 'preset' ? null : dupIndex.get(rule.keyword)}
+        dupPreset={isPreset ? null : dupIndex.get(rule.keyword)}
       />
     )
   }
@@ -283,7 +292,7 @@ export default function KeywordForm (props) {
         </div>
         {
           expanded
-            ? <div className='kw-rules'>{entries.map(renderRule)}</div>
+            ? <div className='kw-rules'>{entries.map(e => renderRule(e, preset))}</div>
             : null
         }
       </div>
@@ -371,7 +380,7 @@ export default function KeywordForm (props) {
           expanded
             ? (
               <div className='kw-rules'>
-                {entries.map(renderRule)}
+                {entries.map(e => renderRule(e))}
                 {
                   named
                     ? null
