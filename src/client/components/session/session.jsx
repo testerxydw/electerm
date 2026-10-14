@@ -234,17 +234,25 @@ export default class SessionWrapper extends Component {
       pane, type, sshSftpSplitView
     } = tab
     if (type === terminalDatabaseType) {
+      // 高度口径与终端一致（布局高 - 标签栏 - 控制条）：数据库页没有终端控制条，
+      // 但顶部的 SessionControl 条同样占位，直接用布局原始高度会顶到底栏之下
+      const { width, height } = this.calcTermWidthHeight()
       const dbProps = {
         tab,
-        width: this.props.width,
-        height: this.props.height
+        width,
+        height
       }
       return (
-        <LazyBoundary>
-          <DbSession
-            {...dbProps}
-          />
-        </LazyBoundary>
+        <div
+          className='db-session-box'
+          style={{ width, height }}
+        >
+          <LazyBoundary>
+            <DbSession
+              {...dbProps}
+            />
+          </LazyBoundary>
+        </div>
       )
     }
     if (type === terminalWebType) {
@@ -558,7 +566,9 @@ export default class SessionWrapper extends Component {
   }
 
   renderViews = () => {
-    if (this.isNotTerminalType()) {
+    // 数据库页没有 sftp 分栏，与 RDP/Web 一样走「无分栏」路径：分栏容器用的是
+    // 布局原始高度（未扣标签栏），高度 100% 的内容会伸到底栏之下
+    if (this.isNotTerminalType() || this.props.tab.type === terminalDatabaseType) {
       return this.renderTerminals()
     }
     const notSplitVew = !this.canSplitView() || !this.props.tab.sshSftpSplitView
