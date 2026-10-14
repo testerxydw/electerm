@@ -138,6 +138,13 @@
   color var(--text)
   opacity 0.5
 
+// 可编辑单元格（非只读且有主键）：hover 细线提示"可双击编辑"
+.db-cell-editable:hover
+  box-shadow inset 0 -1px 0 0 var(--primary)
+
+.db-cell-editor
+  width 100%
+
 // 主区 Tabs：antd6 的内容层级为 body-holder > body > content，逐层撑满
 .db-tabs
   height 100%

@@ -19,6 +19,17 @@ const TREE_MIN_W = 160
 const TREE_MAX_W = 600
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 const nodeKey = (database, table) => JSON.stringify([database, table])
+// 单元格编辑生成的 UPDATE（MySQL 系）：标识符反引号转义，值按类型决定是否加引号
+const quoteIdent = (s) => '`' + String(s).replace(/`/g, '``') + '`'
+const quoteVal = (v) => {
+  if (v === null || v === undefined) {
+    return 'NULL'
+  }
+  if (typeof v === 'number' || typeof v === 'boolean') {
+    return String(v)
+  }
+  return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'"
+}
 
 export default function DbSession (props) {
   const { tab } = props
@@ -52,6 +63,9 @@ export default function DbSession (props) {
 
   // 表结构（describetable）
   const [structure, setStructure] = useState({ loading: false, rows: [] })
+  // 单元格编辑态：{ rowKey, col } + 输入框值（回车提交 / 失焦取消）
+  const [editing, setEditing] = useState(null)
+  const [editValue, setEditValue] = useState('')
   // 连接层错误：用于顶部提示 + 重连按钮
   const [connError, setConnError] = useState('')
 
@@ -290,6 +304,45 @@ export default function DbSession (props) {
     }
   }
 
+  // 行定位列：MySQL 的 DESC 结果含 Key='PRI'。取不到主键就不开单元格编辑，
+  // 否则 UPDATE 的 WHERE 无法唯一定位行，可能一次改掉多行。
+  const pkColumn = (structure.rows || [])
+    .filter(r => r.Key === 'PRI')
+    .map(r => r.Field)[0] || ''
+  const canEditCell = !isReadonly && !isRedis && !!pkColumn
+
+  const startEdit = (row, col) => {
+    if (!canEditCell) {
+      message.error(e('dbNoPrimaryKey'))
+      return
+    }
+    setEditing({ rowKey: row.__rowKey, col })
+    setEditValue(row[col] === null || row[col] === undefined ? '' : String(row[col]))
+  }
+
+  const cancelEdit = () => {
+    setEditing(null)
+  }
+
+  const submitEdit = () => {
+    const target = editing
+    setEditing(null)
+    if (!target || !sel) {
+      return
+    }
+    const row = grid.rows[target.rowKey]
+    const sql = `UPDATE ${quoteIdent(sel.database)}.${quoteIdent(sel.table)}` +
+      ` SET ${quoteIdent(target.col)} = ${quoteVal(editValue)}` +
+      ` WHERE ${quoteIdent(pkColumn)} = ${quoteVal(row[pkColumn])}`
+    setGrid(g => ({ ...g, loading: true }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', { sql })
+      .then(() => loadPage(sel, grid.page, grid.orderBy, grid.order))
+      .catch(err => {
+        setGrid(g => ({ ...g, loading: false }))
+        onOpError(err)
+      })
+  }
+
   const runSql = () => {
     const sql = sqlText.trim()
     if (!sql) {
@@ -417,7 +470,30 @@ export default function DbSession (props) {
       width: 220,
       ellipsis: true,
       sorter: true,
-      render: renderCell
+      render: (v, row) => {
+        if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
+          return (
+            <Input
+              size='small'
+              autoFocus
+              className='db-cell-editor'
+              value={editValue}
+              onChange={ev => setEditValue(ev.target.value)}
+              onPressEnter={submitEdit}
+              onBlur={cancelEdit}
+            />
+          )
+        }
+        return (
+          <span
+            className={canEditCell ? 'db-cell-editable' : undefined}
+            onDoubleClick={() => startEdit(row, k)}
+            title={canEditCell ? 'double click to edit' : undefined}
+          >
+            {renderCell(v)}
+          </span>
+        )
+      }
     }))
     : []
 

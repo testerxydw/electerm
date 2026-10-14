@@ -145,7 +145,8 @@ const en = {
   tableEmpty: 'Query ok, this table has no rows',
   queryFailed: 'Query failed',
   yes: 'Yes',
-  no: 'No'
+  no: 'No',
+  dbNoPrimaryKey: 'No primary key: edit in the SQL tab instead (row cannot be located safely)'
 }
 
 // 简体中文
@@ -278,7 +279,8 @@ const zhCn = {
   tableEmpty: '查询成功，该表暂无数据',
   queryFailed: '查询失败',
   yes: '是',
-  no: '否'
+  no: '否',
+  dbNoPrimaryKey: '该表没有主键，无法安全定位行，请在 SQL 页手写 UPDATE'
 }
 
 module.exports = {
