@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>关键字高亮 · 分组草图 v1</title>
+<style>
+  :root {
+    --main: #1c1c22;
+    --surface-1: #23232b;
+    --surface-2: #2a2a33;
+    --border: #33333d;
+    --text: #d6d6de;
+    --text-dark: #9a9aa6;
+    --primary: #45a9f9;
+    --sw-red: #ff2c6d;
+    --sw-green: #19f9d8;
+    --sw-yellow: #ffb86c;
+    --sw-blue: #45a9f9;
+    --sw-magenta: #ff75b5;
+    --sw-cyan: #b084eb;
+    --sw-white: #cdcdcd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--main); color: var(--text);
+    font: 13px/1.5 -apple-system, "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  }
+  .app { max-width: 900px; margin: 18px auto 60px; }
+  .head { display: flex; align-items: baseline; gap: 10px; padding: 0 4px 10px; }
+  .head .title { font-size: 16px; font-weight: 600; }
+  .head .sub { color: var(--text-dark); font-size: 12px; }
+  .toolbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;
+  }
+  .toolbar input[type=text] {
+    flex: 1 1 180px; min-width: 140px; background: var(--main);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); padding: 4px 8px; outline: none;
+  }
+  .toolbar input[type=text]:focus { border-color: var(--primary); }
+  button {
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 10px; cursor: pointer; font-size: 12px;
+  }
+  button:hover { border-color: var(--primary); color: #fff; }
+  .stat { margin-left: auto; color: var(--text-dark); font-size: 12px; }
+  label.chk { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dark); font-size: 12px; }
+
+  /* ---- 分组区块 ---- */
+  .section { margin-bottom: 12px; }
+  .sec-head {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0; padding: 8px 10px; font-weight: 600; cursor: pointer;
+  }
+  .sec-head .badge { color: var(--text-dark); font-weight: 400; font-size: 12px; }
+  .sec-body { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; }
+  .sec-body[hidden] { display: none; }
+
+  .grp {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-top: 1px solid var(--border); cursor: pointer;
+  }
+  .sec-body > .grp:first-child { border-top: none; }
+  .grp:hover { background: var(--surface-2); }
+  .grp .caret { width: 12px; color: var(--text-dark); transition: transform .12s; }
+  .grp.open .caret { transform: rotate(90deg); }
+  .grp .name { font-weight: 500; }
+  .grp .pill {
+    font-size: 11px; color: var(--text-dark);
+    border: 1px solid var(--border); border-radius: 9px; padding: 0 7px;
+  }
+  .grp .count { margin-left: auto; font-size: 12px; color: var(--text-dark); }
+  .grp .count.on { color: var(--sw-green); }
+  .grp .tag-user { font-size: 11px; color: var(--primary); border: 1px dashed var(--primary); border-radius: 3px; padding: 0 5px; }
+  .grp .desc { font-size: 11px; color: var(--text-dark); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+  .sub-grp { padding-left: 14px; border-left: 2px solid var(--surface-2); margin: 2px 0 2px 10px; }
+
+  .rules { }
+  .rules[hidden] { display: none; }
+  .rule {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 10px 4px 34px; font-size: 12px;
+  }
+  .rule:hover { background: var(--surface-1); }
+  .rule.off .rgx, .rule.off .swatch { opacity: .38; }
+  .rule .rgx {
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    color: var(--text); background: var(--main);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 1px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 560px;
+  }
+  .rule .rm { margin-left: auto; color: var(--text-dark); font-size: 11px; }
+  .rule .rm:hover { color: var(--sw-red); }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+  input[type=checkbox] { accent-color: var(--primary); cursor: pointer; }
+  .more { padding: 2px 10px 8px 34px; color: var(--text-dark); font-size: 11px; }
+
+  /* ---- 说明 ---- */
+  .notes {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-top: 14px;
+  }
+  .notes summary { cursor: pointer; font-weight: 600; color: var(--text); }
+  .notes h4 { margin: 12px 0 4px; font-size: 12px; color: var(--primary); }
+  .notes ul { margin: 4px 0 0; padding-left: 18px; color: var(--text-dark); }
+  .notes code {
+    font-family: Consolas, monospace; color: var(--text);
+    background: var(--main); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px;
+  }
+  .legend { color: var(--text-dark); font-size: 11px; padding: 0 4px 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="head">
+    <span class="title">设置 · 终端 · 关键字高亮</span>
+    <span class="sub">分组草图 v1（预设 / 用户）— 待你确认后再改代码</span>
+  </div>
+
+  <div class="toolbar">
+    <button>导入</button>
+    <button>导出</button>
+    <button>预设 ▾</button>
+    <input type="text" id="q" placeholder="搜索正则 / 关键字">
+    <button id="allOn">全部应用</button>
+    <button id="allOff">全部取消</button>
+    <label class="chk"><input type="checkbox" id="onlyOn"> 仅显示已启用</label>
+    <span class="stat" id="stat"></span>
+  </div>
+  <div class="legend">勾选框 = 是否应用该组/该条；半选表示组内部分规则被关闭；点分组名 = 展开/收起实际配置（默认收起）</div>
+
+  <div id="groups"></div>
+
+  <details class="notes">
+    <summary>实现说明（数据结构与联动，点开看）</summary>
+
+    <h4>1. 分组来源</h4>
+    <ul>
+      <li><code>预设</code>：内置 11 组（<code>keyword-presets.js</code>），只到「预设-XXX」一级，不再嵌套。</li>
+      <li><code>用户</code>：手动添加 + 导入的规则；<b>导入的文件一律归用户</b>，并按其文件名生成一个子分组（可多个子分组）。</li>
+    </ul>
+
+    <h4>2. 勾选语义（关键取舍）</h4>
+    <ul>
+      <li>取消勾选 = <b>不应用但保留</b>：规则留在配置里、标记 <code>off: true</code>，终端注入时跳过 → 重新勾选即恢复，不会丢规则。</li>
+      <li>组勾选框：全组规则都应用才为选中，部分应用显示半选。</li>
+      <li>导出保持完整（可选一个「仅导出已启用」开关，草图里先不加）。</li>
+    </ul>
+
+    <h4>3. 数据结构（兼容老配置）</h4>
+    <ul>
+      <li>单条规则：<code>{ keyword, color, source: 'preset'|'user', group: 'Networking'|'导入 · xxx.json'|null, off?: true }</code></li>
+      <li>老配置里没有 <code>group</code> 的规则 → 归到「用户 · 手动添加」；与某预设规则同名的条目显示「同 XXXX 预设」提示（可选提供「收进预设组」按钮）。</li>
+      <li>终端联动：<code>KeywordHighlighterAddon</code> 编译时跳过 <code>off</code> 规则（只在 <code>term-socket.js</code> 传参前过滤，主进程无需改）。</li>
+    </ul>
+
+    <h4>4. 与现有交互的差异</h4>
+    <ul>
+      <li>现在的实现是一个扁平列表（每行「颜色 + 正则 + 删除」）＋ 一个「预设」下拉，点一次预设就把规则平铺追加进来，之后无法区分来源、也不能整组关闭。</li>
+      <li>新方案保留单条编辑/删除能力，额外提供：整组应用/取消、半选状态、搜索、仅显示已启用、计数（组内 <code>已应用 x/N</code>、顶部 <code>预设 3/11 组 · 规则 42/147</code>）。</li>
+      <li>默认全部收起，避免 147 条规则把设置页撑爆（沿用现在的折叠思路，但按组折叠）。</li>
+    </ul>
+
+    <h4>5. 待你确认的点</h4>
+    <ul>
+      <li>取消预设勾选 = 保留规则（<code>off</code>）还是直接从配置删除？（草图按「保留」设计）</li>
+      <li>用户分组是否需要在勾选框之外保留「重命名/删除整个子分组」入口？</li>
+      <li>导入时是否需要询问「并入现有用户组 / 新建子分组」？</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+  // 真实预设（名称/条数与 keyword-presets.js 一致，规则只示意前几条）
+  const presets = [
+    { name: 'Networking', desc: '交换机/路由器 CLI（Cisco、Juniper、华为、MikroTik…）', rules: [
+      { keyword: '%[A-Z0-9_]+-[0-3]-[A-Z0-9_]+', color: 'red' },
+      { keyword: '%[A-Z0-9_]+-4-[A-Z0-9_]+', color: 'yellow' }
+    ], total: 12, on: true },
+    { name: 'Syslog & systemd', desc: 'journalctl / syslog / systemd 单元输出', rules: [
+      { keyword: '\\b(emerg(ency)?|alert|crit(ical)?|panic|fatal)\\b', color: 'red' },
+      { keyword: '\\b(err(or)?|fail(ed|ure|ures)?|denied|refused|timeout|unreachable)\\b', color: 'red' },
+      { keyword: '\\b(warn(ing)?|deprecated|degraded)\\b', color: 'yellow' }
+    ], total: 17, on: true },
+    { name: 'Linux kernel & dmesg', desc: 'dmesg / 内核环形缓冲 / 启动信息', rules: [
+      { keyword: '\\b(kernel panic|general protection fault|out of memory|oom[- ]kill(er)?)\\b', color: 'red' },
+      { keyword: '\\b(error|fail(ed|ure)?|timeout|dropped)\\b', color: 'red' }
+    ], total: 10, on: false },
+    { name: 'HTTP & web logs', desc: 'nginx / Apache 访问与错误日志', rules: [
+      { keyword: '\\[\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2} [+-]\\d{4}\\]', color: 'cyan' },
+      { keyword: '\\s(500|502|503|504)\\s', color: 'red' },
+      { keyword: '\\s(404)\\s', color: 'yellow' }
+    ], total: 21, on: true },
+    { name: 'Application log levels', desc: '通用应用日志级别（log4j、Python logging、slog…）', rules: [
+      { keyword: '\\b(FATAL|CRITICAL|PANIC|EMERG(ENCY)?|ALERT|SEVERE)\\b', color: 'red' },
+      { keyword: '\\b(ERROR|ERR|EXCEPTION|TRACEBACK|FAIL(ED|URE)?)\\b', color: 'red' }
+    ], total: 17, on: true },
+    { name: 'Exceptions & Stack Traces', desc: 'Java/Python/Go 崩溃签名', rules: [
+      { keyword: '\\b(?:[\\w$]+\\.)*[A-Z][\\w$]*(?:Exception|Error)\\b', color: 'red' },
+      { keyword: '\\bat [\\w$.]+\\([^)]*\\)', color: 'blue' }
+    ], total: 7, on: false },
+    { name: 'Timestamps', desc: 'ISO8601 / BSD syslog 日期 / 时长', rules: [
+      { keyword: '\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?\\]', color: 'cyan' }
+    ], total: 5, on: false },
+    { name: 'Docker & Kubernetes', desc: 'docker ps / kubectl get|describe|logs', rules: [
+      { keyword: '\\b(CrashLoopBackOff|ErrImagePull|ImagePullBackOff|OOMKilled|Evicted)\\b', color: 'red' },
+      { keyword: '\\bExited \\([1-9]\\d*\\)', color: 'red' },
+      { keyword: '\\b\\d+\\.\\d+\\.\\d+\\.\\d+:\\d+->\\d+/tcp', color: 'magenta' }
+    ], total: 15, on: false },
+    { name: 'Build & test output', desc: 'gcc / tsc / eslint / make / pytest', rules: [
+      { keyword: '\\b(error|failed|fatal|cannot find|undefined reference)\\b', color: 'red' },
+      { keyword: '\\b(FAIL|FAILED|FAILURES?|✗|✘)\\b', color: 'red' }
+    ], total: 14, on: false },
+    { name: 'Git', desc: 'git status/log/diff/fetch/push/merge', rules: [
+      { keyword: '<{7}|={7}|>{7}', color: 'red' },
+      { keyword: '\\b(conflict|both modified|unmerged|rejected|fatal|error)\\b', color: 'red' }
+    ], total: 16, on: false },
+    { name: 'Auth & security', desc: 'sshd / sudo / PAM / 防火墙 / TLS', rules: [
+      { keyword: '\\b(failed password|authentication failure|invalid user|permission denied)\\b', color: 'red' },
+      { keyword: '\\b(Accepted (password|publickey)|session opened|successful(ly)?)\\b', color: 'green' }
+    ], total: 13, on: false }
+  ]
+
+  const userGroups = [
+    {
+      name: '手动添加',
+      rules: [
+        { keyword: 'robinhood', color: 'blue' },
+        { keyword: '\\b(HSM|hsm)\\b', color: 'cyan' },
+        { keyword: 'lustre\\.log', color: 'green' }
+      ]
+    },
+    {
+      name: '导入 · electerm-keywords-highlight-2026-10-14-15-30-20.json',
+      rules: [
+        { keyword: '\\bWARN\\b', color: 'yellow' },
+        { keyword: 'storage-hsm-cluster\\d+', color: 'magenta' },
+        { keyword: '\\b192\\.168\\.115\\.67\\b', color: 'cyan' }
+      ]
+    }
+  ]
+
+  const $ = s => document.querySelector(s)
+  const groupsEl = $('#groups')
+
+  function render () {
+    groupsEl.innerHTML = ''
+    groupsEl.appendChild(section('预设', presets.map(p => ({
+      type: 'preset',
+      name: p.name,
+      desc: p.desc,
+      total: p.total,
+      rules: p.rules.map(r => ({ ...r, on: p.on }))
+    })), '11 组 · 147 条规则'))
+    groupsEl.appendChild(section('用户', userGroups.map(g => ({
+      type: 'user',
+      name: g.name,
+      total: g.rules.length,
+      rules: g.rules.map(r => ({ ...r, on: true }))
+    })), '2 个子分组 · 6 条规则'))
+    updateStat()
+  }
+
+  function section (title, items, badgeText) {
+    const sec = document.createElement('div')
+    sec.className = 'section'
+    const head = document.createElement('div')
+    head.className = 'sec-head'
+    head.innerHTML = `<span class="caret">▸</span><span>${title}</span><span class="badge">${badgeText}</span>`
+    const body = document.createElement('div')
+    body.className = 'sec-body'
+    body.hidden = true
+    head.onclick = () => {
+      body.hidden = !body.hidden
+      head.querySelector('.caret').textContent = body.hidden ? '▸' : '▾'
+    }
+    items.forEach(it => body.appendChild(groupRow(it)))
+    sec.appendChild(head)
+    sec.appendChild(body)
+    return sec
+  }
+
+  function groupRow (it) {
+    const wrap = document.createElement('div')
+    const row = document.createElement('div')
+    row.className = 'grp'
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    const caret = document.createElement('span')
+    caret.className = 'caret'
+    caret.textContent = '▸'
+    const name = document.createElement('span')
+    name.className = 'name'
+    name.textContent = it.name
+    row.appendChild(cb)
+    row.appendChild(caret)
+    row.appendChild(name)
+    if (it.type === 'user') {
+      const tag = document.createElement('span')
+      tag.className = 'tag-user'
+      tag.textContent = '用户'
+      row.appendChild(tag)
+    }
+    const pill = document.createElement('span')
+    pill.className = 'pill'
+    pill.textContent = it.total + ' 条'
+    row.appendChild(pill)
+    if (it.desc) {
+      const desc = document.createElement('span')
+      desc.className = 'desc'
+      desc.textContent = it.desc
+      row.appendChild(desc)
+    }
+    const count = document.createElement('span')
+    count.className = 'count'
+    row.appendChild(count)
+
+    const rulesBox = document.createElement('div')
+    rulesBox.className = 'rules'
+    rulesBox.hidden = true
+    it.rules.forEach((r, i) => {
+      const line = document.createElement('div')
+      line.className = 'rule' + (r.on ? '' : ' off')
+      const rcb = document.createElement('input')
+      rcb.type = 'checkbox'
+      rcb.checked = r.on
+      rcb.onclick = ev => ev.stopPropagation()
+      rcb.onchange = () => {
+        r.on = rcb.checked
+        line.classList.toggle('off', !r.on)
+        syncState()
+      }
+      const sw = document.createElement('span')
+      sw.className = 'swatch'
+      sw.style.background = `var(--sw-${r.color})`
+      const code = document.createElement('code')
+      code.className = 'rgx'
+      code.textContent = r.keyword
+      line.appendChild(rcb)
+      line.appendChild(sw)
+      line.appendChild(code)
+      if (it.type === 'user') {
+        const rm = document.createElement('span')
+        rm.className = 'rm'
+        rm.textContent = '删除'
+        line.appendChild(rm)
+      }
+      rulesBox.appendChild(line)
+    })
+    if (it.total > it.rules.length) {
+      const more = document.createElement('div')
+      more.className = 'more'
+      more.textContent = `…… 共 ${it.total} 条（草图仅示意前 ${it.rules.length} 条）`
+      rulesBox.appendChild(more)
+    }
+
+    row.onclick = () => {
+      rulesBox.hidden = !rulesBox.hidden
+      caret.textContent = rulesBox.hidden ? '▸' : '▾'
+      row.classList.toggle('open', !rulesBox.hidden)
+    }
+    cb.onclick = ev => ev.stopPropagation()
+    cb.onchange = () => {
+      it.rules.forEach(r => { r.on = cb.checked })
+      rulesBox.querySelectorAll('.rule').forEach((line, i) => {
+        line.classList.toggle('off', !it.rules[i].on)
+        line.querySelector('input').checked = it.rules[i].on
+      })
+      syncState()
+    }
+    wrap.appendChild(row)
+    wrap.appendChild(rulesBox)
+    wrap._data = it
+    wrap._cb = cb
+    wrap._count = count
+    return wrap
+  }
+
+  function syncState () {
+    document.querySelectorAll('.grp').forEach(row => {
+      const wrap = row.parentElement
+      const it = wrap._data
+      if (!it) return
+      const onCount = it.rules.filter(r => r.on).length
+      wrap._cb.checked = onCount > 0 && onCount === it.rules.length
+      wrap._cb.indeterminate = onCount > 0 && onCount < it.rules.length
+      wrap._count.textContent = `已应用 ${onCount}/${it.rules.length}${it.total > it.rules.length ? `（共 ${it.total}）` : ''}`
+      wrap._count.classList.toggle('on', onCount === it.rules.length && it.rules.length > 0)
+    })
+    updateStat()
+  }
+
+  function updateStat () {
+    const all = []
+    document.querySelectorAll('.grp').forEach(row => {
+      const it = row.parentElement._data
+      if (it) all.push(it)
+    })
+    const rules = all.flatMap(g => g.rules)
+    const on = rules.filter(r => r.on).length
+    const grpOn = all.filter(g => g.rules.length && g.rules.every(r => r.on)).length
+    $('#stat').textContent = `预设/用户组 ${grpOn}/${all.length} 已应用 · 规则 ${on}/${rules.length}`
+    // 过滤
+    const q = $('#q').value.trim()
+    const onlyOn = $('#onlyOn').checked
+    document.querySelectorAll('.rule').forEach(line => {
+      const rgx = line.querySelector('.rgx').textContent
+      const visible = (!q || rgx.includes(q)) && (!onlyOn || !line.classList.contains('off'))
+      line.style.display = visible ? '' : 'none'
+    })
+  }
+
+  $('#q').oninput = updateStat
+  $('#onlyOn').onchange = () => {
+    updateStat()
+    // 过滤时自动展开，便于看到命中的规则
+    document.querySelectorAll('.sec-head').forEach(h => {
+      const body = h.nextElementSibling
+      if (!body.hidden) return
+      h.click()
+    })
+  }
+  function setAll (on) {
+    document.querySelectorAll('.grp').forEach(row => {
+      const wrap = row.parentElement
+      const it = wrap._data
+      it.rules.forEach(r => { r.on = on })
+      wrap.querySelectorAll('.rules .rule').forEach((line, i) => {
+        line.classList.toggle('off', !it.rules[i].on)
+        line.querySelector('input').checked = it.rules[i].on
+      })
+    })
+    syncState()
+  }
+  function expandAllSections () {
+    document.querySelectorAll('.sec-head').forEach(h => {
+      if (h.nextElementSibling.hidden) h.click()
+    })
+  }
+  $('#allOn').onclick = () => {
+    setAll(true)
+    expandAllSections()
+  }
+  $('#allOff').onclick = () => setAll(false)
+
+  render()
+  syncState()
+</script>
+</body>
+</html>
