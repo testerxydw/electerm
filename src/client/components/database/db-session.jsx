@@ -7,8 +7,10 @@
 import React, { useEffect, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
+import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import clone from '../../common/to-simple-obj'
 import './db-session.styl'
@@ -33,9 +35,12 @@ const quoteVal = (v) => {
   return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'"
 }
 
-export default function DbSession (props) {
+export default auto(function DbSession (props) {
   const { tab } = props
   const tabId = tab.id
+  // 全屏状态直接读 store：auto 会订阅它，切换全屏时本页跟着重渲染
+  // （props 里的 fullscreen 不订阅 store，切全屏时页面不会重渲染）
+  const fullscreen = window.store.fullscreen
   const isRedis = tab.dbType === 'redis'
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
@@ -626,6 +631,7 @@ export default function DbSession (props) {
           error={error}
           onRetry={retryConnect}
         />
+        <RemoteFloatControl isFullScreen={!!fullscreen} />
       </div>
     )
   }
@@ -637,6 +643,7 @@ export default function DbSession (props) {
           <Spin />
           <span className='db-session-loading-text'>loading database...</span>
         </div>
+        <RemoteFloatControl isFullScreen={!!fullscreen} />
       </div>
     )
   }
@@ -1077,6 +1084,8 @@ export default function DbSession (props) {
         }
         {mainArea}
       </div>
+      {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
+      <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>
   )
-}
+})

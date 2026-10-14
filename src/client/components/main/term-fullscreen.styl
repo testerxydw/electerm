@@ -36,6 +36,16 @@
       top 10px !important
       right 10px !important
       bottom 10px !important
+    // 数据库页内容区：内联高度是布局高（非全屏高），全屏时固定铺满；
+    // 保留底栏时由 .fs-with-footer 覆写 bottom 让出底栏
+    .db-session-box
+      position fixed
+      left 0 !important
+      top 0 !important
+      right 0 !important
+      bottom 0 !important
+      width auto !important
+      height auto !important
 
 // RDP/VNC/Spice fullscreen has no footer (it is in the hide list above), so
 // the right panel has nothing to clear and may use the full height. When the
@@ -73,6 +83,10 @@
   .session-wrap.session-current
     .term-wrap
       height calc(100% - var(--footer-stack-height, 30px) - var(--shortcut-bar-h, 0px) - var(--shortcut-bar-kb-offset, 0px)) !important
+    // 数据库页：内容区定高容器在内联样式里钉的是布局高（非全屏高度），
+    // 全屏时改成固定铺满（底栏保留时让出底栏）
+    .db-session-box
+      bottom var(--footer-stack-height, 30px) !important
   // pinned quick-command bar (180px, same as quickCommandBoxHeight) sits
   // between terminal and footer — reserve its space too
   &.qm-pinned
