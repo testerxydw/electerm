@@ -20,6 +20,10 @@
  * They are per-command shell wrappers or editor grammars, and none of them
  * uses ANSI colour names, so these presets follow their categories rather
  * than their files.
+ *
+ * Database clients are the same story: mysql, psql and redis-cli colour their
+ * own output, and neither DBeaver nor DataGrip exposes a reusable rule set, so
+ * the Database preset follows the shape of their output instead.
  */
 
 // Patterns shared by several presets. mergeKeywordPreset dedupes on the
@@ -297,6 +301,48 @@ export const keywordPresets = [
       { keyword: '(?<![\\w])(/(?:etc|var|home|root|usr|opt|tmp|srv|run|proc|sys|dev)/[\\w./-]*)', color: 'blue' },
       { keyword: ipv4, color: 'cyan' },
       { keyword: ipv6, color: 'magenta' }
+    ]
+  },
+  {
+    // 数据库分组：既覆盖终端里跑 mysql/psql/redis-cli 的回显，也覆盖数据库页
+    // 表格单元格里的值（两处用的是同一份 config.keywords，见 db-highlight.jsx）。
+    // 刻意不加「裸数字」规则：规则是各自独立的正则，同一位置命中的更短匹配会
+    // 先于更长匹配胜出，裸数字会把时间戳/IP 这类从数字开始的规则整段挤掉。
+    name: 'Database & SQL',
+    description: 'SQL statements and mysql, psql and redis-cli output, plus the values a result grid renders: statement keywords, NULL and booleans, quoted identifiers, error codes and SQLSTATE, status lines, timestamps, UUIDs, hex and bytea blobs',
+    keywords: [
+      // SQL 语句关键词合成一条规则：同一条规则内按备选顺序命中，
+      // 多词形式必须排在其单词形式之前（GROUP BY 要在 GROUP 之前）
+      { keyword: '\\b(GROUP BY|ORDER BY|PRIMARY KEY|FOREIGN KEY|IF NOT EXISTS|IF EXISTS|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|COMMIT|ROLLBACK|SAVEPOINT|EXPLAIN|ANALYZE|VACUUM|MERGE|UPSERT|RETURNING|JOIN|UNION|INTERSECT|EXCEPT|DISTINCT|VALUES|WHERE|HAVING|LIMIT|OFFSET|REFERENCES|CONSTRAINT|CASCADE|RESTRICT|LIKE|ILIKE|BETWEEN|FROM|SET|INTO|TABLE|VIEW|INDEX|SEQUENCE|TRIGGER|PROCEDURE|FUNCTION|DATABASE|SCHEMA)\\b', color: 'blue' },
+      // 引用标识符：MySQL 反引号 `db`.`table`、PostgreSQL 双引号 "schema"."table"
+      // 双引号只认「单段标识符」，避免把普通字符串值 "hello world" 也算进来
+      { keyword: '`[^`\\n]{1,64}`', color: 'blue' },
+      { keyword: '"[A-Za-z_][\\w$]*"(?:\\."(?:[A-Za-z_][\\w$]*|\\*)")*', color: 'blue' },
+      // NULL 与布尔（含 Python 适配器的 None、Redis 的 nil）；排除 JSON 里的 "NULL" 值
+      { keyword: '(?<![\\w"])\\b(NULL|nil|None|NaN|true|false)\\b', color: 'magenta' },
+      // 报错：severity、MySQL 错误码/错误名、PostgreSQL SQLSTATE
+      { keyword: '\\b(ERROR|ER_[A-Z0-9_]+|SQLSTATE|FATAL|PANIC|DEADLOCK|DEADLOCK DETECTED|duplicate (key|entry|column)|already exists|does not exist|unknown (column|table|database|relation)|access denied|connection (refused|reset)|too many connections|lock wait timeout|syntax error|violates (check|unique|foreign key) constraint)\\b', color: 'red' },
+      // Redis 错误回复
+      { keyword: '\\((error)\\)|\\b(WRONGTYPE|NOSCRIPT|NOAUTH|NOPERM|EXECABORT|CROSSSLOT|MOVED|CLUSTERDOWN|MASTERDOWN|READONLY|MISCONF|BUSYGROUP|OOM command not allowed)\\b', color: 'red' },
+      // Redis 类型标记：(integer) (nil) (empty array) …
+      { keyword: '\\((integer|double|boolean|nil|empty array|empty list|empty set)\\)', color: 'magenta' },
+      // 状态行：MySQL「Query OK / 3 rows affected / 1 row in set」、psql「(3 rows)」、Redis「PONG」
+      { keyword: '\\b(Query OK|Empty set|rows? affected|rows? matched|rows? returned|in set|PONG|QUEUED)\\b|\\(\\d+ rows?\\)', color: 'green' },
+      // 耗时：MySQL/psql 结尾的 (0.01 sec)
+      { keyword: '\\(\\d+(?:\\.\\d+)? ?(?:sec|ms|min)\\)', color: 'cyan' },
+      // 警告与执行计划里的性能提示
+      { keyword: '\\b(WARNING|NOTICE|DEPRECATED|slow query|Using filesort|Using temporary|full table scan|seq scan|connection is read-only)\\b', color: 'yellow' },
+      // 时间戳复用共享写法（已带 JSON 边界排除）
+      { keyword: tsIso8601, color: 'cyan' },
+      { keyword: tsClock, color: 'cyan' },
+      // UUID、0x 十六进制字面量、PostgreSQL bytea 的 \x 十六进制
+      { keyword: '\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b', color: 'magenta' },
+      { keyword: '\\b0x[0-9a-f]{2,}\\b', color: 'magenta' },
+      { keyword: '\\\\x[0-9a-f]{2,}', color: 'magenta' },
+      // 体积/字节数：SHOW TABLE STATUS、pg_total_relation_size 等
+      { keyword: '\\b\\d+(?:\\.\\d+)? ?(?:bytes?|KiB|MiB|GiB|TiB|KB|MB|GB|TB)\\b', color: 'cyan' },
+      // SHOW PROCESSLIST / pg_stat_activity 里的来源主机
+      { keyword: ipv4, color: 'cyan' }
     ]
   }
 ]

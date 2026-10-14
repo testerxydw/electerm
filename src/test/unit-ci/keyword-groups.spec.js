@@ -122,12 +122,12 @@ describe('keyword groups', () => {
     assert.equal(idx.get(sample), keywordPresets[0].name)
   })
 
-  test('all presets view keeps 11 fixed groups even when nothing is applied', async () => {
+  test('all presets view keeps 12 fixed groups even when nothing is applied', async () => {
     const { allPresetViews } = await load()
     const views = allPresetViews([])
-    assert.equal(views.length, 11)
+    assert.equal(views.length, 12)
     assert.equal(views.every(v => v.on === 0 && !v.checked && !v.indeterminate), true)
-    assert.equal(views.reduce((n, v) => n + v.total, 0), 147)
+    assert.equal(views.reduce((n, v) => n + v.total, 0), 164)
   })
 
   test('未应用的预设也能展开出完整规则清单（点击单条即应用）', async () => {

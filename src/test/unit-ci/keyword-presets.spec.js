@@ -172,4 +172,44 @@ describe('keyword presets', () => {
     // "M " and "??" are too short to colour without hitting ordinary text
     assert.equal(addon.highlightKeywords(' M src/x.js'), ' M \u001b[34msrc/x.js\u001b[0m')
   })
+
+  test('Database preset colours SQL, NULL, errors and client status lines', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const addon = new KeywordHighlighterAddon(presetByName(keywordPresets, 'Database & SQL').keywords)
+
+    // SQL 语句 + NULL
+    const sql = addon.highlightKeywords('SELECT id FROM users WHERE name IS NULL')
+    assert.ok(sql.includes('\u001b[34mSELECT'))
+    assert.ok(sql.includes('\u001b[34mFROM'))
+    assert.ok(sql.includes('\u001b[34mWHERE'))
+    assert.ok(sql.includes('\u001b[35mNULL'))
+
+    // 引用标识符（反引号按段匹配：`db` 与 `t` 各一段）
+    assert.ok(addon.highlightKeywords('SELECT `db`.`t`').includes('\u001b[34m`db`'))
+    assert.ok(addon.highlightKeywords('SELECT "public"."users"').includes('\u001b[34m"public"."users"'))
+
+    // 报错与 Redis 错误回复
+    const err = addon.highlightKeywords('ERROR 1146 (42S02): Table users does not exist')
+    assert.ok(err.includes('\u001b[31mERROR'))
+    assert.ok(err.includes('\u001b[31mdoes not exist'))
+    assert.ok(addon.highlightKeywords("(error) ERR unknown command 'foo'").includes('\u001b[31m(error)'))
+
+    // 状态行与耗时（mysql / psql / redis-cli）
+    const status = addon.highlightKeywords('Query OK, 3 rows affected (0.01 sec)')
+    assert.ok(status.includes('\u001b[32mQuery OK'))
+    assert.ok(status.includes('\u001b[32mrows affected'))
+    assert.ok(status.includes('\u001b[36m(0.01 sec)'))
+    assert.ok(addon.highlightKeywords('(integer) 42').includes('\u001b[35m(integer)'))
+    assert.ok(addon.highlightKeywords('(3 rows)').includes('\u001b[32m(3 rows)'))
+
+    // 单元格值：时间戳 / UUID / 十六进制
+    assert.ok(addon.highlightKeywords('2026-10-14 19:22:31').includes('\u001b[36m2026-10-14'))
+    assert.ok(addon.highlightKeywords('550e8400-e29b-41d4-a716-446655440000').includes('\u001b[35m550e8400'))
+    assert.ok(addon.highlightKeywords('0x4D7953514C').includes('\u001b[35m0x4D7953514C'))
+
+    // 负例：普通 prose 不动
+    const prose = 'the quick brown fox jumps over the lazy dog'
+    assert.equal(addon.highlightKeywords(prose), prose)
+  })
 })
