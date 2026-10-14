@@ -3,6 +3,7 @@
  */
 
 import uid from '../common/uid'
+import clone from '../common/to-simple-obj'
 import message from '../components/common/message'
 
 export default Store => {
@@ -33,8 +34,14 @@ export default Store => {
     const sshBookmark = bookmark.sshTunnelBookmarkId
       ? (store.bookmarks || []).find(d => d.id === bookmark.sshTunnelBookmarkId)
       : null
-    // 主进程签名 testDbConnection(dbBookmark, sshBookmark)，多参数直传
-    const res = await window.pre.runGlobalAsync('testDbConnection', bookmark, sshBookmark)
+    // 主进程签名 testDbConnection(dbBookmark, sshBookmark)，多参数直传。
+    // store.bookmarks 是 mobx observable，直接过 IPC 会触发结构化克隆失败
+    // （"An object could not be cloned"），必须先转普通对象 —— 与 openDbTab 同法。
+    const res = await window.pre.runGlobalAsync(
+      'testDbConnection',
+      clone(bookmark),
+      clone(sshBookmark)
+    )
       .catch(err => {
         message.error(err.message)
         return null

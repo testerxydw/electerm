@@ -23,6 +23,8 @@ export default function DbSession (props) {
   const [error, setError] = useState('')
   const [metadata, setMetadata] = useState([])
   const [treeLoading, setTreeLoading] = useState(false)
+  // 树展开状态（受控：点击库节点标题也可展开/收起）
+  const [expandedKeys, setExpandedKeys] = useState([])
   // 当前选中表 {database, table}
   const [sel, setSel] = useState(null)
   // 数据网格状态
@@ -47,12 +49,16 @@ export default function DbSession (props) {
 
   // Redis 键空间状态（db 节点 → SCAN 键列表 → 类型化键详情）
   const [redisDb, setRedisDb] = useState(-1)
+  // SCAN 用「游标」分页：cursor 为当前页游标，nextCursor 用于推进；
+  // stack 记录已访问的游标，用于回退上一页（长度即当前页序号）。
   const [keyList, setKeyList] = useState({
     loading: false,
     rows: [],
-    page: 1,
+    cursor: '0',
+    nextCursor: '0',
     hasMore: false,
-    match: '*'
+    match: '*',
+    stack: []
   })
   const [matchInput, setMatchInput] = useState('')
   const [redisKey, setRedisKey] = useState('')
@@ -132,10 +138,13 @@ export default function DbSession (props) {
       setRedisDb(dbIndex)
       setRedisKey('')
       setRedisDetail(null)
-      loadRedisKeys(dbIndex, 1, matchInput)
+      loadRedisKeys(dbIndex, '0', matchInput)
       return
     }
     if (!node.isLeaf) {
+      // mysql 库节点：点击标题切换展开/收起
+      const k = String(node.key)
+      setExpandedKeys(ks => (ks.includes(k) ? ks.filter(x => x !== k) : [...ks, k]))
       return
     }
     const [database, table] = JSON.parse(node.key)
@@ -143,6 +152,11 @@ export default function DbSession (props) {
     setSel(next)
     loadPage(next, 1, '', 'ascend')
   }
+
+  // 选中态：叶子=当前表，redis=当前 db 节点
+  const selectedKeys = isRedis
+    ? (redisDb >= 0 ? [String(redisDb)] : [])
+    : (sel ? [nodeKey(sel.database, sel.table)] : [])
 
   const loadPage = (target, page, orderBy, order) => {
     setGrid(g => ({ ...g, loading: true }))
@@ -225,20 +239,22 @@ export default function DbSession (props) {
 
   // ---- Redis 键空间 ----
 
-  const loadRedisKeys = (dbIndex, page, match) => {
+  const loadRedisKeys = (dbIndex, cursor, match, stack = []) => {
     setKeyList(s => ({ ...s, loading: true }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       dbIndex,
-      page,
+      cursor: String(cursor || '0'),
       pageSize: PAGE_SIZE,
       match: match || '*'
     }).then(res => {
       setKeyList({
         loading: false,
         rows: (res && res.rows) || [],
-        page,
+        cursor: String(cursor || '0'),
+        nextCursor: (res && res.nextCursor) || '0',
         hasMore: !!(res && res.hasMore),
-        match: match || '*'
+        match: match || '*',
+        stack
       })
     }).catch(err => {
       setKeyList(s => ({ ...s, loading: false }))
@@ -273,7 +289,7 @@ export default function DbSession (props) {
       seconds: Number(ttlInput) || 0
     }).then(() => {
       message.success('ttl updated')
-      loadRedisKeys(redisDb, keyList.page, keyList.match)
+      loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
       selectRedisKey(redisKey)
     }).catch(err => {
       message.error(err && err.message ? err.message : String(err))
@@ -291,7 +307,7 @@ export default function DbSession (props) {
       message.success('key deleted')
       setRedisKey('')
       setRedisDetail(null)
-      loadRedisKeys(redisDb, 1, keyList.match)
+      loadRedisKeys(redisDb, '0', keyList.match)
     }).catch(err => {
       message.error(err && err.message ? err.message : String(err))
     })
@@ -349,7 +365,6 @@ export default function DbSession (props) {
     : metadata.map(db => ({
       title: db.name,
       key: nodeKey(db.name, ''),
-      selectable: false,
       children: (db.children || []).map(t => ({
         title: t.name,
         key: nodeKey(db.name, t.name),
@@ -593,13 +608,13 @@ export default function DbSession (props) {
                   placeholder='match pattern, e.g. user:*'
                   value={matchInput}
                   onChange={ev => setMatchInput(ev.target.value)}
-                  onPressEnter={() => loadRedisKeys(redisDb, 1, matchInput)}
+                  onPressEnter={() => loadRedisKeys(redisDb, '0', matchInput)}
                   className='db-redis-match'
                   allowClear
                 />
                 <Button
                   size='small'
-                  onClick={() => loadRedisKeys(redisDb, 1, matchInput)}
+                  onClick={() => loadRedisKeys(redisDb, '0', matchInput)}
                 >
                   filter
                 </Button>
@@ -607,15 +622,28 @@ export default function DbSession (props) {
                   <Button
                     size='small'
                     icon={<LeftOutlined />}
-                    disabled={keyList.page <= 1 || keyList.loading}
-                    onClick={() => loadRedisKeys(redisDb, keyList.page - 1, keyList.match)}
+                    disabled={keyList.stack.length === 0 || keyList.loading}
+                    onClick={() => {
+                      const stack = keyList.stack
+                      loadRedisKeys(
+                        redisDb,
+                        stack[stack.length - 1],
+                        keyList.match,
+                        stack.slice(0, -1)
+                      )
+                    }}
                   />
-                  <span className='db-grid-page-no'>page {keyList.page}</span>
+                  <span className='db-grid-page-no'>page {keyList.stack.length + 1}</span>
                   <Button
                     size='small'
                     icon={<RightOutlined />}
                     disabled={!keyList.hasMore || keyList.loading}
-                    onClick={() => loadRedisKeys(redisDb, keyList.page + 1, keyList.match)}
+                    onClick={() => loadRedisKeys(
+                      redisDb,
+                      keyList.nextCursor,
+                      keyList.match,
+                      [...keyList.stack, keyList.cursor]
+                    )}
                   />
                 </div>
               </div>
@@ -671,8 +699,10 @@ export default function DbSession (props) {
                 <Tree
                   blockNode
                   treeData={treeData}
+                  expandedKeys={expandedKeys}
+                  onExpand={keys => setExpandedKeys(keys.map(String))}
+                  selectedKeys={selectedKeys}
                   onSelect={onSelectTree}
-                  defaultExpandAll={false}
                   className='db-tree'
                 />
                 )
