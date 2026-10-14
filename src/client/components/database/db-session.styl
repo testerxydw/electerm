@@ -97,15 +97,23 @@
   height 100%
   overflow hidden
 
+// 表名 + 行数估算 + 翻页 + 刷新：一条左对齐的控制条（与 Redis 的 .db-redis-bar 同款），
+// 不用 space-between 把控件摊到整行两端
 .db-grid-head
   display flex
   align-items center
-  justify-content space-between
+  gap 8px
   padding 0 4px 8px
+  min-width 0
 
 .db-grid-title
   color var(--text)
   font-weight 500
+  // 表名过长时截断，不挤走后面的控件
+  max-width 45%
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
 
 .db-grid-pager
   display flex
