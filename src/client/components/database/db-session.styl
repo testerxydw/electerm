@@ -49,13 +49,35 @@
   align-items center
   gap 6px
 
-// 窗口级动作（全屏等）：靠右，与终端顶栏 SessionControl 右侧控件同位置同口径
+// 窗口级动作（查找/全屏）：靠右，与终端顶栏 SessionControl 右侧控件同位置同口径
 .db-head-actions
   margin-left auto
   display flex
   align-items center
   gap 6px
   color var(--text-dark)
+
+// 页面内查找：输入框 + 命中数 + 关闭
+.db-search
+  display flex
+  align-items center
+  gap 4px
+
+.db-search-input
+  width 150px
+
+.db-search-count
+  color var(--text-dark)
+  font-variant-numeric tabular-nums
+
+.db-search-on
+  color var(--primary)
+
+// 查找命中标记（颜色走 token：CSS 契约禁止裸色值）
+.db-kw-hit
+  background var(--primary)
+  color var(--primary-contrast)
+  border-radius var(--radius-xs)
 
 // 左右分栏容器（树 | 拖拽条 | 主区）：原 .db-session-wrap 的内边距搬到这里
 .db-body

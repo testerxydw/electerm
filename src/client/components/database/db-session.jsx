@@ -4,9 +4,9 @@
  * S5 将在此目录扩展 Redis 键空间形态，S4 增加 SQL 编辑器
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -36,6 +36,54 @@ const quoteVal = (v) => {
   }
   return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'"
 }
+// 页面内查找（顶栏搜索）：把命中片段包成 <mark className='db-kw-hit'>，
+// 命中数直接数页面里该 class 的个数（见 DbSession 里的 MutationObserver）
+function hlText (text, kw) {
+  const s = text === null || text === undefined ? '' : String(text)
+  if (!kw) {
+    return s
+  }
+  const lower = s.toLowerCase()
+  const out = []
+  let from = 0
+  let n = 0
+  let i = lower.indexOf(kw)
+  while (i >= 0) {
+    if (i > from) {
+      out.push(s.slice(from, i))
+    }
+    out.push(<mark className='db-kw-hit' key={n++}>{s.slice(i, i + kw.length)}</mark>)
+    from = i + kw.length
+    i = lower.indexOf(kw, from)
+  }
+  if (!out.length) {
+    return s
+  }
+  if (from < s.length) {
+    out.push(s.slice(from))
+  }
+  return out
+}
+// 单元格文本是「关键字高亮」产出的节点树（可能含多个 span），
+// 需要递归到 children 里再套查找命中，二者才能叠加
+function hlNode (node, kw) {
+  if (!kw || node === null || node === undefined || typeof node === 'boolean') {
+    return node
+  }
+  if (typeof node === 'string' || typeof node === 'number') {
+    return hlText(node, kw)
+  }
+  if (Array.isArray(node)) {
+    return node.map((n, i) => <React.Fragment key={i}>{hlNode(n, kw)}</React.Fragment>)
+  }
+  if (React.isValidElement(node)) {
+    const { children } = node.props
+    return children === undefined || children === null
+      ? node
+      : React.cloneElement(node, {}, hlNode(children, kw))
+  }
+  return node
+}
 
 export default auto(function DbSession (props) {
   const { tab } = props
@@ -44,6 +92,40 @@ export default auto(function DbSession (props) {
   // （props 里的 fullscreen 不订阅 store，切全屏时页面不会重渲染）
   const fullscreen = window.store.fullscreen
   const isRedis = tab.dbType === 'redis'
+  // 页面内查找（顶栏搜索）：搜索框开关 + 关键字 + 命中数（命中数由 DOM 统计）
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchText, setSearchText] = useState('')
+  const [searchHits, setSearchHits] = useState(0)
+  const bodyRef = useRef(null)
+  const kw = searchText.trim().toLowerCase()
+
+  // 命中数 = 页面里 .db-kw-hit 的个数（用 MutationObserver 跟随内容变化重算，
+  // 这样计数与"实际高亮出来的位置"永远一致，不必在数据结构上再遍历一遍）
+  useEffect(() => {
+    const root = bodyRef.current
+    if (!root) {
+      return
+    }
+    let raf = 0
+    const recount = () => {
+      window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(() => {
+        setSearchHits(root.querySelectorAll('.db-kw-hit').length)
+      })
+    }
+    recount()
+    const ob = new window.MutationObserver(recount)
+    ob.observe(root, { childList: true, subtree: true, characterData: true })
+    return () => {
+      ob.disconnect()
+      window.cancelAnimationFrame(raf)
+    }
+  }, [kw])
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearchText('')
+  }
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const [metadata, setMetadata] = useState([])
@@ -507,10 +589,10 @@ export default auto(function DbSession (props) {
       return <span className='db-cell-null'>NULL</span>
     }
     if (typeof v === 'object') {
-      return highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig)
+      return hlNode(highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig), kw)
     }
     // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类
-    return highlightValue(String(v), keywordPatterns, themeConfig)
+    return hlNode(highlightValue(String(v), keywordPatterns, themeConfig), kw)
   }
 
   const columns = grid.rows.length
@@ -610,7 +692,7 @@ export default auto(function DbSession (props) {
       // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
       title: (
         <span className='db-tree-db'>
-          <span className='db-tree-db-name'>{db.name}</span>
+          <span className='db-tree-db-name'>{hlText(db.name, kw)}</span>
           {
             typeof db.count === 'number'
               ? <span className='db-tree-db-count'>{db.count}</span>
@@ -622,10 +704,10 @@ export default auto(function DbSession (props) {
       isLeaf: false
     }))
     : metadata.map(db => ({
-      title: db.name,
+      title: hlText(db.name, kw),
       key: nodeKey(db.name, ''),
       children: (db.children || []).map(t => ({
-        title: t.name,
+        title: hlText(t.name, kw),
         key: nodeKey(db.name, t.name),
         isLeaf: true
       }))
@@ -1112,9 +1194,49 @@ export default auto(function DbSession (props) {
           onClick={loadTree}
         />
       </span>
-      {/* 窗口级动作：与终端顶栏（SessionControl 右侧）同口径——全屏入口在这里，
+      {/* 窗口级动作：与终端顶栏（SessionControl 右侧）同口径——查找 + 全屏入口在这里，
           退出全屏由页面内浮层 RemoteFloatControl 提供 */}
       <span className='db-head-actions'>
+        {
+          searchOpen
+            ? (
+              <span className='db-search'>
+                <Input
+                  size='small'
+                  autoFocus
+                  allowClear
+                  className='db-search-input'
+                  placeholder={e('search')}
+                  value={searchText}
+                  onChange={ev => setSearchText(ev.target.value)}
+                  onKeyDown={ev => {
+                    if (ev.key === 'Escape') {
+                      closeSearch()
+                    }
+                  }}
+                />
+                {/* 命中数：与终端搜索的 (n) 同风格 */}
+                <span className='db-search-count'>{kw ? `(${searchHits})` : ''}</span>
+                <Button
+                  type='text'
+                  size='small'
+                  icon={<CloseCircleOutlined />}
+                  title={e('close')}
+                  onClick={closeSearch}
+                />
+              </span>
+              )
+            : null
+        }
+        <Tooltip title={e('search')}>
+          <Button
+            type='text'
+            size='small'
+            className={searchOpen ? 'db-search-on' : undefined}
+            icon={<SearchOutlined />}
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          />
+        </Tooltip>
         <Tooltip title={e('fullscreen')}>
           <Button
             type='text'
@@ -1130,7 +1252,7 @@ export default auto(function DbSession (props) {
   return (
     <div className='db-session-wrap'>
       {headBar}
-      <div className='db-body'>
+      <div className='db-body' ref={bodyRef}>
         <div
           className='db-tree-panel'
           style={{ width: treeWidth }}
