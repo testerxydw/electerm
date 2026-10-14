@@ -10,7 +10,8 @@
 # 历史坑:
 #   - work/app 有独立的 node_modules (bdebfast npm i --omit=dev),
 #     patch-locales 必须同时 patch 两处, 且 --prepare 重建后要补 patch
-#   - Node 22 PATH 必须显式 export, 否则系统 node(v12/v18) 会抢
+#   - Node 22 PATH 必须显式注入, 否则系统 node(v18) 会抢; nvm 在 $HOME/.nvm
+#     (不是 $HOME/.config/nvm), 且不要硬编码版本号 → source nvm.sh + 扫 v22.* 兜底
 #   - pkill 必须转义 [/], 否则 /opt/electerm/electerm 自己会被匹配
 #   - dpkg -i 必须 --force-overwrite (测试包版本号相同)
 #   - compile 会吞 vite 失败, 必须实查 css 产物
@@ -18,10 +19,37 @@
 #     否则新旧 hash chunk 并存, 打包可能带上旧 chunk 造成"改了没效果"
 #   - 本脚本已编译并实查 css, 故 bdebfast 阶段透传 --skip-compile 避免白跑一次 vite;
 #     prepare/首次运行例外 (work/app 会重建, 必须由 bdebfast 在 prepare 之后再编译)
+#   - node_modules/electron 运行时会被外部清理, 若缺失 compile 报 Cannot find module
+#     'shelljs'、bdebfast 报找不到 electron/dist → 脚本 [0/5] 已自动恢复
+#     (装依赖必须 --legacy-peer-deps; electron 二进制走 ELECTRON_MIRROR 镜像)
 
 set -euo pipefail
 
-export PATH="$HOME/.config/nvm/versions/node/v22.23.2/bin:$PATH"
+# Node 22 显式注入 PATH: nvm 实际安装在 $HOME/.nvm (旧路径 $HOME/.config/nvm 已不存在,
+# 硬编码版本号也易失效) → 优先 source nvm.sh, 再兜底扫最新 v22.x bin 目录
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # nvm.sh 与 set -u 不兼容, source 期间临时关闭
+  set +u
+  # shellcheck disable=SC1090
+  . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
+  set -u
+  nvm use 22 >/dev/null 2>&1 || true
+fi
+NODE22_BIN="$(ls -d "$NVM_DIR"/versions/node/v22.*/bin 2>/dev/null | sort -V | tail -1 || true)"
+if [ -n "$NODE22_BIN" ]; then
+  export PATH="$NODE22_BIN:$PATH"
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "[FAIL] 未找到 node, 请先安装 Node 22 (nvm install 22)"
+  exit 1
+fi
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  echo "[FAIL] 当前 node $(node -v), 本项目需要 Node 22 (vite8/electron44)"
+  exit 1
+fi
+echo "[env] node $(node -v) @ $(command -v node)"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
@@ -79,6 +107,21 @@ apply_cpu_limit () {
   TRAEBUILD_CPU_PINNED=1 exec taskset -c 0-$((cores-1)) bash "$0" "${ORIG_ARGS[@]}"
 }
 apply_cpu_limit
+
+# 依赖预检: node_modules / electron 运行时会被外部清理(工作区克隆、缓存清理等),
+# 缺了就白跑 compile 直接报 Cannot find module 'shelljs' / 找不到 electron/dist
+if [ ! -d node_modules ] || [ ! -d node_modules/shelljs ]; then
+  echo "========== [0/5] 依赖缺失, 恢复 node_modules =========="
+  # 上游 @types/node 22.9.3 与 vite8 peer(>=22.12.0) 冲突, 仓库约定用 --legacy-peer-deps
+  npm install --legacy-peer-deps --no-audit --no-fund
+fi
+if [ ! -d node_modules/electron/dist ]; then
+  echo "========== [0/5] electron 运行时缺失, 下载二进制 =========="
+  # 默认走 npmmirror 镜像(国内直连 github release 常常失败/超时), 可用 ENV 覆盖
+  export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
+  node node_modules/electron/install.js
+fi
+
 # UI 分支自动打 UI 包 (--no-ui 可豁免)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$UI_MODE" -eq 0 ] && [ "$NO_UI" -eq 0 ] && [ "$BRANCH" = "ui-beautification" ]; then
