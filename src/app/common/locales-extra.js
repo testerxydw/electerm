@@ -187,7 +187,8 @@ const en = {
   kwImportAsk: 'Import keywords into',
   kwImportNew: 'New subgroup',
   kwImportMerge: 'Merge into existing group',
-  kwImportTip: 'Imported rules always belong to the User group; same keyword in the same group is skipped'
+  kwImportTip: 'Imported rules always belong to the User group; same keyword in the same group is skipped',
+  kwToggleFormat: 'Click to switch raw / formatted view'
 }
 
 // 简体中文
@@ -362,7 +363,8 @@ const zhCn = {
   kwImportAsk: '导入到',
   kwImportNew: '新建子分组',
   kwImportMerge: '并入现有分组',
-  kwImportTip: '导入的规则一律归「用户」分组；同分组内重复的关键字会自动跳过'
+  kwImportTip: '导入的规则一律归「用户」分组；同分组内重复的关键字会自动跳过',
+  kwToggleFormat: '点击切换 原文 / 格式化显示'
 }
 
 module.exports = {

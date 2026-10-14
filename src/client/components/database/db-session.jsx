@@ -5,8 +5,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, FormatPainterOutlined } from '@ant-design/icons'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -121,14 +121,17 @@ export default auto(function DbSession (props) {
     () => (stringValue ? detectFormats(stringValue) : []),
     [stringValue]
   )
-  const formatItems = [
-    { key: 'raw', label: e('rawText') },
-    ...valueFormats.map(f => ({ key: f.key, label: f.label }))
-  ]
-  const activeFormat = ['raw', ...valueFormats.map(f => f.key)].includes(valueFormat)
+  // 只有一个切换按钮：原文 ⇄ 格式化（格式化自动取嗅探到的第一个格式，不再让用户选）
+  const autoFormat = valueFormats[0]
+  const activeFormat = valueFormat !== 'raw' && valueFormats.some(f => f.key === valueFormat)
     ? valueFormat
     : 'raw'
-  const formatLabel = formatItems.find(i => i.key === activeFormat)?.label || e('rawText')
+  const formatLabel = activeFormat === 'raw'
+    ? e('rawText')
+    : (valueFormats.find(f => f.key === activeFormat) || {}).label || activeFormat
+  const toggleFormat = () => {
+    setValueFormat(activeFormat === 'raw' ? (autoFormat ? autoFormat.key : 'raw') : 'raw')
+  }
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
   const getSshBookmark = () => {
@@ -847,18 +850,15 @@ export default auto(function DbSession (props) {
     if (!d) {
       body = detailLoading ? <Spin size='small' /> : null
     } else if (d.type === 'string') {
-      body = activeFormat === 'raw'
-        ? (
-          <Input.TextArea
-            value={stringValue}
-            readOnly
-            autoSize={{ minRows: 3, maxRows: 10 }}
-            className='db-sql-editor'
-          />
-          )
-        : (
-          <pre className='db-value-formatted'>{formatValue(stringValue, activeFormat)}</pre>
-          )
+      // 原文 / 格式化都走高亮渲染（<pre> 保留换行与缩进，可选中复制）
+      const shown = activeFormat === 'raw'
+        ? stringValue
+        : formatValue(stringValue, activeFormat)
+      body = (
+        <pre className='db-value-pre'>
+          {highlightValue(shown, keywordPatterns, themeConfig)}
+        </pre>
+      )
     } else if (d.type === 'hash') {
       body = (
         <Table
@@ -934,25 +934,17 @@ export default auto(function DbSession (props) {
           <span className='db-grid-page-no'>type: {d ? d.type : '...'}</span>
           <span className='db-grid-page-no'>ttl: {d && d.ttl > 0 ? d.ttl + 's' : 'none'}</span>
           {
-            // 值可格式化时（JSON / Python 字面量 / XML / URL）给一个格式选择
+            // 值可格式化时（JSON / Python 字面量 / XML / URL）给一个切换按钮
             valueFormats.length
               ? (
-                <Dropdown
-                  trigger={['click']}
-                  menu={{
-                    items: formatItems,
-                    selectedKeys: [activeFormat],
-                    onClick: ({ key }) => setValueFormat(key)
-                  }}
+                <Button
+                  size='small'
+                  icon={<SwapOutlined />}
+                  title={e('kwToggleFormat')}
+                  onClick={toggleFormat}
                 >
-                  <Button
-                    size='small'
-                    icon={<FormatPainterOutlined />}
-                    title={e('formatValue')}
-                  >
-                    {formatLabel}
-                  </Button>
-                </Dropdown>
+                  {formatLabel}
+                </Button>
                 )
               : null
           }
