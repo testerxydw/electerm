@@ -173,6 +173,24 @@
 .db-cell-editor
   width 100%
 
+// 格式化后的值预览（JSON / Python 字面量 / XML / URL）：等宽、可滚动、可选中复制
+.db-value-formatted
+  flex 1 1 auto
+  min-height 0
+  margin 0
+  padding 6px 8px
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main)
+  color var(--text)
+  font-family var(--font-mono)
+  font-size 12px
+  line-height 1.5
+  white-space pre-wrap
+  word-break break-all
+  user-select text
+
 // 主区 Tabs：antd6 的内容层级为 body-holder > body > content，逐层撑满
 .db-tabs
   height 100%

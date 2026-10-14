@@ -163,7 +163,9 @@ const en = {
   dbErrClosed: 'The connection was closed by the server: it may have restarted, or an idle timeout kicked in',
   dbErrTunnel: 'The SSH tunnel could not be established: check the tunnel bookmark',
   dbErrUnknown: 'Check host, port, credentials and network reachability',
-  refresh: 'Refresh'
+  refresh: 'Refresh',
+  formatValue: 'Format value',
+  rawText: 'Raw'
 }
 
 // 简体中文
@@ -314,7 +316,9 @@ const zhCn = {
   dbErrClosed: '连接已被服务端关闭：服务端可能重启，或空闲超时被断开',
   dbErrTunnel: 'SSH 隧道建立失败：请检查隧道书签',
   dbErrUnknown: '请检查主机、端口、账号密码与网络连通性',
-  refresh: '刷新'
+  refresh: '刷新',
+  formatValue: '格式化值',
+  rawText: '原文'
 }
 
 module.exports = {
