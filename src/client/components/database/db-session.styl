@@ -1,11 +1,63 @@
 .db-session-wrap
   display flex
-  flex-direction row
+  flex-direction column
   height 100%
   width 100%
   overflow hidden
+
+// 顶部工具条：引擎/目标/状态 + 只读/刷新。
+// 高度 32px 与 .terminal-control 钉死的一致（session/sessions.jsx 扣减口径依赖此值）
+.db-head
+  flex none
+  height 32px
+  display flex
+  align-items center
+  gap 8px
+  padding 0 10px
+  border-bottom 1px solid var(--border)
+  font-size 12px
+
+.db-head-engine
+  flex none
+  padding 0 6px
+  border-radius var(--radius-sm)
+  background var(--hover-bg)
+  line-height 18px
+
+.db-head-target
+  min-width 0
+  color var(--text-dark)
+
+.db-head-state
+  flex none
+  display flex
+  align-items center
+  gap 4px
+  color var(--text-dark)
+
+.db-head-dot
+  width 6px
+  height 6px
+  border-radius var(--radius-pill)
+  background var(--success)
+  &.err
+    background var(--error)
+
+.db-head-right
+  margin-left auto
+  display flex
+  align-items center
+  gap 6px
+
+// 左右分栏容器（树 | 拖拽条 | 主区）：原 .db-session-wrap 的内边距搬到这里
+.db-body
+  flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction row
   padding 8px
   gap 8px
+  overflow hidden
 
 // 错误态：不沿用 .db-session-wrap 的 flex 行布局，避免 Alert 被拉伸满屏
 .db-session-error
@@ -58,16 +110,6 @@
     background var(--primary)
   &:active::after
     background var(--primary)
-
-.db-tree-head
-  display flex
-  align-items center
-  justify-content space-between
-  padding 2px 4px
-
-.db-tree-title
-  color var(--text)
-  font-weight 500
 
 // Redis 数据库节点：名称居左、键个数居右
 .db-tree-db

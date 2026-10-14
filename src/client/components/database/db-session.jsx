@@ -14,6 +14,7 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { detectFormats, formatValue } from './db-value-format'
 import clone from '../../common/to-simple-obj'
+import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
 const e = window.translate
@@ -1064,71 +1065,105 @@ export default auto(function DbSession (props) {
       />
       )
 
+  // 顶部工具条：数据库页专有（终端那条 SessionControl 对数据库 tab 已关闭）。
+  // 高度与 .terminal-control 一致(32px)，故高度口径不需要另加扣减。
+  // 目标文本不带引擎名（引擎已由左侧徽标表达），避免"Redis Redis ·…"重复
+  const target = [
+    tab.dbHost ? `${tab.dbHost}:${tab.dbPort || ''}` : tab.title,
+    tab.dbName,
+    tab.dbUser
+  ].filter(Boolean).join(' · ')
+  const headBar = (
+    <div className='db-head'>
+      <span className='db-head-engine'>{dbTypeLabelMap[tab.dbType] || tab.dbType}</span>
+      <span className='db-head-target elli' title={target}>{target}</span>
+      <span className='db-head-state'>
+        <i className={`db-head-dot ${connError ? 'err' : 'ok'}`} />
+        {connError ? e('disconnected') : e('connected')}
+      </span>
+      {
+        connError
+          ? (
+            <Button
+              size='small'
+              icon={<ReloadOutlined />}
+              onClick={reconnect}
+            >
+              {e('reconnect')}
+            </Button>
+            )
+          : null
+      }
+      <span className='db-head-right'>
+        {/* 只读开关常驻工具条：切换后主进程白名单同步生效（不用重开连接） */}
+        <Tooltip title={`${e('readOnly')} — ${e('readOnlyHint')}`}>
+          <Switch
+            size='small'
+            checked={isReadonly}
+            onChange={toggleReadonly}
+          />
+        </Tooltip>
+        <Button
+          type='text'
+          size='small'
+          icon={<ReloadOutlined />}
+          loading={treeLoading}
+          title={e('refresh')}
+          onClick={loadTree}
+        />
+      </span>
+    </div>
+  )
+
   return (
     <div className='db-session-wrap'>
-      <div
-        className='db-tree-panel'
-        style={{ width: treeWidth }}
-      >
-        <div className='db-tree-head'>
-          <span className='db-tree-title'>{tab.dbType}</span>
-          {/* 只读开关常驻页面顶栏：切换后主进程白名单同步生效（不用重开连接） */}
-          <Tooltip title={`${e('readOnly')} — ${e('readOnlyHint')}`}>
-            <Switch
-              size='small'
-              checked={isReadonly}
-              onChange={toggleReadonly}
-            />
-          </Tooltip>
-          <Button
-            type='text'
-            size='small'
-            icon={<ReloadOutlined />}
-            loading={treeLoading}
-            title={e('refresh')}
-            onClick={loadTree}
-          />
+      {headBar}
+      <div className='db-body'>
+        <div
+          className='db-tree-panel'
+          style={{ width: treeWidth }}
+        >
+          <Spin spinning={treeLoading}>
+            {
+              treeData.length
+                ? (
+                  <Tree
+                    blockNode
+                    treeData={treeData}
+                    expandedKeys={expandedKeys}
+                    onExpand={keys => setExpandedKeys(keys.map(String))}
+                    selectedKeys={selectedKeys}
+                    onSelect={onSelectTree}
+                    className='db-tree'
+                  />
+                  )
+                : <Empty description='no metadata' />
+            }
+          </Spin>
         </div>
-        <Spin spinning={treeLoading}>
+        {/* 拖拽条：样式上用负 margin 让它骑跨在左侧容器右边框上，
+            因此"拖的就是容器边缘"，而不是浮在面板与主区之间的独立竖条 */}
+        <div
+          className='db-tree-resizer'
+          onMouseDown={startResize}
+          title='drag to resize'
+        />
+        <div className='db-main-panel'>
           {
-            treeData.length
+            connError
               ? (
-                <Tree
-                  blockNode
-                  treeData={treeData}
-                  expandedKeys={expandedKeys}
-                  onExpand={keys => setExpandedKeys(keys.map(String))}
-                  selectedKeys={selectedKeys}
-                  onSelect={onSelectTree}
-                  className='db-tree'
+                <DbConnError
+                  banner
+                  tab={tab}
+                  error={connError}
+                  title={e('connectionLost')}
+                  onRetry={reconnect}
                 />
                 )
-              : <Empty description='no metadata' />
+              : null
           }
-        </Spin>
-      </div>
-      {/* 拖拽条：样式上用负 margin 让它骑跨在左侧容器右边框上，
-          因此"拖的就是容器边缘"，而不是浮在面板与主区之间的独立竖条 */}
-      <div
-        className='db-tree-resizer'
-        onMouseDown={startResize}
-        title='drag to resize'
-      />
-      <div className='db-main-panel'>
-        {
-          connError
-            ? (
-              <DbConnError
-                banner
-                tab={tab}
-                error={connError}
-                title={e('connectionLost')}
-                onRetry={reconnect}
-              />
-              )
-            : null
-        }
-        {mainArea}
+          {mainArea}
+        </div>
       </div>
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
