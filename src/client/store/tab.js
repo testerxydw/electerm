@@ -92,19 +92,7 @@ export default Store => {
     const tab = store.tabs.find(t => t.id === id)
     const batch = tab ? Number(tab.batch) : undefined
     const res = store.removeTabs({ id })
-    // 自动收起空窗格（配置开关，默认关）：关掉某窗格最后一个 tab 后，
-    // 该窗格不再占位（等价于点「关闭此窗格」）
-    if (store.config.autoCloseEmptyPane && batch !== undefined) {
-      const total = (splitConfig[store.layout] && splitConfig[store.layout].children) || 1
-      if (total > 1 && !store.tabs.some(t => Number(t.batch) === batch)) {
-        if (store.tabs.length) {
-          store.closePane(batch)
-        } else {
-          // 全部关光：回到单窗格（多格只剩空占位没有意义）
-          store.setLayout('c1', false)
-        }
-      }
-    }
+    store.autoClosePaneIfEmpty(batch)
     return res
   }
 
@@ -594,12 +582,15 @@ export default Store => {
     if (!tab || tab.batch === targetBatch) {
       return
     }
+    const fromBatch = Number(tab.batch)
     tab.batch = targetBatch
     store[`activeTabId${targetBatch}`] = tab.id
     store.activeTabId = tab.id
     store.currentLayoutBatch = targetBatch
     // 原 pane 失去 active tab, 修正各 pane 的 activeTabId
     store.fixActiveTabIds(splitConfig[store.layout].children)
+    // 原 pane 被搬空则自动收起（配置开关）
+    store.autoClosePaneIfEmpty(fromBatch)
   }
 
   // Spread tabs over the panes of a layout with more panes.
@@ -734,6 +725,31 @@ export default Store => {
     })
     store.currentLayoutBatch = Math.min(store.currentLayoutBatch, Math.max(0, k - 1))
     store.setLayout(target, false)
+  }
+
+  // 自动收起空窗格（配置开关 autoCloseEmptyPane，默认关）。
+  // 窗格**失去最后一个 tab** 后调用（关闭、右键迁移、拖拽到别的窗格都算）：
+  // 该窗格确实空了就收起它（等价于点「关闭此窗格」）；
+  // 若全部 tab 都没了，则直接回到单窗格（多格只剩空占位没有意义）。
+  // ⚠️ 拆分会话（splitTab）不要调用：它刻意把 tab 迁到新窗格、原窗格留空
+  Store.prototype.autoClosePaneIfEmpty = function (batch) {
+    const { store } = window
+    if (
+      !store.config.autoCloseEmptyPane ||
+      batch === undefined ||
+      batch === null
+    ) {
+      return
+    }
+    const total = (splitConfig[store.layout] && splitConfig[store.layout].children) || 1
+    if (total <= 1 || store.tabs.some(t => Number(t.batch) === batch)) {
+      return
+    }
+    if (store.tabs.length) {
+      store.closePane(batch)
+    } else {
+      store.setLayout('c1', false)
+    }
   }
 
   Store.prototype.changeActiveTabId = function (id) {

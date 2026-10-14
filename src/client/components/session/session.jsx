@@ -152,6 +152,8 @@ export default class SessionWrapper extends Component {
       window.store[`activeTabId${fromBatch}`] = nextTab ? nextTab.id : ''
     }
     t.batch = batch
+    // 原窗格被搬空则自动收起（配置开关 autoCloseEmptyPane）
+    window.store.autoClosePaneIfEmpty(Number(fromBatch))
     this.clearCls()
   }
 

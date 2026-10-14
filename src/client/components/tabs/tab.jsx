@@ -237,6 +237,8 @@ class Tab extends Component {
         }
         storeTabs.splice(insertIndex, 0, tab)
       })()
+      // 拖到别的窗格的 tab 上：原窗格被搬空则自动收起（配置开关 autoCloseEmptyPane）
+      window.store.autoClosePaneIfEmpty(Number(fromBatch))
       window.store.focus()
     }
   }

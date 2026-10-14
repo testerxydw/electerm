@@ -22,4 +22,6 @@ export default function onDrop (e, batch, onDropElem) {
     return
   }
   t.batch = batch
+  // 原窗格被搬空则自动收起（配置开关 autoCloseEmptyPane）
+  store.autoClosePaneIfEmpty(Number(fromTab.batch))
 }

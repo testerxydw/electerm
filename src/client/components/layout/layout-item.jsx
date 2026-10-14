@@ -49,6 +49,8 @@ export default function LayoutItem (props) {
     t.batch = batch
 
     store[`activeTabId${batch}`] = t.id
+    // 原窗格被搬空则自动收起（配置开关 autoCloseEmptyPane）
+    store.autoClosePaneIfEmpty(Number(fromBatch))
     clearCls()
   }
 
