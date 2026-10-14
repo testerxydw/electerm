@@ -3,6 +3,8 @@
  * Phase1: testConnection; Phase2: metadata / pagination / sql
  */
 
+const log = require('../../common/log')
+
 const pools = new Map()
 // per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
 const refs = new Map()
@@ -78,13 +80,49 @@ async function testMysqlConnection (conn) {
 
 // ---- Phase2 methods ----
 
+// 单值安全化：IPC 走结构化克隆，只有纯值能安全穿越；
+// Date/bigint 先行处理，Buffer 摘要，其余带原型的对象（Decimal 实例、自定义类型等）
+// 统一转字符串，避免 "An object could not be cloned" 导致整页数据丢失。
+function safeCell (v) {
+  if (v === null || v === undefined) {
+    return null
+  }
+  const t = typeof v
+  if (t === 'string' || t === 'number' || t === 'boolean') {
+    return v
+  }
+  if (v instanceof Date) {
+    return v.toISOString()
+  }
+  if (t === 'bigint') {
+    return v.toString()
+  }
+  // 注意：不要用 Buffer.isBuffer —— 主进程经打包后 Buffer 可能被替换为
+  // `buffer` polyfill，其 isBuffer 对「原生 Buffer 实例」返回 false；
+  // Buffer 继承自 Uint8Array，用 instanceof 判断对两种实现都成立。
+  if (v instanceof Uint8Array) {
+    return `<binary ${v.length} bytes>`
+  }
+  // 有 toJSON 的优先（驱动自定义类型如 mysql2 的 DECIMAL 包装）
+  if (typeof v.toJSON === 'function') {
+    try {
+      return safeCell(v.toJSON())
+    } catch (e) {
+      // fallthrough
+    }
+  }
+  try {
+    return String(v)
+  } catch (e) {
+    return null
+  }
+}
+
 function rowToPlain (rows) {
   return rows.map(r => {
     const o = {}
     for (const k of Object.keys(r)) {
-      o[k] = (r[k] instanceof Date)
-        ? r[k].toISOString()
-        : (typeof r[k] === 'bigint' ? r[k].toString() : r[k])
+      o[k] = safeCell(r[k])
     }
     return o
   })
@@ -114,6 +152,22 @@ function quoteIdent (name) {
   return '`' + String(name).replace(/[`]/g, '') + '`'
 }
 
+// 近似总行数（information_schema，瞬时完成，不扫全表）；
+// 用于前端区分「表真的是空的」与「查询失败」。InnoDB 下是估算值。
+async function getApproxRows (pool, database, table) {
+  try {
+    const [r] = await pool.execute(
+      'SELECT TABLE_ROWS AS c FROM information_schema.TABLES ' +
+      'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
+      [String(database), String(table)]
+    )
+    const n = r && r[0] && r[0].c
+    return n === null || n === undefined ? undefined : Number(n)
+  } catch (e) {
+    return undefined
+  }
+}
+
 async function getPageData (conn, { database, table, page, pageSize, orderBy, order }) {
   const pool = await getPool(conn)
   pageSize = Math.min(Number(pageSize) || 100, 1000)
@@ -127,10 +181,13 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
     sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir
   }
   sql += ' LIMIT ' + pageSize + ' OFFSET ' + offset
+  log.debug('getPageData sql:', sql)
   const [rows] = await pool.query(sql)
+  const totalRows = database ? await getApproxRows(pool, database, table) : undefined
   return {
     rows: rowToPlain(rows),
-    hasMore: rows.length >= pageSize
+    hasMore: rows.length >= pageSize,
+    totalRows
   }
 }
 
