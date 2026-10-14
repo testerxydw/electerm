@@ -134,18 +134,29 @@ async function describeTable (conn, { table }) {
   return res.rows
 }
 
-// read-only whitelist: only allow SELECT/SHOW/DESC/EXPLAIN/with SELECT
+// 只读白名单：首关键词必须在允许集合内，且全句不得出现写关键词。
+// 只校验首关键词会被 `WITH x AS (...) DELETE FROM t` 绕过（MySQL 8 / PG 均支持该写语法），
+// 故追加一次全句写关键词扫描；宁可误拒（如 EXPLAIN DELETE），也不放行写操作。
 const SQL_READONLY_RE = /^\s*(select|show|desc|describe|explain|with)\b/i
+const SQL_WRITE_RE = /\b(insert|update|delete|drop|alter|truncate|create|replace|grant|revoke|rename|merge|call|exec|execute|lock|unlock|attach|detach|vacuum|copy|load|set|into)\b/i
 
 function checkReadonly (sql, readOnly) {
-  if (readOnly && !SQL_READONLY_RE.test(sql)) {
-    throw new Error('read-only mode: only SELECT/SHOW/DESC/EXPLAIN allowed')
+  if (!readOnly) {
+    return
+  }
+  const s = String(sql || '')
+  if (!SQL_READONLY_RE.test(s)) {
+    throw new Error('read-only mode: only SELECT/SHOW/DESC/EXPLAIN are allowed')
+  }
+  if (SQL_WRITE_RE.test(s)) {
+    throw new Error('read-only mode: statement contains a write keyword')
   }
 }
 
 async function executeSql (conn, { sql, readOnly }) {
-  const c = await getClient(conn)
+  // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
+  const c = await getClient(conn)
   const res = await c.query(sql)
   return {
     rows: res.rows || [],

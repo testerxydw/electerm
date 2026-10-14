@@ -162,7 +162,13 @@ async function dbClientOp (tabId, op, args) {
   if (!method) {
     throw new Error(`unsupported op for ${inst.dbType}: ${op}`)
   }
-  return withTimeout(adapter[method](inst.conn, args), OVERALL_TIMEOUT)
+  // 只读开关以主进程侧连接配置为权威：不使用渲染层传入的 readOnly，
+  // 否则渲染层只要传 readOnly:false 就能绕过写操作白名单（安全边界必须在主进程）。
+  const safeArgs = {
+    ...(args || {}),
+    readOnly: inst.readOnly
+  }
+  return withTimeout(adapter[method](inst.conn, safeArgs), OVERALL_TIMEOUT)
 }
 
 async function closeDbTab (tabId) {

@@ -7,6 +7,7 @@ import {
 } from '../../../common/constants.js'
 import { createBaseInitValues } from '../common/init-values.js'
 import { commonFields } from './common-fields.js'
+import dbT from '../common/db-i18n.js'
 
 const e = window.translate
 
@@ -21,7 +22,9 @@ const databaseConfig = {
       dbUser: 'root',
       dbPassword: '',
       dbName: '',
-      sshTunnelBookmarkId: ''
+      sshTunnelBookmarkId: '',
+      // 默认只读：主进程按此开关执行 SELECT/SHOW/DESC/EXPLAIN 白名单（见 db-client）
+      readOnly: true
     })
   },
   layout: formItemLayout,
@@ -35,7 +38,7 @@ const databaseConfig = {
         {
           type: 'select',
           name: 'dbType',
-          label: () => e('dbType'),
+          label: () => dbT('dbType'),
           options: [
             { label: 'MySQL', value: dbTypeMap.mysql },
             { label: 'Redis', value: dbTypeMap.redis },
@@ -48,8 +51,14 @@ const databaseConfig = {
         { type: 'number', name: 'dbPort', label: () => e('port'), rules: [{ required: true, message: 'port required' }] },
         { type: 'input', name: 'dbUser', label: () => e('username') },
         { type: 'password', name: 'dbPassword', label: () => e('password') },
-        { type: 'input', name: 'dbName', label: () => e('database') },
+        { type: 'input', name: 'dbName', label: () => dbT('dbName') },
         { type: 'dbTunnelSelect', name: 'sshTunnelBookmarkId', label: '' },
+        {
+          type: 'switch',
+          name: 'readOnly',
+          label: () => dbT('readOnly'),
+          valuePropName: 'checked'
+        },
         commonFields.description,
         commonFields.type
       ]
