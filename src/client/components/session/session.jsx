@@ -23,7 +23,8 @@ import {
   terminalTelnetType,
   terminalFtpType,
   terminalSpiceType,
-  terminalDatabaseType
+  terminalDatabaseType,
+  termControlHeight
 } from '../../common/constants'
 import { refs } from '../common/ref'
 import sanitizeFilename from '../../common/sanitize-filename.js'
@@ -234,9 +235,11 @@ export default class SessionWrapper extends Component {
       pane, type, sshSftpSplitView
     } = tab
     if (type === terminalDatabaseType) {
-      // 高度口径与终端一致（布局高 - 标签栏 - 控制条）：数据库页顶部的工具条
-      // 同为 32px（见 db-session.styl 的 .db-head），故沿用同一扣减口径
-      const { width, height } = this.calcTermWidthHeight()
+      // 数据库页自己渲染 32px 工具条（.db-head，见 db-session.styl），即"控制条"
+      // 的位置改为页面内部消化；而 computeHeight 已按终端控制条扣掉 termControlHeight，
+      // 这里必须加回来，否则页面底部会空出 32px
+      const { width } = this.calcTermWidthHeight()
+      const height = this.props.computeHeight(this.props.height) + termControlHeight
       const dbProps = {
         tab,
         width,
