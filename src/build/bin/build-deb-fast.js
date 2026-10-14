@@ -90,8 +90,31 @@ function appReady () {
   if (!exists(path.join(workApp, 'node_modules'))) return false
   return exists(path.join(workApp, 'node_modules', 'node-pty', 'build', 'Release', 'pty.node'))
 }
-if (forcePrepare || !appReady()) {
-  echo('[deb-fast] work/app 未就绪，执行 prepare（首次较慢）...')
+
+// 依赖指纹：日常只同步源码（快），但改了 package.json 依赖后若不重建 node_modules，
+// 打包不会报错、只会静默带上旧依赖。故指纹变化即自动 prepare —— 频繁改源码时
+// 仍然走快路径，改依赖时又不会漏。
+const depsFingerprintPath = path.join(workApp, '.deps-fingerprint')
+function depsFingerprint () {
+  const p = readJson(path.join(root, 'package.json'))
+  return JSON.stringify([p.dependencies, p.optionalDependencies])
+}
+function depsChanged () {
+  // 老 work/app 没有指纹文件：此时"不知道"装过什么依赖，若判为变化会立刻重建
+  // （npm i + electron-rebuild，数分钟），代价远大于漏检一次 → 只补记不重建
+  if (!exists(depsFingerprintPath)) {
+    return false
+  }
+  return fs.readFileSync(depsFingerprintPath, 'utf8') !== depsFingerprint()
+}
+const depsDrift = depsChanged()
+if (depsDrift && !forcePrepare && appReady()) {
+  echo('[deb-fast] package.json 依赖有变化，自动 prepare（等价 --prepare）')
+}
+if (forcePrepare || !appReady() || depsDrift) {
+  echo(depsDrift
+    ? '[deb-fast] 依赖已变化，重建 work/app（首次较慢）...'
+    : '[deb-fast] work/app 未就绪，执行 prepare（首次较慢）...')
   fs.rmSync(workApp, { recursive: true, force: true })
   fs.mkdirSync(workApp, { recursive: true })
   run(`cp -r "${path.join(root, 'src/app')}/." "${workApp}/"`)
@@ -115,6 +138,8 @@ if (forcePrepare || !appReady()) {
   // prepare 整目录重建了 work/app，渲染层 assets 需要重新编译
   // （修复 --prepare / 首次运行时 assets 被连带删除导致 "Cannot GET /index.html" 的问题）
   run('npm run compile')
+  // 记录本次装的依赖，供下次比对决定是否自动 prepare
+  fs.writeFileSync(depsFingerprintPath, depsFingerprint())
 } else {
   // 每次打包都同步最新 src/app 与版本号，避免合并上游后 work/app 陈旧
   // （否则 app.asar 内仍是旧版 app 端代码/版本号，应用内版本与 deb 名不符）
@@ -129,6 +154,8 @@ if (forcePrepare || !appReady()) {
   delete wp.preferGlobal
   wp.main = 'app.js'
   writeJson(path.join(workApp, 'package.json'), wp)
+  // 补齐/刷新依赖指纹，供下次比对决定是否自动 prepare
+  fs.writeFileSync(depsFingerprintPath, depsFingerprint())
 }
 
 // 4. 构建 stage/opt/electerm 运行时（仅首次从 electron dist 复制，之后复用）

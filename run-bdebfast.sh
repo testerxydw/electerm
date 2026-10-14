@@ -14,6 +14,10 @@
 #   - pkill 必须转义 [/], 否则 /opt/electerm/electerm 自己会被匹配
 #   - dpkg -i 必须 --force-overwrite (测试包版本号相同)
 #   - compile 会吞 vite 失败, 必须实查 css 产物
+#   - build.js 不清理旧产物 (clean 已注释) → 编译前必须清 assets/{js,css,chunk,assets},
+#     否则新旧 hash chunk 并存, 打包可能带上旧 chunk 造成"改了没效果"
+#   - 本脚本已编译并实查 css, 故 bdebfast 阶段透传 --skip-compile 避免白跑一次 vite;
+#     prepare/首次运行例外 (work/app 会重建, 必须由 bdebfast 在 prepare 之后再编译)
 
 set -euo pipefail
 
@@ -100,8 +104,13 @@ for p in "${PATTERNS[@]}"; do
   fi
 done
 
+DEBFAST_ARGS=()
 if [ "$SKIP_COMPILE" -eq 0 ]; then
   echo "========== [2/5] npm run compile =========="
+  # build.js 自身不清理旧产物, 这里与 build-deb-fast 内部保持一致地清理,
+  # 否则新旧 chunk 并存 → deb 里可能带旧 chunk (本项目踩过此坑)
+  rm -rf work/app/assets/js work/app/assets/css \
+         work/app/assets/chunk work/app/assets/assets
   npm run compile
   # 构建验证铁律: 实查 css 产物 (vite 可能 silently fail)
   CSS=$(ls work/app/assets/css/style-*.css 2>/dev/null | head -1)
@@ -110,27 +119,49 @@ if [ "$SKIP_COMPILE" -eq 0 ]; then
     exit 1
   fi
   echo "[ok] css: $CSS"
+  # 上面已编译且校验过产物: 若让 bdebfast 再编译, 它会先清空目录再重编译,
+  # 校验就失去意义, 且白跑一次 vite → 非 prepare 路径透传 --skip-compile
+  if [ "$FORCE_PREPARE" -eq 0 ] && [ -d work/app/node_modules ]; then
+    DEBFAST_ARGS+=(--skip-compile)
+  fi
+fi
+if [ "$FORCE_PREPARE" -eq 1 ]; then
+  DEBFAST_ARGS+=(--prepare)
+fi
+if [ -n "$UI_FLAG" ]; then
+  DEBFAST_ARGS+=("$UI_FLAG")
 fi
 
 echo "========== [3/5] bdebfast =========="
-if [ "$FORCE_PREPARE" -eq 1 ]; then
-  node src/build/bin/build-deb-fast.js --prepare $UI_FLAG
+if [ "${#DEBFAST_ARGS[@]}" -gt 0 ]; then
+  echo "[bdebfast] 参数: ${DEBFAST_ARGS[*]}"
 else
-  npm run bdebfast -- $UI_FLAG
+  echo "[bdebfast] 参数: <无>"
 fi
+# 记录打包前时间戳: 用于后面校验"本次确实产出了新 deb", 防静默失败后装旧包
+BUILD_MARK=$(mktemp)
+node src/build/bin/build-deb-fast.js "${DEBFAST_ARGS[@]}"
 
 # 找最新 deb
 DEB=$(ls -t dist/electerm-*-test.*-linux-amd64.deb 2>/dev/null | head -1)
 if [ -z "$DEB" ]; then
   echo "[FAIL] 未找到测试包 deb"
+  rm -f "$BUILD_MARK"
   exit 1
 fi
+# 新鲜度校验: 本次运行之前就已存在的 deb 说明打包没产出新包 (build 静默失败等)
+if [ -e "$BUILD_MARK" ] && [ ! "$DEB" -nt "$BUILD_MARK" ]; then
+  echo "[FAIL] 最新 deb 早于本次运行, 打包未产出新包: $DEB"
+  rm -f "$BUILD_MARK"
+  exit 1
+fi
+rm -f "$BUILD_MARK"
 # UI 模式校验: 必须拿到 -ui 包, 防止误装 master 包
 if [ "$UI_MODE" -eq 1 ] && [[ "$DEB" != *"-ui-linux-amd64.deb" ]]; then
   echo "[FAIL] UI 模式但拿到的不是 UI 包: $DEB"
   exit 1
 fi
-echo "[ok] deb: $DEB"
+echo "[ok] deb: $DEB (version $(dpkg-deb -f "$DEB" Version 2>/dev/null || echo '?'))"
 
 echo "========== [4/5] kill + clean cache =========="
 pkill -f "[/]opt/electerm/electerm" 2>/dev/null || true
@@ -140,7 +171,15 @@ rm -rf ~/.config/electerm/Cache \
        ~/.config/electerm/Code\ Cache
 
 echo "========== [5/5] install + start =========="
+# 无 TTY 且 sudo 需要密码时会永久阻塞 (自动化/CI 场景), 提前提示而不是干等
+if [ ! -t 0 ] && ! sudo -n true 2>/dev/null; then
+  echo "[warn] 当前非交互且 sudo 需要密码, dpkg 安装会失败; 请手动执行:"
+  echo "       sudo dpkg -i --force-overwrite $DEB"
+fi
 sudo dpkg -i --force-overwrite "$DEB"
+# 安装后校验: dpkg 记录里的版本应与刚构建的一致 (防装了别的包)
+INSTALLED=$(dpkg-query -W -f='${Version}' electerm 2>/dev/null || echo '?')
+echo "[ok] 已安装版本: $INSTALLED"
 nohup /opt/electerm/electerm > /tmp/electerm.log 2>&1 &
 echo "[done] 已启动, PID=$!"
 echo "       tail -f /tmp/electerm.log"
