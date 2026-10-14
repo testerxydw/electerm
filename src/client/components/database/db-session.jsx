@@ -686,7 +686,7 @@ export default function DbSession (props) {
               <Button
                 size='small'
                 icon={<ReloadOutlined />}
-                disabled={grid.loading}
+                loading={grid.loading}
                 title={e('refresh')}
                 onClick={() => loadPage(sel, grid.page, grid.orderBy, grid.order)}
               />
@@ -938,7 +938,7 @@ export default function DbSession (props) {
                 <Button
                   size='small'
                   icon={<ReloadOutlined />}
-                  disabled={keyList.loading}
+                  loading={keyList.loading}
                   title={e('refresh')}
                   onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
                 />
@@ -1030,6 +1030,8 @@ export default function DbSession (props) {
             type='text'
             size='small'
             icon={<ReloadOutlined />}
+            loading={treeLoading}
+            title={e('refresh')}
             onClick={loadTree}
           />
         </div>
