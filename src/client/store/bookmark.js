@@ -33,10 +33,8 @@ export default Store => {
     const sshBookmark = bookmark.sshTunnelBookmarkId
       ? (store.bookmarks || []).find(d => d.id === bookmark.sshTunnelBookmarkId)
       : null
-    const res = await window.pre.runGlobalAsync('testDbConnection', {
-      dbBookmark: bookmark,
-      sshBookmark
-    })
+    // 主进程签名 testDbConnection(dbBookmark, sshBookmark)，多参数直传
+    const res = await window.pre.runGlobalAsync('testDbConnection', bookmark, sshBookmark)
       .catch(err => {
         message.error(err.message)
         return null
