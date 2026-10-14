@@ -17,6 +17,7 @@ import { TrzszClient } from '../trzsz-client.js'
 import { XmodemClient } from '../xmodem-client.js'
 import { loadWebLinksAddon } from '../xterm-loader.js'
 import { KeywordHighlighterAddon } from '../highlight-addon.js'
+import { activeKeywords } from '../../../common/keyword-groups.js'
 import {
   createTerminalReloadState,
   getAlternateBufferSnapshot,
@@ -83,9 +84,8 @@ export const socketMixin = {
     })
     const { cols, rows } = term
     const { config } = this.props
-    const {
-      keywords = []
-    } = config
+    // 关键字高亮：跳过被取消勾选的规则（off，见 keyword-groups.js）
+    const keywords = activeKeywords(config.keywords)
     const { logName } = this.props
     const tab = window.store.applyProfileToTabs(deepCopy(this.props.tab || {}))
     const {

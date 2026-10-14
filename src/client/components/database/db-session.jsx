@@ -109,6 +109,8 @@ export default auto(function DbSession (props) {
 
   // 关键字高亮规则：与终端「关键字高亮」同一份配置（config.keywords）
   const keywordPatterns = useKeywordPatterns()
+  // 高亮配色跟随终端主题（与终端里同一色名同一颜色）
+  const themeConfig = window.store.getThemeConfig()
 
   // string 值可用的格式化格式（JSON / Python 字面量 / XML / URL），每次值变化重算；
   // 注意：必须放在下面那些提前 return 之前 —— hooks 数量不能在渲染间变化
@@ -501,10 +503,10 @@ export default auto(function DbSession (props) {
       return <span className='db-cell-null'>NULL</span>
     }
     if (typeof v === 'object') {
-      return highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns)
+      return highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig)
     }
     // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类
-    return highlightValue(String(v), keywordPatterns)
+    return highlightValue(String(v), keywordPatterns, themeConfig)
   }
 
   const columns = grid.rows.length

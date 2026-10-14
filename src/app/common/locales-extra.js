@@ -165,7 +165,29 @@ const en = {
   dbErrUnknown: 'Check host, port, credentials and network reachability',
   refresh: 'Refresh',
   formatValue: 'Format value',
-  rawText: 'Raw'
+  rawText: 'Raw',
+  // 关键字高亮分组
+  kwPresetGroup: 'Presets',
+  kwUserGroup: 'User',
+  kwManualGroup: 'Manual',
+  kwSubGroups: 'subgroups',
+  kwApplied: 'Applied',
+  kwApplyAll: 'Apply all',
+  kwUnapplyAll: 'Unapply all',
+  kwOnlyApplied: 'Applied only',
+  kwSearchPlaceholder: 'Search regex',
+  kwDeleteRule: 'Delete rule',
+  kwDeleteGroup: 'Delete group',
+  kwDeleteGroupConfirm: 'Delete all rules in this group?',
+  kwGroupName: 'Group name',
+  kwGroupNameExists: 'Group name already exists',
+  kwSameAsPreset: 'Same rule as preset',
+  kwInvalidRegex: 'Invalid regular expression',
+  kwNoRules: 'No keyword rules yet',
+  kwImportAsk: 'Import keywords into',
+  kwImportNew: 'New subgroup',
+  kwImportMerge: 'Merge into existing group',
+  kwImportTip: 'Imported rules always belong to the User group; same keyword in the same group is skipped'
 }
 
 // 简体中文
@@ -318,7 +340,29 @@ const zhCn = {
   dbErrUnknown: '请检查主机、端口、账号密码与网络连通性',
   refresh: '刷新',
   formatValue: '格式化值',
-  rawText: '原文'
+  rawText: '原文',
+  // 关键字高亮分组
+  kwPresetGroup: '预设',
+  kwUserGroup: '用户',
+  kwManualGroup: '手动添加',
+  kwSubGroups: '个子分组',
+  kwApplied: '已应用',
+  kwApplyAll: '全部应用',
+  kwUnapplyAll: '全部取消',
+  kwOnlyApplied: '仅显示已启用',
+  kwSearchPlaceholder: '搜索正则',
+  kwDeleteRule: '删除该规则',
+  kwDeleteGroup: '删除整组',
+  kwDeleteGroupConfirm: '删除该分组的全部规则？',
+  kwGroupName: '分组名',
+  kwGroupNameExists: '分组名已存在',
+  kwSameAsPreset: '与预设规则重复',
+  kwInvalidRegex: '正则表达式无效',
+  kwNoRules: '暂无关键字规则',
+  kwImportAsk: '导入到',
+  kwImportNew: '新建子分组',
+  kwImportMerge: '并入现有分组',
+  kwImportTip: '导入的规则一律归「用户」分组；同分组内重复的关键字会自动跳过'
 }
 
 module.exports = {

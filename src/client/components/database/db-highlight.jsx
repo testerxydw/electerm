@@ -10,6 +10,7 @@
  */
 
 import { useMemo } from 'react'
+import { activeKeywords } from '../../common/keyword-groups.js'
 
 // 与终端高亮插件同口径：超过该长度的文本不高亮
 const maxHighlightLength = 4096
@@ -34,12 +35,14 @@ function compilePatterns (keywords) {
 
 // 配置变化极少，按内容摘要缓存编译结果
 export function useKeywordPatterns () {
-  const keywords = (window.store && window.store.config && window.store.config.keywords) || []
+  const raw = (window.store && window.store.config && window.store.config.keywords) || []
+  // 与终端同一口径：被取消勾选（off）的规则不参与高亮
+  const keywords = activeKeywords(raw)
   const sig = JSON.stringify(keywords)
   return useMemo(() => compilePatterns(keywords), [sig])
 }
 
-export function highlightValue (text, patterns) {
+export function highlightValue (text, patterns, themeConfig) {
   if (!patterns || !patterns.length) {
     return text
   }
@@ -81,7 +84,12 @@ export function highlightValue (text, patterns) {
       parts.push(text.slice(last, h.start))
     }
     parts.push(
-      <span key={h.start} className={`db-kw db-kw-${h.color}`}>
+      <span
+        key={h.start}
+        className='db-kw'
+        // 颜色取自当前终端主题的对应色名（与终端里看到的一致）；取不到就用继承色
+        style={themeConfig && themeConfig[h.color] ? { color: themeConfig[h.color] } : undefined}
+      >
         {text.slice(h.start, h.end)}
       </span>
     )

@@ -1,0 +1,173 @@
+// 关键字高亮：分组视图（预设 / 用户），见 keywords-groups.js 的分组模型
+.kw-wrap
+  display flex
+  flex-direction column
+  gap 8px
+  max-width 720px
+
+.kw-toolbar
+  display flex
+  align-items center
+  gap 8px
+  flex-wrap wrap
+
+.kw-search
+  width 200px
+
+.kw-only-on
+  display inline-flex
+  align-items center
+  gap 4px
+  color var(--text-dark)
+  font-size 12px
+  cursor pointer
+
+.kw-stat
+  margin-left auto
+  color var(--text-dark)
+  font-size 12px
+
+.kw-section
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  overflow hidden
+
+.kw-sec-head
+  display flex
+  align-items center
+  gap 8px
+  padding 6px 10px
+  background var(--surface-1)
+  cursor pointer
+  user-select none
+
+.kw-sec-title
+  font-weight 600
+
+.kw-badge
+  color var(--text-dark)
+  font-size 12px
+
+.kw-sec-body
+  border-top 1px solid var(--border)
+
+.kw-caret
+  width 0
+  height 0
+  border-left 5px solid var(--text-dark)
+  border-top 4px solid transparent
+  border-bottom 4px solid transparent
+  transition transform .12s
+  &.open
+    transform rotate(90deg)
+
+.kw-group
+  & + &
+    border-top 1px solid var(--border)
+
+.kw-group-head
+  display flex
+  align-items center
+  gap 8px
+  padding 5px 10px
+  cursor pointer
+  &:hover
+    background var(--surface-1)
+
+.kw-group-name
+  font-weight 500
+  white-space nowrap
+  overflow hidden
+  text-overflow ellipsis
+  max-width 240px
+
+.kw-group-rename
+  width 200px
+
+.kw-pill
+  color var(--text-dark)
+  font-size 11px
+  border 1px solid var(--border)
+  border-radius var(--radius-pill)
+  padding 0 6px
+  flex 0 0 auto
+
+.kw-group-desc
+  color var(--text-dark)
+  font-size 11px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  flex 1 1 auto
+  min-width 0
+
+.kw-group-count
+  margin-left auto
+  color var(--text-dark)
+  font-size 12px
+  white-space nowrap
+  &.on
+    color var(--success)
+
+.kw-group-ops
+  display inline-flex
+  align-items center
+
+.kw-rules
+  padding 2px 10px 6px 26px
+  min-width 0
+
+.kw-rule
+  display flex
+  align-items center
+  gap 8px
+  padding 2px 0
+  min-width 0
+  &:hover
+    background var(--surface-1)
+  &.off
+    .kw-regex, .kw-regex-input, .kw-swatch
+      opacity .45
+
+.kw-check
+  flex 0 0 auto
+  cursor pointer
+  accent-color var(--primary)
+
+.kw-swatch
+  width 10px
+  height 10px
+  border-radius 50%
+  flex 0 0 auto
+
+.kw-color-select
+  width 56px
+  flex 0 0 auto
+
+.kw-regex
+  font-family var(--font-mono, monospace)
+  font-size 12px
+  color var(--text)
+  background var(--surface-1)
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 1px 6px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  flex 1 1 auto
+  min-width 0
+
+.kw-regex-input
+  flex 1 1 auto
+  min-width 120px
+
+.kw-dup
+  color var(--info)
+  flex 0 0 auto
+
+.kw-rule-del
+  flex 0 0 auto
+
+.kw-add-rule
+  margin 4px 0 0 0
