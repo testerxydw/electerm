@@ -96,13 +96,48 @@ async function testRedisConnection (conn) {
 
 // ---- Phase2 methods ----
 
-async function getMetadata () {
+// 键个数统计：INFO keyspace 一次往返即返回所有「非空」db 的键数（空 db 不出现 → 计 0）。
+// 受管 Redis（部分云实例）可能禁用 INFO → 返回 null，此时前端不显示计数（好过错误地显示 0）。
+async function getKeyCounts (conn) {
+  const c = await getClient(conn)
+  let info
+  try {
+    info = await c.info('keyspace')
+  } catch (e) {
+    return null
+  }
+  const counts = {}
+  for (const line of String(info || '').split(/\r?\n/)) {
+    const m = /^db(\d+):keys=(\d+)/.exec(line.trim())
+    if (m) {
+      counts[Number(m[1])] = Number(m[2])
+    }
+  }
+  return counts
+}
+
+/**
+ * Redis 的「数据库」是 db0..dbN（默认 16 个，由 CONFIG databases 决定）。
+ * 除默认 16 个外，再从 keyspace 探测是否出现更大的序号（有些实例调大了 databases）。
+ */
+async function getMetadata (conn) {
+  const counts = await getKeyCounts(conn)
+  let maxIdx = 15
+  if (counts) {
+    for (const k of Object.keys(counts)) {
+      maxIdx = Math.max(maxIdx, Number(k))
+    }
+  }
   const dbs = []
-  for (let i = 0; i < 16; i++) {
-    dbs.push({
+  for (let i = 0; i <= maxIdx; i++) {
+    const db = {
       name: 'db' + i,
       type: 'database'
-    })
+    }
+    if (counts) {
+      db.count = counts[i] || 0
+    }
+    dbs.push(db)
   }
   return dbs
 }

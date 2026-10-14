@@ -378,6 +378,8 @@ export default function DbSession (props) {
       setRedisKey('')
       setRedisDetail(null)
       loadRedisKeys(redisDb, '0', keyList.match)
+      // 键数变了 → 同步刷新左侧各 db 的键个数
+      loadTree()
     }).catch(err => {
       message.error(err && err.message ? err.message : String(err))
     })
@@ -462,7 +464,18 @@ export default function DbSession (props) {
 
   const treeData = isRedis
     ? metadata.map((db, i) => ({
-      title: db.name,
+      // 键个数（来自 INFO keyspace）；空 db 显示 0，
+      // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
+      title: (
+        <span className='db-tree-db'>
+          <span className='db-tree-db-name'>{db.name}</span>
+          {
+            typeof db.count === 'number'
+              ? <span className='db-tree-db-count'>{db.count}</span>
+              : null
+          }
+        </span>
+      ),
       key: String(i),
       isLeaf: false
     }))

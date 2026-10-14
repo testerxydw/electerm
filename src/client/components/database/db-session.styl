@@ -59,6 +59,19 @@
   &:active::after
     background var(--primary)
 
+// Redis 数据库节点：名称居左、键个数居右
+.db-tree-db
+  display flex
+  align-items center
+  justify-content space-between
+  gap 8px
+  width 100%
+
+.db-tree-db-count
+  color var(--text-dark)
+  font-size 12px
+  font-variant-numeric tabular-nums
+
 .db-tree-head
   display flex
   align-items center
