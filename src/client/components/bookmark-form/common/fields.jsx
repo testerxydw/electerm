@@ -27,6 +27,7 @@ import SshAuthTypeSelector from './ssh-auth-type-selector.jsx'
 import SshAuthSelector from './ssh-auth-selector.jsx'
 import CategorySelect from './category-select.jsx'
 import ExternalLink from '../../common/external-link.jsx'
+import { dbDefaultPortMap } from '../../../common/constants.js'
 const Fragment = React.Fragment
 const FormItem = Form.Item
 
@@ -40,7 +41,8 @@ const commonRenderTypes = new Set([
   'autocomplete',
   'radio',
   'colorTitle',
-  'password'
+  'password',
+  'dbTypeSelect'
 ])
 
 /**
@@ -74,6 +76,32 @@ export function renderFormItem (item, formItemLayout, form, ctxProps, index) {
         break
       case 'select':
         control = <Select options={item.options} {...item.props} />
+        break
+      case 'dbTypeSelect':
+        // 数据库引擎选择：切换引擎时联动该引擎的默认端口
+        control = (
+          <Select
+            options={item.options}
+            {...item.props}
+            onChange={(val, opt) => {
+              // 仅当端口为空、或仍是某个引擎的默认端口时才覆盖，
+              // 避免抹掉用户手工填写的自定义端口
+              const cur = form.getFieldValue('dbPort')
+              const known = Object.values(dbDefaultPortMap)
+              if (
+                cur === undefined ||
+                cur === null ||
+                cur === '' ||
+                known.includes(Number(cur))
+              ) {
+                form.setFieldsValue({ dbPort: dbDefaultPortMap[val] })
+              }
+              if (item.props && item.props.onChange) {
+                item.props.onChange(val, opt)
+              }
+            }}
+          />
+        )
         break
       case 'autocomplete':
         control = <AutoComplete options={item.options} {...item.props} />

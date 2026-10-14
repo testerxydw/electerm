@@ -3,6 +3,7 @@ import { formItemLayout } from '../../../common/form-layout.js'
 import {
   terminalDatabaseType,
   dbTypeMap,
+  dbTypeLabelMap,
   dbDefaultPortMap
 } from '../../../common/constants.js'
 import { createBaseInitValues } from '../common/init-values.js'
@@ -35,16 +36,15 @@ const databaseConfig = {
         commonFields.category,
         commonFields.colorTitle,
         {
-          type: 'select',
+          // dbTypeSelect：切换引擎时联动默认端口（见 fields.jsx）
+          type: 'dbTypeSelect',
           name: 'dbType',
           label: () => e('dbType'),
-          options: [
-            { label: 'MySQL', value: dbTypeMap.mysql },
-            { label: 'Redis', value: dbTypeMap.redis },
-            { label: 'PostgreSQL', value: dbTypeMap.postgres },
-            { label: 'TiDB', value: dbTypeMap.tidb },
-            { label: 'OceanBase', value: dbTypeMap.oceanbase }
-          ]
+          // 显示名统一取自 dbTypeLabelMap（与 tab 标题前缀同源），新增引擎不必改多处
+          options: Object.keys(dbTypeMap).map(k => ({
+            label: dbTypeLabelMap[k],
+            value: dbTypeMap[k]
+          }))
         },
         { type: 'input', name: 'dbHost', label: () => e('host'), rules: [{ required: true, message: e('host') + ' required' }] },
         { type: 'number', name: 'dbPort', label: () => e('port'), rules: [{ required: true, message: 'port required' }] },
