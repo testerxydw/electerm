@@ -24,6 +24,18 @@ const EXTRA = {
   readOnlyHint: {
     zh_cn: '仅允许 SELECT / SHOW / DESC / EXPLAIN',
     en_us: 'Only SELECT / SHOW / DESC / EXPLAIN allowed'
+  },
+  tableStructure: {
+    zh_cn: '表结构',
+    en_us: 'Table structure'
+  },
+  reconnect: {
+    zh_cn: '重连',
+    en_us: 'Reconnect'
+  },
+  connectionLost: {
+    zh_cn: '数据库连接可能已断开',
+    en_us: 'Database connection may be lost'
   }
 }
 

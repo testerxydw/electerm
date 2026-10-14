@@ -129,6 +129,10 @@ async function testDbConnection (dbBookmark, sshBookmark) {
 
 async function openDbTab (dbBookmark, sshBookmark) {
   const adapter = getAdapter(dbBookmark.dbType)
+  // 同一 tabId 重复 open（如断线重连）时先释放旧连接与隧道，避免句柄泄漏
+  if (instances[dbBookmark.id]) {
+    await closeDbTab(dbBookmark.id)
+  }
   const inst = await buildConn(dbBookmark, sshBookmark)
   try {
     // acquire: 建立真实连接并验证（失败上抛，tab 打开即暴露连接问题）

@@ -9,6 +9,7 @@ import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag,
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import clone from '../../common/to-simple-obj'
+import dbT from '../bookmark-form/common/db-i18n.js'
 import './db-session.styl'
 
 const PAGE_SIZE = 100
@@ -36,6 +37,11 @@ export default function DbSession (props) {
     orderBy: '',
     order: 'ascend'
   })
+
+  // 表结构（describetable）
+  const [structure, setStructure] = useState({ loading: false, rows: [] })
+  // 连接层错误：用于顶部提示 + 重连按钮
+  const [connError, setConnError] = useState('')
 
   // SQL 编辑器状态（MVP：textarea + Ctrl/Cmd+Enter 执行）
   const [sqlText, setSqlText] = useState('')
@@ -76,16 +82,50 @@ export default function DbSession (props) {
     ) || null
   }
 
+  // 连接类错误识别（触发顶部断线提示，而非仅 toast）
+  const CONN_ERR_RE = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|Server has gone away|Connection lost|connection is closed|Client has encountered|database tab not open/i
+  const isConnError = (err) => CONN_ERR_RE.test(
+    String(err && err.message ? err.message : err)
+  )
+
+  // 统一操作错误出口：连接类错误置顶提示（带重连按钮），其余仅 toast
+  const onOpError = (err) => {
+    const msg = err && err.message ? err.message : String(err)
+    if (isConnError(err)) {
+      setConnError(msg)
+    }
+    message.error(msg)
+  }
+
   const loadTree = () => {
     setTreeLoading(true)
     return window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {})
       .then(data => {
         setMetadata(data || [])
         setTreeLoading(false)
+        setConnError('')
       })
       .catch(err => {
         setTreeLoading(false)
-        message.error(err && err.message ? err.message : String(err))
+        onOpError(err)
+      })
+  }
+
+  // 断线重连：先释放旧连接，再重新建连并刷新元数据（openDbTab 内部也会兜底关闭残留）
+  const reconnect = () => {
+    setConnError('')
+    setReady(false)
+    return window.pre.runGlobalAsync('closeDbTab', tabId)
+      .catch(() => {})
+      .then(() => window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark())))
+      .then(() => window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {}))
+      .then(data => {
+        setMetadata(data || [])
+        setReady(true)
+      })
+      .catch(err => {
+        setReady(true)
+        setConnError(err && err.message ? err.message : String(err))
       })
   }
 
@@ -151,6 +191,21 @@ export default function DbSession (props) {
     const next = { database, table }
     setSel(next)
     loadPage(next, 1, '', 'ascend')
+    loadStructure(next)
+  }
+
+  // 表结构（列定义）：MySQL 返回 Field/Type/Null/Key/Default/Extra，PG 返回 information_schema 列
+  const loadStructure = (target) => {
+    setStructure(s => ({ ...s, loading: true }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'describeTable', {
+      database: target.database,
+      table: target.table
+    }).then(rows => {
+      setStructure({ loading: false, rows: rows || [] })
+    }).catch(err => {
+      setStructure({ loading: false, rows: [] })
+      onOpError(err)
+    })
   }
 
   // 选中态：叶子=当前表，redis=当前 db 节点
@@ -178,7 +233,7 @@ export default function DbSession (props) {
       })
     }).catch(err => {
       setGrid(g => ({ ...g, loading: false }))
-      message.error(err && err.message ? err.message : String(err))
+      onOpError(err)
     })
   }
 
@@ -483,6 +538,33 @@ export default function DbSession (props) {
     </div>
   )
 
+  // 表结构：列定义网格（列名随驱动而异 —— MySQL 为 Field/Type/Null/…，PG 为 column_name/data_type/…
+  // 故直接按首行键动态生成列，避免写死）
+  const structColumns = structure.rows.length
+    ? Object.keys(structure.rows[0]).map(k => ({
+      title: k,
+      dataIndex: k,
+      key: k,
+      width: 200,
+      ellipsis: true,
+      render: renderCell
+    }))
+    : []
+  const structureArea = (
+    <div className='db-struct-area'>
+      <Table
+        size='small'
+        loading={structure.loading}
+        columns={structColumns}
+        dataSource={structure.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+        rowKey='__rowKey'
+        pagination={false}
+        scroll={{ x: 'max-content' }}
+        className='db-grid-table'
+      />
+    </div>
+  )
+
   const redisKeyColumns = [
     { title: 'key', dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
     { title: 'type', dataIndex: 'type', key: 'type', width: 90, render: renderCell },
@@ -675,7 +757,13 @@ export default function DbSession (props) {
         className='db-tabs'
         items={[
           { key: 'data', label: 'data', forceRender: true, children: dataArea },
-          { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea }
+          { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea },
+          {
+            key: 'structure',
+            label: dbT('tableStructure'),
+            forceRender: true,
+            children: structureArea
+          }
         ]}
       />
       )
@@ -711,6 +799,23 @@ export default function DbSession (props) {
         </Spin>
       </div>
       <div className='db-main-panel'>
+        {
+          connError
+            ? (
+              <Alert
+                className='db-conn-error'
+                type='error'
+                showIcon
+                message={`${dbT('connectionLost')}: ${connError}`}
+                action={
+                  <Button size='small' onClick={reconnect}>
+                    {dbT('reconnect')}
+                  </Button>
+                }
+              />
+              )
+            : null
+        }
         {mainArea}
       </div>
     </div>

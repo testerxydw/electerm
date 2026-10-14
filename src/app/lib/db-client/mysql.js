@@ -131,9 +131,15 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
   }
 }
 
-async function describeTable (conn, table) {
+// 与 postgres 适配器统一为 ({ table, database }) 入参：
+// dbClientOp 统一以对象透传 args，若此处收字符串会得到 `DESC \`[object Object]\``。
+// 带库前缀可正确解析「当前连接库之外」的表。
+async function describeTable (conn, { table, database }) {
   const pool = await getPool(conn)
-  const [cols] = await pool.query('DESC `' + table + '`')
+  const full = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  const [cols] = await pool.query('DESC ' + full)
   return rowToPlain(cols)
 }
 
