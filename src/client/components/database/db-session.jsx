@@ -988,13 +988,6 @@ export default auto(function DbSession (props) {
                 >
                   filter
                 </Button>
-                <Button
-                  size='small'
-                  icon={<ReloadOutlined />}
-                  loading={keyList.loading}
-                  title={e('refresh')}
-                  onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
-                />
                 <div className='db-grid-pager'>
                   <Button
                     size='small'
@@ -1023,6 +1016,14 @@ export default auto(function DbSession (props) {
                     )}
                   />
                 </div>
+                {/* 刷新放在翻页之后，与 MySQL 网格头一致 */}
+                <Button
+                  size='small'
+                  icon={<ReloadOutlined />}
+                  loading={keyList.loading}
+                  title={e('refresh')}
+                  onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
+                />
               </div>
               <Table
                 size='small'
