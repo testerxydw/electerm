@@ -7,6 +7,11 @@
   padding 8px
   gap 8px
 
+// 错误态：不沿用 .db-session-wrap 的 flex 行布局，避免 Alert 被拉伸满屏
+.db-session-error
+  display block
+  padding 12px
+
 .db-session-loading
   display flex
   align-items center
@@ -19,13 +24,28 @@
 // 左侧元数据树
 .db-tree-panel
   flex none
-  width 240px
-  min-width 180px
+  // 宽度由内联样式驱动（可拖拽调整，见 .db-tree-resizer），此处只约束范围
+  min-width 160px
+  max-width 600px
   height 100%
   overflow auto
   border 1px solid var(--border)
   border-radius var(--radius-sm)
   padding 4px
+
+// 拖拽条：按住左右拖动可调整元数据树宽度
+.db-tree-resizer
+  flex none
+  width 5px
+  margin 0 2px
+  cursor col-resize
+  border-radius var(--radius-pill)
+  background transparent
+  transition background var(--dur-1) var(--ease)
+  &:hover
+    background var(--border)
+  &:active
+    background var(--primary)
 
 .db-tree-head
   display flex

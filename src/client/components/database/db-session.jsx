@@ -13,6 +13,10 @@ import dbT from '../bookmark-form/common/db-i18n.js'
 import './db-session.styl'
 
 const PAGE_SIZE = 100
+// 元数据树宽度约束与持久化键
+const TREE_WIDTH_KEY = 'electerm-db-tree-width'
+const TREE_MIN_W = 160
+const TREE_MAX_W = 600
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 const nodeKey = (database, table) => JSON.stringify([database, table])
 
@@ -36,6 +40,12 @@ export default function DbSession (props) {
     hasMore: false,
     orderBy: '',
     order: 'ascend'
+  })
+
+  // 元数据树宽度（可拖拽；持久化到 localStorage，避免污染用户配置）
+  const [treeWidth, setTreeWidth] = useState(() => {
+    const v = Number(window.localStorage.getItem(TREE_WIDTH_KEY))
+    return v >= TREE_MIN_W && v <= TREE_MAX_W ? v : 240
   })
 
   // 表结构（describetable）
@@ -456,9 +466,31 @@ export default function DbSession (props) {
       }))
     }))
 
+  // 拖拽调整左侧元数据树宽度（松手时持久化）
+  const startResize = (ev) => {
+    ev.preventDefault()
+    const startX = ev.clientX
+    const startW = treeWidth
+    let last = startW
+    const prevSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    const onMove = (e) => {
+      last = Math.min(TREE_MAX_W, Math.max(TREE_MIN_W, startW + (e.clientX - startX)))
+      setTreeWidth(last)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.userSelect = prevSelect
+      window.localStorage.setItem(TREE_WIDTH_KEY, String(last))
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
   if (error) {
     return (
-      <div className='db-session-wrap'>
+      <div className='db-session-wrap db-session-error'>
         <Alert type='error' showIcon message={error} />
       </div>
     )
@@ -787,7 +819,10 @@ export default function DbSession (props) {
 
   return (
     <div className='db-session-wrap'>
-      <div className='db-tree-panel'>
+      <div
+        className='db-tree-panel'
+        style={{ width: treeWidth }}
+      >
         <div className='db-tree-head'>
           <span className='db-tree-title'>{tab.dbType}</span>
           <Button
@@ -815,6 +850,11 @@ export default function DbSession (props) {
           }
         </Spin>
       </div>
+      <div
+        className='db-tree-resizer'
+        onMouseDown={startResize}
+        title='drag to resize'
+      />
       <div className='db-main-panel'>
         {
           connError
