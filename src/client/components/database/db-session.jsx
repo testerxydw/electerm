@@ -468,9 +468,10 @@ export default function DbSession (props) {
       return <span className='db-cell-null'>NULL</span>
     }
     if (typeof v === 'object') {
-      return JSON.stringify(v).slice(0, 200)
+      return highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns)
     }
-    return String(v)
+    // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类
+    return highlightValue(String(v), keywordPatterns)
   }
 
   const columns = grid.rows.length
@@ -671,6 +672,20 @@ export default function DbSession (props) {
                   onClick={() => turnPage(grid.page + 1)}
                 />
               </div>
+              )
+            : null
+        }
+        {
+          // 刷新当前表：保持页码/排序，只重新取数
+          sel
+            ? (
+              <Button
+                size='small'
+                icon={<ReloadOutlined />}
+                disabled={grid.loading}
+                title={e('refresh')}
+                onClick={() => loadPage(sel, grid.page, grid.orderBy, grid.order)}
+              />
               )
             : null
         }
@@ -916,6 +931,13 @@ export default function DbSession (props) {
                 >
                   filter
                 </Button>
+                <Button
+                  size='small'
+                  icon={<ReloadOutlined />}
+                  disabled={keyList.loading}
+                  title={e('refresh')}
+                  onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
+                />
                 <div className='db-grid-pager'>
                   <Button
                     size='small'
