@@ -1,4 +1,4 @@
-import { Button, Popconfirm } from 'antd'
+import { Button } from 'antd'
 import { RobotOutlined, CloseOutlined } from '@ant-design/icons'
 import LogoElem from '../common/logo-elem.jsx'
 import HistoryPanel from '../sidebar/history'
@@ -37,21 +37,15 @@ export default function NoSessionPanel ({ height, onNewTab, onNewSsh, batch, onC
       <div className='no-session-btns'>
         {newTabDom}
         {
-          // 本窗格为空且当前是多窗格布局时，给出收起入口（二次确认，避免误触后
-          // 分屏结构突然变化）
+          // 本窗格为空且当前是多窗格布局时，给出收起入口（一键收起，不再二次确认）
           onClosePane
             ? (
-              <Popconfirm
-                title={e('closeThisPane')}
-                description={e('closeThisPaneHint')}
-                okText={e('yes')}
-                cancelText={e('no')}
-                onConfirm={onClosePane}
+              <Button
+                icon={<CloseOutlined />}
+                onClick={onClosePane}
               >
-                <Button icon={<CloseOutlined />}>
-                  {e('closeThisPane')}
-                </Button>
-              </Popconfirm>
+                {e('closeThisPane')}
+              </Button>
               )
             : null
         }
