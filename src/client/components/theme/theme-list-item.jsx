@@ -51,8 +51,10 @@ export default function ThemeListItem (props) {
   useEffect(() => {
     return () => {
       // leaving the list mid preview (switching settings tab, filtering the
-      // list, ...) must not leave the user stuck on a theme never applied
-      if (window.originalTheme) {
+      // list, ...) must not leave the user stuck on a theme never applied.
+      // 只在界面当前仍停留在我预览的主题上时才回滚：从 A 切到 B 时 A 也会卸载，
+      // 若无条件回滚会把刚生效的 B 预览一起还原掉
+      if (window.originalTheme && store.config.theme === item.id) {
         store.setTheme(window.originalTheme)
         delete window.originalTheme
       }
@@ -137,6 +139,10 @@ export default function ThemeListItem (props) {
   }
 
   function handleClickTheme () {
+    // 选中即预览：点进表单时界面立刻套用该主题，未确认（apply/save）就离开会回滚
+    if (item.id) {
+      startPreview()
+    }
     props.onClickItem(item)
   }
 

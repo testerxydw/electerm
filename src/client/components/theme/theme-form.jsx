@@ -43,6 +43,8 @@ export default function ThemeForm (props) {
   }
   function applyOnly () {
     props.store.setTheme(props.formData.id)
+    // 确认应用：清掉预览基线，离开列表时不再回滚
+    delete window.originalTheme
   }
   // A function to validate the input text
   async function validateInput (_, value) {
@@ -144,6 +146,8 @@ export default function ThemeForm (props) {
       props.store.setTheme(
         formData.id || update1.id
       )
+      // 保存并应用即确认：清掉预览基线，离开列表时不再回滚
+      delete window.originalTheme
     }
     message.success(e('saved'))
     action.current = 'submit'
