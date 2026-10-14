@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -1111,6 +1111,18 @@ export default auto(function DbSession (props) {
           title={e('refresh')}
           onClick={loadTree}
         />
+      </span>
+      {/* 窗口级动作：与终端顶栏（SessionControl 右侧）同口径——全屏入口在这里，
+          退出全屏由页面内浮层 RemoteFloatControl 提供 */}
+      <span className='db-head-actions'>
+        <Tooltip title={e('fullscreen')}>
+          <Button
+            type='text'
+            size='small'
+            icon={<FullscreenOutlined />}
+            onClick={() => window.store.toggleSessFullscreen(true)}
+          />
+        </Tooltip>
       </span>
     </div>
   )
