@@ -9,9 +9,9 @@ import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag,
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import clone from '../../common/to-simple-obj'
-import dbT from '../bookmark-form/common/db-i18n.js'
 import './db-session.styl'
 
+const e = window.translate
 const PAGE_SIZE = 100
 // 元数据树宽度约束与持久化键
 const TREE_WIDTH_KEY = 'electerm-db-tree-width'
@@ -38,6 +38,8 @@ export default function DbSession (props) {
     rows: [],
     page: 1,
     hasMore: false,
+    totalRows: undefined,
+    error: '',
     orderBy: '',
     order: 'ascend'
   })
@@ -223,7 +225,7 @@ export default function DbSession (props) {
     : (sel ? [nodeKey(sel.database, sel.table)] : [])
 
   const loadPage = (target, page, orderBy, order) => {
-    setGrid(g => ({ ...g, loading: true }))
+    setGrid(g => ({ ...g, loading: true, error: '' }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       database: target.database,
       table: target.table,
@@ -237,11 +239,19 @@ export default function DbSession (props) {
         rows: (res && res.rows) || [],
         page,
         hasMore: !!(res && res.hasMore),
+        totalRows: res ? res.totalRows : undefined,
+        error: '',
         orderBy,
         order
       })
     }).catch(err => {
-      setGrid(g => ({ ...g, loading: false }))
+      // 失败必须落到表格区（而非仅 toast）：否则界面看起来像「表没有数据」
+      setGrid(g => ({
+        ...g,
+        loading: false,
+        rows: [],
+        error: err && err.message ? err.message : String(err)
+      }))
       onOpError(err)
     })
   }
@@ -510,9 +520,21 @@ export default function DbSession (props) {
   const dataArea = (
     <div className='db-grid-area'>
       <div className='db-grid-head'>
-        <span className='db-grid-title'>
+        <span
+          className='db-grid-title'
+          title={sel ? `${sel.database}.${sel.table}` : ''}
+        >
           {sel ? `${sel.database}.${sel.table}` : ''}
         </span>
+        {
+          sel && typeof grid.totalRows === 'number'
+            ? (
+              <span className='db-grid-total'>
+                {e('approxRows')}: {grid.totalRows}
+              </span>
+              )
+            : null
+        }
         {
           sel
             ? (
@@ -535,6 +557,19 @@ export default function DbSession (props) {
             : null
         }
       </div>
+      {
+        grid.error
+          ? (
+            <Alert
+              className='db-grid-error'
+              type='error'
+              showIcon
+              message={e('queryFailed')}
+              description={grid.error}
+            />
+            )
+          : null
+      }
       <Table
         size='small'
         loading={grid.loading}
@@ -545,6 +580,20 @@ export default function DbSession (props) {
         onChange={onTableChange}
         scroll={{ x: 'max-content' }}
         className='db-grid-table'
+        locale={{
+          emptyText: grid.error
+            ? e('queryFailed')
+            : (
+              <span className='db-empty-tip'>
+                {e('tableEmpty')}
+                {
+                  typeof grid.totalRows === 'number'
+                    ? ` (${e('approxRows')}: ${grid.totalRows})`
+                    : ''
+                }
+              </span>
+              )
+        }}
       />
     </div>
   )
@@ -809,7 +858,7 @@ export default function DbSession (props) {
           { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea },
           {
             key: 'structure',
-            label: dbT('tableStructure'),
+            label: e('tableStructure'),
             forceRender: true,
             children: structureArea
           }
@@ -863,10 +912,10 @@ export default function DbSession (props) {
                 className='db-conn-error'
                 type='error'
                 showIcon
-                message={`${dbT('connectionLost')}: ${connError}`}
+                message={`${e('connectionLost')}: ${connError}`}
                 action={
                   <Button size='small' onClick={reconnect}>
-                    {dbT('reconnect')}
+                    {e('reconnect')}
                   </Button>
                 }
               />

@@ -7,7 +7,6 @@ import {
 } from '../../../common/constants.js'
 import { createBaseInitValues } from '../common/init-values.js'
 import { commonFields } from './common-fields.js'
-import dbT from '../common/db-i18n.js'
 
 const e = window.translate
 
@@ -38,7 +37,7 @@ const databaseConfig = {
         {
           type: 'select',
           name: 'dbType',
-          label: () => dbT('dbType'),
+          label: () => e('dbType'),
           options: [
             { label: 'MySQL', value: dbTypeMap.mysql },
             { label: 'Redis', value: dbTypeMap.redis },
@@ -51,12 +50,12 @@ const databaseConfig = {
         { type: 'number', name: 'dbPort', label: () => e('port'), rules: [{ required: true, message: 'port required' }] },
         { type: 'input', name: 'dbUser', label: () => e('username') },
         { type: 'password', name: 'dbPassword', label: () => e('password') },
-        { type: 'input', name: 'dbName', label: () => dbT('dbName') },
+        { type: 'input', name: 'dbName', label: () => e('dbName') },
         { type: 'dbTunnelSelect', name: 'sshTunnelBookmarkId', label: '' },
         {
           type: 'switch',
           name: 'readOnly',
-          label: () => dbT('readOnly'),
+          label: () => e('readOnly'),
           valuePropName: 'checked'
         },
         commonFields.description,
