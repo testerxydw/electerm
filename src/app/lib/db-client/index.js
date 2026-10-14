@@ -6,7 +6,8 @@
  */
 
 const { createDbTunnel } = require('../db-tunnel')
-const log = require('../common/log')
+// db-client 在 lib 二级子目录，需向上两级到 src/app/common/log
+const log = require('../../common/log')
 
 // dbType → 适配器模块（tidb/oceanbase 兼容 mysql 协议，复用 mysql 适配器）
 const DB_ADAPTER = {
