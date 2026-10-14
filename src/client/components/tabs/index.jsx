@@ -22,7 +22,8 @@ import {
   extraTabWidth,
   windowControlWidth,
   getWindowControlsOverlayWidth,
-  isMacJs
+  isMacJs,
+  splitConfig
 } from '../../common/constants'
 import WindowControl from './window-control'
 import AddBtn from './add-btn'
@@ -560,12 +561,16 @@ export default class Tabs extends Component {
   }
 
   renderNoSession = () => {
+    const { layout, batch } = this.props
+    // 走到这里说明本窗格没有 tab；单窗格布局下没有"关闭此窗格"的概念
+    const multiPane = ((splitConfig[layout] && splitConfig[layout].children) || 1) > 1
     return (
       <NoSession
         height={this.props.height}
         onNewTab={this.handleNewTab}
         onNewSsh={this.handleNewSsh}
-        batch={this.props.batch}
+        batch={batch}
+        onClosePane={multiPane ? () => window.store.closePane(batch) : undefined}
       />
     )
   }

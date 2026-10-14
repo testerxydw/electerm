@@ -668,6 +668,57 @@ export default Store => {
     store.focus()
   }
 
+  // 关闭一个「空窗格」：剩余窗格按序紧凑重排，并降级到与之匹配的布局。
+  // 布局是固定枚举（common/constants.js 的 splitConfig），没有"缺角"形态，
+  // 所以关掉任意一格后只能线性化重排（见 doc/设计-分屏空窗格关闭方案.md）
+  Store.prototype.closePane = function (batchIndex) {
+    const { store } = window
+    const { tabs, layout } = store
+    const total = (splitConfig[layout] && splitConfig[layout].children) || 1
+    if (total <= 1) {
+      return
+    }
+    // 防御：只允许关闭空窗格
+    if (tabs.some(t => Number(t.batch) === batchIndex)) {
+      return
+    }
+    // 1) 收集仍有 tab 的窗格（按序），把它们紧凑重排到 0..k-1。
+    //    必须在 setLayout 之前完成：setLayout 会把越界 batch 收拢到最后一格，
+    //    先调用会破坏这里的相对顺序
+    const keep = []
+    for (let b = 0; b < total; b++) {
+      if (b !== batchIndex && tabs.some(t => Number(t.batch) === b)) {
+        keep.push(b)
+      }
+    }
+    keep.forEach((oldBatch, j) => {
+      tabs.forEach(t => {
+        if (Number(t.batch) === oldBatch) {
+          t.batch = j
+        }
+      })
+    })
+    // 2) 目标布局 = 剩余窗格数 + 原布局方向（r 开头为上下，其余为左右）
+    const k = keep.length
+    const rowFirst = String(layout || '').startsWith('r')
+    const targetMap = rowFirst
+      ? { 1: 'c1', 2: 'r2', 3: 'r3' }
+      : { 1: 'c1', 2: 'c2', 3: 'c3' }
+    const target = targetMap[k] || (k >= 4 ? 'c2x2' : 'c1')
+    // 3) 清掉高位窗格的 activeTabId，再按重排后的 batch 重新指派
+    for (let i = 0; i < 3; i++) {
+      store[`activeTabId${i}`] = ''
+    }
+    tabs.forEach(t => {
+      const b = Number(t.batch)
+      if (!store[`activeTabId${b}`]) {
+        store[`activeTabId${b}`] = t.id
+      }
+    })
+    store.currentLayoutBatch = Math.min(store.currentLayoutBatch, Math.max(0, k - 1))
+    store.setLayout(target, false)
+  }
+
   Store.prototype.changeActiveTabId = function (id) {
     const { store } = window
     const { tabs } = store
