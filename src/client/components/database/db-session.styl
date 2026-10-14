@@ -95,7 +95,7 @@
   // 容器是圆角、全局滚动条 thumb 是直角，滚动到两端时与圆角相切/被裁；
   // 这里让 thumb 也圆角，并用 1px 透明边框 + content-box 裁切使其内缩，避免贴角
   &::-webkit-scrollbar-thumb
-    border-radius 3px
+    border-radius var(--radius-xs)
     border 1px solid transparent
     background-clip content-box
 
