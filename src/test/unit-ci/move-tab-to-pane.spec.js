@@ -49,6 +49,11 @@ function makeStore (tabs, layout = 'c2') {
     activeTabId: tabs.length ? tabs[0].id : '',
     currentLayoutBatch: 0,
     fixCalls: [],
+    autoCloseCalls: [],
+    // 自动收起空窗格（开关判定在实现内部），这里只记录调用以断言"哪个窗格被搬空"
+    autoClosePaneIfEmpty (batch) {
+      this.autoCloseCalls.push(batch)
+    },
     fixActiveTabIds (count) {
       this.fixCalls.push(count)
       for (let b = 0; b < count; b++) {
@@ -104,6 +109,8 @@ describe('moveTabToPane: move a tab across panes in the same layout', () => {
     assert.equal(store.currentLayoutBatch, 1)
     // original pane lost its active tab, so fix runs with the real pane count
     assert.deepEqual(store.fixCalls, [MIN_SPLIT_CONFIG.c2.children])
+    // 原窗格可能被搬空：把原窗格号交给自动收起逻辑（开关判定在它内部）
+    assert.deepEqual(store.autoCloseCalls, [0])
   })
 
   test('moving within the same pane is a no-op', async () => {
@@ -143,5 +150,6 @@ describe('moveTabToPane: move a tab across panes in the same layout', () => {
     assert.equal(store.activeTabId, 'c')
     assert.equal(store.activeTabId3, 'c')
     assert.deepEqual(store.fixCalls, [MIN_SPLIT_CONFIG.c2x2.children])
+    assert.deepEqual(store.autoCloseCalls, [2])
   })
 })
