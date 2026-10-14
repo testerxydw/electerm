@@ -93,6 +93,15 @@ export const dbDefaultPortMap = {
   oceanbase: 2881
 }
 
+// 引擎显示名（书签表单下拉 + tab 标题前缀 / tooltip 共用，避免多处字面量不一致）
+export const dbTypeLabelMap = {
+  [dbTypeMap.mysql]: 'MySQL',
+  [dbTypeMap.redis]: 'Redis',
+  [dbTypeMap.postgres]: 'PostgreSQL',
+  [dbTypeMap.tidb]: 'TiDB',
+  [dbTypeMap.oceanbase]: 'OceanBase'
+}
+
 export const authTypeMap = buildConst([
   'password',
   'privateKey',

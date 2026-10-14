@@ -3,10 +3,25 @@
  */
 
 import {
-  terminalLocalType
+  terminalLocalType,
+  terminalDatabaseType,
+  dbTypeLabelMap
 } from './constants'
 
 const e = window.translate
+
+// 类型前缀：数据库会话显示具体引擎（[MySQL] / [Redis] / [PostgreSQL]…），
+// 比通用的 [database] 信息量大、且比它更短，其余类型仍用类型名
+function getTypeTag (res) {
+  const { type, dbType } = res
+  if (!type || type === 'ssh') {
+    return ''
+  }
+  if (type === terminalDatabaseType && dbTypeLabelMap[dbType]) {
+    return `[${dbTypeLabelMap[dbType]}]`
+  }
+  return `[${type}]`
+}
 
 function maskHost (hostOrIp = '') {
   if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostOrIp)) {
@@ -22,7 +37,7 @@ export default function createTitle (res, hide = true) {
     return ''
   }
   const {
-    host, port, username, title, type, url,
+    host, port, username, title, url,
     path, connectionHoppings, sshTunnels
   } = res
   const h = hide && window.store.config.hideIP ? maskHost(host) : host
@@ -52,9 +67,7 @@ export default function createTitle (res, hide = true) {
   if (res.from === 'mcp') {
     f = `[mcp]${f}`
   }
-  if (type && type !== 'ssh') {
-    f = `[${type}]${f}`
-  }
+  f = getTypeTag(res) + f
   return f || e(terminalLocalType)
 }
 
