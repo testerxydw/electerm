@@ -138,6 +138,23 @@
   color var(--text)
   opacity 0.5
 
+// 关键字高亮：沿用终端「关键字高亮」配置里的色名（见 db-highlight.jsx）
+// 主题有对应语义色的走主题变量，其余用固定色（深浅主题下都可读）
+.db-kw-red
+  color var(--error)
+.db-kw-green
+  color var(--success)
+.db-kw-yellow
+  color var(--info)
+.db-kw-blue
+  color var(--primary)
+.db-kw-magenta
+  color #e056fd
+.db-kw-cyan
+  color #22b8cf
+.db-kw-white
+  color var(--text)
+
 // 可编辑单元格（非只读且有主键）：hover 细线提示"可双击编辑"
 .db-cell-editable:hover
   box-shadow inset 0 -1px 0 0 var(--primary)

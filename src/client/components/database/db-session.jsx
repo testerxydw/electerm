@@ -9,6 +9,7 @@ import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag,
 import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
+import { highlightValue, useKeywordPatterns } from './db-highlight'
 import clone from '../../common/to-simple-obj'
 import './db-session.styl'
 
@@ -97,6 +98,9 @@ export default function DbSession (props) {
   const [redisDetail, setRedisDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [ttlInput, setTtlInput] = useState(undefined)
+
+  // 关键字高亮规则：与终端「关键字高亮」同一份配置（config.keywords）
+  const keywordPatterns = useKeywordPatterns()
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
   const getSshBookmark = () => {
