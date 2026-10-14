@@ -88,7 +88,24 @@ export default Store => {
   }
 
   Store.prototype.delTab = function (id) {
-    return window.store.removeTabs({ id })
+    const { store } = window
+    const tab = store.tabs.find(t => t.id === id)
+    const batch = tab ? Number(tab.batch) : undefined
+    const res = store.removeTabs({ id })
+    // 自动收起空窗格（配置开关，默认关）：关掉某窗格最后一个 tab 后，
+    // 该窗格不再占位（等价于点「关闭此窗格」）
+    if (store.config.autoCloseEmptyPane && batch !== undefined) {
+      const total = (splitConfig[store.layout] && splitConfig[store.layout].children) || 1
+      if (total > 1 && !store.tabs.some(t => Number(t.batch) === batch)) {
+        if (store.tabs.length) {
+          store.closePane(batch)
+        } else {
+          // 全部关光：回到单窗格（多格只剩空占位没有意义）
+          store.setLayout('c1', false)
+        }
+      }
+    }
+    return res
   }
 
   Store.prototype.closeTabsRight = function (id) {

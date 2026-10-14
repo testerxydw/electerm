@@ -100,6 +100,8 @@ export default {
   onlyShowTitleInTab: false,
   disableShortcutBar: false,
   autoDistributeTabsWhenLayoutChange: false,
+  // 关掉某窗格最后一个 tab 后自动收起该空窗格（布局降级 + 窗格重排）
+  autoCloseEmptyPane: false,
   disableConfirmForLargeClipboardContent: false,
   doubleClickToOpenBookmark: false,
   // 启动时恢复上次退出前的 tab 页 (退出前自动保存快照)

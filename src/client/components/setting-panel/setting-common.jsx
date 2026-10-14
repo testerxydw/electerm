@@ -582,6 +582,7 @@ export default class SettingCommon extends Component {
             'onlyShowTitleInTab',
             'disableShortcutBar',
             'autoDistributeTabsWhenLayoutChange',
+            'autoCloseEmptyPane',
             'debug'
           ]
             .filter(name => (!isWebApp || !webAppHiddenSettings.includes(name)) &&
