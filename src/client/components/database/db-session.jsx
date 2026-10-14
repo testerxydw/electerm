@@ -47,9 +47,8 @@ export default function DbSession (props) {
   const [sqlText, setSqlText] = useState('')
   const [sqlResult, setSqlResult] = useState({
     loading: false,
-    rows: [],
-    fields: [],
-    affected: undefined,
+    // 多结果集：每项 { rows, fields, affected }（单条语句时只有 1 项）
+    results: [],
     error: ''
   })
 
@@ -267,18 +266,14 @@ export default function DbSession (props) {
       .then(res => {
         setSqlResult({
           loading: false,
-          rows: (res && res.rows) || [],
-          fields: (res && res.fields) || [],
-          affected: res ? res.affected : undefined,
+          results: (res && res.results) || [],
           error: ''
         })
       })
       .catch(err => {
         setSqlResult({
           loading: false,
-          rows: [],
-          fields: [],
-          affected: undefined,
+          results: [],
           error: err && err.message ? err.message : String(err)
         })
       })
@@ -391,25 +386,59 @@ export default function DbSession (props) {
     : []
 
   // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
-  const sqlColumns = sqlResult.fields.length
-    ? sqlResult.fields.map(f => ({
-      title: f,
-      dataIndex: f,
-      key: f,
+  const columnsForResult = (r) => {
+    const rows = (r && r.rows) || []
+    const fields = (r && r.fields) || []
+    const keys = fields.length ? fields : (rows.length ? Object.keys(rows[0]) : [])
+    return keys.map(k => ({
+      title: k,
+      dataIndex: k,
+      key: k,
       width: 220,
       ellipsis: true,
       render: renderCell
     }))
-    : (sqlResult.rows.length
-        ? Object.keys(sqlResult.rows[0]).map(k => ({
-          title: k,
-          dataIndex: k,
-          key: k,
-          width: 220,
-          ellipsis: true,
-          render: renderCell
-        }))
-        : [])
+  }
+
+  // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
+  const renderSqlResults = () => {
+    const results = sqlResult.results || []
+    if (!results.length) {
+      return null
+    }
+    const renderOne = (r, i) => (
+      <div key={i} className='db-sql-result-one'>
+        {
+          r.affected !== undefined
+            ? <div className='db-sql-affected'>affected rows: {r.affected}</div>
+            : null
+        }
+        <Table
+          size='small'
+          columns={columnsForResult(r)}
+          dataSource={((r && r.rows) || []).map((x, j) => ({ ...x, __rowKey: j }))}
+          rowKey='__rowKey'
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          className='db-grid-table'
+        />
+      </div>
+    )
+    if (results.length === 1) {
+      return renderOne(results[0], 0)
+    }
+    return (
+      <Tabs
+        size='small'
+        className='db-sql-results-tabs'
+        items={results.map((r, i) => ({
+          key: String(i),
+          label: `result ${i + 1}`,
+          children: renderOne(r, i)
+        }))}
+      />
+    )
+  }
 
   const treeData = isRedis
     ? metadata.map((db, i) => ({
@@ -519,21 +548,9 @@ export default function DbSession (props) {
             ? <Alert type='error' showIcon message={sqlResult.error} />
             : null
         }
-        {
-          sqlResult.affected !== undefined
-            ? <div className='db-sql-affected'>affected rows: {sqlResult.affected}</div>
-            : null
-        }
-        <Table
-          size='small'
-          loading={sqlResult.loading}
-          columns={sqlColumns}
-          dataSource={sqlResult.rows.map((r, i) => ({ ...r, __rowKey: i }))}
-          rowKey='__rowKey'
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          className='db-grid-table'
-        />
+        <Spin spinning={sqlResult.loading}>
+          {renderSqlResults()}
+        </Spin>
       </div>
     </div>
   )

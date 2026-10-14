@@ -49,7 +49,10 @@ async function getPool (conn) {
     connectTimeout: 8000,
     waitForConnections: true,
     connectionLimit: 4,
-    enableKeepAlive: true
+    enableKeepAlive: true,
+    // 支持一次执行多条语句（分号分隔）→ 多结果集；
+    // 只读模式下"全句写关键词扫描"会拦住 `SELECT 1; DROP TABLE t` 这类组合，故不放大写风险
+    multipleStatements: true
   })
   pools.set(key, pool)
   return pool
@@ -162,15 +165,35 @@ function checkReadonly (sql, readOnly) {
   }
 }
 
+// 把单个查询结果规范成 { rows, affected, fields }
+function toResult (rows, fields) {
+  const isRows = Array.isArray(rows)
+  return {
+    rows: isRows ? rowToPlain(rows) : [],
+    affected: !isRows && rows && typeof rows === 'object' && 'affectedRows' in rows
+      ? rows.affectedRows
+      : undefined,
+    fields: Array.isArray(fields) ? fields.map(f => f.name) : []
+  }
+}
+
+// 多语句时 mysql2 返回 [results[], fields[]]（元素本身是数组），
+// 统一规范为 results 数组，由前端按结果集数量决定渲染（1 个直接表格 / 多个用 tab）
+function normalizeResults (rows, fields) {
+  const isMulti = Array.isArray(fields) && Array.isArray(fields[0])
+  if (!isMulti) {
+    return [toResult(rows, fields)]
+  }
+  return rows.map((r, i) => toResult(r, fields[i]))
+}
+
 async function executeSql (conn, { sql, readOnly }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
   const pool = await getPool(conn)
   const [rows, fields] = await pool.query(sql)
   return {
-    rows: Array.isArray(rows) ? rowToPlain(rows) : [],
-    affected: rows && typeof rows === 'object' && 'affectedRows' in rows ? rows.affectedRows : undefined,
-    fields: Array.isArray(fields) ? fields.map(f => f.name) : []
+    results: normalizeResults(rows, fields)
   }
 }
 

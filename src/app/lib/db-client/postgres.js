@@ -158,10 +158,14 @@ async function executeSql (conn, { sql, readOnly }) {
   checkReadonly(sql, readOnly)
   const c = await getClient(conn)
   const res = await c.query(sql)
+  // pg 执行多语句时返回结果数组（每条语句一个 result），统一为 results
+  const list = Array.isArray(res) ? res : [res]
   return {
-    rows: res.rows || [],
-    affected: res.command && res.command !== 'SELECT' ? res.rowCount : undefined,
-    fields: Array.isArray(res.fields) ? res.fields.map(f => f.name) : []
+    results: list.map(r => ({
+      rows: r.rows || [],
+      affected: r.command && r.command !== 'SELECT' ? r.rowCount : undefined,
+      fields: Array.isArray(r.fields) ? r.fields.map(f => f.name) : []
+    }))
   }
 }
 
