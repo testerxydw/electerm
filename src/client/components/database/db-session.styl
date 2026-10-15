@@ -390,6 +390,26 @@
 .db-row-selected td
   background var(--active-bg)
 
+// 单元格预览面板（网格下方）：完整值 + 复制/编辑/保存
+.db-cell-preview
+  flex none
+  height 190px
+  display flex
+  flex-direction column
+  border-top 1px solid var(--border)
+  .db-cell-preview-head
+    display flex
+    align-items center
+    gap 8px
+    padding 4px 8px
+    flex none
+  .db-cell-preview-text
+    flex 1 1 0
+    min-height 0
+    margin 0 8px 8px
+    font-family var(--font-mono)
+    font-size 12px
+
 .db-redis-detail
   flex 1 1 0
   min-height 0

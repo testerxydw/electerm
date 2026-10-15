@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined, CopyOutlined, CloseOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -14,6 +14,7 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { detectFormats, formatValue } from './db-value-format'
 import clone from '../../common/to-simple-obj'
+import { copy } from '../../common/clipboard'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -228,6 +229,9 @@ export default auto(function DbSession (props) {
   // 单元格编辑态：{ rowKey, col } + 输入框值（回车提交 / 失焦取消）
   const [editing, setEditing] = useState(null)
   const [editValue, setEditValue] = useState('')
+  // 单元格预览面板（点击选中；完整值 + 复制/编辑/保存）
+  const [selectedCell, setSelectedCell] = useState(null)
+  const [panelValue, setPanelValue] = useState('')
   // 连接层错误：用于顶部提示 + 重连按钮
   const [connError, setConnError] = useState('')
 
@@ -554,15 +558,14 @@ export default auto(function DbSession (props) {
     setEditing(null)
   }
 
-  const submitEdit = () => {
-    const target = editing
-    setEditing(null)
-    if (!target || !sel) {
+  // 单元格 UPDATE（行内双击编辑与预览面板共用）
+  const runCellUpdate = (rowKey, col, value) => {
+    const row = grid.rows[rowKey]
+    if (!row || !sel) {
       return
     }
-    const row = grid.rows[target.rowKey]
     const sql = `UPDATE ${quoteIdent(sel.database)}.${quoteIdent(sel.table)}` +
-      ` SET ${quoteIdent(target.col)} = ${quoteVal(editValue)}` +
+      ` SET ${quoteIdent(col)} = ${quoteVal(value)}` +
       ` WHERE ${quoteIdent(pkColumn)} = ${quoteVal(row[pkColumn])}`
     setGrid(g => ({ ...g, loading: true }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', { sql })
@@ -571,6 +574,27 @@ export default auto(function DbSession (props) {
         setGrid(g => ({ ...g, loading: false }))
         onOpError(err)
       })
+  }
+
+  const submitEdit = () => {
+    const target = editing
+    setEditing(null)
+    if (!target || !sel) {
+      return
+    }
+    runCellUpdate(target.rowKey, target.col, editValue)
+  }
+
+  // 预览面板：选中单元格 + 保存
+  const selectCell = (row, col) => {
+    setSelectedCell({ rowKey: row.__rowKey, col })
+    setPanelValue(row[col] === null || row[col] === undefined ? '' : String(row[col]))
+  }
+  const savePanel = () => {
+    if (!selectedCell) {
+      return
+    }
+    runCellUpdate(selectedCell.rowKey, selectedCell.col, panelValue)
   }
 
   const runSql = () => {
@@ -697,39 +721,52 @@ export default auto(function DbSession (props) {
   }
 
   const columns = grid.rows.length
-    ? Object.keys(grid.rows[0]).map(k => ({
-      title: k,
-      dataIndex: k,
-      key: k,
-      width: 220,
-      ellipsis: true,
-      sorter: true,
-      // 双击命中区放在整个单元格（td）上：值短时后面的空白也能双击进编辑态，
-      // 之前挂在文字 span 上，只有精确双击到字符才生效
-      onCell: canEditCell
-        ? row => ({
-          onDoubleClick: () => startEdit(row, k),
-          className: 'db-cell-editable',
-          title: 'double click to edit'
+    ? Object.keys(grid.rows[0]).map(k => {
+      // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
+      // （如"一般"）出现大片空白；虚拟渲染是 fixed 布局，必须显式给宽
+      const sample = grid.rows.slice(0, 100)
+      const maxLen = Math.max(
+        k.length,
+        ...sample.map(r => {
+          const v = r[k]
+          return v === null || v === undefined ? 4 : String(v).length
         })
-        : undefined,
-      render: (v, row) => {
-        if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
-          return (
-            <Input
-              size='small'
-              autoFocus
-              className='db-cell-editor'
-              value={editValue}
-              onChange={ev => setEditValue(ev.target.value)}
-              onPressEnter={submitEdit}
-              onBlur={cancelEdit}
-            />
-          )
+      )
+      const width = Math.min(360, Math.max(90, maxLen * 12 + 32))
+      return {
+        title: k,
+        dataIndex: k,
+        key: k,
+        width,
+        ellipsis: true,
+        sorter: true,
+        // 单击选中 → 下方预览面板；双击命中区放在整个单元格（td）上：
+        // 值短时后面的空白也能双击进编辑态，之前挂在文字 span 上，
+        // 只有精确双击到字符才生效
+        onCell: row => ({
+          onClick: () => selectCell(row, k),
+          onDoubleClick: () => canEditCell && startEdit(row, k),
+          className: 'db-cell-editable',
+          title: canEditCell ? 'click to preview, double click to edit' : 'click to preview'
+        }),
+        render: (v, row) => {
+          if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
+            return (
+              <Input
+                size='small'
+                autoFocus
+                className='db-cell-editor'
+                value={editValue}
+                onChange={ev => setEditValue(ev.target.value)}
+                onPressEnter={submitEdit}
+                onBlur={cancelEdit}
+              />
+            )
+          }
+          return renderCell(v)
         }
-        return renderCell(v)
       }
-    }))
+    })
     : []
 
   // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
@@ -1076,6 +1113,55 @@ export default auto(function DbSession (props) {
               )
         }}
       />
+      {
+        // 单元格预览面板：完整值 + 复制/编辑/保存（readonly 表只读 + 复制）
+        selectedCell && grid.rows[selectedCell.rowKey]
+          ? (
+            <div className='db-cell-preview'>
+              <div className='db-cell-preview-head'>
+                <span className='db-grid-title'>
+                  {selectedCell.col} · row {Number(selectedCell.rowKey) + 1}
+                </span>
+                <span className='db-grid-total'>{panelValue.length} chars</span>
+                <Button
+                  size='small'
+                  icon={<CopyOutlined />}
+                  title='copy'
+                  onClick={() => copy(panelValue)}
+                />
+                {
+                  canEditCell
+                    ? (
+                      <Button
+                        size='small'
+                        type='primary'
+                        disabled={grid.loading || panelValue === String(
+                          grid.rows[selectedCell.rowKey][selectedCell.col] ?? ''
+                        )}
+                        onClick={savePanel}
+                      >
+                        save
+                      </Button>
+                      )
+                    : null
+                }
+                <Button
+                  size='small'
+                  icon={<CloseOutlined />}
+                  title='close'
+                  onClick={() => setSelectedCell(null)}
+                />
+              </div>
+              <Input.TextArea
+                className='db-cell-preview-text'
+                value={panelValue}
+                onChange={ev => setPanelValue(ev.target.value)}
+                readOnly={!canEditCell}
+              />
+            </div>
+            )
+          : null
+      }
     </div>
   )
 
