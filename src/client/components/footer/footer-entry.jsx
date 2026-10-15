@@ -1,5 +1,4 @@
 import { auto } from 'manate/react'
-import classnames from 'classnames'
 import {
   Select,
   Dropdown,
@@ -18,7 +17,6 @@ import {
 } from '@ant-design/icons'
 import './footer.styl'
 import { statusMap } from '../../common/constants'
-import { statusText, typeText } from '../status-bar/format'
 import BatchInput from './batch-input'
 import QuickCmdStrip from './quick-cmd-strip'
 import encodes from '../bookmark-form/common/encodes'
@@ -268,35 +266,6 @@ export default auto(function FooterEntry (props) {
     )
   }
 
-  // 底栏三合一：左区会话状态（原 statusbar 内容并入）
-  // 编码展示省略（右侧编码 Select 已承载），Ctrl+K 提示由全局组命令面板按钮承载
-  function renderStatusInfo () {
-    const { store } = props
-    const currentTab = store.currentTab
-    const ok = currentTab && currentTab.status === statusMap.success
-    const hasTab = !!currentTab
-    const tabCount = (store.tabs || []).length
-    return (
-      <div className='terminal-footer-status'>
-        <span className='statusbar-unit'>
-          <i className={classnames('statusbar-dot', { ok, err: hasTab && !ok })} />
-          {statusText(currentTab && currentTab.status)}
-          {
-            hasTab && currentTab.host
-              ? <b className='statusbar-host'>{currentTab.host}</b>
-              : null
-          }
-        </span>
-        {
-          hasTab
-            ? <span className='statusbar-unit'>{typeText(currentTab)}</span>
-            : null
-        }
-        <span className='statusbar-unit'>{tabCount} tab{tabCount === 1 ? '' : 's'}</span>
-      </div>
-    )
-  }
-
   // 底栏三合一：右区全局动作（原 app-kbar 去重后独有项——
   // AI/快捷命令/命令历史与中区终端按钮重复，保留中区版本）
   function renderGlobalActions () {
@@ -377,11 +346,12 @@ export default auto(function FooterEntry (props) {
     className: 'main-footer'
   }
   // 底栏三合一后单一路径：状态区与全局组常显（原 statusbar/kbar 语义，
-  // 不受 inActiveTerminal 门控），终端级按钮仅活动终端时显示
+  // 不受 inActiveTerminal 门控），终端级按钮仅活动终端时显示。
+  // 原左区会话状态（statusbar）已整体移除：tab.status 对 database tab 恒"未连接"，
+  // 与数据库页顶栏 .db-head 的真实连接状态不一致；SSH 页的该信息由顶栏承载
   return (
     <div {...sideProps}>
       <div className='terminal-footer-flex'>
-        {!isMobile && renderStatusInfo()}
         {showSidebarIcon}
         {inActiveTerminal && !isAIDisabled() && renderAIIcon()}
         {inActiveTerminal && !isAIDisabled() && renderTransferIcon()}
