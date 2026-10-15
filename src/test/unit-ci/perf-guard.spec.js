@@ -122,4 +122,16 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
     assert.ok(src.includes('dbPageSize'), 'page size config key missing')
     assert.ok(src.includes('DB_PAGE_SIZE_DEFAULT = 20'), 'default page size drifted')
   })
+
+  test('page size selector UI exists (mysql grid + redis bar)', () => {
+    const src = loadSrc(DB_SESSION)
+    assert.ok(src.includes('renderPageSizeSelect()'), 'page size selector must be rendered')
+    assert.ok(src.includes('changePageSize'), 'selector change handler missing')
+  })
+
+  test('dbPageSize joins config sync whitelist', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/client/store/sync.js'), 'utf8')
+    const m = src.match(/const configSyncKeys = \[[\s\S]*?\]/)
+    assert.ok(m && m[0].includes('dbPageSize'), 'dbPageSize must sync with settings')
+  })
 })

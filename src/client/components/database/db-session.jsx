@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -866,6 +866,29 @@ export default auto(function DbSession (props) {
     document.addEventListener('mouseup', onUp)
   }
 
+  // 每页行数切换：写 config.dbPageSize 并回第 1 页重新取数（mysql/redis 共用）
+  const pageSizeOptions = [10, 20, 50, 100, 500].map(n => ({ value: n, label: n + ' / page' }))
+  const changePageSize = (v) => {
+    window.store.setConfig({ dbPageSize: v })
+    if (isRedis) {
+      if (redisDb >= 0) {
+        loadRedisKeys(redisDb, '0', matchInput)
+      }
+    } else if (sel) {
+      loadPage(sel, 1, grid.orderBy, grid.order)
+    }
+  }
+  const renderPageSizeSelect = () => (
+    <Select
+      size='small'
+      className='db-grid-pagesize'
+      value={getDbPageSize()}
+      options={pageSizeOptions}
+      onChange={changePageSize}
+      title='rows per page'
+    />
+  )
+
   // 页码快速跳转：totalRows 为服务端估算值，totalPages 同为近似
   // （redis 为 SCAN 游标模式，无总页数概念，不渲染页码标签/跳页）
   const dbPageSize = getDbPageSize()
@@ -998,6 +1021,9 @@ export default auto(function DbSession (props) {
               </div>
               )
             : null
+        }
+        {
+          sel ? renderPageSizeSelect() : null
         }
         {
           // 刷新当前表：保持页码/排序，只重新取数
@@ -1324,6 +1350,7 @@ export default auto(function DbSession (props) {
                   title={e('refresh')}
                   onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
                 />
+                {renderPageSizeSelect()}
               </div>
               <DbGridTable
                 className='db-redis-keys'

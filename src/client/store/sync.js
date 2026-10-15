@@ -845,6 +845,7 @@ export default (Store) => {
   Store.prototype.getSyncConfig = function () {
     const { store } = window
     const configSyncKeys = [
+      'dbPageSize',
       'keepaliveInterval',
       'rightClickSelectsWord',
       'mouseEventsRequireAlt',
