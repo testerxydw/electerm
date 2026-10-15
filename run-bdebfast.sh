@@ -5,6 +5,7 @@
 #   --prepare        强制重建 work/app/node_modules (node-pty 缺失等)
 #   --ui             强制 UI 测试包: 版本号带 -ui 后缀 (如 test.82-ui)
 #   --no-ui          在 ui-beautification 分支上豁免自动 -ui 标识
+#   --run            需要时可以直接启动软件
 #   --limit-cpu N    限核数覆盖 (默认 min(核数*70%, 10); 0=不限)
 #   ui-beautification 分支自动使用 -ui 包标识, 与 master 包区分
 # 历史坑:
@@ -58,6 +59,7 @@ SKIP_COMPILE=0
 FORCE_PREPARE=0
 UI_MODE=0
 NO_UI=0
+RUN_ELEC=0
 LIMIT_CPU=''
 ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
@@ -66,6 +68,7 @@ while [ $# -gt 0 ]; do
     --prepare)      FORCE_PREPARE=1 ;;
     --ui)           UI_MODE=1 ;;
     --no-ui)        NO_UI=1 ;;
+    --run)          RUN_ELEC=1;;
     --limit-cpu)
       shift
       LIMIT_CPU="${1:-}"
@@ -223,6 +226,8 @@ sudo dpkg -i --force-overwrite "$DEB"
 # 安装后校验: dpkg 记录里的版本应与刚构建的一致 (防装了别的包)
 INSTALLED=$(dpkg-query -W -f='${Version}' electerm 2>/dev/null || echo '?')
 echo "[ok] 已安装版本: $INSTALLED"
-nohup /opt/electerm/electerm > /tmp/electerm.log 2>&1 &
-echo "[done] 已启动, PID=$!"
-echo "       tail -f /tmp/electerm.log"
+if [[ ${RUN_ELEC} -eq 1 ]];then
+  nohup /opt/electerm/electerm > /tmp/electerm.log 2>&1 &
+  echo "[done] 已启动, PID=$!"
+  echo "       tail -f /tmp/electerm.log"
+fi
