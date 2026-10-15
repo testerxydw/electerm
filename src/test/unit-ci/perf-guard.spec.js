@@ -111,4 +111,15 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
     assert.ok(!src.includes('renderStatusInfo'), 'dead renderer must not return')
     assert.ok(src.includes('renderAIIcon()'), 'AI button must stay')
   })
+
+  test('DbGridTable enables row virtualization (DOM rows decoupled from pageSize)', () => {
+    const src = loadSrc(DB_SESSION)
+    assert.ok(src.includes('virtual={y > 0}'), 'row virtualization must stay on')
+  })
+
+  test('dbPageSize config respected with default 20', () => {
+    const src = loadSrc(DB_SESSION)
+    assert.ok(src.includes('dbPageSize'), 'page size config key missing')
+    assert.ok(src.includes('DB_PAGE_SIZE_DEFAULT = 20'), 'default page size drifted')
+  })
 })

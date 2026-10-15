@@ -18,7 +18,13 @@ import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
 const e = window.translate
-const PAGE_SIZE = 100
+// 每页行数：可经 config.dbPageSize 配置（10/20/50/100/500），默认 20；
+// 服务端上限 1000 不变（mysql.js/redis.js）
+const DB_PAGE_SIZE_DEFAULT = 20
+const getDbPageSize = () => {
+  const v = Number(window.store._config && window.store._config.dbPageSize)
+  return v >= 10 ? Math.min(v, 1000) : DB_PAGE_SIZE_DEFAULT
+}
 // 元数据树宽度约束与持久化键
 const TREE_WIDTH_KEY = 'electerm-db-tree-width'
 const TREE_MIN_W = 160
@@ -134,6 +140,8 @@ function DbGridTable (props) {
       <Table
         {...rest}
         className='db-grid-table'
+        // 行虚拟渲染：DOM 行数与 pageSize 解耦（只渲染可视区），行少自动退化为全渲染
+        virtual={y > 0}
         // y 生效后表体自己滚动，外层禁掉纵向滚动（子像素取整仍可能溢出 1px → 双滚动条）
         style={y > 0 ? { overflowY: 'hidden' } : undefined}
         scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}
@@ -458,7 +466,7 @@ export default auto(function DbSession (props) {
       database: target.database,
       table: target.table,
       page,
-      pageSize: PAGE_SIZE,
+      pageSize: getDbPageSize(),
       orderBy,
       order
     }).then(res => {
@@ -505,6 +513,14 @@ export default auto(function DbSession (props) {
   // 用本地 state 而非直接读 tab：本组件是普通函数组件，父级不读 readOnly，
   // tab 变更后不会重渲染，开关会停留在旧状态。
   const [isReadonly, setIsReadonly] = useState(tab.readOnly !== false)
+
+  // 页码跳转输入（MySQL 网格；redis 为游标模式，不支持任意跳页）
+  const [jumpPage, setJumpPage] = useState(null)
+  // redis 键详情分批渲染：每批 200，换键重置
+  const [detailLimit, setDetailLimit] = useState(200)
+  useEffect(() => {
+    setDetailLimit(200)
+  }, [redisKey])
 
   // 页面内切换只读：先同步主进程（白名单以主进程实例为权威），成功再改本地与 tab，
   // 否则主进程失败时界面会显示成"可写"但实际仍被拦
@@ -595,7 +611,7 @@ export default auto(function DbSession (props) {
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       dbIndex,
       cursor: String(cursor || '0'),
-      pageSize: PAGE_SIZE,
+      pageSize: getDbPageSize(),
       match: match || '*'
     }).then(res => {
       setKeyList({
@@ -850,6 +866,60 @@ export default auto(function DbSession (props) {
     document.addEventListener('mouseup', onUp)
   }
 
+  // 页码快速跳转：totalRows 为服务端估算值，totalPages 同为近似
+  // （redis 为 SCAN 游标模式，无总页数概念，不渲染页码标签/跳页）
+  const dbPageSize = getDbPageSize()
+  const totalPages = sel && typeof grid.totalRows === 'number'
+    ? Math.max(1, Math.ceil(grid.totalRows / dbPageSize))
+    : null
+  const goPage = () => {
+    const p = Math.max(1, Number(jumpPage) || 0)
+    if (!p) {
+      return
+    }
+    setJumpPage(null)
+    turnPage(totalPages ? Math.min(p, totalPages) : p)
+  }
+  // 页码标签窗口：当前页 ±1，两端显示首/末页，超界用省略号
+  const renderPageTags = () => {
+    if (!totalPages || totalPages <= 1) {
+      return null
+    }
+    const page = grid.page
+    const from = Math.max(1, page - 1)
+    const to = Math.min(totalPages, page + 1)
+    const tags = []
+    const pushTag = pn => tags.push(
+      pn === page
+        ? (
+          <Button key={pn} size='small' type='primary' disabled={grid.loading}>
+            {pn}
+          </Button>
+          )
+        : (
+          <Button key={pn} size='small' disabled={grid.loading} onClick={() => turnPage(pn)}>
+            {pn}
+          </Button>
+          )
+    )
+    if (from > 1) {
+      pushTag(1)
+      if (from > 2) {
+        tags.push(<span key='e1' className='db-grid-page-no'>…</span>)
+      }
+    }
+    for (let pn = from; pn <= to; pn++) {
+      pushTag(pn)
+    }
+    if (to < totalPages) {
+      if (to < totalPages - 1) {
+        tags.push(<span key='e2' className='db-grid-page-no'>…</span>)
+      }
+      pushTag(totalPages)
+    }
+    return <div className='db-grid-page-tags'>{tags}</div>
+  }
+
   if (error) {
     return (
       <div className='db-session-wrap db-session-error'>
@@ -903,6 +973,7 @@ export default auto(function DbSession (props) {
                   disabled={grid.page <= 1 || grid.loading}
                   onClick={() => turnPage(grid.page - 1)}
                 />
+                {renderPageTags()}
                 <span className='db-grid-page-no'>page {grid.page}</span>
                 <Button
                   size='small'
@@ -910,6 +981,20 @@ export default auto(function DbSession (props) {
                   disabled={!grid.hasMore || grid.loading}
                   onClick={() => turnPage(grid.page + 1)}
                 />
+                {/* 直接跳转到某页（totalPages 为估算值，跳页时钳制到估算末页） */}
+                <InputNumber
+                  size='small'
+                  min={1}
+                  max={totalPages || undefined}
+                  value={jumpPage}
+                  onChange={v => setJumpPage(v)}
+                  onPressEnter={goPage}
+                  className='db-grid-jump'
+                  placeholder={totalPages ? '1-' + totalPages : 'page#'}
+                />
+                <Button size='small' disabled={!jumpPage} onClick={goPage}>
+                  go
+                </Button>
               </div>
               )
             : null
@@ -1037,6 +1122,22 @@ export default auto(function DbSession (props) {
     { title: 'ttl', dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
   ]
 
+  // redis 详情「加载更多」：detailLimit 分批渲染，避免大 hash/list 一次进 DOM
+  const renderMoreBtn = (total) => {
+    if (!total || total <= detailLimit) {
+      return null
+    }
+    return (
+      <Button
+        size='small'
+        className='db-redis-more'
+        onClick={() => setDetailLimit(l => l + 200)}
+      >
+        load more (left {total - detailLimit})
+      </Button>
+    )
+  }
+
   // 键详情：按类型渲染（string 文本框；hash/list/set/zset 网格）
   const renderRedisDetail = () => {
     const d = redisDetail
@@ -1052,61 +1153,76 @@ export default auto(function DbSession (props) {
         </pre>
       )
     } else if (d.type === 'hash') {
+      const hashFields = (d.fields || []).slice(0, detailLimit)
       body = (
-        <DbGridTable
-          size='small'
-          pagination={false}
-          columns={[
-            { title: 'field', dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
-            { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
-          ]}
-          dataSource={(d.fields || []).map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
-          rowKey='__rowKey'
-        />
+        <>
+          <DbGridTable
+            size='small'
+            pagination={false}
+            columns={[
+              { title: 'field', dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
+              { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+            ]}
+            dataSource={hashFields.map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
+            rowKey='__rowKey'
+          />
+          {renderMoreBtn((d.fields || []).length)}
+        </>
       )
     } else if (d.type === 'list') {
+      const listRows = (d.rows || []).slice(0, detailLimit)
       body = (
-        <DbGridTable
-          size='small'
-          pagination={false}
-          columns={[
-            { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
-            { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
-          ]}
-          dataSource={(d.rows || []).map((v, i) => ({ index: i, value: v, __rowKey: i }))}
-          rowKey='__rowKey'
-        />
+        <>
+          <DbGridTable
+            size='small'
+            pagination={false}
+            columns={[
+              { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
+              { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+            ]}
+            dataSource={listRows.map((v, i) => ({ index: i, value: v, __rowKey: i }))}
+            rowKey='__rowKey'
+          />
+          {renderMoreBtn((d.rows || []).length)}
+        </>
       )
     } else if (d.type === 'set') {
+      const setRows = (d.rows || []).slice(0, detailLimit)
       body = (
-        <DbGridTable
-          size='small'
-          pagination={false}
-          columns={[
-            { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
-          ]}
-          dataSource={(d.rows || []).map((v, i) => ({ member: v, __rowKey: i }))}
-          rowKey='__rowKey'
-        />
+        <>
+          <DbGridTable
+            size='small'
+            pagination={false}
+            columns={[
+              { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
+            ]}
+            dataSource={setRows.map((v, i) => ({ member: v, __rowKey: i }))}
+            rowKey='__rowKey'
+          />
+          {renderMoreBtn((d.rows || []).length)}
+        </>
       )
     } else if (d.type === 'zset') {
+      const rows = (d.rows || []).slice(0, detailLimit * 2)
       const list = []
-      const rows = d.rows || []
       // zrange WITHSCORES 返回 [member, score, ...] 扁平数组
       for (let i = 0; i < rows.length; i += 2) {
         list.push({ member: rows[i], score: rows[i + 1], __rowKey: i })
       }
       body = (
-        <DbGridTable
-          size='small'
-          pagination={false}
-          columns={[
-            { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
-            { title: 'score', dataIndex: 'score', key: 'score', width: 120, render: renderCell }
-          ]}
-          dataSource={list}
-          rowKey='__rowKey'
-        />
+        <>
+          <DbGridTable
+            size='small'
+            pagination={false}
+            columns={[
+              { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
+              { title: 'score', dataIndex: 'score', key: 'score', width: 120, render: renderCell }
+            ]}
+            dataSource={list}
+            rowKey='__rowKey'
+          />
+          {renderMoreBtn(Math.ceil((d.rows || []).length / 2))}
+        </>
       )
     } else {
       body = <span className='db-cell-null'>unsupported type: {d.type}</span>

@@ -201,6 +201,16 @@
 .db-grid-page-no
   color var(--text)
 
+// 页码快速跳转标签（当前页 ±1 + 首/末页 + 省略号）
+.db-grid-page-tags
+  display flex
+  align-items center
+  gap 4px
+
+// 跳页输入
+.db-grid-jump
+  width 72px
+
 // 近似总行数（次要信息）
 .db-grid-total
   color var(--text-dark)
@@ -392,6 +402,10 @@
 .db-redis-detail-empty
   align-items center
   justify-content center
+
+.db-redis-more
+  flex none
+  align-self flex-start
 
 .db-redis-detail-bar
   display flex
