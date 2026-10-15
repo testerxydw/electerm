@@ -1,0 +1,115 @@
+# 设计：Redis 键空间右侧高度分配（键列表 / 键详情）
+
+> 状态：待确认，确认后实施
+> 日期：2026-10-15
+> 反馈原文（用户）：「redis 进入后，右侧直接上下平分高度？考虑 tab 布局的影响，设计一下」
+> 关联：`doc/数据库表格横向滚动条优化方案.md`（DbGridTable 定高滚动是本设计的约束前提）
+
+---
+
+## 一、现状与问题
+
+### 1.1 结构（`db-session.jsx:1089` + `db-session.styl`）
+
+```
+db-main-panel (flex 列, 高 100%)
+  └─ db-redis-area (flex 列, gap 8)
+       ├─ db-redis-bar        flex none   （match 输入 + filter + 翻页 + 刷新）
+       ├─ keys: .db-grid-table-wrap.db-redis-keys   flex none + max-height 45%
+       └─ detail: .db-redis-detail                  flex 1 1 0 + min-height 0
+            ├─ db-redis-detail-bar（键名/type/ttl/格式化/TTL/删除）
+            └─ body：<pre>（string）或 DbGridTable（hash/list/set/zset）
+```
+
+### 1.2 问题
+
+| # | 问题 | 证据 |
+|---|---|---|
+| 1 | 键列表 `max-height 45%` 是**固定上限**，与内容无关 → 视觉上"上下平分"；键少时上带小、键多时永远卡在 45%，大键库无法把更多空间给列表 | 真实库 db0=6 键：列表 186px；db1=21 键也顶多 45% |
+| 2 | 未选键时详情区不存在 → **下半区全空**；选键后内容少（如 1 行）→ 大片空白 | 真实库截图：详情 533px 高只有 1 行网格 |
+| 3 | 比例不可调：不同键库规模差异极大（6 键 vs 1 万键），固定比例无法适配 | — |
+
+### 1.3 约束（易踩坑，设计必须满足）
+
+1. **DbGridTable 定高滚动**：键列表与详情网格的 scroll.y 依赖 wrap 拿到确定高度——任何新分配必须保证两个 wrap `flex 1 1 0 + min-height 0`（或等价的确定高度）；给 auto 高度 + 内部 basis 0 会整块塌陷（Redis 键列表塌陷事故已发生过一次）。
+2. **tab 布局的影响**：
+   - Redis 右侧**当前没有** Tabs 包裹（MySQL 的 data/SQL/表结构才有 `.db-tabs`），高度链是 `db-main-panel → db-redis-area` 直通，比 MySQL 少一层 antd Tabs pane；
+   - 若未来把键列表/详情**套进 Tabs**（如仿 MySQL 加「键空间 / 控制台」tab）：antd Tabs pane 是**块级父级**，内部 flex-basis 不生效，必须 `height 100%` 撑满（表结构 tab 踩过），且 `.db-tabs` 的 body-holder→body→content 撑满链已现成可复用；
+   - 本设计**不引入 Tabs**（见方案对比），上述只是高度链备查。
+3. 详情 bar（键名/TTL/删除）必须始终 `flex none`，不能被压缩。
+
+---
+
+## 二、方案对比
+
+| 方案 | 做法 | 优点 | 缺点 | 结论 |
+|---|---|---|---|---|
+| **A（推荐）** | 键列表/详情 **50/50 平分 + 可拖拽分隔条**（复用 `.db-tree-resizer` 成例），比例持久化 | 一劳永逸适配任意键库规模；实现小（约 60 行，全在既有模式内）；平分成为"默认值"而非"硬编码" | 需新增一个 resizer 组件实例 | ✅ 采用 |
+| B | 纯内容自适应：键列表 `flex 1 1 auto` 吃剩余、详情 `flex none` 贴内容 + max 上限 | 改动最小 | 详情网格（hash 上千 field）没有确定高度 → scroll.y 失效或塌陷；空白依旧集中一处 | ❌ 与 DbGridTable 定高约束冲突 |
+| C | 键列表/详情拆成两个 Tab（仿 MySQL） | 与 MySQL 形态统一 | **割裂"点键 → 立刻看详情"的浏览流**，每次点键要切 tab，不可接受 | ❌ |
+| D | 详情改浮层/抽屉 | 不占高度 | 详情是主浏览区（大 hash 要反复看），浮层反复开关反而累 | ❌ |
+
+> 关于"平分"：问题不在 50/50 本身，而在**不可调**。有拖拽后，50/50 是合理默认，键多的用户拖大列表、重详情的用户拖大下区，各自一次调好并记住。
+
+---
+
+## 三、推荐实现（方案 A）
+
+### 3.1 结构与样式
+
+```
+db-redis-area (flex 列)
+  ├─ db-redis-bar                    flex none
+  ├─ keys wrap (.db-redis-keys)      flex 1 1 0 + min-height 0   ← 去掉 max-height 45%
+  ├─ db-redis-resizer                flex none, 高 9px, row-resize（横向拖改上下比例）
+  └─ db-redis-detail                 flex 1 1 0 + min-height 0
+```
+
+- `.db-redis-resizer`：**复用 `.db-tree-resizer` 的既有模式**（骑跨分隔线的 1px 线 + hover 高亮 `--primary`），方向改 `row-resize`；定位算术参照树分隔条的 margin 负值方案（横向改为纵向：`margin: -12px 0` 骑跨上容器下边框……具体以树分隔条实现为准的镜像）。
+- `.db-redis-keys` 保留类名挂 wrap（键列表），删除 `max-height 45%` 与 `flex none`，由内联 flexBasis 驱动。
+
+### 3.2 拖拽逻辑（照抄树宽拖拽的模式）
+
+- `redisSplitPct` state（默认 50），`onMouseDown` 记起点 → `mousemove` 按容器高度换算百分比（clamp 20%~80%）→ 松手 `localStorage.setItem('electerm-db-redis-split', pct)`（键名与 `TREE_WIDTH_KEY` 同风格，进 constants）；
+- 两个 wrap 用内联 `style={{ flexBasis: pct + '%' }}` / `flexBasis: (100-pct) + '%'`（`flex-grow/shrink 1` 保持，min-height 0 兜底）；
+- 初始化读 localStorage，非法值回落 50。
+
+### 3.3 未选键态
+
+- 详情区不存在时（`!redisKey`）渲染 `<Empty description='select a key' />` 占位（居中于下半区）——平分后有内容支撑，不再大片空白；
+- Empty 外仍包一层 `flex 1 1 0 + min-height 0 + 居中` 容器，保证选键后网格拿到的仍是同一确定高度（切换不抖动）。
+
+### 3.4 改动点清单（最小）
+
+| # | 文件 | 改动 |
+|---|---|---|
+| 1 | `db-session.jsx` | redisArea 里键列表与详情之间插 `<div className='db-redis-resizer' onMouseDown={startRedisResize} />`；`redisSplitPct` state + `startRedisResize`（照 `startResize` 树宽版镜像）+ localStorage 读写；未选键 Empty 占位 |
+| 2 | `db-session.styl` | 新增 `.db-redis-resizer`（镜像 `.db-tree-resizer`，cursor row-resize）；`.db-redis-keys` 去 `max-height 45%/flex none`；详情占位容器样式 |
+| 3 | `common/constants.js` | `REDIS_SPLIT_KEY = 'electerm-db-redis-split'`（参照 `TREE_WIDTH_KEY` 模式） |
+| 4 | `src/test/unit-ci/db-grid-scroll.spec.js` | 契约更新：`.db-redis-keys` 的 `max-height 45%` 断言改为"不存在"（旧值回归即塌陷隐患复活） |
+
+> 全部在既有模式（树宽拖拽 / resizer / DbGridTable）内扩展，无新增抽象。
+
+### 3.5 边界
+
+| 场景 | 行为 |
+|---|---|
+| 键列表 0 键（空 db） | Empty 占位 + 可拖拽照常（拖的是比例，内容空不影响） |
+| 极端拖拽 | clamp 20%~80%，两侧永不小于 120px 等效空间 |
+| 全屏 / 分屏 / 窗口缩放 | 比例是百分比，ResizeObserver + flex 天然自适应 |
+| DbSession 重挂载（切标签回来） | 从 localStorage 恢复比例 |
+| 未来套 Tabs | pane 块级 → 内容根需 `height 100%`（§一 1.3-2 备查） |
+
+## 四、验证计划
+
+1. `npx standard` + `npm run test-unit-ci`（845 例不回归 + 新契约）
+2. CDP + 真实 Redis（192.168.115.67:16379）：
+   - 默认 50/50；拖拽到 70/30 → 两区高度按比例、网格 scroll.y 仍生效（横滚条贴各区底边）
+   - 松手后 localStorage 持久化；重挂载恢复
+   - 未选键时下半区 Empty 居中；选键后不抖动
+   - 键列表/详情双网格均无双竖滚动条（沿用 DbGridTable 兜底）
+3. 打包实测可选（`run-bdebfast.sh`）
+
+## 五、提交（确认后）
+
+- `feat(database): redis 键列表与详情支持拖拽调高（默认平分，比例持久化）`——一次提交（jsx + styl + constants + spec 同属一个功能点）
