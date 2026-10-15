@@ -255,8 +255,14 @@ export default auto(function DbSession (props) {
 
   // 关键字高亮规则：与终端「关键字高亮」同一份配置（config.keywords）
   const keywordPatterns = useKeywordPatterns()
-  // 高亮配色跟随终端主题（与终端里同一色名同一颜色）
-  const themeConfig = window.store.getThemeConfig()
+  // 高亮配色跟随终端主题（与终端里同一色名同一颜色）。
+  // ⚠️ getThemeConfig 内部走 store.config getter（每次 deepCopy 整个配置）+ getSidebarList，
+  // 每渲染调用会造成内存/CPU 波动 —— 以主题 id 为依赖缓存，主题切换才重算
+  const themeId = window.store._config.theme
+  const themeConfig = useMemo(
+    () => window.store.getThemeConfig(),
+    [themeId]
+  )
 
   // string 值可用的格式化格式（JSON / Python 字面量 / XML / URL），每次值变化重算；
   // 注意：必须放在下面那些提前 return 之前 —— hooks 数量不能在渲染间变化
@@ -278,6 +284,22 @@ export default auto(function DbSession (props) {
   const toggleFormat = () => {
     setValueFormat(activeFormat === 'raw' ? (autoFormat ? autoFormat.key : 'raw') : 'raw')
   }
+
+  // 值预览高亮缓存（性能关键）：DbSession 因 store 订阅会频繁重渲染，
+  // 大值（最长 100KB × 全部规则）每次渲染重算并重建上千个 span，
+  // 正是"内存大涨大跌"的来源 —— 只在 值/格式/规则/主题 变化时重算一次
+  const highlightedPreview = useMemo(() => {
+    if (!stringValue) {
+      return ''
+    }
+    const shown = activeFormat === 'raw'
+      ? stringValue
+      : formatValue(stringValue, activeFormat)
+    return highlightValue(shown, keywordPatterns, themeConfig, {
+      maxLength: 100000,
+      maxHits: 2000
+    })
+  }, [stringValue, activeFormat, keywordPatterns, themeConfig])
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
   const getSshBookmark = () => {
@@ -1023,16 +1045,10 @@ export default auto(function DbSession (props) {
       body = detailLoading ? <Spin size='small' /> : null
     } else if (d.type === 'string') {
       // 原文 / 格式化都走高亮渲染（<pre> 保留换行与缩进，可选中复制）。
-      // 值预览是单值专用查看区，放宽长度/命中上限——大 JSON（>4KB）也要高亮
-      const shown = activeFormat === 'raw'
-        ? stringValue
-        : formatValue(stringValue, activeFormat)
+      // 高亮结果已在组件顶部 useMemo 缓存（性能：见 highlightedPreview 注释）
       body = (
         <pre className='db-value-pre'>
-          {highlightValue(shown, keywordPatterns, themeConfig, {
-            maxLength: 100000,
-            maxHits: 2000
-          })}
+          {highlightedPreview}
         </pre>
       )
     } else if (d.type === 'hash') {
