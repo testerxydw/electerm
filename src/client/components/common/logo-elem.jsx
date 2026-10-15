@@ -17,7 +17,8 @@ export default function LogoElem () {
       <sup>
         <img src={logoPath1} className='iblock mwm-100 mg1r logo-img-small' />
       </sup>
-      <Tag color='#08c' variant='solid'>{packInfo.version}</Tag>
+      {/* 测试包徽标显示 testVersion（如 5.6.10~test.177），正式包回落 version */}
+      <Tag color='#08c' variant='solid'>{packInfo.testVersion || packInfo.version}</Tag>
     </h1>
   )
 }
