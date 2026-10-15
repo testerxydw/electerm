@@ -25,7 +25,7 @@
       font-size 12px
       color var(--text-dark)
 
-  &.search-selected
+  &.kb-selected
     outline 1px dashed var(--primary)
   &.item-dragover
   &:hover
@@ -116,6 +116,10 @@
   overflow-y auto
   min-height 0
   position relative
+  // the highlighted row is the focus indicator, the browser outline around the
+  // whole list is just noise once any click inside it has focused it
+  &:focus
+    outline none
 
 .tree-sort-wrap
   position relative

@@ -8,6 +8,9 @@ import { action } from 'manate'
 import {
   settingMap, packInfo, syncTypes, syncDataMaps
 } from '../common/constants'
+import {
+  checkSyncPayloadSize, tooLargeMessage, nearLimitMessage
+} from '../common/sync-payload-limit'
 import { update, getData } from '../common/db'
 import fetch from '../common/fetch-from-server'
 import download from '../common/download'
@@ -50,6 +53,33 @@ function stripServerManagedKeys (conf) {
 
 function isJSON (str = '') {
   return str.startsWith('[')
+}
+
+/**
+ * Refuse an upload the electerm-cloud API is certain to reject, and warn about
+ * one it may reject.
+ *
+ * The server's cap is applied to the raw payload *before* it is compressed, so
+ * it is a hard ceiling on how much data can be synced at all — a payload over
+ * it comes back as a 413 that surfaces here as a bare HTTPError. Checking
+ * locally turns that into a message naming the actual size and the limit.
+ *
+ * Only the electerm-cloud API has this cap; github/gitee gists and WebDAV have
+ * their own, unrelated ones.
+ */
+function checkCloudPayloadSize (type, gistData) {
+  if (type !== syncTypes.cloud && type !== syncTypes.custom) {
+    return
+  }
+  const { kb, level } = checkSyncPayloadSize(gistData)
+  if (level === 'over') {
+    throw new Error(tooLargeMessage(kb))
+  }
+  if (level === 'warn') {
+    // Still under the cap, so the upload proceeds — but it is close enough
+    // that the user should hear about it before it starts failing.
+    window.store.onError(new Error(nearLimitMessage(kb)))
+  }
 }
 
 /**
@@ -375,12 +405,23 @@ export default (Store) => {
       }
 
       let serverItems = []
+      let encrypted = false
+      let serverPreview = ''
       if (serverStr) {
         try {
           serverStr = await decryptSyncData(serverStr, pass, n)
           serverItems = JSON.parse(serverStr)
         } catch (e) {
           console.error(`Failed to parse server data for ${n}:`, e)
+          // The server holds ciphertext we cannot read: no sync password
+          // configured here, or a different one. Reporting it as "0 items"
+          // reads as "the server is empty" and invites an upload that would
+          // overwrite the encrypted data — surface the ciphertext instead.
+          // (Plaintext JSON rejected by the fail-closed gate stays at 0.)
+          if (!isJSON(serverStr)) {
+            encrypted = true
+            serverPreview = serverStr.slice(0, 80)
+          }
         }
       }
       serverData[n] = serverItems
@@ -401,7 +442,9 @@ export default (Store) => {
         onlyServer: onlyServer.length,
         common: common.length,
         localItems: onlyLocal,
-        serverItems: onlyServer
+        serverItems: onlyServer,
+        encrypted,
+        serverPreview
       })
     }
 
@@ -497,6 +540,7 @@ export default (Store) => {
         }
       }
     }
+    checkCloudPayloadSize(type, gistData)
     const res = await fetchData(
       type,
       'update',

@@ -1,7 +1,11 @@
 import createName from '../../common/create-title'
+import { defaultBookmarkGroupId } from '../../common/constants'
+import { getRootBookmarkGroups } from '../../common/bookmark-group-tree.js'
 
-function isTopLevelGroup (group) {
-  return !group?.level || group.level < 2
+// the row identity the list navigates by, kept here so the keyboard cursor and
+// the click handler below agree on it
+export function getRowKey (id, isGroup) {
+  return `${isGroup ? 'group' : 'bookmark'}:${id}`
 }
 
 function bookmarkCompare (a, b, bookmarksMap, sortTitle, sortHost) {
@@ -43,10 +47,18 @@ export function buildVisibleTreeRows ({
     : groupTree[id]
   const rows = []
   const matchedRowKeys = []
+  const groups = bookmarkGroups || []
+  const visitedGroupIds = new Set()
+  const visitedBookmarkIds = new Set()
   const expandedKeySet = new Set(expandedKeys || [])
   const lowerKeyword = (keyword || '').toLowerCase()
   const bookmarkMatchCache = new Map()
   const groupMatchCache = new Map()
+  const groupMatchInProgress = new Set()
+
+  // a group is a root when nothing references it, never by its `level` field —
+  // see src/client/common/bookmark-group-tree.js
+  const rootGroups = getRootBookmarkGroups(groups, [defaultBookmarkGroupId])
 
   const bookmarkMatches = (bookmarkId) => {
     if (bookmarkMatchCache.has(bookmarkId)) {
@@ -73,21 +85,31 @@ export function buildVisibleTreeRows ({
     if (groupMatchCache.has(group.id)) {
       return groupMatchCache.get(group.id)
     }
+    if (groupMatchInProgress.has(group.id)) {
+      return false
+    }
+    groupMatchInProgress.add(group.id)
     const hasMatch = (group.bookmarkIds || []).some(bookmarkMatches) ||
       (group.bookmarkGroupIds || []).some(id => {
         return groupHasMatchedBookmarks(getGroup(id))
       })
+    groupMatchInProgress.delete(group.id)
     groupMatchCache.set(group.id, hasMatch)
     return hasMatch
   }
 
   const visitGroup = (group, parentId = '', depth = 1) => {
-    if (!group || (lowerKeyword && !groupHasMatchedBookmarks(group))) {
+    if (
+      !group ||
+      visitedGroupIds.has(group.id) ||
+      (lowerKeyword && !groupHasMatchedBookmarks(group))
+    ) {
       return
     }
+    visitedGroupIds.add(group.id)
 
     rows.push({
-      key: `group:${group.id}`,
+      key: getRowKey(group.id, true),
       item: group,
       isGroup: true,
       parentId,
@@ -112,28 +134,30 @@ export function buildVisibleTreeRows ({
       : bookmarkIds
 
     for (const bookmarkId of sortedIds) {
+      if (visitedBookmarkIds.has(bookmarkId)) {
+        continue
+      }
       const item = bookmarksMap.get(bookmarkId)
       if (!item || (lowerKeyword && !bookmarkMatches(bookmarkId))) {
         continue
       }
-      const rowKey = `bookmark:${item.id}`
+      visitedBookmarkIds.add(bookmarkId)
+      const key = getRowKey(item.id, false)
       rows.push({
-        key: rowKey,
+        key,
         item,
         isGroup: false,
         parentId: nextParentId,
         depth
       })
       if (lowerKeyword) {
-        matchedRowKeys.push(rowKey)
+        matchedRowKeys.push(key)
       }
     }
   }
 
-  for (const group of bookmarkGroups || []) {
-    if (isTopLevelGroup(group)) {
-      visitGroup(group)
-    }
+  for (const group of rootGroups) {
+    visitGroup(group)
   }
 
   return {
