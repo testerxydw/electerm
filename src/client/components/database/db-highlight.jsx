@@ -12,7 +12,8 @@
 import { useMemo } from 'react'
 import { activeKeywords } from '../../common/keyword-groups.js'
 
-// 与终端高亮插件同口径：超过该长度的文本不高亮
+// 与终端高亮插件同口径的默认上限：超长文本/超多命中跳过（表格单元格性能考量）。
+// 值预览（<pre>，单值专用查看区）通过 opts 放宽，见 highlightValue
 const maxHighlightLength = 4096
 const maxHits = 200
 
@@ -42,11 +43,13 @@ export function useKeywordPatterns () {
   return useMemo(() => compilePatterns(keywords), [sig])
 }
 
-export function highlightValue (text, patterns, themeConfig) {
+export function highlightValue (text, patterns, themeConfig, opts = {}) {
+  const maxLength = opts.maxLength || maxHighlightLength
+  const hitLimit = opts.maxHits || maxHits
   if (!patterns || !patterns.length) {
     return text
   }
-  if (typeof text !== 'string' || !text || text.length > maxHighlightLength) {
+  if (typeof text !== 'string' || !text || text.length > maxLength) {
     return text
   }
   const hits = []
@@ -60,12 +63,12 @@ export function highlightValue (text, patterns, themeConfig) {
       } else {
         hits.push({ start: m.index, end: m.index + m[0].length, color })
       }
-      if (hits.length >= maxHits) {
+      if (hits.length >= hitLimit) {
         break
       }
       m = re.exec(text)
     }
-    if (hits.length >= maxHits) {
+    if (hits.length >= hitLimit) {
       break
     }
   }

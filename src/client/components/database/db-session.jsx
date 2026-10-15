@@ -1022,13 +1022,17 @@ export default auto(function DbSession (props) {
     if (!d) {
       body = detailLoading ? <Spin size='small' /> : null
     } else if (d.type === 'string') {
-      // 原文 / 格式化都走高亮渲染（<pre> 保留换行与缩进，可选中复制）
+      // 原文 / 格式化都走高亮渲染（<pre> 保留换行与缩进，可选中复制）。
+      // 值预览是单值专用查看区，放宽长度/命中上限——大 JSON（>4KB）也要高亮
       const shown = activeFormat === 'raw'
         ? stringValue
         : formatValue(stringValue, activeFormat)
       body = (
         <pre className='db-value-pre'>
-          {highlightValue(shown, keywordPatterns, themeConfig)}
+          {highlightValue(shown, keywordPatterns, themeConfig, {
+            maxLength: 100000,
+            maxHits: 2000
+          })}
         </pre>
       )
     } else if (d.type === 'hash') {
