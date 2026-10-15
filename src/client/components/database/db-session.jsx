@@ -1203,15 +1203,31 @@ export default auto(function DbSession (props) {
     if (!d) {
       body = detailLoading ? <Spin size='small' /> : null
     } else if (d.type === 'string') {
-      // 统一值面板：高亮/格式化/复制/编辑（编辑保存走 redis setKey，只读模式被主进程拦截）
+      // 统一值面板：键信息（type/ttl/删除）与高亮/格式化/复制/编辑全部收进 DbValuePane
+      // 单栏展示（编辑保存走 redis setKey，只读模式被主进程拦截）
       body = (
         <DbValuePane
           title={redisKey}
-          meta={'ttl: ' + (d.ttl > 0 ? d.ttl + 's' : 'none') + ' - ' + stringValue.length + ' chars'}
+          meta={'type: ' + d.type + ' - ttl: ' + (d.ttl > 0 ? d.ttl + 's' : 'none') + ' - ' + stringValue.length + ' chars'}
           value={stringValue}
           patterns={keywordPatterns}
           themeConfig={themeConfig}
           editable={!isReadonly}
+          extra={(
+            <>
+              <InputNumber
+                size='small'
+                min={0}
+                placeholder='seconds'
+                value={ttlInput}
+                onChange={setTtlInput}
+              />
+              <Button size='small' disabled={isReadonly} onClick={applyTtl}>set ttl</Button>
+              <Popconfirm title='delete this key?' onConfirm={delSelectedKey}>
+                <Button size='small' danger disabled={isReadonly}>delete</Button>
+              </Popconfirm>
+            </>
+          )}
           onSave={v => {
             window.pre.runGlobalAsync('dbClientOp', tabId, 'setKey', {
               dbIndex: redisDb,
@@ -1301,22 +1317,29 @@ export default auto(function DbSession (props) {
     }
     return (
       <div className='db-redis-detail'>
-        <div className='db-redis-detail-bar'>
-          <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
-          <span className='db-grid-page-no'>type: {d ? d.type : '...'}</span>
-          <span className='db-grid-page-no'>ttl: {d && d.ttl > 0 ? d.ttl + 's' : 'none'}</span>
-          <InputNumber
-            size='small'
-            min={0}
-            placeholder='seconds'
-            value={ttlInput}
-            onChange={setTtlInput}
-          />
-          <Button size='small' disabled={isReadonly} onClick={applyTtl}>set ttl</Button>
-          <Popconfirm title='delete this key?' onConfirm={delSelectedKey}>
-            <Button size='small' danger disabled={isReadonly}>delete</Button>
-          </Popconfirm>
-        </div>
+        {
+          // string 键的信息栏已并入 DbValuePane 头部（extra），避免出现两条重复栏
+          d.type !== 'string'
+            ? (
+              <div className='db-redis-detail-bar'>
+                <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
+                <span className='db-grid-page-no'>type: {d.type}</span>
+                <span className='db-grid-page-no'>ttl: {d.ttl > 0 ? d.ttl + 's' : 'none'}</span>
+                <InputNumber
+                  size='small'
+                  min={0}
+                  placeholder='seconds'
+                  value={ttlInput}
+                  onChange={setTtlInput}
+                />
+                <Button size='small' disabled={isReadonly} onClick={applyTtl}>set ttl</Button>
+                <Popconfirm title='delete this key?' onConfirm={delSelectedKey}>
+                  <Button size='small' danger disabled={isReadonly}>delete</Button>
+                </Popconfirm>
+              </div>
+              )
+            : null
+        }
         {body}
       </div>
     )
