@@ -117,9 +117,18 @@ describe('DbGridTable: css layout contract', () => {
     assert.ok(block.includes('> .ant-spin-container'), 'spin container must flex')
   })
 
-  test('.db-redis-keys keeps max-height 45% sizing on the wrap', () => {
-    const block = stylBlock(loadStyl(), '.db-redis-keys')
-    assert.ok(block, '.db-redis-keys block not found')
-    assert.match(block, /max-height 45%/)
+  test('.db-redis-keys has no fixed max-height (drag-split replaced it)', () => {
+    const styl = loadStyl()
+    const block = stylBlock(styl, '.db-redis-keys')
+    assert.ok(
+      !block || !/max-height/.test(block),
+      'fixed max-height returns the rigid 45/55 split (see doc/设计-redis键空间右侧高度分配.md)'
+    )
+  })
+
+  test('.db-redis-resizer exists with row-resize cursor (drag split guard)', () => {
+    const block = stylBlock(loadStyl(), '.db-redis-resizer')
+    assert.ok(block, '.db-redis-resizer block not found')
+    assert.match(block, /cursor row-resize/)
   })
 })

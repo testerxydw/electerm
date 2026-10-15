@@ -23,6 +23,11 @@ const PAGE_SIZE = 100
 const TREE_WIDTH_KEY = 'electerm-db-tree-width'
 const TREE_MIN_W = 160
 const TREE_MAX_W = 600
+// Redis 键列表/详情上下比例（百分比）约束与持久化键（doc/设计-redis键空间右侧高度分配.md）
+const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
+const REDIS_SPLIT_MIN = 20
+const REDIS_SPLIT_MAX = 80
+const REDIS_SPLIT_DEFAULT = 50
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 const nodeKey = (database, table) => JSON.stringify([database, table])
 // 单元格编辑生成的 UPDATE（MySQL 系）：标识符反引号转义，值按类型决定是否加引号
@@ -91,7 +96,7 @@ function hlNode (node, kw) {
 // effect 不带 deps：每次渲染后重测，值不变时 setState 被 React 去重，不会造成循环。
 // 测量未就绪时不传 y，保持原有的外层容器滚动行为（优雅降级）
 function DbGridTable (props) {
-  const { className = '', ...rest } = props
+  const { className = '', style, ...rest } = props
   const wrapRef = useRef(null)
   const [wrapH, setWrapH] = useState(0)
   const [headH, setHeadH] = useState(0)
@@ -125,7 +130,7 @@ function DbGridTable (props) {
   })
   const y = wrapH > 0 && headH > 0 && wrapH > headH ? wrapH - headH : 0
   return (
-    <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef}>
+    <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={style}>
       <Table
         {...rest}
         className='db-grid-table'
@@ -202,6 +207,12 @@ export default auto(function DbSession (props) {
   const [treeWidth, setTreeWidth] = useState(() => {
     const v = Number(window.localStorage.getItem(TREE_WIDTH_KEY))
     return v >= TREE_MIN_W && v <= TREE_MAX_W ? v : 240
+  })
+
+  // Redis 键列表/详情上下比例（可拖拽；持久化 localStorage，默认平分）
+  const [redisSplitPct, setRedisSplitPct] = useState(() => {
+    const v = Number(window.localStorage.getItem(REDIS_SPLIT_KEY))
+    return v >= REDIS_SPLIT_MIN && v <= REDIS_SPLIT_MAX ? v : REDIS_SPLIT_DEFAULT
   })
 
   // 表结构（describetable）
@@ -785,6 +796,38 @@ export default auto(function DbSession (props) {
     document.addEventListener('mouseup', onUp)
   }
 
+  // Redis 键列表/详情的上下分隔拖拽（树宽拖拽的纵向镜像）：
+  // 按容器高度把位移换算成百分比，clamp 20~80，松手持久化
+  const startRedisResize = (ev) => {
+    ev.preventDefault()
+    const startY = ev.clientY
+    const startPct = redisSplitPct
+    const area = ev.target.closest('.db-redis-area')
+    let last = startPct
+    const prevSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    const onMove = (e) => {
+      const h = area ? area.clientHeight : 0
+      if (h <= 0) {
+        return
+      }
+      const next = Math.min(
+        REDIS_SPLIT_MAX,
+        Math.max(REDIS_SPLIT_MIN, startPct + (e.clientY - startY) * 100 / h)
+      )
+      last = next
+      setRedisSplitPct(next)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.userSelect = prevSelect
+      window.localStorage.setItem(REDIS_SPLIT_KEY, String(Math.round(last)))
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
   if (error) {
     return (
       <div className='db-session-wrap db-session-error'>
@@ -1049,7 +1092,7 @@ export default auto(function DbSession (props) {
       body = <span className='db-cell-null'>unsupported type: {d.type}</span>
     }
     return (
-      <div className='db-redis-detail'>
+      <div className='db-redis-detail' style={{ flexBasis: (100 - redisSplitPct) + '%' }}>
         <div className='db-redis-detail-bar'>
           <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
           <span className='db-grid-page-no'>type: {d ? d.type : '...'}</span>
@@ -1148,6 +1191,7 @@ export default auto(function DbSession (props) {
               </div>
               <DbGridTable
                 className='db-redis-keys'
+                style={{ flexBasis: redisSplitPct + '%' }}
                 size='small'
                 loading={keyList.loading}
                 columns={redisKeyColumns}
@@ -1157,8 +1201,19 @@ export default auto(function DbSession (props) {
                 onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
                 rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
               />
+              {/* 键列表/详情上下分隔：可拖拽调比例（默认平分，持久化 localStorage） */}
+              <div className='db-redis-resizer' onMouseDown={startRedisResize} />
               {
-                redisKey ? renderRedisDetail() : null
+                redisKey
+                  ? renderRedisDetail()
+                  : (
+                    <div
+                      className='db-redis-detail db-redis-detail-empty'
+                      style={{ flexBasis: (100 - redisSplitPct) + '%' }}
+                    >
+                      <Empty description='select a key' />
+                    </div>
+                    )
               }
             </>
             )

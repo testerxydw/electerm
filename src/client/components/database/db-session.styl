@@ -349,10 +349,33 @@
   min-width 120px
   max-width 360px
 
+// 键列表/详情各 flex 1 1 0，具体比例由内联 flexBasis 驱动（可拖拽，默认平分）。
+// ⚠️ 不能给固定 max-height：auto 高度 + 内部 basis 0 会把网格塌成 0（踩过）；
+// 且固定比例无法适配键库规模差异
 .db-redis-keys
+  min-height 0
+
+// 上下分隔拖拽条：树面板 .db-tree-resizer 的纵向镜像
+.db-redis-resizer
   flex none
-  max-height 45%
-  overflow auto
+  position relative
+  z-index 5
+  height 9px
+  cursor row-resize
+  background transparent
+  &::after
+    content ''
+    position absolute
+    left 0
+    right 0
+    top 4px
+    height 1px
+    background transparent
+    transition background var(--dur-1) var(--ease)
+  &:hover::after
+    background var(--primary)
+  &:active::after
+    background var(--primary)
 
 .db-row-selected td
   background var(--active-bg)
@@ -364,6 +387,11 @@
   display flex
   flex-direction column
   gap 4px
+
+// 未选键时的占位：Empty 在半区内居中
+.db-redis-detail-empty
+  align-items center
+  justify-content center
 
 .db-redis-detail-bar
   display flex
