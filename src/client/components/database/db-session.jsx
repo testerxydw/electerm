@@ -85,6 +85,58 @@ function hlNode (node, kw) {
   return node
 }
 
+// 数据库网格统一包装（doc/数据库表格横向滚动条优化方案.md）：
+// 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
+// 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
+// effect 不带 deps：每次渲染后重测，值不变时 setState 被 React 去重，不会造成循环。
+// 测量未就绪时不传 y，保持原有的外层容器滚动行为（优雅降级）
+function DbGridTable (props) {
+  const { className = '', ...rest } = props
+  const wrapRef = useRef(null)
+  const [wrapH, setWrapH] = useState(0)
+  const [headH, setHeadH] = useState(0)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) {
+      return
+    }
+    const measure = () => {
+      // scroll.y 生效后表头是独立渲染的 .ant-table-header 容器（含边框），
+      // 必须用它的高度：用 thead 会少算边框/子像素 → 表头+表体总高超出 wrap
+      // 一点 → 外层 .db-grid-table 出现竖向滚动条（双滚动条）。
+      // 用 getBoundingClientRect（小数）+ ceil：不放大可用高度
+      const head = el.querySelector('.ant-table-header') ||
+        el.querySelector('.ant-table-thead')
+      setWrapH(el.clientHeight)
+      setHeadH(head ? Math.ceil(head.getBoundingClientRect().height) : 0)
+    }
+    measure()
+    const ob = new window.ResizeObserver(measure)
+    ob.observe(el)
+    // 表头单独观察：首次测量可能落在瞬时渲染态（拿到偏小的高度），数据渲染后表头才稳定
+    const head = el.querySelector('.ant-table-header') ||
+      el.querySelector('.ant-table-thead')
+    if (head) {
+      ob.observe(head)
+    }
+    return () => {
+      ob.disconnect()
+    }
+  })
+  const y = wrapH > 0 && headH > 0 && wrapH > headH ? wrapH - headH : 0
+  return (
+    <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef}>
+      <Table
+        {...rest}
+        className='db-grid-table'
+        // y 生效后表体自己滚动，外层禁掉纵向滚动（子像素取整仍可能溢出 1px → 双滚动条）
+        style={y > 0 ? { overflowY: 'hidden' } : undefined}
+        scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}
+      />
+    </div>
+  )
+}
+
 export default auto(function DbSession (props) {
   const { tab } = props
   const tabId = tab.id
@@ -659,14 +711,12 @@ export default auto(function DbSession (props) {
             ? <div className='db-sql-affected'>affected rows: {r.affected}</div>
             : null
         }
-        <Table
+        <DbGridTable
           size='small'
           columns={columnsForResult(r)}
           dataSource={((r && r.rows) || []).map((x, j) => ({ ...x, __rowKey: j }))}
           rowKey='__rowKey'
           pagination={false}
-          scroll={{ x: 'max-content' }}
-          className='db-grid-table'
         />
       </div>
     )
@@ -827,7 +877,7 @@ export default auto(function DbSession (props) {
             )
           : null
       }
-      <Table
+      <DbGridTable
         size='small'
         loading={grid.loading}
         columns={columns}
@@ -835,8 +885,6 @@ export default auto(function DbSession (props) {
         rowKey='__rowKey'
         pagination={false}
         onChange={onTableChange}
-        scroll={{ x: 'max-content' }}
-        className='db-grid-table'
         locale={{
           emptyText: grid.error
             ? e('queryFailed')
@@ -907,15 +955,13 @@ export default auto(function DbSession (props) {
     : []
   const structureArea = (
     <div className='db-struct-area'>
-      <Table
+      <DbGridTable
         size='small'
         loading={structure.loading}
         columns={structColumns}
         dataSource={structure.rows.map((r, i) => ({ ...r, __rowKey: i }))}
         rowKey='__rowKey'
         pagination={false}
-        scroll={{ x: 'max-content' }}
-        className='db-grid-table'
       />
     </div>
   )
@@ -944,11 +990,9 @@ export default auto(function DbSession (props) {
       )
     } else if (d.type === 'hash') {
       body = (
-        <Table
+        <DbGridTable
           size='small'
           pagination={false}
-          scroll={{ x: 'max-content' }}
-          className='db-grid-table'
           columns={[
             { title: 'field', dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
             { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
@@ -959,11 +1003,9 @@ export default auto(function DbSession (props) {
       )
     } else if (d.type === 'list') {
       body = (
-        <Table
+        <DbGridTable
           size='small'
           pagination={false}
-          scroll={{ x: 'max-content' }}
-          className='db-grid-table'
           columns={[
             { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
             { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
@@ -974,11 +1016,9 @@ export default auto(function DbSession (props) {
       )
     } else if (d.type === 'set') {
       body = (
-        <Table
+        <DbGridTable
           size='small'
           pagination={false}
-          scroll={{ x: 'max-content' }}
-          className='db-grid-table'
           columns={[
             { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
           ]}
@@ -994,11 +1034,9 @@ export default auto(function DbSession (props) {
         list.push({ member: rows[i], score: rows[i + 1], __rowKey: i })
       }
       body = (
-        <Table
+        <DbGridTable
           size='small'
           pagination={false}
-          scroll={{ x: 'max-content' }}
-          className='db-grid-table'
           columns={[
             { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
             { title: 'score', dataIndex: 'score', key: 'score', width: 120, render: renderCell }
@@ -1108,7 +1146,8 @@ export default auto(function DbSession (props) {
                   onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
                 />
               </div>
-              <Table
+              <DbGridTable
+                className='db-redis-keys'
                 size='small'
                 loading={keyList.loading}
                 columns={redisKeyColumns}
@@ -1117,8 +1156,6 @@ export default auto(function DbSession (props) {
                 pagination={false}
                 onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
                 rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
-                scroll={{ x: 'max-content' }}
-                className='db-grid-table db-redis-keys'
               />
               {
                 redisKey ? renderRedisDetail() : null

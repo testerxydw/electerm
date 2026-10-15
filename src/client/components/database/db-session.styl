@@ -215,8 +215,20 @@
 .db-empty-tip
   color var(--text-dark)
 
-.db-grid-table
+// 主数据网格滚动容器（仅数据 tab 的表格用）：
+// 滚动权交给 antd 内部表体（scroll.y 定高），横向滚动条常驻可视区底边、表头吸顶
+// （见 doc/数据库表格横向滚动条优化方案.md）；其余 Table（SQL 结果/表结构/Redis）仍走 .db-grid-table 旧滚动
+.db-grid-table-wrap
   flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction column
+  overflow hidden
+
+.db-grid-table
+  // basis 用 auto 而非 0：wrap 定高（主网格等）时效果相同，
+  // 但在 auto 高度的 wrap 里（如 .db-redis-keys 的 max-height 45%）不会把内容高缩成 0
+  flex 1 1 auto
   min-height 0
   overflow auto
 
@@ -258,7 +270,8 @@
   user-select text
 
 // 主区 Tabs：antd6 的内容层级为 body-holder > body > content，逐层撑满
-.db-tabs
+// （.db-sql-results-tabs 是 SQL 多结果集分栏，同一撑满链路）
+.db-tabs, .db-sql-results-tabs
   height 100%
   display flex
   flex-direction column
@@ -299,6 +312,19 @@
   display flex
   flex-direction column
   gap 4px
+  // 结果外层的 antd Spin 包装层必须参与 flex 传高，
+  // 否则内部 .db-grid-table-wrap 拿不到确定高度（scroll.y 不生效）
+  > .ant-spin-nested-loading,
+  > .ant-spin
+    flex 1 1 0
+    min-height 0
+    display flex
+    flex-direction column
+    > .ant-spin-container
+      flex 1 1 0
+      min-height 0
+      display flex
+      flex-direction column
 
 .db-sql-affected
   color var(--text)
@@ -351,11 +377,14 @@
   text-overflow ellipsis
   white-space nowrap
 
-// 表结构区（列定义网格）
+// 表结构区（列定义网格）：撑满 tabpane（块级父级里 flex-basis 不生效，必须 height 100%），
+// flex 列布局让 .db-grid-table-wrap 拿到确定高度并内部滚动
 .db-struct-area
-  flex 1 1 0
+  height 100%
   min-height 0
-  overflow auto
+  display flex
+  flex-direction column
+  overflow hidden
 
 // 连接失败卡片：标题 + 目标 + 原因 + 原始错误 + 重连/复制
 // （页面级：初次建连失败；区级 banner：操作中掉线）
@@ -409,10 +438,14 @@
   display flex
 
 // 多结果集：每个结果集一块（含 affected 行 + 网格）
+// flex 撑满：让内部 .db-grid-table-wrap 拿到确定高度（scroll.y 生效的前提）
 .db-sql-result-one
   display flex
   flex-direction column
   gap 4px
+  flex 1 1 0
+  min-height 0
 
 .db-sql-results-tabs
-  height 100%
+  flex 1 1 0
+  min-height 0
