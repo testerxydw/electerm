@@ -365,8 +365,23 @@
 .db-redis-keys
   min-height 0
 
-// 上下分隔拖拽条：树面板 .db-tree-resizer 的纵向镜像
-.db-redis-resizer
+// 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
+.db-split-pane
+  flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction column
+  overflow hidden
+
+.db-split-pane-top
+.db-split-pane-bottom
+  flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction column
+  overflow hidden
+
+.db-split-resizer
   flex none
   position relative
   z-index 5
@@ -387,16 +402,20 @@
   &:active::after
     background var(--primary)
 
+// 分区空态占位（未选键/未选单元格）
+.db-pane-empty
+  align-items center
+  justify-content center
+
 .db-row-selected td
   background var(--active-bg)
 
 // 单元格预览面板（网格下方）：完整值 + 复制/编辑/保存
 .db-cell-preview
-  flex none
-  height 190px
+  flex 1 1 0
+  min-height 0
   display flex
   flex-direction column
-  border-top 1px solid var(--border)
   .db-cell-preview-head
     display flex
     align-items center

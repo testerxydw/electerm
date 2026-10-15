@@ -126,9 +126,10 @@ describe('DbGridTable: css layout contract', () => {
     )
   })
 
-  test('.db-redis-resizer exists with row-resize cursor (drag split guard)', () => {
-    const block = stylBlock(loadStyl(), '.db-redis-resizer')
-    assert.ok(block, '.db-redis-resizer block not found')
+  test('.db-split-resizer exists with row-resize cursor (shared drag split guard)', () => {
+    const block = stylBlock(loadStyl(), '.db-split-resizer')
+    assert.ok(block, '.db-split-resizer block not found')
     assert.match(block, /cursor row-resize/)
+    assert.ok(!loadStyl().includes('.db-redis-resizer'), 'old per-type resizer must be removed (shared DbSplitPane)')
   })
 })

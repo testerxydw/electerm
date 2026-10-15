@@ -10,6 +10,7 @@ import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOu
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
+import DbSplitPane from './db-split-pane'
 import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { detectFormats, formatValue } from './db-value-format'
@@ -30,11 +31,9 @@ const getDbPageSize = () => {
 const TREE_WIDTH_KEY = 'electerm-db-tree-width'
 const TREE_MIN_W = 160
 const TREE_MAX_W = 600
-// Redis 键列表/详情上下比例（百分比）约束与持久化键（doc/设计-redis键空间右侧高度分配.md）
+// 上下分区比例持久化键（DbSplitPane 消费）：redis 键列表/详情、mysql 网格/单元格预览
 const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
-const REDIS_SPLIT_MIN = 20
-const REDIS_SPLIT_MAX = 80
-const REDIS_SPLIT_DEFAULT = 50
+const CELL_SPLIT_KEY = 'electerm-db-cell-split'
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 const nodeKey = (database, table) => JSON.stringify([database, table])
 // 单元格编辑生成的 UPDATE（MySQL 系）：标识符反引号转义，值按类型决定是否加引号
@@ -207,6 +206,8 @@ export default auto(function DbSession (props) {
     page: 1,
     hasMore: false,
     totalRows: undefined,
+    // 实测末页：估算总行数偏大时经二分探测得出（见 loadPage 空页回退）
+    lastPage: undefined,
     error: '',
     orderBy: '',
     order: 'ascend'
@@ -216,12 +217,6 @@ export default auto(function DbSession (props) {
   const [treeWidth, setTreeWidth] = useState(() => {
     const v = Number(window.localStorage.getItem(TREE_WIDTH_KEY))
     return v >= TREE_MIN_W && v <= TREE_MAX_W ? v : 240
-  })
-
-  // Redis 键列表/详情上下比例（可拖拽；持久化 localStorage，默认平分）
-  const [redisSplitPct, setRedisSplitPct] = useState(() => {
-    const v = Number(window.localStorage.getItem(REDIS_SPLIT_KEY))
-    return v >= REDIS_SPLIT_MIN && v <= REDIS_SPLIT_MAX ? v : REDIS_SPLIT_DEFAULT
   })
 
   // 表结构（describetable）
@@ -464,7 +459,42 @@ export default auto(function DbSession (props) {
     ? (redisDb >= 0 ? [String(redisDb)] : [])
     : (sel ? [nodeKey(sel.database, sel.table)] : [])
 
-  const loadPage = (target, page, orderBy, order) => {
+  // 空页回退：totalRows 来自 information_schema 估算，常偏大 → 尾部页可能无数据。
+  // 用 pageSize=1 探测二分查找真实末页（log2(页数) 次轻量查询）
+  const findLastPage = (target, page, orderBy, order) => {
+    const size = getDbPageSize()
+    // 探测第 p 页是否有数据 = 查「行偏移 (p-1)*size」处 1 行
+    // （probe 的 page 单位是行：page=(p-1)*size+1 → OFFSET (p-1)*size）
+    const probe = p => window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
+      database: target.database,
+      table: target.table,
+      page: (p - 1) * size + 1,
+      pageSize: 1,
+      orderBy,
+      order
+    }).then(res => ((res && res.rows) || []).length > 0)
+    let lo = 1
+    let hi = page - 1
+    let ans = 1
+    const step = () => {
+      if (lo > hi) {
+        return Promise.resolve(ans)
+      }
+      const mid = Math.floor((lo + hi) / 2)
+      return probe(mid).then(ok => {
+        if (ok) {
+          ans = mid
+          lo = mid + 1
+        } else {
+          hi = mid - 1
+        }
+        return step()
+      })
+    }
+    return step()
+  }
+
+  const loadPage = (target, page, orderBy, order, opts = {}) => {
     setGrid(g => ({ ...g, loading: true, error: '' }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       database: target.database,
@@ -474,16 +504,27 @@ export default auto(function DbSession (props) {
       orderBy,
       order
     }).then(res => {
-      setGrid({
+      const rows = (res && res.rows) || []
+      // 跳到的页无数据且非首页：二分回退到真实末页（估算总行数偏大场景）
+      if (!rows.length && page > 1 && !opts.skipEmptyCheck) {
+        findLastPage(target, page, orderBy, order).then(last => {
+          setGrid(g => ({ ...g, loading: true, lastPage: last }))
+          loadPage(target, last, orderBy, order, { skipEmptyCheck: true, keepLastPage: true })
+        })
+        return
+      }
+      setGrid(g => ({
         loading: false,
-        rows: (res && res.rows) || [],
+        rows,
         page,
         hasMore: !!(res && res.hasMore),
         totalRows: res ? res.totalRows : undefined,
+        // 换表/换排序/换页大小会重置；二分回退与常规翻页保留
+        lastPage: opts.keepLastPage ? g.lastPage : undefined,
         error: '',
         orderBy,
         order
-      })
+      }))
     }).catch(err => {
       // 失败必须落到表格区（而非仅 toast）：否则界面看起来像「表没有数据」
       setGrid(g => ({
@@ -500,7 +541,7 @@ export default auto(function DbSession (props) {
     if (!sel) {
       return
     }
-    loadPage(sel, page, grid.orderBy, grid.order)
+    loadPage(sel, page, grid.orderBy, grid.order, { keepLastPage: true })
   }
 
   // 列排序：antd sorter 回调 → 服务端 ORDER BY
@@ -871,38 +912,6 @@ export default auto(function DbSession (props) {
     document.addEventListener('mouseup', onUp)
   }
 
-  // Redis 键列表/详情的上下分隔拖拽（树宽拖拽的纵向镜像）：
-  // 按容器高度把位移换算成百分比，clamp 20~80，松手持久化
-  const startRedisResize = (ev) => {
-    ev.preventDefault()
-    const startY = ev.clientY
-    const startPct = redisSplitPct
-    const area = ev.target.closest('.db-redis-area')
-    let last = startPct
-    const prevSelect = document.body.style.userSelect
-    document.body.style.userSelect = 'none'
-    const onMove = (e) => {
-      const h = area ? area.clientHeight : 0
-      if (h <= 0) {
-        return
-      }
-      const next = Math.min(
-        REDIS_SPLIT_MAX,
-        Math.max(REDIS_SPLIT_MIN, startPct + (e.clientY - startY) * 100 / h)
-      )
-      last = next
-      setRedisSplitPct(next)
-    }
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-      document.body.style.userSelect = prevSelect
-      window.localStorage.setItem(REDIS_SPLIT_KEY, String(Math.round(last)))
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }
-
   // 每页行数切换：写 config.dbPageSize 并回第 1 页重新取数（mysql/redis 共用）
   const pageSizeOptions = [10, 20, 50, 100, 300, 500, 1000].map(n => ({ value: n, label: n + ' / page' }))
   const changePageSize = (v) => {
@@ -929,9 +938,11 @@ export default auto(function DbSession (props) {
   // 页码快速跳转：totalRows 为服务端估算值，totalPages 同为近似
   // （redis 为 SCAN 游标模式，无总页数概念，不渲染页码标签/跳页）
   const dbPageSize = getDbPageSize()
-  const totalPages = sel && typeof grid.totalRows === 'number'
+  const estimatePages = sel && typeof grid.totalRows === 'number'
     ? Math.max(1, Math.ceil(grid.totalRows / dbPageSize))
     : null
+  // 实测末页优先（估算常偏大）；估算偏小则仍用估算（hasMore 兜底前进）
+  const totalPages = grid.lastPage || estimatePages
   const goPage = () => {
     const p = Math.max(1, Number(jumpPage) || 0)
     if (!p) {
@@ -1090,78 +1101,86 @@ export default auto(function DbSession (props) {
             )
           : null
       }
-      <DbGridTable
-        size='small'
-        loading={grid.loading}
-        columns={columns}
-        dataSource={grid.rows.map((r, i) => ({ ...r, __rowKey: i }))}
-        rowKey='__rowKey'
-        pagination={false}
-        onChange={onTableChange}
-        locale={{
-          emptyText: grid.error
-            ? e('queryFailed')
-            : (
-              <span className='db-empty-tip'>
-                {e('tableEmpty')}
-                {
-                  typeof grid.totalRows === 'number'
-                    ? ` (${e('approxRows')}: ${grid.totalRows})`
-                    : ''
-                }
-              </span>
-              )
-        }}
-      />
-      {
-        // 单元格预览面板：完整值 + 复制/编辑/保存（readonly 表只读 + 复制）
-        selectedCell && grid.rows[selectedCell.rowKey]
-          ? (
-            <div className='db-cell-preview'>
-              <div className='db-cell-preview-head'>
-                <span className='db-grid-title'>
-                  {selectedCell.col} · row {Number(selectedCell.rowKey) + 1}
-                </span>
-                <span className='db-grid-total'>{panelValue.length} chars</span>
-                <Button
-                  size='small'
-                  icon={<CopyOutlined />}
-                  title='copy'
-                  onClick={() => copy(panelValue)}
-                />
-                {
-                  canEditCell
-                    ? (
-                      <Button
-                        size='small'
-                        type='primary'
-                        disabled={grid.loading || panelValue === String(
-                          grid.rows[selectedCell.rowKey][selectedCell.col] ?? ''
-                        )}
-                        onClick={savePanel}
-                      >
-                        save
-                      </Button>
-                      )
-                    : null
-                }
-                <Button
-                  size='small'
-                  icon={<CloseOutlined />}
-                  title='close'
-                  onClick={() => setSelectedCell(null)}
+      <DbSplitPane
+        storageKey={CELL_SPLIT_KEY}
+        top={
+          <DbGridTable
+            size='small'
+            loading={grid.loading}
+            columns={columns}
+            dataSource={grid.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+            rowKey='__rowKey'
+            pagination={false}
+            onChange={onTableChange}
+            locale={{
+              emptyText: grid.error
+                ? e('queryFailed')
+                : (
+                  <span className='db-empty-tip'>
+                    {e('tableEmpty')}
+                    {
+                      typeof grid.totalRows === 'number'
+                        ? ` (${e('approxRows')}: ${grid.totalRows})`
+                        : ''
+                    }
+                  </span>
+                  )
+            }}
+          />
+        }
+        bottom={
+          selectedCell && grid.rows[selectedCell.rowKey]
+            ? (
+              <div className='db-cell-preview'>
+                <div className='db-cell-preview-head'>
+                  <span className='db-grid-title'>
+                    {selectedCell.col} · row {Number(selectedCell.rowKey) + 1}
+                  </span>
+                  <span className='db-grid-total'>{panelValue.length} chars</span>
+                  <Button
+                    size='small'
+                    icon={<CopyOutlined />}
+                    title='copy'
+                    onClick={() => copy(panelValue)}
+                  />
+                  {
+                    canEditCell
+                      ? (
+                        <Button
+                          size='small'
+                          type='primary'
+                          disabled={grid.loading || panelValue === String(
+                            grid.rows[selectedCell.rowKey][selectedCell.col] ?? ''
+                          )}
+                          onClick={savePanel}
+                        >
+                          save
+                        </Button>
+                        )
+                      : null
+                  }
+                  <Button
+                    size='small'
+                    icon={<CloseOutlined />}
+                    title='close'
+                    onClick={() => setSelectedCell(null)}
+                  />
+                </div>
+                <Input.TextArea
+                  className='db-cell-preview-text'
+                  value={panelValue}
+                  onChange={ev => setPanelValue(ev.target.value)}
+                  readOnly={!canEditCell}
                 />
               </div>
-              <Input.TextArea
-                className='db-cell-preview-text'
-                value={panelValue}
-                onChange={ev => setPanelValue(ev.target.value)}
-                readOnly={!canEditCell}
-              />
-            </div>
-            )
-          : null
-      }
+              )
+            : (
+              <div className='db-cell-preview db-pane-empty'>
+                <Empty description='select a cell to preview' />
+              </div>
+              )
+        }
+      />
     </div>
   )
 
@@ -1340,7 +1359,7 @@ export default auto(function DbSession (props) {
       body = <span className='db-cell-null'>unsupported type: {d.type}</span>
     }
     return (
-      <div className='db-redis-detail' style={{ flexBasis: (100 - redisSplitPct) + '%' }}>
+      <div className='db-redis-detail'>
         <div className='db-redis-detail-bar'>
           <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
           <span className='db-grid-page-no'>type: {d ? d.type : '...'}</span>
@@ -1438,32 +1457,31 @@ export default auto(function DbSession (props) {
                 />
                 {renderPageSizeSelect()}
               </div>
-              <DbGridTable
-                className='db-redis-keys'
-                style={{ flexBasis: redisSplitPct + '%' }}
-                size='small'
-                loading={keyList.loading}
-                columns={redisKeyColumns}
-                dataSource={keyList.rows.map((r, i) => ({ ...r, __rowKey: i }))}
-                rowKey='__rowKey'
-                pagination={false}
-                onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
-                rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
+              <DbSplitPane
+                storageKey={REDIS_SPLIT_KEY}
+                top={
+                  <DbGridTable
+                    className='db-redis-keys'
+                    size='small'
+                    loading={keyList.loading}
+                    columns={redisKeyColumns}
+                    dataSource={keyList.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+                    rowKey='__rowKey'
+                    pagination={false}
+                    onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
+                    rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
+                  />
+                }
+                bottom={
+                  redisKey
+                    ? renderRedisDetail()
+                    : (
+                      <div className='db-redis-detail db-redis-detail-empty'>
+                        <Empty description='select a key' />
+                      </div>
+                      )
+                }
               />
-              {/* 键列表/详情上下分隔：可拖拽调比例（默认平分，持久化 localStorage） */}
-              <div className='db-redis-resizer' onMouseDown={startRedisResize} />
-              {
-                redisKey
-                  ? renderRedisDetail()
-                  : (
-                    <div
-                      className='db-redis-detail db-redis-detail-empty'
-                      style={{ flexBasis: (100 - redisSplitPct) + '%' }}
-                    >
-                      <Empty description='select a key' />
-                    </div>
-                    )
-              }
             </>
             )
       }
