@@ -867,7 +867,7 @@ export default auto(function DbSession (props) {
   }
 
   // 每页行数切换：写 config.dbPageSize 并回第 1 页重新取数（mysql/redis 共用）
-  const pageSizeOptions = [10, 20, 50, 100, 500].map(n => ({ value: n, label: n + ' / page' }))
+  const pageSizeOptions = [10, 20, 50, 100, 300, 500, 1000].map(n => ({ value: n, label: n + ' / page' }))
   const changePageSize = (v) => {
     window.store.setConfig({ dbPageSize: v })
     if (isRedis) {
