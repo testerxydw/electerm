@@ -47,6 +47,7 @@ const OP_MAP = {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
     getKeyDetail: 'getKeyDetail',
+    setKey: 'setKey',
     delKey: 'delKey',
     expireKey: 'expireKey'
   }

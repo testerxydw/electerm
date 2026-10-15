@@ -77,18 +77,25 @@ describe('perf guard: highlightValue budget (real source)', () => {
 })
 
 describe('perf guard: source contracts (committed perf fixes stay fixed)', () => {
-  test('value preview highlight is memoized (no per-render recompute)', () => {
-    const src = loadSrc(DB_SESSION)
+  test('value pane highlight is memoized (no per-render recompute)', () => {
+    const src = loadSrc(path.join(DB_DIR, 'db-value-pane.jsx'))
     assert.ok(
-      /const highlightedPreview = useMemo\(/.test(src),
-      'highlightedPreview must stay behind useMemo (per-render recompute caused heap churn)'
+      /const highlighted = useMemo\(/.test(src),
+      'pane highlight must stay behind useMemo (per-render recompute caused heap churn)'
     )
   })
 
-  test('value preview opts keep the lifted limits', () => {
-    const src = loadSrc(DB_SESSION)
-    assert.ok(src.includes('maxLength: 100000'), 'preview maxLength drifted')
-    assert.ok(src.includes('maxHits: 2000'), 'preview maxHits drifted')
+  test('value pane opts keep the lifted limits', () => {
+    const src = loadSrc(path.join(DB_DIR, 'db-value-pane.jsx'))
+    assert.ok(src.includes('maxLength = 100000'), 'preview maxLength drifted')
+    assert.ok(src.includes('maxHits = 2000'), 'preview maxHits drifted')
+  })
+
+  test('redis string editing goes through setKey op (readonly enforced in main process)', () => {
+    const rs = fs.readFileSync(path.join(ROOT, 'src/app/lib/db-client/redis.js'), 'utf8')
+    const idx = fs.readFileSync(path.join(ROOT, 'src/app/lib/db-client/index.js'), 'utf8')
+    assert.ok(/async function setKey \(conn[\s\S]*?checkWritable/.test(rs), 'setKey must checkWritable')
+    assert.ok(/setKey: 'setKey'/.test(idx), 'OP_MAP.redis must register setKey')
   })
 
   test('useKeywordPatterns reads _config, not the deepCopy config getter', () => {

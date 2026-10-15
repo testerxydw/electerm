@@ -217,6 +217,13 @@ function checkWritable (readOnly) {
   }
 }
 
+// string 值编辑（值预览面板保存）：整键覆盖 SET
+async function setKey (conn, { dbIndex, key, value, readOnly }) {
+  checkWritable(readOnly)
+  const c = await useDb(conn, dbIndex)
+  return c.set(key, value)
+}
+
 async function delKey (conn, { dbIndex, key, readOnly }) {
   checkWritable(readOnly)
   const c = await useDb(conn, dbIndex)
@@ -250,6 +257,7 @@ module.exports = {
   getMetadata,
   getPageData,
   getKeyDetail,
+  setKey,
   delKey,
   expireKey,
   closeRedisConnection

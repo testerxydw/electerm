@@ -6,16 +6,15 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SwapOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined, CopyOutlined, CloseOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
 import DbSplitPane from './db-split-pane'
+import DbValuePane from './db-value-pane'
 import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
-import { detectFormats, formatValue } from './db-value-format'
 import clone from '../../common/to-simple-obj'
-import { copy } from '../../common/clipboard'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -226,7 +225,10 @@ export default auto(function DbSession (props) {
   const [editValue, setEditValue] = useState('')
   // 单元格预览面板（点击选中；完整值 + 复制/编辑/保存）
   const [selectedCell, setSelectedCell] = useState(null)
-  const [panelValue, setPanelValue] = useState('')
+  // 面板值 = 选中单元格的原始值（编辑草稿在 DbValuePane 内部）
+  const panelValue = selectedCell && grid.rows[selectedCell.rowKey]
+    ? String(grid.rows[selectedCell.rowKey][selectedCell.col] ?? '')
+    : ''
   // 连接层错误：用于顶部提示 + 重连按钮
   const [connError, setConnError] = useState('')
 
@@ -257,8 +259,6 @@ export default auto(function DbSession (props) {
   const [redisDetail, setRedisDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [ttlInput, setTtlInput] = useState(undefined)
-  // 值预览格式：raw / json / python / xml / url（见 db-value-format.js）
-  const [valueFormat, setValueFormat] = useState('raw')
 
   // 关键字高亮规则：与终端「关键字高亮」同一份配置（config.keywords）
   const keywordPatterns = useKeywordPatterns()
@@ -271,42 +271,11 @@ export default auto(function DbSession (props) {
     [themeId]
   )
 
-  // string 值可用的格式化格式（JSON / Python 字面量 / XML / URL），每次值变化重算；
+  // string 键原始值（值预览面板渲染/编辑；格式化与高亮缓存内聚在 DbValuePane）
   // 注意：必须放在下面那些提前 return 之前 —— hooks 数量不能在渲染间变化
   const stringValue = redisDetail && redisDetail.type === 'string'
     ? String(redisDetail.value ?? '')
     : ''
-  const valueFormats = useMemo(
-    () => (stringValue ? detectFormats(stringValue) : []),
-    [stringValue]
-  )
-  // 只有一个切换按钮：原文 ⇄ 格式化（格式化自动取嗅探到的第一个格式，不再让用户选）
-  const autoFormat = valueFormats[0]
-  const activeFormat = valueFormat !== 'raw' && valueFormats.some(f => f.key === valueFormat)
-    ? valueFormat
-    : 'raw'
-  const formatLabel = activeFormat === 'raw'
-    ? e('rawText')
-    : (valueFormats.find(f => f.key === activeFormat) || {}).label || activeFormat
-  const toggleFormat = () => {
-    setValueFormat(activeFormat === 'raw' ? (autoFormat ? autoFormat.key : 'raw') : 'raw')
-  }
-
-  // 值预览高亮缓存（性能关键）：DbSession 因 store 订阅会频繁重渲染，
-  // 大值（最长 100KB × 全部规则）每次渲染重算并重建上千个 span，
-  // 正是"内存大涨大跌"的来源 —— 只在 值/格式/规则/主题 变化时重算一次
-  const highlightedPreview = useMemo(() => {
-    if (!stringValue) {
-      return ''
-    }
-    const shown = activeFormat === 'raw'
-      ? stringValue
-      : formatValue(stringValue, activeFormat)
-    return highlightValue(shown, keywordPatterns, themeConfig, {
-      maxLength: 100000,
-      maxHits: 2000
-    })
-  }, [stringValue, activeFormat, keywordPatterns, themeConfig])
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
   const getSshBookmark = () => {
@@ -423,7 +392,6 @@ export default auto(function DbSession (props) {
       setRedisDb(dbIndex)
       setRedisKey('')
       setRedisDetail(null)
-      setValueFormat('raw')
       loadRedisKeys(dbIndex, '0', matchInput)
       return
     }
@@ -629,15 +597,7 @@ export default auto(function DbSession (props) {
   // 预览面板：选中单元格 + 保存
   const selectCell = (row, col) => {
     setSelectedCell({ rowKey: row.__rowKey, col })
-    setPanelValue(row[col] === null || row[col] === undefined ? '' : String(row[col]))
   }
-  const savePanel = () => {
-    if (!selectedCell) {
-      return
-    }
-    runCellUpdate(selectedCell.rowKey, selectedCell.col, panelValue)
-  }
-
   const runSql = () => {
     const sql = sqlText.trim()
     if (!sql) {
@@ -697,8 +657,6 @@ export default auto(function DbSession (props) {
 
   const selectRedisKey = (key) => {
     setRedisKey(key)
-    // 换键后回到原文，格式重新按新值嗅探
-    setValueFormat('raw')
     setDetailLoading(true)
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getKeyDetail', {
       dbIndex: redisDb,
@@ -1131,51 +1089,20 @@ export default auto(function DbSession (props) {
         bottom={
           selectedCell && grid.rows[selectedCell.rowKey]
             ? (
-              <div className='db-cell-preview'>
-                <div className='db-cell-preview-head'>
-                  <span className='db-grid-title'>
-                    {selectedCell.col} · row {Number(selectedCell.rowKey) + 1}
-                  </span>
-                  <span className='db-grid-total'>{panelValue.length} chars</span>
-                  <Button
-                    size='small'
-                    icon={<CopyOutlined />}
-                    title='copy'
-                    onClick={() => copy(panelValue)}
-                  />
-                  {
-                    canEditCell
-                      ? (
-                        <Button
-                          size='small'
-                          type='primary'
-                          disabled={grid.loading || panelValue === String(
-                            grid.rows[selectedCell.rowKey][selectedCell.col] ?? ''
-                          )}
-                          onClick={savePanel}
-                        >
-                          save
-                        </Button>
-                        )
-                      : null
-                  }
-                  <Button
-                    size='small'
-                    icon={<CloseOutlined />}
-                    title='close'
-                    onClick={() => setSelectedCell(null)}
-                  />
-                </div>
-                <Input.TextArea
-                  className='db-cell-preview-text'
-                  value={panelValue}
-                  onChange={ev => setPanelValue(ev.target.value)}
-                  readOnly={!canEditCell}
-                />
-              </div>
+              <DbValuePane
+                title={selectedCell.col + ' - row ' + (Number(selectedCell.rowKey) + 1)}
+                meta={panelValue.length + ' chars'}
+                value={panelValue}
+                patterns={keywordPatterns}
+                themeConfig={themeConfig}
+                editable={canEditCell}
+                saving={grid.loading}
+                onSave={v => runCellUpdate(selectedCell.rowKey, selectedCell.col, v)}
+                onClose={() => setSelectedCell(null)}
+              />
               )
             : (
-              <div className='db-cell-preview db-pane-empty'>
+              <div className='db-pane-empty'>
                 <Empty description='select a cell to preview' />
               </div>
               )
@@ -1276,12 +1203,26 @@ export default auto(function DbSession (props) {
     if (!d) {
       body = detailLoading ? <Spin size='small' /> : null
     } else if (d.type === 'string') {
-      // 原文 / 格式化都走高亮渲染（<pre> 保留换行与缩进，可选中复制）。
-      // 高亮结果已在组件顶部 useMemo 缓存（性能：见 highlightedPreview 注释）
+      // 统一值面板：高亮/格式化/复制/编辑（编辑保存走 redis setKey，只读模式被主进程拦截）
       body = (
-        <pre className='db-value-pre'>
-          {highlightedPreview}
-        </pre>
+        <DbValuePane
+          title={redisKey}
+          meta={'ttl: ' + (d.ttl > 0 ? d.ttl + 's' : 'none') + ' - ' + stringValue.length + ' chars'}
+          value={stringValue}
+          patterns={keywordPatterns}
+          themeConfig={themeConfig}
+          editable={!isReadonly}
+          onSave={v => {
+            window.pre.runGlobalAsync('dbClientOp', tabId, 'setKey', {
+              dbIndex: redisDb,
+              key: redisKey,
+              value: v
+            }).then(() => {
+              message.success('saved')
+              selectRedisKey(redisKey)
+            }).catch(err => onOpError(err))
+          }}
+        />
       )
     } else if (d.type === 'hash') {
       const hashFields = (d.fields || []).slice(0, detailLimit)
@@ -1364,21 +1305,6 @@ export default auto(function DbSession (props) {
           <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
           <span className='db-grid-page-no'>type: {d ? d.type : '...'}</span>
           <span className='db-grid-page-no'>ttl: {d && d.ttl > 0 ? d.ttl + 's' : 'none'}</span>
-          {
-            // 值可格式化时（JSON / Python 字面量 / XML / URL）给一个切换按钮
-            valueFormats.length
-              ? (
-                <Button
-                  size='small'
-                  icon={<SwapOutlined />}
-                  title={e('kwToggleFormat')}
-                  onClick={toggleFormat}
-                >
-                  {formatLabel}
-                </Button>
-                )
-              : null
-          }
           <InputNumber
             size='small'
             min={0}
