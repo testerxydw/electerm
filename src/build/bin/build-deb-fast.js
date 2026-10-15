@@ -127,6 +127,9 @@ if (forcePrepare || !appReady() || depsDrift) {
   delete p.engines
   delete p.preferGlobal
   p.main = 'app.js'
+  // 软件内版本号（关于对话框/错误报告）显示测试版本号，如 5.6.0~test.172
+  // （只写 work/app 副本，根 package.json 不动；packInfo 来自该文件）
+  p.version = debVersion
   writeJson(path.join(workApp, 'package.json'), p)
   run(`cd "${workApp}" && npm i --omit=dev --legacy-peer-deps && cd "${root}"`)
   // prepare 重建的 work/app 独立依赖树在 [1/5] patch-locales 之后才存在，
@@ -153,6 +156,7 @@ if (forcePrepare || !appReady() || depsDrift) {
   delete wp.engines
   delete wp.preferGlobal
   wp.main = 'app.js'
+  wp.version = debVersion
   writeJson(path.join(workApp, 'package.json'), wp)
   // 补齐/刷新依赖指纹，供下次比对决定是否自动 prepare
   fs.writeFileSync(depsFingerprintPath, depsFingerprint())
