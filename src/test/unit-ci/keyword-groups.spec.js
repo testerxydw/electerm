@@ -130,6 +130,57 @@ describe('keyword groups', () => {
     assert.equal(views.reduce((n, v) => n + v.total, 0), 164)
   })
 
+  // ---- 自建分组 / 新增规则（keywords-form 新功能）----
+
+  test('addUserRule in a named group creates the group with one empty editable rule', async () => {
+    const { addUserRule, userGroupViews, userGroupNames, activeKeywords } = await load()
+    const next = addUserRule([], { group: '我的组' })
+    assert.deepEqual(next, [{ keyword: '', color: 'red', source: 'user', group: '我的组' }])
+    // 分组按 rule.group 派生：空组不存在，建组即建一条空规则
+    assert.deepEqual(userGroupNames(next), ['我的组'])
+    const g = userGroupViews(next)[0]
+    assert.equal(g.entries.length, 1)
+    assert.equal(g.entries[0].keyword, '')
+    // 空规则（keyword=''）不生效也不计入统计（组件 realEntries 同口径过滤）
+    assert.deepEqual(activeKeywords(next), [])
+    assert.equal(g.entries.filter(e => e.keyword).length, 0)
+  })
+
+  test('addUserRule without group lands in the manual group, existing groups untouched', async () => {
+    const { addUserRule, userGroupViews } = await load()
+    const existing = [{ keyword: 'x', color: 'red', source: 'user', group: 'g1' }]
+    const next = addUserRule(existing, {})
+    assert.equal(next.length, 2)
+    assert.equal(next[1].group, '')
+    assert.equal(next[1].keyword, '')
+    assert.deepEqual(userGroupViews(next).map(g => g.name), ['g1', ''])
+  })
+
+  test('filling a created group empty rule turns it into a live keyword rule', async () => {
+    const { addUserRule, updateEntry, activeKeywords, userGroupViews, setEntryOn } = await load()
+    let list = addUserRule([], { group: 'db' })
+    list = updateEntry(list, 0, { keyword: 'ERROR' })
+    assert.deepEqual(activeKeywords(list).map(r => r.keyword), ['ERROR'])
+    const g = userGroupViews(list).find(v => v.name === 'db')
+    assert.equal(g.entries.length, 1)
+    assert.equal(g.entries[0].keyword, 'ERROR')
+    assert.equal(g.on, 1)
+    // 静音后不再生效但规则保留
+    list = setEntryOn(list, 0, false)
+    assert.deepEqual(activeKeywords(list), [])
+    assert.equal(userGroupViews(list).find(v => v.name === 'db').entries.length, 1)
+  })
+
+  test('group name validation inputs (duplicate / empty) are detectable from views', async () => {
+    const { addUserRule, userGroupViews } = await load()
+    let list = addUserRule([], { group: 'db' })
+    list = addUserRule(list, { group: 'db' })
+    // 同组两条空规则 → 组仍只有一个（重名校验基于 userGroupViews 的 name 集合）
+    const names = userGroupViews(list).map(g => g.name)
+    assert.deepEqual(names, ['db'])
+    assert.equal(userGroupViews(list)[0].entries.length, 2)
+  })
+
   test('未应用的预设也能展开出完整规则清单（点击单条即应用）', async () => {
     const { presetGroupView, setPresetRuleOn, activeKeywords } = await load()
     // 配置里一条该预设的规则都没有
