@@ -108,10 +108,13 @@ export default auto(function Layout (props) {
   const shift = termLeft - layoutSize.left
   const paneGap = layoutSize.width - termWidth
   const shiftNum = (v, delta) => (typeof v === 'number' ? v + delta : `calc(${v} + ${delta}px)`)
+  // 终端列在容器坐标系中占据 [shift, shift+termWidth]，右缘距容器右缘
+  // = paneGap - shift（即纯右面板宽）。right 多加左面板宽会把每格
+  // 压缩一个 leftSidePanelWidth（左面板打开+多格分屏时标签条/空窗格变半宽）
   const paneWrapStyles = termStyles.wrapStyles.map(s => ({
     ...s,
     left: typeof s.left !== 'undefined' ? shiftNum(s.left, shift) : s.left,
-    right: typeof s.right !== 'undefined' ? shiftNum(s.right, paneGap) : s.right
+    right: typeof s.right !== 'undefined' ? shiftNum(s.right, paneGap - shift) : s.right
   }))
   const paneHandleStyles = termStyles.handleStyles.map(h => ({
     ...h,
