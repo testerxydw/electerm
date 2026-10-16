@@ -515,10 +515,12 @@ export default class ItemListTree extends Component {
         const i1 = ids.indexOf(anchor)
         const i2 = ids.indexOf(id)
         const [s, t] = i1 <= i2 ? [i1, i2] : [i2, i1]
-        this.setState({
+        // 并入既有选中 (不替换), 支持多段不连续区间:
+        // 新锚点用 ctrl+点击设置, shift 连续扩展同一段
+        this.setState(old => ({
           selectedRowKey: rowKey,
-          selectedIds: ids.slice(s, t + 1)
-        })
+          selectedIds: uniq([...old.selectedIds, ...ids.slice(s, t + 1)])
+        }))
         return
       }
     }
