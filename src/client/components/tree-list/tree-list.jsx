@@ -431,6 +431,20 @@ export default class ItemListTree extends Component {
     if (item.bookmarkIds) {
       return store.delBookmarkGroup(item)
     }
+    const { selectedIds } = this.state
+    // 行操作在"该行本身在多选集合中"时升级为批量删除 (仅书签)
+    if (selectedIds.length > 1 && selectedIds.includes(item.id)) {
+      const { bookmarks } = this.props
+      bookmarks
+        .filter(b => selectedIds.includes(b.id))
+        .forEach(b => store.onDelItem(b, this.props.type))
+      store.delItems(selectedIds, this.props.type)
+      this.setState({
+        selectedIds: [],
+        selectedRowKey: ''
+      })
+      return
+    }
     store.onDelItem(item, this.props.type)
     store.delItem(item, this.props.type)
   }
