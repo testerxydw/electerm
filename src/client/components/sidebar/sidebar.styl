@@ -156,10 +156,14 @@
 .sidebar-list
   position absolute
   left var(--left-side-bar-width, 43px)
-  top 0
+  // 避让顶栏（tabs 栏 38px，与 .sidebar-panel 一致）：top 0 会盖住 tab 栏挡点击
+  top 38px
   bottom 0
   z-index 200
   width 0
+  // 容器已避让顶栏，内部面板不再重复 +38px（双重避让会在顶部留出一条空白）
+  .sidebar-panel
+    top 0
   // 面板可见即挤压终端（layout.jsx），常驻列与右面板一致，拖拽把手常显
   .drag-handle
     display block
