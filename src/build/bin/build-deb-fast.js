@@ -115,7 +115,11 @@ if (forcePrepare || !appReady() || depsDrift) {
   echo(depsDrift
     ? '[deb-fast] 依赖已变化，重建 work/app（首次较慢）...'
     : '[deb-fast] work/app 未就绪，执行 prepare（首次较慢）...')
-  fs.rmSync(workApp, { recursive: true, force: true })
+  // 用 shell rm：node safe-delete shim 会拦 >500 文件的批量删除（work/app 数千文件）；
+  // 且 shim 连 execSync 里的 rm -rf 也会拦 → 存在性守卫（外部预先删掉则跳过）
+  if (exists(workApp)) {
+    run(`rm -rf "${workApp}"`)
+  }
   fs.mkdirSync(workApp, { recursive: true })
   run(`cp -r "${path.join(root, 'src/app')}/." "${workApp}/"`)
   // 生成 work/app/package.json（去掉 devDeps/scripts 等）
@@ -127,9 +131,12 @@ if (forcePrepare || !appReady() || depsDrift) {
   delete p.engines
   delete p.preferGlobal
   p.main = 'app.js'
-  // 软件内版本号（关于对话框/错误报告）显示测试版本号，如 5.6.0~test.172
-  // （只写 work/app 副本，根 package.json 不动；packInfo 来自该文件）
-  p.version = debVersion
+  // ⚠️ 禁止改 p.version！运行时 basic.js/worker.js 用 packInfo.version 拼
+  // js/electerm-${version}.js，而 vite 编译产物按根 package.json 版本命名；
+  // 两边不一致（如写入 ~test.N）会 404 卡启动页（test.175 踩坑）。
+  // 测试版本号只进 DEBIAN/control 与 deb 文件名；另写独立字段 testVersion
+  // 供「关于」徽标显示（logo-elem.jsx 优先取它），不影响资源路径拼接。
+  p.testVersion = debVersion
   writeJson(path.join(workApp, 'package.json'), p)
   run(`cd "${workApp}" && npm i --omit=dev --legacy-peer-deps && cd "${root}"`)
   // prepare 重建的 work/app 独立依赖树在 [1/5] patch-locales 之后才存在，
@@ -156,7 +163,8 @@ if (forcePrepare || !appReady() || depsDrift) {
   delete wp.engines
   delete wp.preferGlobal
   wp.main = 'app.js'
-  wp.version = debVersion
+  // 同上：version 保持与 vite 编译产物一致（见 prepare 分支注释），否则卡 splash
+  wp.testVersion = debVersion
   writeJson(path.join(workApp, 'package.json'), wp)
   // 补齐/刷新依赖指纹，供下次比对决定是否自动 prepare
   fs.writeFileSync(depsFingerprintPath, depsFingerprint())
