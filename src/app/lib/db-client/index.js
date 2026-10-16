@@ -134,21 +134,58 @@ async function openDbTab (dbBookmark, sshBookmark) {
   if (instances[dbBookmark.id]) {
     await closeDbTab(dbBookmark.id)
   }
-  const inst = await buildConn(dbBookmark, sshBookmark)
+  // 竞态占位（P4 审计修复）：closeDbTab 在 open 完成前到达时 instances 无正式
+  // 记录会变成 no-op，连接在 open 完成后无主滞留（慢连接 + 秒关 tab，实测可复现，
+  // 见 doc/分析-mysql-redis登录后内存占用与优化方案.md）。
+  // 占位记录 aborted 标记与中间产物：closeDbTab 置位，openDbTab 分步检查。
+  log.debug('[db-client] openDbTab', dbBookmark.id)
+  const pending = {
+    pending: true,
+    aborted: false,
+    conn: null,
+    tunnel: null,
+    acquired: false
+  }
+  instances[dbBookmark.id] = pending
+  let inst = null
   try {
+    inst = await buildConn(dbBookmark, sshBookmark)
+    pending.conn = inst.conn
+    pending.tunnel = inst.tunnel
+    if (pending.aborted) {
+      // 还没 acquire，无引用计数需要回落，只关隧道
+      log.debug('[db-client] openDbTab aborted before acquire', dbBookmark.id)
+      throw new Error('db tab closed while opening')
+    }
     // acquire: 建立真实连接并验证（失败上抛，tab 打开即暴露连接问题）
     await withTimeout(adapter.acquire(inst.conn), OVERALL_TIMEOUT)
+    pending.acquired = true
+    log.debug('[db-client] openDbTab acquired', dbBookmark.id, 'aborted=', pending.aborted)
+    if (pending.aborted) {
+      log.debug('[db-client] openDbTab aborted after acquire', dbBookmark.id)
+      throw new Error('db tab closed while opening')
+    }
     // open metadata eagerly to surface metadata errors at tab open
     await withTimeout(adapter.getMetadata(inst.conn), OVERALL_TIMEOUT)
-  } catch (e) {
-    // 打开失败：释放已建立连接与隧道，防泄漏
-    try {
-      await adapter.release(inst.conn)
-    } catch (e2) {
-      // ignore
+    if (pending.aborted) {
+      throw new Error('db tab closed while opening')
     }
-    if (inst.tunnel) {
-      inst.tunnel.close()
+  } catch (e) {
+    // 只删自己的占位：重连竞态下可能已有新一轮 open 的占位/正式记录
+    if (instances[dbBookmark.id] === pending) {
+      delete instances[dbBookmark.id]
+    }
+    // 打开失败/打开中被关闭：释放已建立连接与隧道，防泄漏
+    if (pending.acquired) {
+      // acquire 内部先 +1 引用计数，只有 acquire 成功过才能对称 release
+      try {
+        await adapter.release(pending.conn)
+      } catch (e2) {
+        // ignore
+      }
+    }
+    if (pending.tunnel) {
+      pending.tunnel.close()
     }
     throw e
   }
@@ -158,7 +195,8 @@ async function openDbTab (dbBookmark, sshBookmark) {
 
 async function dbClientOp (tabId, op, args) {
   const inst = instances[tabId]
-  if (!inst) {
+  if (!inst || inst.pending) {
+    // pending 占位 = open 进行中，连接尚未可用
     throw new Error('database tab not open')
   }
   const adapter = getAdapter(inst.dbType)
@@ -180,7 +218,7 @@ async function dbClientOp (tabId, op, args) {
 // 故前端改开关必须同步到这里，否则开关只是"看起来变了"而写操作仍被拦/仍放行
 async function setDbReadOnly (tabId, readOnly) {
   const inst = instances[tabId]
-  if (!inst) {
+  if (!inst || inst.pending) {
     throw new Error('database tab not open')
   }
   inst.readOnly = readOnly !== false
@@ -189,10 +227,17 @@ async function setDbReadOnly (tabId, readOnly) {
 
 async function closeDbTab (tabId) {
   const inst = instances[tabId]
+  log.debug('[db-client] closeDbTab', tabId, inst ? (inst.pending ? 'pending' : 'normal') : 'missing')
   if (!inst) {
     return
   }
   delete instances[tabId]
+  // pending 占位（open 进行中）：无正式连接可释放，置中止标记，
+  // openDbTab 完成各步骤前检查并自行释放（竞态滞留修复）
+  if (inst.pending) {
+    inst.aborted = true
+    return
+  }
   try {
     await getAdapter(inst.dbType).release(inst.conn)
   } catch (e) {
