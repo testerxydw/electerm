@@ -192,6 +192,11 @@ export default function KeywordForm (props) {
   const [openGrp, setOpenGrp] = useState({})
   const [renaming, setRenaming] = useState(null)
   const [renameValue, setRenameValue] = useState('')
+  // 新建分组：输入组名 → 在该组建一条空规则（分组按 rule.group 派生，空组不存在）
+  const [addingGroup, setAddingGroup] = useState(false)
+  const [addGroupName, setAddGroupName] = useState('')
+  // enter 后紧跟 blur 会触发两次 commit，用 ref 保证只提交一次
+  const addGroupRef = useRef(false)
 
   const commit = next => props.submit({ keywords: next })
   const presetViews = allPresetViews(list)
@@ -224,6 +229,34 @@ export default function KeywordForm (props) {
   const toggleSec = key => setOpenSec(s => ({ ...s, [key]: !s[key] }))
   const toggleGrp = key => setOpenGrp(s => ({ ...s, [key]: !s[key] }))
   const isOpen = key => filtering || !!openGrp[key]
+
+  // 新增用户规则：空态/具名分组也提供入口，并自动展开所在分组
+  const addUser = (group = '') => {
+    setOpenSec(s => ({ ...s, user: true }))
+    setOpenGrp(s => ({ ...s, [`u:${group}`]: true }))
+    commit(addUserRule(list, { group }))
+  }
+
+  // 新建分组：组名合法即在该组建一条空规则并展开
+  const commitAddGroup = () => {
+    if (!addGroupRef.current) {
+      return
+    }
+    addGroupRef.current = false
+    const name = addGroupName.trim()
+    setAddingGroup(false)
+    setAddGroupName('')
+    if (!name) {
+      return
+    }
+    if (userGroups.some(g => g.name === name)) {
+      message.error(e('kwGroupNameExists'))
+      return
+    }
+    setOpenSec(s => ({ ...s, user: true }))
+    setOpenGrp(s => ({ ...s, [`u:${name}`]: true }))
+    commit(addUserRule(list, { group: name }))
+  }
 
   const startRename = (name) => {
     setRenaming(name)
@@ -381,21 +414,15 @@ export default function KeywordForm (props) {
             ? (
               <div className='kw-rules'>
                 {entries.map(e => renderRule(e))}
-                {
-                  named
-                    ? null
-                    : (
-                      <Button
-                        type='dashed'
-                        size='small'
-                        className='kw-add-rule'
-                        icon={<PlusOutlined />}
-                        onClick={() => commit(addUserRule(list, { group: '' }))}
-                      >
-                        {e('keyword')}
-                      </Button>
-                      )
-                }
+                <Button
+                  type='dashed'
+                  size='small'
+                  className='kw-add-rule'
+                  icon={<PlusOutlined />}
+                  onClick={() => addUser(group.name)}
+                >
+                  {e('keyword')}
+                </Button>
               </div>
               )
             : null
@@ -468,14 +495,60 @@ export default function KeywordForm (props) {
           <span className='kw-badge'>
             {userGroups.filter(g => g.name).length} {e('kwSubGroups')} · {e('keyword')} {userRuleOn}/{userRuleTotal}
           </span>
+          <Button
+            size='small'
+            type='text'
+            className='kw-add-group'
+            icon={<PlusOutlined />}
+            title={e('kwAddGroup')}
+            onClick={ev => {
+              ev.stopPropagation()
+              // 用户区收起时 body（含组名输入框）不渲染，必须先展开
+              setOpenSec(s => ({ ...s, user: true }))
+              addGroupRef.current = true
+              setAddingGroup(true)
+            }}
+          >
+            {e('kwAddGroup')}
+          </Button>
         </div>
         {
           openSec.user
             ? (
               <div className='kw-sec-body'>
+                {
+                  addingGroup
+                    ? (
+                      <Input
+                        size='small'
+                        autoFocus
+                        className='kw-group-rename'
+                        placeholder={e('kwGroupName')}
+                        value={addGroupName}
+                        onClick={ev => ev.stopPropagation()}
+                        onChange={ev => setAddGroupName(ev.target.value)}
+                        onPressEnter={commitAddGroup}
+                        onBlur={commitAddGroup}
+                      />
+                      )
+                    : null
+                }
                 {userGroups.length
                   ? userGroups.map(renderUserGroup)
-                  : <div className='kw-empty'>{e('kwNoRules')}</div>}
+                  : (
+                    <div className='kw-empty'>
+                      <span>{e('kwNoRules')}</span>
+                      <Button
+                        type='dashed'
+                        size='small'
+                        className='kw-add-rule'
+                        icon={<PlusOutlined />}
+                        onClick={() => addUser('')}
+                      >
+                        {e('keyword')}
+                      </Button>
+                    </div>
+                    )}
               </div>
               )
             : null

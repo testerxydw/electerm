@@ -44,6 +44,10 @@
 .kw-sec-title
   font-weight 600
 
+// 用户区"新建分组"按钮推到行尾（sec-head 是 cursor pointer 的整行，点击已 stopPropagation）
+.kw-add-group
+  margin-left auto
+
 .kw-badge
   color var(--text-dark)
   font-size 12px
@@ -173,3 +177,9 @@
 
 .kw-add-rule
   margin 4px 0 0 0
+
+// 空态：文案 + 新增按钮同行（用户分组为空时也提供新增入口）
+.kw-empty
+  display flex
+  align-items center
+  gap 8px
