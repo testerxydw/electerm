@@ -1319,7 +1319,8 @@ export default auto(function DbSession (props) {
       <div className='db-redis-detail'>
         {
           // string 键的信息栏已并入 DbValuePane 头部（extra），避免出现两条重复栏
-          d.type !== 'string'
+          // d 可能为 null（详情加载中），沿用原空值守卫
+          d && d.type !== 'string'
             ? (
               <div className='db-redis-detail-bar'>
                 <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
