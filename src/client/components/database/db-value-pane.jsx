@@ -64,7 +64,8 @@ export default function DbValuePane (props) {
     maxHits = 2000,
     onSave,
     onClose,
-    extra
+    extra,
+    editDisabledTitle = ''
   } = props
   const [formatKey, setFormatKey] = useState('raw')
   const [editing, setEditing] = useState(false)
@@ -190,7 +191,9 @@ export default function DbValuePane (props) {
             : null
         }
         {
-          editable
+          // 与右键菜单保持一致：edit 恒显示，不可编辑时置灰并提示原因
+          // （mysql 无主键 / 只读实例），避免两个引擎菜单观感不一致
+          (editable || editing)
             ? editing
               ? (
                 <>
@@ -203,7 +206,12 @@ export default function DbValuePane (props) {
                 </>
                 )
               : (
-                <Button size='small' disabled={saving} onClick={startEdit}>
+                <Button
+                  size='small'
+                  disabled={!editable || saving}
+                  title={editable ? 'edit' : editDisabledTitle}
+                  onClick={startEdit}
+                >
                   edit
                 </Button>
                 )
@@ -252,14 +260,22 @@ export default function DbValuePane (props) {
                 menu={{
                   items: [
                     { key: 'copy', label: e('copy') },
-                    ...(editable
-                      ? [
-                          { key: 'edit', label: e('edit') },
-                          ...(activeFormat === 'raw'
-                            ? [{ key: 'replace', label: e('replace') }]
-                            : [])
-                        ]
-                      : [])
+                    {
+                      // 恒显示，不可编辑置灰（与头部 edit 按钮一致）
+                      key: 'edit',
+                      label: (
+                        <span title={editable ? undefined : editDisabledTitle}>{e('edit')}</span>
+                      ),
+                      disabled: !editable
+                    },
+                    {
+                      key: 'replace',
+                      label: (
+                        <span title={editable ? undefined : editDisabledTitle}>{e('replace')}</span>
+                      ),
+                      // 格式化视图不对应原文，替换无意义 → 置灰
+                      disabled: !editable || activeFormat !== 'raw'
+                    }
                   ],
                   onClick: onMenuClick
                 }}

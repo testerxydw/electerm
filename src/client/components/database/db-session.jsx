@@ -1096,6 +1096,7 @@ export default auto(function DbSession (props) {
                 patterns={keywordPatterns}
                 themeConfig={themeConfig}
                 editable={canEditCell}
+                editDisabledTitle={isReadonly ? e('dbErrReadOnly') : e('dbNoPrimaryKey')}
                 saving={grid.loading}
                 onSave={v => runCellUpdate(selectedCell.rowKey, selectedCell.col, v)}
                 onClose={() => setSelectedCell(null)}
@@ -1213,6 +1214,7 @@ export default auto(function DbSession (props) {
           patterns={keywordPatterns}
           themeConfig={themeConfig}
           editable={!isReadonly}
+          editDisabledTitle={e('dbErrReadOnly')}
           extra={(
             <>
               <InputNumber
