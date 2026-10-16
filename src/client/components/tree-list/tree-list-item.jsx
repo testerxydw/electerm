@@ -13,6 +13,8 @@ function areEqual (prevProps, nextProps) {
   const nextSelected = nextProps.selectedItemId === nextProps.item.id
   const prevRowSelected = Boolean(prevProps.rowSelected)
   const nextRowSelected = Boolean(nextProps.rowSelected)
+  const prevMulti = Boolean(prevProps.multiSelected)
+  const nextMulti = Boolean(nextProps.multiSelected)
 
   return prevProps.isGroup === nextProps.isGroup &&
     prevProps.parentId === nextProps.parentId &&
@@ -20,6 +22,7 @@ function areEqual (prevProps, nextProps) {
     prevProps.keyword === nextProps.keyword &&
     prevSelected === nextSelected &&
     prevRowSelected === nextRowSelected &&
+    prevMulti === nextMulti &&
     prevProps.item.id === nextProps.item.id &&
     prevProps.itemLevel === nextProps.itemLevel &&
     prevProps.itemColor === nextProps.itemColor &&
@@ -61,7 +64,9 @@ function TreeListItem (props) {
     {
       selected: selectedItemId === item.id,
       // the keyboard cursor: the row the arrow keys are on, enter acts on it
-      'kb-selected': props.rowSelected
+      'kb-selected': props.rowSelected,
+      // ctrl/shift 多选中的行 (批量拖拽/批量移动)
+      'multi-selected': props.multiSelected
     },
     'tree-item',
     {

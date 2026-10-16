@@ -62,14 +62,20 @@ export default auto(function MoveItemModal (props) {
     openMoveModal,
     moveItem,
     moveItemIsGroup,
+    moveItemIds,
     bookmarkGroups
   } = props.store
+  // 多选批量移动: 仅书签, 目标树不做禁用 (目标组=某条当前组时移除再插入, 无害)
+  const isBatchMove = !moveItemIsGroup &&
+    Array.isArray(moveItemIds) &&
+    moveItemIds.length > 1
 
   function onCancelMoveItem () {
     window.store.storeAssign({
       openMoveModal: false,
       moveItem: null,
-      moveItemIsGroup: false
+      moveItemIsGroup: false,
+      moveItemIds: []
     })
   }
 
@@ -85,13 +91,15 @@ export default auto(function MoveItemModal (props) {
     return null
   }
 
-  // Find current parent folder
-  const currentParent = bookmarkGroups.find(bg => {
-    if (moveItemIsGroup) {
-      return (bg.bookmarkGroupIds || []).includes(moveItem.id)
-    }
-    return (bg.bookmarkIds || []).includes(moveItem.id)
-  })
+  // Find current parent folder (批量移动时各条父组不同, 不禁用任何组)
+  const currentParent = isBatchMove
+    ? null
+    : bookmarkGroups.find(bg => {
+      if (moveItemIsGroup) {
+        return (bg.bookmarkGroupIds || []).includes(moveItem.id)
+      }
+      return (bg.bookmarkIds || []).includes(moveItem.id)
+    })
   const currentParentId = currentParent?.id
 
   // Build tree data with disabled folder for self and current parent
@@ -141,6 +149,21 @@ export default auto(function MoveItemModal (props) {
     const group = groupMap.get(groupId)
     if (!group && groupId !== rootId) {
       return
+    }
+    // 多选批量移动: 整批按选中顺序插入目标组顶部
+    // (manate 只响应 in-place 数组变更, 移除/插入都用 splice/unshift)
+    if (isBatchMove) {
+      const ids = moveItemIds
+      bookmarkGroups.forEach(bg => {
+        const arr = bg.bookmarkIds || []
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (ids.includes(arr[i])) {
+            arr.splice(i, 1)
+          }
+        }
+      })
+      group.bookmarkIds.unshift(...ids)
+      return onCancelMoveItem()
     }
     // Find and update the original parent group
     const currentParentGroup = bookmarkGroups.find(bg => {

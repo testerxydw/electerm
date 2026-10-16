@@ -48,6 +48,8 @@ export default class ItemListTree extends Component {
       categoryColor: '',
       categoryId: '',
       selectedRowKey: '',
+      // 多选书签 id (ctrl/shift 点击), 批量拖拽/批量移动到分组共用
+      selectedIds: [],
       sort: getItemJSON(treeSortLsKey, null)
     }
     this.listRef = React.createRef()
@@ -109,7 +111,8 @@ export default class ItemListTree extends Component {
   handleChange = keyword => {
     this.setState({
       keyword,
-      selectedRowKey: ''
+      selectedRowKey: '',
+      selectedIds: []
     })
   }
 
@@ -140,6 +143,13 @@ export default class ItemListTree extends Component {
       tagName === 'BUTTON' ||
       isContentEditable
     ) {
+      return
+    }
+    if (e.key === 'Escape' && this.state.selectedIds.length) {
+      e.preventDefault()
+      this.setState({
+        selectedIds: []
+      })
       return
     }
     const { rows } = this.getVisibleTreeData()
@@ -303,10 +313,18 @@ export default class ItemListTree extends Component {
 
   openMoveModal = (e, item, isGroup) => {
     e.stopPropagation()
+    const { selectedIds } = this.state
+    // 行操作只在"该行本身在多选集合中"时才升级为批量移动
+    const batchIds = !isGroup &&
+      selectedIds.length > 1 &&
+      selectedIds.includes(item.id)
+      ? selectedIds
+      : []
     window.store.storeAssign({
       openMoveModal: true,
       moveItem: item,
-      moveItemIsGroup: isGroup
+      moveItemIsGroup: isGroup,
+      moveItemIds: batchIds
     })
   }
 
@@ -433,9 +451,29 @@ export default class ItemListTree extends Component {
   ) => {
     const id = e.currentTarget.getAttribute('data-item-id')
     const isGroup = e.currentTarget.getAttribute('data-is-group') === 'true'
+    const rowKey = getRowKey(id, isGroup)
+    // 多选只作用于书签行: 组行保持单击展开/收起行为
+    if (!isGroup) {
+      const {
+        ctrlKey,
+        metaKey,
+        shiftKey
+      } = e.nativeEvent
+      if (ctrlKey || metaKey || shiftKey) {
+        this.handleMultiSelect(id, rowKey, { ctrlKey, metaKey, shiftKey })
+        return
+      }
+      // shift 区间选择的锚点
+      this.multiSelectAnchor = id
+      if (this.state.selectedIds.length) {
+        this.setState({
+          selectedIds: []
+        })
+      }
+    }
     // let the arrow keys carry on from the row that was just clicked
     this.setState({
-      selectedRowKey: getRowKey(id, isGroup)
+      selectedRowKey: rowKey
     })
     const { store } = window
     if (isGroup) {
@@ -449,6 +487,38 @@ export default class ItemListTree extends Component {
     } else {
       this.selectBookmarkById(id)
     }
+  }
+
+  // ctrl/shift 多选: ctrl 切换, shift 从锚点行到当前行的可见书签区间全选
+  handleMultiSelect = (id, rowKey, { ctrlKey, metaKey, shiftKey }) => {
+    const anchor = this.multiSelectAnchor
+    if (shiftKey && anchor && anchor !== id) {
+      const { rows } = this.getVisibleTreeData()
+      const ids = rows
+        .filter(r => !r.isGroup && r.item.id)
+        .map(r => r.item.id)
+      if (ids.includes(anchor) && ids.includes(id)) {
+        const i1 = ids.indexOf(anchor)
+        const i2 = ids.indexOf(id)
+        const [s, t] = i1 <= i2 ? [i1, i2] : [i2, i1]
+        this.setState({
+          selectedRowKey: rowKey,
+          selectedIds: ids.slice(s, t + 1)
+        })
+        return
+      }
+    }
+    // ctrl/meta 切换; shift 无有效锚点时退化为切换
+    this.multiSelectAnchor = id
+    this.setState(old => {
+      const has = old.selectedIds.includes(id)
+      return {
+        selectedRowKey: rowKey,
+        selectedIds: has
+          ? old.selectedIds.filter(x => x !== id)
+          : [...old.selectedIds, id]
+      }
+    })
   }
 
   // `act` overrides what a selection does; only the Enter path passes it, so a
@@ -548,6 +618,11 @@ export default class ItemListTree extends Component {
       .setData(
         'idDragged', `${id}@${pid}@${isGroup}`
       )
+    // 拖的是多选集合中的一员时整批一起走 (仅书签)
+    const { selectedIds } = this.state
+    if (selectedIds.length > 1 && selectedIds.includes(id)) {
+      e.dataTransfer.setData('idsDragged', selectedIds.join('@'))
+    }
   }
 
   // resolve the .tree-item under the pointer and show a directional
@@ -690,6 +765,60 @@ export default class ItemListTree extends Component {
         dropArr.splice(insertIndex, 0, idDragged)
       }
     } else {
+      // 批量书签拖拽: 整批移到目标组 / 目标行前后, 顺序保持多选顺序
+      const multiIds = e.dataTransfer.getData('idsDragged')
+        ? e.dataTransfer.getData('idsDragged').split('@').filter(Boolean)
+        : null
+      if (multiIds && multiIds.length > 1) {
+        if (multiIds.includes(idDrop)) {
+          return
+        }
+        // manate 只响应 in-place 数组变更, 移除/插入都用 splice
+        bookmarkGroups.forEach(bg => {
+          const arr = bg.bookmarkIds || []
+          for (let i = arr.length - 1; i >= 0; i--) {
+            if (multiIds.includes(arr[i])) {
+              arr.splice(i, 1)
+            }
+          }
+        })
+        const parentDrop = isGroupDrop
+          ? bookmarkGroups.find(
+            item => item.id === idDrop
+          )
+          : bookmarkGroups.find(
+            item => item.id === pidDrop
+          )
+        if (!parentDrop) {
+          return
+        }
+        const dropArr = parentDrop.bookmarkIds || []
+        if (isGroupDrop) {
+          multiIds.forEach(bid => {
+            if (!dropArr.includes(bid)) {
+              dropArr.push(bid)
+            }
+          })
+        } else {
+          let index = dropArr.findIndex(item => item === idDrop)
+          if (index < 0) {
+            index = 0
+          }
+          const insertIndex = insertAfter ? index + 1 : index
+          dropArr.splice(
+            insertIndex,
+            0,
+            ...multiIds.filter(bid => !dropArr.includes(bid))
+          )
+        }
+        // 手动排序覆盖激活中的排序, 同单条拖拽
+        setItemJSON(treeSortLsKey, null)
+        this.setState({
+          sort: null,
+          selectedIds: []
+        })
+        return
+      }
       const parentDrag = bookmarkGroups.find(
         item => item.id === pidDragged
       )
@@ -819,6 +948,7 @@ export default class ItemListTree extends Component {
         expanded={Boolean(keyword) || expandedKeys.includes(row.item.id)}
         activeItemId={this.props.activeItemId}
         selectedRowKey={this.state.selectedRowKey}
+        multiSelected={this.state.selectedIds.includes(row.item.id)}
         staticList={this.props.staticList}
         leftSidePanelWidth={this.props.leftSidePanelWidth}
         {...pick(

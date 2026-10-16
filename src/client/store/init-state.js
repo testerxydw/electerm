@@ -262,6 +262,8 @@ export default () => {
     // move item
     openMoveModal: false,
     moveItem: null,
-    moveItemIsGroup: false
+    moveItemIsGroup: false,
+    // 多选批量移动: 非空且 length>1 时 move modal 按批量处理
+    moveItemIds: []
   }
 }

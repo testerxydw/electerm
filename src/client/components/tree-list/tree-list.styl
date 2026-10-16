@@ -45,6 +45,10 @@
       width 2px
       border-radius var(--radius-pill)
       background var(--primary)
+  // ctrl/shift 多选中的行: 弱于单选的着色, 与 hover/kb-selected 可区分
+  &.multi-selected
+    background var(--active-bg)
+    color var(--text)
   &.item-dragover-top
     border 2px solid var(--primary)
 .tree-item-title
