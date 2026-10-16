@@ -889,6 +889,8 @@ export default auto(function DbSession (props) {
       value={getDbPageSize()}
       options={pageSizeOptions}
       onChange={changePageSize}
+      // 弹层宽度随内容自适应：默认与触发框同宽会把 "1000 / page" 截断
+      popupMatchSelectWidth={false}
       title='rows per page'
     />
   )
