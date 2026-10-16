@@ -135,3 +135,4 @@ ftp-root
 /.test-build-num
 .lintcache
 .npmcache
+*.ncx
