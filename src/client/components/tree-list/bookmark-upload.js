@@ -48,6 +48,13 @@ export const bookmarkUpload = action(async (file) => {
       bookmarkGroupIds: [],
       bookmarkIds: bookmarks1.map(b => b.id)
     }]
+    // 与 UI 创建行为一致 (getColorFromCategory): 无色书签取所属分组颜色,
+    // 否则列表里没有色点、与既有书签视觉不一致
+    bookmarks1.forEach(b => {
+      if (!b.color) {
+        b.color = bookmarkGroups1[0].color
+      }
+    })
   } else {
     bookmarkGroups1 = content.bookmarkGroups || []
     bookmarks1 = fixBookmarksId(content.bookmarks || [])
