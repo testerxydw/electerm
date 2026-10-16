@@ -108,11 +108,20 @@ export default class Tabs extends Component {
     // 窗口角控件组(fixed)是否压住本格子标签栏右缘: 右面板打开会把终端区
     // 右缘推离窗口角, 此时 166px 预留与 tabs-extra 让位区域暴露为空白,
     // 需要释放; 面板关闭或标签栏横贯全宽(单格/全宽行布局)时仍需预留。
-    // 未知时保守按重叠处理(渲染首帧), commit 后实测修正
+    // 未知时保守按重叠处理(渲染首帧), commit 后实测修正。
+    // 实测坑：.tabs 本身横贯全宽（不随右面板收窄），"bar.right 贴窗口右缘"
+    // 恒成立 → 预留从未释放。右面板(z 200)打开时窗口角控件(z 20)压在面板
+    // 上方而非 tab 栏可见区，故可见右缘 = 面板左缘。
     const bar = this.tabsRef.current && this.tabsRef.current.getBoundingClientRect()
+    const rightPanel = window.store.rightPanelVisible
+      ? document.querySelector('.right-side-panel')
+      : null
+    const visibleRight = rightPanel && rightPanel.getBoundingClientRect().width > 0
+      ? rightPanel.getBoundingClientRect().left
+      : window.innerWidth
     const overlap = !bar
       ? true
-      : Math.abs(bar.right - window.innerWidth) < 2
+      : Math.abs(bar.right - visibleRight) < 2
     if (overlap !== this.state.cornerOverlap) {
       this.setState({ cornerOverlap: overlap })
     }
