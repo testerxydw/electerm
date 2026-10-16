@@ -9,6 +9,7 @@ import uid from '../../common/uid'
 import time from '../../common/time'
 import { fixBookmarks } from '../../common/db-fix'
 import { runImportTask } from '../../common/import-task'
+import { parseNcx } from '../../common/navicat-ncx'
 
 const e = window.translate
 
@@ -32,7 +33,10 @@ export const bookmarkUpload = action(async (file) => {
     ? file.fileContent
     : await window.fs.readFile(file.filePath)
 
-  const content = JSON.parse(txt)
+  // Navicat .ncx 导出文件: 解析成 database bookmark 数组,
+  // 之后复用下方 JSON 数组导入流程 (自动建 imported_ 分组)
+  const isNcxFile = /\.ncx$/i.test(file.filePath || file.fileName || file.name || '')
+  const content = isNcxFile ? await parseNcx(txt) : JSON.parse(txt)
   let bookmarkGroups1 = []
   let bookmarks1 = []
   if (Array.isArray(content)) {
