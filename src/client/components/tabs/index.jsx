@@ -55,6 +55,11 @@ export default class Tabs extends Component {
       passive: false
     })
     this.measureWrapWidth()
+    // Tab widths follow their titles, so they can change without a tab being
+    // added or removed, such as on rename. Watch them to keep the wrapper width
+    // and the overflow state in step with the tabs.
+    this.resizeObserver = new ResizeObserver(this.handleTabsResize)
+    this.observeTabs()
   }
 
   componentDidUpdate (prevProps) {
@@ -66,9 +71,36 @@ export default class Tabs extends Component {
     ) {
       this.adjustScroll()
     }
+    this.observeTabs()
   }
 
   componentWillUnmount () {
+    this.resizeObserver.disconnect()
+  }
+
+  observeTabs = () => {
+    const { resizeObserver, domRef } = this
+    resizeObserver.disconnect()
+    if (!domRef.current) {
+      return
+    }
+    domRef.current.querySelectorAll('.tab').forEach(el => {
+      resizeObserver.observe(el)
+    })
+  }
+
+  // render reads the tab widths from the DOM before React commits the new
+  // titles, so render again once the measured widths differ
+  handleTabsResize = () => {
+    if (this.tabsWidth() !== this.renderedTabsWidth) {
+      this.setState({
+        overflow: this.isOverflow()
+      })
+      // 本项目另有 wrapWidth 实测缓存（getTabsWidthAll 的数据源）：tab 宽度
+      // 变化时一并重测。否则 overflow 恰好没变时 React 会 bail out 掉上面那次
+      // setState，componentDidUpdate 不再跑，wrapper 宽度停留在旧值
+      this.measureWrapWidth()
+    }
   }
 
   modifier = (...args) => {
@@ -329,6 +361,10 @@ export default class Tabs extends Component {
     const { width } = this.props
     const tabs = this.getSortedTabs()
     const len = tabs.length
+    // 上游 #4623：render 期间记录本次渲染所依据的 tab 实测宽，供 ResizeObserver
+    // 判断"宽度是否真的变了"；总宽仍走本项目的 getTabsWidthAll()（实测缓存，
+    // 未测前按标称上限保守估算，避免分屏新格子首帧 wrapper 过窄导致换行）
+    this.renderedTabsWidth = this.tabsWidth()
     const tabsWidthAll = this.getTabsWidthAll()
     const { overflow } = this.state
     const left = overflow
