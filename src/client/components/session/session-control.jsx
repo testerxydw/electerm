@@ -25,6 +25,7 @@ import {
 } from '../../common/constants'
 import { SplitViewIcon } from '../icons/split-view'
 import { HeartbeatIcon } from '../icons/heartbeat'
+import TermSearch from '../terminal/term-search'
 import './session-control.styl'
 
 const e = window.translate
@@ -50,6 +51,7 @@ export default function SessionControl (props) {
     toggleBroadcastInput,
     toggleWrap,
     onFullscreen,
+    searchOpen,
     onOpenSearch,
     onOpenContextMenu,
     onExitGracefully,
@@ -278,7 +280,13 @@ export default function SessionControl (props) {
     return (
       <Tooltip title={title} placement='bottomLeft'>
         <SearchOutlined
-          className='mg1r icon-info iblock pointer spliter'
+          className={classnames(
+            'mg1r icon-info iblock pointer spliter',
+            {
+              // 展开查找条时染主色，与数据库页 .db-search-on 同口径
+              'search-open': searchOpen
+            }
+          )}
           onClick={onOpenSearch}
         />
       </Tooltip>
@@ -354,10 +362,12 @@ export default function SessionControl (props) {
     }
     return (
       <div className='fright term-controls'>
+        {/* 统一查找条：顶栏内联展开，位于查找按钮左侧（与数据库页同形态） */}
+        <TermSearch tab={tab} />
         {renderFontSizeIcons()}
         {skipContextMenuIcon ? null : renderContextMenuIcon()}
-        {renderFullscreenIcon()}
         {renderSearchIcon()}
+        {renderFullscreenIcon()}
       </div>
     )
   }

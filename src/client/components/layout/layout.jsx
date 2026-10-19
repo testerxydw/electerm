@@ -10,7 +10,6 @@ import {
 } from '../../common/constants'
 import layoutAlg from './layout-alg'
 import calcSessionSize from './session-size-alg'
-import TermSearch from '../terminal/term-search'
 import Footer from '../footer/footer-entry'
 import RemoteMonitorBar from '../remote-monitor/remote-monitor-bar-entry'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
@@ -23,7 +22,7 @@ import './layout.styl'
 export default auto(function Layout (props) {
   const { store } = props
   const {
-    layout, config, currentTab
+    layout
   } = store
   const conf = splitConfig[layout]
 
@@ -178,18 +177,6 @@ export default auto(function Layout (props) {
     })
   }
 
-  const termProps = {
-    currentTab,
-    config,
-    ...pick(store, [
-      'activeTabId',
-      'termSearchOpen',
-      'termSearch',
-      'termSearchOptions',
-      'termSearchMatchCount',
-      'termSearchMatchIndex'
-    ])
-  }
   const footerProps = {
     store
   }
@@ -227,10 +214,6 @@ export default auto(function Layout (props) {
       {renderSessions(conf, layout)}
     </Layouts>,
     <SessionsWrap key='SessionsWrap' {...sessionsProps} />,
-    <TermSearch
-      key='TermSearch'
-      {...termProps}
-    />,
     <QuickCommandsFooterBox
       key='QuickCommandsFooterBox'
       {...qmProps}

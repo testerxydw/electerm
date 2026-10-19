@@ -1,4 +1,4 @@
-
+// 大小写/整词/正则开关（SearchBar 的 suffix 插槽内）
 .term-search-opt-icon
   margin 0 3px
   color var(--text-light)
@@ -11,13 +11,12 @@
   &.term-search-on
     background var(--surface-2)
     color var(--text-dark)
+// 查找条挂载位：SessionControl 顶栏右侧内联展开（原右上浮层已废弃）
+// 必须 inline-flex：父级 .term-controls 是 float 块容器，块级 flex 会独占
+// 一行，把后面的搜索/全屏图标挤到下一行
 .term-search-wrap
-  position absolute
-  top 100px
-  right 5px
-  z-index 200
-  // 浮层统一表面与描边语言（原先裸用 --main，无圆角/描边/内边距）
-  background var(--surface-2)
-  border-radius var(--radius)
-  box-shadow 0 0 0 1px var(--border), var(--shadow-2)
-  padding 6px
+  display inline-flex
+  vertical-align middle
+  align-items center
+  min-width 0
+  margin-right 4px

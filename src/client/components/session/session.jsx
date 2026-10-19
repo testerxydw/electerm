@@ -698,6 +698,7 @@ export default class SessionWrapper extends Component {
           toggleWrap={this.toggleWrap}
           onFullscreen={this.handleFullscreen}
           onZoomFontSize={this.handleZoomFontSize}
+          searchOpen={!!window.store.termSearchOpen}
           onOpenSearch={this.handleOpenSearch}
           onOpenContextMenu={this.handleOpenContextMenu}
           onExitGracefully={this.handleExitGracefully}

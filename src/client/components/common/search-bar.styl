@@ -1,0 +1,24 @@
+// 统一查找条（common/search-bar.jsx）：终端顶栏与数据库顶栏共用一套 UI
+.search-bar
+  display flex
+  align-items center
+  gap 4px
+  min-width 0
+.search-bar-input
+  width 160px
+  min-width 100px
+  flex 0 1 auto
+.search-bar-count
+  color var(--text-dark)
+  font-variant-numeric tabular-nums
+  font-size var(--fs-sm)
+  white-space nowrap
+.search-bar-act
+  color var(--text-dark)
+  cursor pointer
+  border-radius var(--radius-xs)
+  transition color var(--dur-1) var(--ease)
+  &:hover
+    color var(--text)
+.search-bar-close
+  margin-left 2px

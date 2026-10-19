@@ -1,13 +1,12 @@
-import { PureComponent } from 'react'
-import {
-  Tooltip
-} from 'antd'
-import InputAutoFocus from '../common/input-auto-focus'
-import {
-  ArrowLeftOutlined,
-  ArrowRightOutlined,
-  CloseCircleOutlined
-} from '@ant-design/icons'
+/**
+ * 终端查找条（SSH/终端页顶栏内联展开，由 SessionControl 挂载；原右上浮层已废弃）。
+ * UI 骨架来自 common/search-bar；引擎 = xterm SearchAddon（findNext/findPrevious）。
+ * 大小写/整词/正则开关作为 SearchBar 的 suffix 插槽。
+ */
+import { useEffect } from 'react'
+import { auto } from 'manate/react'
+import { Tooltip } from 'antd'
+import SearchBar from '../common/search-bar'
 import { paneMap } from '../../common/constants'
 import { MatchCaseIcon } from '../icons/match-case'
 import { MatchWholWordIcon } from '../icons/match-whole-word'
@@ -19,150 +18,86 @@ import './term-search.styl'
 
 const e = window.translate
 
-export default class TermSearch extends PureComponent {
-  searchControls = [{
-    id: 'matchCase',
-    icon: MatchCaseIcon,
-    prop: 'caseSensitive'
-  }, {
-    id: 'matchWholeWord',
-    icon: MatchWholWordIcon,
-    prop: 'wholeWord'
-  }, {
-    id: 'useRegExp',
-    icon: RegularExpIcon,
-    prop: 'regex'
-  }]
-
-  searchActions = [{
-    id: 'prev',
-    icon: ArrowLeftOutlined,
-    cls: 'mg1l'
-  }, {
-    id: 'next',
-    icon: ArrowRightOutlined,
-    cls: 'mg1l'
-  }, {
-    id: 'close',
-    icon: CloseCircleOutlined,
-    cls: 'mg2l'
-  }]
-
-  componentDidMount () {
-    refsStatic.add('term-search', this)
-  }
-
-  toggleSearch = () => {
-    const isClosing = this.props.termSearchOpen
-    if (isClosing) {
-      this.clearSearch()
-    }
-    window.store.toggleTerminalSearch()
-    if (isClosing) {
-      setTimeout(window.store.focus, 200)
-    }
-  }
-
-  prev = (searchTerm) => {
-    const {
-      activeTabId,
-      termSearchOptions
-    } = this.props
-    refs.get('term-' + activeTabId)
-      ?.searchPrev(
-        typeof searchTerm === 'string' ? searchTerm : this.props.termSearch,
-        copy(termSearchOptions)
-      )
-  }
-
-  next = () => {
-    refs.get('term-' + this.props.activeTabId)
-      ?.searchNext(
-        this.props.termSearch,
-        copy(this.props.termSearchOptions)
-      )
-  }
-
-  handleChange = e => {
-    const v = e.target.value
-    window.store.termSearch = v
-    this.prev(v)
-  }
-
-  clearSearch = () => {
-    const term = refs.get('term-' + this.props.activeTabId)
-    term?.searchAddon.clearDecorations()
+// 清空 xterm 搜索装饰与结果态
+function clearSearch () {
+  const term = refs.get('term-' + window.store.activeTabId)
+  if (term) {
+    term.searchAddon.clearDecorations()
     term.setState({
       searchResults: [],
       matchIndex: -1
     })
   }
+}
 
-  close = () => {
-    this.clearSearch()
-    window.store.termSearchOpen = false
-  }
-
-  renderSearchAction = item => {
-    const {
-      id,
-      icon: Icon,
-      cls
-    } = item
-    const props = {
-      onClick: this[id],
-      className: 'term-search-act mg1x ' + cls
+// 注册到 refsStatic['term-search']：供快捷键（shortcut-control）与终端右键
+// 菜单（term-context-menu）调用 toggleSearch/next。全部由 store 驱动，无实例态。
+const controller = {
+  toggleSearch () {
+    const isClosing = window.store.termSearchOpen
+    if (isClosing) {
+      clearSearch()
     }
-    return (
-      <Icon
-        key={id}
-        {...props}
-      />
-    )
-  }
-
-  renderMatchData = () => {
-    const {
-      termSearchMatchCount,
-      termSearchMatchIndex
-    } = this.props
-    if (!termSearchMatchCount) {
-      return null
+    window.store.toggleTerminalSearch()
+    if (isClosing) {
+      setTimeout(window.store.focus, 200)
     }
-    return <span className='mg1x'>({termSearchMatchIndex + 1}/{termSearchMatchCount})</span>
+  },
+  prev (searchTerm) {
+    refs.get('term-' + window.store.activeTabId)
+      ?.searchPrev(
+        typeof searchTerm === 'string' ? searchTerm : window.store.termSearch,
+        copy(window.store.termSearchOptions)
+      )
+  },
+  next () {
+    refs.get('term-' + window.store.activeTabId)
+      ?.searchNext(
+        window.store.termSearch,
+        copy(window.store.termSearchOptions)
+      )
+  }
+}
+
+const searchControls = [{
+  id: 'matchCase',
+  icon: MatchCaseIcon,
+  prop: 'caseSensitive'
+}, {
+  id: 'matchWholeWord',
+  icon: MatchWholWordIcon,
+  prop: 'wholeWord'
+}, {
+  id: 'useRegExp',
+  icon: RegularExpIcon,
+  prop: 'regex'
+}]
+
+function TermSearch (props) {
+  const { tab } = props
+  useEffect(() => {
+    refsStatic.add('term-search', controller)
+    return () => refsStatic.remove('term-search')
+  }, [])
+  const {
+    termSearchOpen,
+    termSearch,
+    termSearchOptions,
+    termSearchMatchCount,
+    termSearchMatchIndex
+  } = window.store
+  if (
+    !termSearchOpen ||
+    !tab ||
+    tab.pane === paneMap.fileManager
+  ) {
+    return null
   }
 
-  renderAfter = () => {
-    return (
-      <>
-        {
-          this.renderMatchData()
-        }
-        {
-          this.searchActions.map(this.renderSearchAction)
-        }
-      </>
-    )
-  }
-
-  toggle = prop => {
-    const {
-      termSearchOptions
-    } = this.props
+  // 大小写/整词/正则开关：切换后立即按新选项重查
+  function renderSearchControl (item) {
+    const { id, icon: Icon, prop } = item
     const v = termSearchOptions[prop]
-    window.store.setTermSearchOption({
-      [prop]: !v
-    })
-    this.next()
-  }
-
-  renderSearchControl = (item) => {
-    const {
-      id,
-      icon: Icon,
-      prop
-    } = item
-    const v = this.props.termSearchOptions[prop]
     const cls = classNames('term-search-opt-icon', {
       'term-search-on': v
     })
@@ -173,49 +108,47 @@ export default class TermSearch extends PureComponent {
       >
         <Icon
           className={cls}
-          onClick={() => this.toggle(prop)}
+          onClick={() => {
+            window.store.setTermSearchOption({
+              [prop]: !v
+            })
+            controller.next()
+          }}
         />
       </Tooltip>
     )
   }
 
-  renderSuffix = () => {
-    return (
-      <>
-        {
-          this.searchControls.map(this.renderSearchControl)
-        }
-      </>
-    )
+  function handleChange (ev) {
+    const v = ev.target.value
+    window.store.termSearch = v
+    if (v) {
+      controller.prev(v)
+    } else {
+      clearSearch()
+    }
   }
 
-  render () {
-    const {
-      termSearchOpen,
-      termSearch,
-      currentTab
-    } = this.props
-    if (
-      !termSearchOpen ||
-      !currentTab ||
-      currentTab.pane === paneMap.fileManager
-    ) {
-      return null
-    }
-    const props = {
-      value: termSearch,
-      className: 'iblock',
-      onChange: this.handleChange,
-      suffix: <>{this.renderSuffix()} {this.renderAfter()}</>,
-      onPressEnter: this.next,
-      selectall: true
-    }
-    return (
-      <div className='term-search-wrap'>
-        <InputAutoFocus
-          {...props}
-        />
-      </div>
-    )
+  function close () {
+    clearSearch()
+    window.store.termSearchOpen = false
   }
+
+  return (
+    <div className='term-search-wrap'>
+      <SearchBar
+        value={termSearch}
+        onChange={handleChange}
+        onClose={close}
+        onPrev={() => controller.prev()}
+        onNext={() => controller.next()}
+        matchIndex={termSearchMatchIndex}
+        matchCount={termSearchMatchCount}
+        placeholder={e('search')}
+        suffix={searchControls.map(renderSearchControl)}
+      />
+    </div>
+  )
 }
+
+export default auto(TermSearch)
