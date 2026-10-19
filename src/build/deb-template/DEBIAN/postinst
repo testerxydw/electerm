@@ -4,6 +4,28 @@
 chown root:root /opt/electerm/chrome-sandbox
 chmod 4755 /opt/electerm/chrome-sandbox
 
+# 清理 electerm 渲染层缓存 (升级后旧缓存/旧 chunk 可能导致渲染异常, 应用会自动重建)
+# postinst 以 root 运行: 优先 SUDO_USER 对应的桌面用户, 否则遍历 /home 下已有
+# electerm 配置目录的用户, 避免只清 root 的缓存而漏掉真实用户
+clean_electerm_cache () {
+  local home_dir="$1"
+  rm -rf "$home_dir/.config/electerm/Cache" \
+         "$home_dir/.config/electerm/GPUCache" \
+         "$home_dir/.config/electerm/Code Cache" 2>/dev/null || true
+}
+if [ -n "${SUDO_USER:-}" ]; then
+  SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+  if [ -n "$SUDO_HOME" ] && [ -d "$SUDO_HOME/.config/electerm" ]; then
+    clean_electerm_cache "$SUDO_HOME"
+  fi
+else
+  for user_home in /home/*; do
+    if [ -d "$user_home/.config/electerm" ]; then
+      clean_electerm_cache "$user_home"
+    fi
+  done
+fi
+
 # 刷新图标缓存与桌面数据库，确保菜单/启动器图标即时生效
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
