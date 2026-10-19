@@ -6,10 +6,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, FullscreenOutlined, SearchOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, FullscreenOutlined, SearchOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
+import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import RemoteFloatControl from '../common/remote-float-control'
@@ -95,6 +96,33 @@ function hlNode (node, kw) {
   return node
 }
 
+// 文本命中扫描（大小写不敏感，顺序非重叠）：textarea 无法插 <mark>，
+// 命中清单用偏移区间表达，导航轮到时 focus+setSelectionRange 定位
+function scanTextHits (text, kw) {
+  const v = String(text || '')
+  if (!kw) {
+    return []
+  }
+  const lower = v.toLowerCase()
+  const hits = []
+  let i = lower.indexOf(kw)
+  while (i >= 0) {
+    hits.push({ start: i, end: i + kw.length })
+    i = lower.indexOf(kw, i + kw.length)
+  }
+  return hits
+}
+
+// 循环导航序号（上一个/下一个）；n=0 时原地不动。
+// 两段取模兜住任意步长（(i+delta+n)%n 在 |delta|>n 时会出负索引）
+function cycleIndex (i, delta, n) {
+  if (!n) {
+    return i
+  }
+  const r = (i + delta) % n
+  return r < 0 ? r + n : r
+}
+
 // 数据库网格统一包装（doc/数据库表格横向滚动条优化方案.md）：
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
 // 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
@@ -160,11 +188,50 @@ export default auto(function DbSession (props) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [searchHits, setSearchHits] = useState(0)
+  // 当前命中序号（0 基）：上一个/下一个循环导航 + 当前命中两色/滚动定位。
+  // ref 镜像供 recount（rAF 回调）与 goHit 读取最新值，避开 setState 闭包过期
+  const [searchIndex, setSearchIndex] = useState(0)
+  const searchIndexRef = useRef(0)
+  // 命中清单 ref：DOM 标记数组 + textarea 文本命中（导航时读取，见 recount）
+  const hitsRef = useRef({ marks: [], taHits: [] })
+
+  const setIdx = (v) => {
+    searchIndexRef.current = v
+    setSearchIndex(v)
+  }
+
+  // 仅切换 DOM 当前命中的 .db-kw-cur 类（不滚动、不抢焦点；recount 与渲染后共用）
+  const applyMarks = (index) => {
+    const { marks } = hitsRef.current
+    marks.forEach((el, i) => el.classList.toggle('db-kw-cur', i === index))
+  }
+
+  // 导航定位（仅 goHit 调用）：DOM 命中滚动到可视区；
+  // textarea 命中 focus + setSelectionRange（选区即"当前命中"高亮；
+  // 浏览器不允许 textarea 内插 <mark>，其余编辑器内命中轮到时才可见）
+  const locateHit = (index) => {
+    const { marks, taHits } = hitsRef.current
+    applyMarks(index)
+    if (index < marks.length) {
+      const cur = marks[index]
+      if (cur && cur.isConnected) {
+        cur.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
+      return
+    }
+    const hit = taHits[index - marks.length]
+    if (hit && hit.el.isConnected) {
+      hit.el.focus()
+      hit.el.setSelectionRange(hit.start, hit.end)
+      hit.el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+  }
   const bodyRef = useRef(null)
   const kw = searchText.trim().toLowerCase()
 
-  // 命中数 = 页面里 .db-kw-hit 的个数（用 MutationObserver 跟随内容变化重算，
-  // 这样计数与"实际高亮出来的位置"永远一致，不必在数据结构上再遍历一遍）
+  // 命中清单 = 页面 .db-kw-hit 标记 + textarea 内文本命中（SQL 编辑器/值面板编辑态；
+  // 浏览器不允许在 textarea 内插 <mark>，轮到它时用 focus+setSelectionRange 定位）。
+  // 用 MutationObserver + input 事件委托跟随内容变化重算，计数与可定位位置永远一致。
   useEffect(() => {
     const root = bodyRef.current
     if (!root) {
@@ -174,21 +241,73 @@ export default auto(function DbSession (props) {
     const recount = () => {
       window.cancelAnimationFrame(raf)
       raf = window.requestAnimationFrame(() => {
-        setSearchHits(root.querySelectorAll('.db-kw-hit').length)
+        const marks = Array.from(root.querySelectorAll('.db-kw-hit'))
+        const taHits = []
+        if (kw) {
+          root.querySelectorAll('textarea').forEach(ta => {
+            scanTextHits(ta.value, kw).forEach(h => {
+              taHits.push({ el: ta, start: h.start, end: h.end })
+            })
+          })
+        }
+        hitsRef.current = { marks, taHits }
+        const total = marks.length + taHits.length
+        setSearchHits(total)
+        // 内容变化导致命中减少时收敛当前序号，避免越界；同步刷新当前命中标记
+        const cur = total ? Math.min(searchIndexRef.current, total - 1) : 0
+        setIdx(cur)
+        applyMarks(cur)
       })
     }
     recount()
     const ob = new window.MutationObserver(recount)
     ob.observe(root, { childList: true, subtree: true, characterData: true })
+    // textarea 的 value 变化不产生 DOM mutation，靠 input 事件委托补算
+    root.addEventListener('input', recount, true)
     return () => {
       ob.disconnect()
+      root.removeEventListener('input', recount, true)
       window.cancelAnimationFrame(raf)
     }
   }, [kw])
 
+  // 换关键字时回到第一个命中
+  useEffect(() => {
+    setIdx(0)
+  }, [kw])
+
+  // 渲染后同步当前命中：DOM 标记类 + （仅 DOM 命中）滚动到可视区。
+  // 切词瞬间 hitsRef 可能还是旧清单（rAF recount 未跑），但 detached 元素操作无害，
+  // recount 回调会按新清单重标；textarea 定位只在 goHit 里做，避免切词时抢搜索框焦点
+  useEffect(() => {
+    const root = bodyRef.current
+    if (!root) {
+      return
+    }
+    const { marks } = hitsRef.current
+    marks.forEach((el, i) => el.classList.toggle('db-kw-cur', i === searchIndex))
+    const cur = marks[searchIndex]
+    if (cur && cur.isConnected) {
+      cur.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+  }, [searchIndex, searchHits, kw])
+
+  // 上一个/下一个：循环导航（与终端查找同交互；命中含 textarea 内文本）
+  const goHit = (delta) => {
+    const { marks, taHits } = hitsRef.current
+    const n = marks.length + taHits.length
+    if (!n) {
+      return
+    }
+    const next = cycleIndex(searchIndexRef.current, delta, n)
+    setIdx(next)
+    locateHit(next)
+  }
+
   const closeSearch = () => {
     setSearchOpen(false)
     setSearchText('')
+    setIdx(0)
   }
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
@@ -1513,31 +1632,17 @@ export default auto(function DbSession (props) {
         {
           searchOpen
             ? (
-              <span className='db-search'>
-                <Input
-                  size='small'
-                  autoFocus
-                  allowClear
-                  className='db-search-input'
-                  placeholder={e('search')}
-                  value={searchText}
-                  onChange={ev => setSearchText(ev.target.value)}
-                  onKeyDown={ev => {
-                    if (ev.key === 'Escape') {
-                      closeSearch()
-                    }
-                  }}
-                />
-                {/* 命中数：与终端搜索的 (n) 同风格 */}
-                <span className='db-search-count'>{kw ? `(${searchHits})` : ''}</span>
-                <Button
-                  type='text'
-                  size='small'
-                  icon={<CloseCircleOutlined />}
-                  title={e('close')}
-                  onClick={closeSearch}
-                />
-              </span>
+              // 统一查找条（common/search-bar）：计数 (i/n) + 上一个/下一个 + 关闭
+              <SearchBar
+                value={searchText}
+                onChange={ev => setSearchText(ev.target.value)}
+                onClose={closeSearch}
+                onPrev={() => goHit(-1)}
+                onNext={() => goHit(1)}
+                matchIndex={searchIndex}
+                matchCount={searchHits}
+                placeholder={e('search')}
+              />
               )
             : null
         }
