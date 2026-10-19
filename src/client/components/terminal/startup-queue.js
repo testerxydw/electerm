@@ -321,6 +321,19 @@ export class StartupQueue {
 
   // ---- shell integration ----
 
+  /**
+   * Shell integration is a Bourne-shell script typed into the session, so it
+   * may only go where a POSIX shell is known to be listening: locally, where
+   * we spawned that shell ourselves, or over ssh, where `$SHELL` can be read
+   * on an exec channel.
+   *
+   * Telnet and serial are raw byte pipes to whatever sits on the other end -
+   * a Huawei VRP switch, a console server, a UART. Nothing can be probed
+   * there, so the old `sh` fallback typed the script into CLIs that cannot
+   * run it: the device echoes it, the suppression window freezes the screen
+   * until it times out, and the text is then replayed into the scrollback.
+   * See issue #4610.
+   */
   canInjectShellIntegration = () => {
     // Command history is a base feature: inject by default for any supported
     // shell type instead of gating on opt-in flags (showCmdSuggestions etc.).

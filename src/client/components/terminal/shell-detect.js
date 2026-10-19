@@ -6,7 +6,7 @@
  * startup queue can be imported (and unit tested) on its own.
  */
 import { runCmd } from './terminal-apis.js'
-import { detectShellType } from './shell.js'
+import { parseRemoteShell } from './shell.js'
 
 export async function detectRemoteShell (pid) {
   // SSH exec runs under the account shell, so prefer the configured shell path
@@ -35,5 +35,8 @@ export async function detectRemoteShell (pid) {
     return null
   }
 
-  return detectShellType(shell)
+  // Anything that is not a shell path - an error banner, a prompt, nothing -
+  // is "unknown", not "sh": injecting there types a Bourne script into a CLI
+  // that cannot run it (issue #4610).
+  return parseRemoteShell(r)
 }
