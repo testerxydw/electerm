@@ -192,7 +192,12 @@ class Store {
     const {
       type
     } = currentTab
-    if (type === 'web' || type === 'rdp' || type === 'vnc' || type === 'spice') {
+    // GUI 远程桌面页(rdp/vnc/spice)与终端页同等对待: 底栏全页一致,
+    // AI/快捷命令/批量输入等均显示(编码/批量输入等无终端时为无害 no-op)
+    if (type === 'rdp' || type === 'vnc' || type === 'spice') {
+      return true
+    }
+    if (type === 'web') {
       return false
     }
     return currentTab.sshSftpSplitView ||
