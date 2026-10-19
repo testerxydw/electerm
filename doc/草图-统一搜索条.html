@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>草图：SSH / MySQL 统一搜索条</title>
+<style>
+  :root {
+    --bg: #1e1f24;
+    --surface: #2a2b31;
+    --surface-2: #33343b;
+    --border: #46474f;
+    --text: #e6e6e6;
+    --text-dark: #a9aab3;
+    --primary: #5b8def;
+    --ok: #4caf7d;
+    --radius: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .sub { color: var(--text-dark); margin-bottom: 24px; }
+  h2 { font-size: 14px; margin: 28px 0 8px; color: var(--primary); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .frame {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  /* ---- 统一顶栏骨架：32px ---- */
+  .bar {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .bar-body { height: 120px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .host { font-weight: 600; }
+  .badge {
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: 0 6px;
+    font-size: 11px;
+    color: var(--text-dark);
+  }
+  .pane-tab { padding: 0 8px; color: var(--text-dark); position: relative; height: 32px; line-height: 32px; }
+  .pane-tab.active { color: var(--text); }
+  .pane-tab.active::after {
+    content: ""; position: absolute; left: 8px; right: 8px; bottom: 0;
+    height: 2px; background: var(--primary);
+  }
+  .spacer { flex: 1; }
+  .ico {
+    width: 22px; height: 22px; line-height: 22px; text-align: center;
+    border-radius: 3px; color: var(--text-dark); cursor: pointer; flex: none;
+  }
+  .ico:hover { color: var(--text); background: var(--surface-2); }
+  .ico.on { color: var(--primary); }
+  /* ---- 统一搜索条（内联展开，展开于搜索按钮左侧） ---- */
+  .searchbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 4px;
+  }
+  .searchbar .box {
+    display: flex;
+    align-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 24px;
+    padding: 0 6px;
+    gap: 4px;
+  }
+  .searchbar input {
+    background: transparent; border: none; outline: none;
+    color: var(--text); width: 140px; font-size: 12px;
+  }
+  .opt {
+    width: 18px; height: 18px; line-height: 18px; text-align: center;
+    font-size: 11px; border-radius: 3px; color: var(--text-dark); cursor: pointer;
+  }
+  .opt.on { background: var(--surface); color: var(--text); }
+  .count { color: var(--text-dark); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+  .nav { display: flex; gap: 2px; }
+  .nav .ico { width: 20px; height: 20px; line-height: 20px; font-size: 11px; }
+  .demo-line { padding: 8px 12px; color: var(--text-dark); }
+  .hit { background: var(--primary); color: #fff; padding: 0 1px; }
+  .hit.cur { outline: 1px solid #fff; }
+  .note { color: var(--text-dark); font-size: 12px; margin: 8px 0 0; }
+  .note b { color: var(--text); }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+  th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+  th { color: var(--text-dark); font-weight: normal; background: var(--surface-2); }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; background: var(--surface-2); font-size: 11px; margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<h1>草图：SSH 页 / MySQL 页 统一搜索条</h1>
+<p class="sub">对应 TODO §2 S1（SessionBarActions）+ S3（SearchBar）+ S4（上下一个）。原则：UI 统一，引擎分注入（终端=xterm SearchAddon，DB=DOM 高亮）。</p>
+
+<h2>① SSH 页 —— 顶栏内联展开（改：终端搜索从右上浮层改为顶栏内联）</h2>
+<div class="panel">
+  <div class="frame">
+    <div class="bar">
+      <span class="dot"></span><span class="host">192.168.1.10</span><span class="badge">SSH</span>
+      <span class="pane-tab active">terminal</span><span class="pane-tab">SFTP</span>
+      <span class="spacer"></span>
+      <!-- 统一搜索条（展开态）：位于查找按钮左侧 -->
+      <div class="searchbar">
+        <div class="box">
+          <input placeholder="search" value="error">
+          <span class="opt on" title="matchCase">Aa</span>
+          <span class="opt" title="matchWholeWord">ab</span>
+          <span class="opt on" title="useRegExp">.*</span>
+        </div>
+        <span class="count">(2/5)</span>
+        <div class="nav">
+          <span class="ico" title="prev">←</span>
+          <span class="ico" title="next">→</span>
+        </div>
+        <span class="ico" title="close">✕</span>
+      </div>
+      <!-- 统一入口按钮（激活态=主色） -->
+      <span class="ico on" title="search">🔍</span>
+      <span class="ico" title="fullscreen">⛶</span>
+    </div>
+    <div class="bar-body demo-line">
+      <pre style="white-space:pre-wrap;font-family:monospace">[warn] connection retry 1/3
+<span class="hit cur">error</span>: timeout on read
+[info] reconnecting...
+<span class="hit">error</span>: timeout on read</pre>
+    </div>
+  </div>
+  <p class="note">改动点：TermSearch 由「右上浮层（top:100px）」迁入 <b>.terminal-control 右侧内联展开</b>；大小写/整词/正则开关保留（插槽）；计数格式统一为 <b>(当前/总数)</b>。</p>
+</div>
+
+<h2>② MySQL 页 —— 同一组件（改：补「当前/总数 + 上一个/下一个 + 当前命中两色」）</h2>
+<div class="panel">
+  <div class="frame">
+    <div class="bar">
+      <span class="badge">MySQL</span><span class="dot"></span>
+      <span class="host">192.168.115.67:13306</span><span class="badge">tgfsom</span>
+      <span class="spacer"></span>
+      <span class="badge" title="readonly">只读 R</span>
+      <span class="ico" title="refresh">↻</span>
+      <!-- 统一搜索条（展开态）：无选项开关（DOM 文本查找不提供大小写/正则，位置预留不渲染） -->
+      <div class="searchbar">
+        <div class="box">
+          <input placeholder="search" value="log">
+        </div>
+        <span class="count">(1/3)</span>
+        <div class="nav">
+          <span class="ico" title="prev">←</span>
+          <span class="ico" title="next">→</span>
+        </div>
+        <span class="ico" title="close">✕</span>
+      </div>
+      <span class="ico on" title="search">🔍</span>
+      <span class="ico" title="fullscreen">⛶</span>
+    </div>
+    <div class="bar-body demo-line">
+      <table style="width:auto">
+        <tr><th>id</th><th>action</th></tr>
+        <tr><td>1</td><td>op_<span class="hit cur">log</span>_insert</td></tr>
+        <tr><td>2</td><td>op_<span class="hit">log</span>_delete</td></tr>
+      </table>
+    </div>
+  </div>
+  <p class="note">改动点：计数从 <b>(n)</b> 升级为 <b>(当前/总数)</b>；补上一个/下一个（<span class="tag">scrollIntoView</span> 循环定位）；当前命中 = 主色 + 外描边，其余命中弱化色（对应 S4）；关闭 = 清空高亮 + 收起。</p>
+</div>
+
+<h2>③ 两页统一后的公共结构（共用 1 个组件）</h2>
+<div class="panel">
+  <table>
+    <tr><th>元素</th><th>终端(SSH)</th><th>数据库(MySQL)</th><th>统一后</th></tr>
+    <tr><td>入口按钮</td><td>裸 icon，无激活态</td><td>antd Button，激活=主色</td><td><b>同一按钮：激活=主色，tooltip「查找」</b>，再次点击=关闭</td></tr>
+    <tr><td>形态</td><td>右上浮层</td><td>顶栏内联</td><td><b>顶栏内联展开</b>（查找按钮左侧）</td></tr>
+    <tr><td>输入框</td><td>自动聚焦、Enter=下一个</td><td>allowClear</td><td><b>自动聚焦 + allowClear + Enter=下一个 + Esc=关闭</b></td></tr>
+    <tr><td>选项开关</td><td>大小写/整词/正则</td><td>无</td><td>插槽：终端渲染，DB 不渲染（预留位）</td></tr>
+    <tr><td>计数</td><td>(i/n)</td><td>(n)</td><td><b>(i/n)</b></td></tr>
+    <tr><td>上一个/下一个</td><td>有</td><td>无</td><td><b>统一有</b>（引擎注入 next/prev；DB 用 scrollIntoView 循环）</td></tr>
+    <tr><td>关闭</td><td>清空+收起</td><td>清空+收起</td><td>一致</td></tr>
+  </table>
+  <p class="note">实现落点：<b>common/search-bar.jsx</b>（UI：输入+计数+导航+关闭，props 注入引擎 find/clear/count/next/prev）+ 终端 TermSearch 改为薄封装（开关作插槽）+ DB provider 补 next/prev 与当前命中两色。入口按钮后续归入 SessionBarActions（S1）。</p>
+</div>
+
+<h2>④ 交互细节约定</h2>
+<div class="panel">
+  <ul style="margin-left:18px">
+    <li>展开：点查找按钮 /（终端侧保持现有快捷键入口），自动聚焦输入框并全选已有词</li>
+    <li>切换开关：立即重新执行查找（终端现状行为），焦点保持在输入框</li>
+    <li>输入变化：终端=立即查找；DB=防抖重算高亮与计数</li>
+    <li>窄窗口：搜索条 flex 收缩输入框宽度（min-width 100px），不挤压左侧页面级开关</li>
+    <li>移动端：终端沿用「⋯」Popover 收纳；DB 顶栏维持现状</li>
+    <li>已知限制不变：SQL 编辑器 textarea 内无法高亮；DB 当前命中定位基于高亮标记数组</li>
+  </ul>
+</div>
+
+</body>
+</html>

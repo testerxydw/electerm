@@ -54,14 +54,16 @@
 - [ ] 标签栏三个数字收敛：`store.tabsHeight(36)` / `session.styl padding-top 36px` / `tabs.styl height 38px`
 - 验收：各页顶栏高度/分隔线一致；DB `gapBelowBox === 0`
 
-### S3 · SearchBar（UI 与引擎分离）
-- [ ] 新建 `common/search-bar.jsx`：输入框 + `(i/n)` + 上一个/下一个 + 关闭 + Esc
-- [ ] 终端 `TermSearch` 改用它（大小写/整词/正则按钮作为插槽）
-- [ ] DB 页查找改用它，注入 DOM provider（`find/clear/count`，`canScroll=false` → 隐藏上下一个）
+### S3 · SearchBar（UI 与引擎分离）✅ 2026-10-19
+- [x] 新建 `common/search-bar.jsx`：输入框 + `(i/n)` + 上一个/下一个 + 关闭 + Esc（autoFocus/allowClear/Enter=下一个）
+- [x] 终端 `TermSearch` 改用它（大小写/整词/正则按钮作为插槽）；**并从右上浮层迁入 `.terminal-control` 顶栏内联展开**（`session-control.jsx` 挂载，store 驱动 + `auto` 订阅；入口图标激活态 `.search-open` 主色）
+- [x] DB 页查找改用它（原 `.db-search` 内联形态删除，直接复用 SearchBar）
+- 验证：CDP 实测终端页（内联展开/激活态/自动聚焦/(i/n)/Esc 关闭/图标失活）+ DB 页（假 redis）
 
-### S4 · DB 查找补「上下一个 + 当前命中两色」
-- [ ] provider 实现 next/prev（命中位置数组 + `scrollIntoView`）
-- [ ] 当前命中用 `--primary` + 外描边，其余命中弱化色
+### S4 · DB 查找补「上下一个 + 当前命中两色」✅ 2026-10-19
+- [x] provider 实现 next/prev（`.db-kw-hit` DOM 序数组 + `scrollIntoView`，`goHit` 循环导航；MutationObserver recount 同步收敛 index）
+- [x] 当前命中 `.db-kw-cur` 用 `--primary` + 外描边，其余命中弱化色（`--accent-wash`）
+- 验证：CDP 实测 `(1/2)→(2/2)→(1/2)` 循环、当前/非当前两色、Esc 清空收起
 
 ### S5 ⏸ · 内容区全量 flex 列模型（可选，单独立项）
 - [ ] `.session-wrap` 改 flex 列（去 `padding-top 36px` 抵消）；删除 `computeHeight` 的 32 扣减与 DB 补偿
