@@ -335,22 +335,18 @@ export class StartupQueue {
    * See issue #4610.
    */
   canInjectShellIntegration = () => {
-    // Command history is a base feature: inject by default for any supported
-    // shell type instead of gating on opt-in flags (showCmdSuggestions etc.).
+    // Command history is a base feature: inject by default for ssh/local
+    // instead of gating on opt-in flags (showCmdSuggestions etc.).
     // Injection goes through the main pty as simulated typing, so it does not
     // depend on the auxiliary exec channel that MaxSessions limits. When the
     // injected OSC never comes back (non-bash shells), the manual typed-buffer
     // history takes over automatically (shouldUseManualHistory).
     // Windows local shells (cmd/powershell) are excluded: the bash-flavoured
     // one-liner is meaningless there.
-    return (
-      (
-        this.isSsh() ||
-        this.isTelnet() ||
-        this.isSerial() ||
-        (this.isLocal() && !isWin)
-      )
-    )
+    // Telnet/serial stay excluded (upstream #4610): raw pipes to unknown
+    // devices - nothing can be probed, so injecting only types a Bourne
+    // script into CLIs that cannot run it; manual history still covers them.
+    return this.isSsh() || (this.isLocal() && !isWin)
   }
 
   /**
@@ -387,13 +383,19 @@ export class StartupQueue {
       ])
     }
 
-    // Detection failed (exec channel rejected / timed out): the remote is very
-    // likely bash. The bash injection is harmless on other shells — zsh/dash
-    // treat PROMPT_COMMAND/trap syntax as plain assignments (no OSC comes back
-    // and manual history takes over); fish parse errors are swallowed by the
-    // output suppression window.
-    if (!shellType) {
+    // null = detection failed (exec channel rejected / timed out): the remote
+    // is very likely bash. The bash injection is harmless on other shells —
+    // zsh/dash treat PROMPT_COMMAND/trap syntax as plain assignments (no OSC
+    // comes back and manual history takes over); fish parse errors are
+    // swallowed by the output suppression window.
+    // '' = the probe WAS answered with something that is not a shell path
+    // (network-device CLI banner, prompt, junk): guessing there is exactly
+    // what typed the integration script into a switch (#4610) - skip instead.
+    if (shellType === null) {
       shellType = 'bash'
+    }
+    if (!shellType) {
+      return
     }
 
     this.shellType = shellType
