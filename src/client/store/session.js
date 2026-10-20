@@ -3,6 +3,7 @@
  */
 
 import { debounce } from 'lodash-es'
+import { notification } from 'antd'
 import message from '../components/common/message'
 import { refs } from '../components/common/ref'
 
@@ -25,7 +26,20 @@ export default Store => {
     const rec = store.recState[tabId]
     if (rec) {
       delete store.recState[tabId]
-      message.info(e('stopRecord') + ': ' + rec.path)
+      // T5-4e 停录通知可点击: 一键在文件管理器中定位 cast 文件
+      // (window.pre.showItemInFolder, 与 ShowItem/下载完成提示同通道);
+      // cast 文件无默认关联程序, 定位文件夹比 openPath 更通用
+      const key = 'rec-done-' + tabId
+      notification.open({
+        key,
+        message: e('stopRecord'),
+        description: rec.path + ' (' + e('open') + ')',
+        duration: 12,
+        onClick: () => {
+          notification.close(key)
+          window.pre.showItemInFolder(rec.path)
+        }
+      })
       return
     }
     const path = await window.pre.runGlobalAsync('createRecordFile')
