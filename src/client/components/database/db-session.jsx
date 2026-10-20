@@ -959,7 +959,19 @@ export default auto(function DbSession (props) {
       isLeaf: false
     }))
     : metadata.map(db => ({
-      title: hlText(db.name, kw),
+      // 不复用 .db-tree-db（space-between 供 redis 计数用），错误标记须紧邻库名
+      title: (
+        <>
+          {hlText(db.name, kw)}
+          {
+            // per-db 元数据降级标记：单库 SHOW TABLES 失败（权限等），
+            // 库名保留可重试（点顶栏刷新重拉）
+            db.error
+              ? <Tooltip title={db.error}><span className='db-tree-db-err'>!</span></Tooltip>
+              : null
+          }
+        </>
+      ),
       key: nodeKey(db.name, ''),
       children: (db.children || []).map(t => ({
         title: hlText(t.name, kw),

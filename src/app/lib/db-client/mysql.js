@@ -80,6 +80,27 @@ async function testMysqlConnection (conn) {
 
 // ---- Phase2 methods ----
 
+// 系统库不入树（无业务表，白占树高）；过滤默认开
+const DB_SYSTEM_SCHEMAS = ['information_schema', 'mysql', 'performance_schema', 'sys']
+// 并发上限与 pool connectionLimit(4) 一致：串行 SHOW TABLES × N 库是元数据加载慢的主因
+const METADATA_CONCURRENCY = 4
+
+// 限并发 map（保序）：Promise.all 全并发会打满连接池排队，串行则 N+1 慢
+async function mapLimit (list, limit, fn) {
+  const ret = new Array(list.length)
+  let i = 0
+  async function worker () {
+    while (i < list.length) {
+      const idx = i++
+      ret[idx] = await fn(list[idx])
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, list.length) }, worker)
+  )
+  return ret
+}
+
 // 单值安全化：IPC 走结构化克隆，只有纯值能安全穿越；
 // Date/bigint 先行处理，Buffer 摘要，其余带原型的对象（Decimal 实例、自定义类型等）
 // 统一转字符串，避免 "An object could not be cloned" 导致整页数据丢失。
@@ -131,21 +152,34 @@ function rowToPlain (rows) {
 async function getMetadata (conn) {
   const pool = await getPool(conn)
   const [dbs] = await pool.query('SHOW DATABASES')
-  const list = []
-  for (const d of dbs) {
-    const dbName = d.Database
-    const [tables] = await pool.query('SHOW TABLES FROM `' + dbName + '`')
-    const tableKey = Object.keys(tables[0] || {})[0]
-    list.push({
-      name: dbName,
-      type: 'database',
-      children: (tables || []).map(t => ({
-        name: t[tableKey],
-        type: 'table'
-      }))
-    })
-  }
-  return list
+  const dbNames = dbs
+    .map(d => d.Database)
+    .filter(n => !DB_SYSTEM_SCHEMAS.includes(String(n).toLowerCase()))
+  // per-db try/catch：单库失败（权限不足等）不再拖垮整棵树，
+  // 降级为「库名在 + children 空 + error 标记」，前端提示后可点刷新重试
+  return mapLimit(dbNames, METADATA_CONCURRENCY, async dbName => {
+    try {
+      const safe = String(dbName).replace(/[`]/g, '')
+      const [tables] = await pool.query('SHOW TABLES FROM `' + safe + '`')
+      const tableKey = Object.keys(tables[0] || {})[0]
+      return {
+        name: dbName,
+        type: 'database',
+        children: (tables || []).map(t => ({
+          name: t[tableKey],
+          type: 'table'
+        }))
+      }
+    } catch (e) {
+      log.warn('getMetadata db failed:', dbName, e.message)
+      return {
+        name: dbName,
+        type: 'database',
+        children: [],
+        error: e.message
+      }
+    }
+  })
 }
 
 function quoteIdent (name) {
