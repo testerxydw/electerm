@@ -1473,7 +1473,7 @@ export default auto(function DbSession (props) {
     <div className='db-redis-area'>
       {
         redisDb < 0
-          ? <Empty description='select a db node' />
+          ? <Empty description={e('select a db node')} />
           : (
             <>
               <div className='db-redis-bar'>
@@ -1689,7 +1689,7 @@ export default auto(function DbSession (props) {
                     className='db-tree'
                   />
                   )
-                : <Empty description='no metadata' />
+                : <Empty description={e('no metadata')} />
             }
           </Spin>
         </div>
