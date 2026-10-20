@@ -3,7 +3,8 @@
  * - 挂接点仅 AttachAddonCustom 一处 (下行 onMsg / 上行 sendToServer),
  *   全部 session 类型 (ssh/local/telnet/serial) 自动生效
  * - 500ms 窗口计算字节速率写 store.sessionInfoMap[tabId].traffic,
- *   连续 2 个窗口无流量自动清零并停表 (无流量时段由组件隐藏)
+ *   连续 2 个窗口无流量自动清零并停表 (组件保留式显示 0 B/s,
+ *   停表仅为省去空闲时段的空转计时)
  * - 字节口径: 字符串取 UTF-16 code unit 数 (str.length) 作为近似字节数,
  *   二进制帧取 byteLength/size; 速率展示场景无需精确 UTF-8 编码
  */

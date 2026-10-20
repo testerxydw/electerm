@@ -59,7 +59,8 @@ export default class SessionBarStatus extends Component {
     const hasAlgo = !!(info.kex || info.cipherClientToServer)
     const hasShellVersion = !!info.shellVersion
     const traffic = info.traffic
-    const hasTraffic = !!traffic && (traffic.up > 0 || traffic.down > 0)
+    // 保留式显示：tracker 停表清零后写入 {0,0}，有 traffic 对象即常显 0 B/s
+    const hasTraffic = !!traffic
 
     const toggleVisible = () => {
       store.updateConfig({

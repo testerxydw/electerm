@@ -61,6 +61,13 @@ describe('session-bar-status: cleanAlgo', () => {
 })
 
 describe('session-bar-status: 组件契约', () => {
+  it('响应式契约：必须为 manate class 组件（render 读 store 自动追踪，反向：禁止纯函数组件直读 store）', () => {
+    // 纯函数组件读 store 不触发 re-render（项目已知坑）：
+    // 症状为速率只在父级偶发渲染时显示快照，切 tab 后消失
+    assert.match(compJsx, /import \{ Component \} from 'manate\/react\/class-components'/)
+    assert.match(compJsx, /export default class SessionBarStatus extends Component/)
+    assert.doesNotMatch(compJsx, /export default function SessionBarStatus/)
+  })
   it('无 tab/id 守卫直接返回 null', () => {
     assert.match(compJsx, /if \(!tab \|\| !tab\.id\) \{\s*\n\s*return null/)
   })
@@ -71,10 +78,12 @@ describe('session-bar-status: 组件契约', () => {
   it('兜底旧配置：!== false 视为可见', () => {
     assert.match(compJsx, /store\.config\.sessionBarInfoVisible !== false/)
   })
-  it('三段显隐条件：算法/shell 版本/速率', () => {
+  it('三段显隐条件：算法/shell 版本/速率（保留式：有 traffic 即常显 0 B/s）', () => {
     assert.match(compJsx, /hasAlgo = !!\(info\.kex \|\| info\.cipherClientToServer\)/)
     assert.match(compJsx, /hasShellVersion = !!info\.shellVersion/)
-    assert.match(compJsx, /hasTraffic = !!traffic && \(traffic\.up > 0 \|\| traffic\.down > 0\)/)
+    // 反向：禁止回到"无流量隐藏"旧判据（切 tab 后速率段消失的旧症状）
+    assert.match(compJsx, /hasTraffic = !!traffic\s*\n/)
+    assert.doesNotMatch(compJsx, /hasTraffic = !!traffic &&/)
   })
   it('tooltip 复用语言包现有 hide/show key（反向：不得引用不存在的新 key）', () => {
     assert.match(compJsx, /e\('hide'\)/)
