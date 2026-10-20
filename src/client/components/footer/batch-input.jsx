@@ -17,11 +17,7 @@ import {
   Button,
   Input
 } from 'antd'
-import {
-  terminalWebType,
-  terminalRdpType,
-  terminalVncType
-} from '../../common/constants'
+import { isShellSessionTab } from '../../common/constants'
 import TabSelect from './tab-select'
 import classNames from 'classnames'
 import deepCopy from 'json-deep-copy'
@@ -83,6 +79,10 @@ export default class BatchInput extends Component {
     if (!cmd.trim()) {
       return
     }
+    // 无 shell 会话 tab 可选时（选中集为空）不发送也不记历史
+    if (!batchInputSelectedTabIds.length) {
+      return
+    }
     window.store.addBatchInput(cmd)
     this.props.input(cmd, Array.from(batchInputSelectedTabIds))
     this.setState({
@@ -100,11 +100,9 @@ export default class BatchInput extends Component {
 
   getTabs = () => {
     const { activeTabId } = this.props
-    return deepCopy(this.props.tabs.filter(tab => {
-      return tab.type !== terminalWebType &&
-        tab.type !== terminalRdpType &&
-        tab.type !== terminalVncType
-    })).sort((a, b) => {
+    // 只列有终端实例的 shell 会话 tab（白名单见 constants.js
+    // isShellSessionTab）：database/rdp/vnc 等无终端，选了也发不出去
+    return deepCopy(this.props.tabs.filter(isShellSessionTab)).sort((a, b) => {
       // current tab goes first
       if (a.id === activeTabId) return -1
       if (b.id === activeTabId) return 1

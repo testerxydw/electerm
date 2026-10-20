@@ -14,22 +14,16 @@ import {
 } from 'antd'
 import { TabSelectList } from './tab-select'
 import { refs } from '../common/ref'
-import {
-  terminalWebType,
-  terminalRdpType,
-  terminalVncType
-} from '../../common/constants'
+import { isShellSessionTab } from '../../common/constants'
 
 const e = window.translate
 
 export default auto(function MultiTabRunModal (props) {
   const { store, cmd, onClose } = props
   const selectedTabIds = store.batchInputSelectedTabIds
-  const tabs = store.tabs.filter(tab => {
-    return tab.type !== terminalWebType &&
-      tab.type !== terminalRdpType &&
-      tab.type !== terminalVncType
-  }).sort((a, b) => {
+  // 只列有终端实例的 shell 会话 tab（白名单见 constants.js
+  // isShellSessionTab），与底栏批量输入同口径
+  const tabs = store.tabs.filter(isShellSessionTab).sort((a, b) => {
     // current tab goes first
     if (a.id === store.activeTabId) return -1
     if (b.id === store.activeTabId) return 1

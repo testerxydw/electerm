@@ -8,8 +8,10 @@ import {
   splitLayoutMap,
   statusMap,
   paneMap,
-  maxHistory
+  maxHistory,
+  isShellSessionTab
 } from '../common/constants'
+import { clearSessionInfo } from '../common/session-bar-data'
 import { refs, refsTabs } from '../components/common/ref'
 import message from '../components/common/message'
 import * as ls from '../common/safe-local-storage'
@@ -23,6 +25,16 @@ import dangerousSessionFields from '../common/dangerous-session-fields'
 import { distributeTabsEvenly } from '../common/distribute-tabs'
 
 const e = window.translate
+
+// 批量输入目标兜底：优先当前 tab（须为 shell 会话 tab），否则取第一个 shell
+// tab；无 shell tab 返回空串（选中集允许为空，执行端遍历为 no-op）
+function pickBatchInputFallbackId (tabs, activeTabId) {
+  const active = tabs.find(t => t.id === activeTabId)
+  if (active && isShellSessionTab(active)) {
+    return activeTabId
+  }
+  return tabs.find(t => isShellSessionTab(t))?.id || ''
+}
 
 function captureSshSessionState (tab, config) {
   return shouldCaptureTerminalReloadState(tab, config)
@@ -93,6 +105,8 @@ export default Store => {
     const batch = tab ? Number(tab.batch) : undefined
     const res = store.removeTabs({ id })
     store.autoClosePaneIfEmpty(batch)
+    // 顶栏会话数据随 tab 移除 (common/session-bar-data.js)
+    clearSessionInfo(id)
     return res
   }
 
@@ -830,7 +844,11 @@ export default Store => {
   Store.prototype.updateBatchInputSelectedTabIds = function () {
     const { store } = window
     if (!store._batchInputSelectedTabIds.has(store.activeTabId)) {
-      store._batchInputSelectedTabIds = new Set([store.activeTabId])
+      // 当前 tab 非 shell 会话（database/vnc 等，无终端实例）时保持原选中集，
+      // 不得把无终端实例的 tab 设为批量输入目标
+      if (isShellSessionTab(store.currentTab)) {
+        store._batchInputSelectedTabIds = new Set([store.activeTabId])
+      }
     }
   }
 
@@ -843,14 +861,21 @@ export default Store => {
       _batchInputSelectedTabIds.add(id)
     }
     if (_batchInputSelectedTabIds.size === 0) {
-      _batchInputSelectedTabIds.add(store.activeTabId)
+      const fallbackId = pickBatchInputFallbackId(store.tabs, store.activeTabId)
+      if (fallbackId) {
+        _batchInputSelectedTabIds.add(fallbackId)
+      }
     }
   })
 
   Store.prototype.filterBatchInputSelectedTabIds = action(function () {
     const { store } = window
     const { _batchInputSelectedTabIds, tabs } = store
-    const validTabIds = new Set(tabs.map(tab => tab.id))
+    // 只保留存在且支持批量输入的 tab（白名单口径见 constants.js
+    // isShellSessionTab），database/rdp 等无终端实例的 tab 不得留在选中集
+    const validTabIds = new Set(
+      tabs.filter(isShellSessionTab).map(tab => tab.id)
+    )
 
     // Filter out invalid tab IDs
     for (const id of _batchInputSelectedTabIds) {
@@ -859,16 +884,22 @@ export default Store => {
       }
     }
 
-    // If no valid tabs are selected, add the active tab
+    // If no valid tabs are selected, add the fallback shell tab
     if (_batchInputSelectedTabIds.size === 0) {
-      _batchInputSelectedTabIds.add(store.activeTabId)
+      const fallbackId = pickBatchInputFallbackId(tabs, store.activeTabId)
+      if (fallbackId) {
+        _batchInputSelectedTabIds.add(fallbackId)
+      }
     }
   })
 
   Store.prototype.selectAllBatchInputTabs = function () {
     const { store } = window
     const { tabs } = store
-    store._batchInputSelectedTabIds = new Set(tabs.map(tab => tab.id))
+    // 全选同样只圈 shell 会话 tab（database/rdp 等无终端实例，选了发不出去）
+    store._batchInputSelectedTabIds = new Set(
+      tabs.filter(isShellSessionTab).map(tab => tab.id)
+    )
   }
 
   Store.prototype.selectNoneBatchInputTabs = action(function () {
