@@ -24,15 +24,19 @@
 - [x] 数据库页底部留白修复（`4ab6164a`）；SSH/SFTP 拆分底部错位修复（`2997836a`）
 - [x] run-bdebfast Node22 检测 + 依赖预检（`131d0ceb`）；关键字预设「Database & SQL」分组（`4ddf4c87`）
 - [x] 数据库阶段1（连接管理）+ 阶段2 S1~S6 + 审计 R1~R6 修复（P0×3、P1-4/5/6/8/9/10/11/18、P2-17/21 均已修）
-- [x] **数据库网格横向滚动条统一（DbGridTable，7 处）**：表体 scroll.y 定高 → 横滚条常驻可视区底边 + 表头吸顶；真实库（tgfsom.tgfsom_operation_log 24 万行）验证 data/SQL/表结构三处，假 Redis 验证键列表/hash 详情；顺带修三处布局塌陷（redis-keys basis 0 / struct-area tabpane / sql-result Spin 传高）——**改动未提交，见 §2-0**
+- [x] **数据库网格横向滚动条统一（DbGridTable，7 处）**：表体 scroll.y 定高 → 横滚条常驻可视区底边 + 表头吸顶；真实库（tgfsom.tgfsom_operation_log 24 万行）验证 data/SQL/表结构三处，假 Redis 验证键列表/hash 详情；顺带修三处布局塌陷（redis-keys basis 0 / struct-area tabpane / sql-result Spin 传高）——已提交，见 §2-0
 - [x] 配套单测 `src/test/unit-ci/db-grid-scroll.spec.js`（13 用例：y 推导真实源码 + 接线契约 + CSS 布局契约）
+- [x] **数据库树交互修复（10-16 遗留两 bug）**：mysql 库节点点击标题切换展开/收起 + 表节点选中加载 data/表结构（`db-session.jsx` `onSelectTree` L517-527）
+- [x] **数据库体验扩展批次**：每页行数可配（`96c96d05`+`af8b9a4c` 300/1000 档）、网格行虚拟渲染 + 页码跳页 + redis 详情分批加载（`e73911c7`）、跳空页二分回退实测末页（`5648ebfb`，修 P2-16）、统一值面板 DbValuePane + redis string 编辑（`9b312cb9`）、redis 值面板增强/右键菜单（`239f8b9f`）、redis 键列表/详情拖拽调高（`2695eefc`，redis 高度分配设计已落地）、列宽自适应 + 单元格下方面板预览/编辑/复制（`3d843b9e`）、只读置灰编辑按钮（`20e99b9b`）、db-client 生命周期/竞态单测（`d60c1a7b`，P2-12 部分完成）
+- [x] **合并上游 5.6.10**（`9c4b5469`：webdav http/云同步加密/书签面板键盘导航/失败连接 reload-close `77d383aa`）；版本升至 5.6.10（`aa387768`）
+- [x] 关键字用户分组：新增规则与自建分组（`24cfbd2f`+单测 `0a6a0293`）；Navicat .ncx 导入（`cc0ddf16`）；书签多选批量拖拽/删除/区间选择（`fe24f3ec`…`561d7c98`）；移除底栏左区会话状态（`75a7a440`）；安装后清理渲染缓存（`a572993b`）
 
 ---
 
 ## 2. 待执行（按序）
 
-### 2-0 · 🔥 提交在途（用户复测通过即提交）
-- [ ] `fix(database): 数据网格横向滚动条沉底，统一 DbGridTable 定高滚动并吸顶表头`（`db-session.jsx` + `db-session.styl` + `db-grid-scroll.spec.js` + 方案文档）
+### 2-0 · 🔥 收尾（仅剩真机复测）
+- [x] 网格横向滚动条改动已提交（`1d01a4b0` + 单测 `1be47fb2` + 方案文档 `3f993577`）
 - [ ] 用户真机 Redis 页复测（选库出键列表 / 点键出详情 / 宽键名横滚条位置）
 
 ### S0 · RemoteSessionShell → 通用 SessionShell（**下一步，零行为变化**）
@@ -77,19 +81,19 @@
 
 ### DB · 数据库功能遗留缺口（来自实现审计，均为已修后的剩余项）
 - [ ] 🔥 P1-7：MySQL 元数据 N+1 串行 + 单库失败整体失败 + 系统库入树（每库 try/catch 降级 + 可选过滤 information_schema/mysql/performance_schema）
-- [ ] P2-12：db-client 零单测（testConnection / 只读白名单 / SCAN 游标 / normalizeResults 均可提纯函数或模块级单测）
+- [ ] P2-12 剩余：db-client 单测补全（生命周期/竞态 `d60c1a7b`、redis 空值守卫 `bcafe29e` 已有；testConnection / 只读白名单 / SCAN 游标 / normalizeResults 纯函数单测仍缺）
 - [ ] 阶段1 遗留：书签树 database 类型专属图标（全项目无映射）
 - [ ] P2-13 剩余：空态文案 i18n（`no metadata` / `select a db node` 硬编码英文）
 - [ ] P2-14：AI/MCP 书签 schema（`bookmark-schemas.js`）未含 database → AI 无法建数据库书签
 - [ ] P2-15：`on-close.js` 未 await `closeAllDbTabs()`
-- [ ] P2-16：`hasMore` 边界误判（恰好整页时多一次空页）
+- [x] P2-16：`hasMore` 边界误判 → 已修（`5648ebfb` 跳空页二分回退实测末页）
 - [ ] P2-19：全局 15s 超时无区分（大表 SQL 被中断且报错统一）
 - [ ] 树筛选/搜索：已实现，待真实库验证（本机无 mysqld）
 - [ ] ⏸ 阶段3：数据增删改 / 导出 CSV / 执行历史（未立项）；quick-connect URI（二期）
 
 ### 同步与底栏（独立小项）
 - [ ] 关键字高亮同步（方案 A，待拍板见 §5）：`configSyncKeys` 加 `keywords`（1 行，无历史同步数据、无兼容负担）→ 可选升级方案 B（按 keyword 合并）
-- [ ] 底栏快速命令带（`doc/设计-底栏快速命令带分组切换.md`，**设计定稿用户已拍板，未实施**）：`footer/quick-cmd-strip.jsx` 常显 + `‹ 组名 ›` 箭头循环切换 + 胶囊横滚；`filterQuickCommands` 可提单测
+- [x] 底栏快速命令带：已实施（`fdd3fbbc` 首版 + `6cd9ace9` 挤压截断修复，`footer/quick-cmd-strip.jsx`）
 
 ### 上游跟踪（`doc/上游issue分析-2026-10-13.md`）
 - [ ] 🔥 xterm 6.1.0-beta reflow 回归（#4499，与我们内部结论互证）：升级稳定版 + alternate buffer 直写，可一并消掉 4501/4481/4439 一类渲染错乱
@@ -108,7 +112,7 @@
 | 3 | 树对象名是否算数据面 | 建议算 |
 | 4 | 是否向上游提 PR | 见上游跟踪节 |
 | 5 | 关键字同步方案 A 是否实施 | 建议 1 行改动先上；B 视多设备覆盖困扰再叠加 |
-| 6 | 快速命令带排期 | 设计已定稿，可作 S 系列间隙的独立小项 |
+| 6 | ~~快速命令带排期~~ | 已实施（`fdd3fbbc`），无需拍板 |
 
 ## 4. 已知限制（记录，不排期）
 
