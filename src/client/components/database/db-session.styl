@@ -4,6 +4,8 @@
   height 100%
   width 100%
   overflow hidden
+  // S6：数据面禁连字，防 0/O、l/1、=>/≠ 等视觉混淆（对非数据面文本无副作用）
+  font-variant-ligatures none
 
 // 顶部工具条：引擎/目标/状态 + 只读/刷新。
 // 高度口径 = tokens.styl --session-bar-h（与 .terminal-control 统一；
@@ -231,6 +233,8 @@
   flex 1 1 auto
   min-height 0
   overflow auto
+  // S6：网格单元格数据面字体与终端统一
+  font-family var(--db-code-font, var(--font-mono))
 
 .db-cell-null
   color var(--text)
@@ -262,7 +266,7 @@
   border-radius var(--radius-sm)
   background var(--main)
   color var(--text)
-  font-family var(--font-mono)
+  font-family var(--db-code-font, var(--font-mono))
   font-size 12px
   line-height 1.5
   white-space pre-wrap
@@ -297,7 +301,7 @@
 
 .db-sql-editor
   flex none
-  font-family var(--font-mono)
+  font-family var(--db-code-font, var(--font-mono))
 
 .db-sql-bar
   display flex
@@ -354,6 +358,8 @@
 // 且固定比例无法适配键库规模差异
 .db-redis-keys
   min-height 0
+  // S6：键列表数据面字体与终端统一
+  font-family var(--db-code-font, var(--font-mono))
 
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane
@@ -416,7 +422,7 @@
     flex 1 1 0
     min-height 0
     margin 0 8px 8px
-    font-family var(--font-mono)
+    font-family var(--db-code-font, var(--font-mono))
     font-size 12px
 
 .db-value-pane-pre
@@ -502,7 +508,7 @@
   border-radius var(--radius-xs)
   background unquote('color-mix(in srgb, var(--main) 55%, transparent)')
   color var(--text-dark)
-  font-family var(--font-mono)
+  font-family var(--db-code-font, var(--font-mono))
   font-size 12px
   max-height 96px
   overflow auto

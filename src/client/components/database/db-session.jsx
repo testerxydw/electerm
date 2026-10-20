@@ -1071,9 +1071,18 @@ export default auto(function DbSession (props) {
     return <div className='db-grid-page-tags'>{tags}</div>
   }
 
+  // S6：数据面等宽字体与终端统一 —— tab 级字体优先，其次全局终端字体；
+  // 都没有时 React 忽略 undefined 自定义属性，CSS 侧回落 --font-mono
+  const dbCodeFontStyle = {
+    '--db-code-font': tab.fontFamily || window.store._config?.fontFamily
+  }
+
   if (error) {
     return (
-      <div className='db-session-wrap db-session-error'>
+      <div
+        className='db-session-wrap db-session-error'
+        style={dbCodeFontStyle}
+      >
         <DbConnError
           tab={tab}
           error={error}
@@ -1086,7 +1095,10 @@ export default auto(function DbSession (props) {
 
   if (!ready) {
     return (
-      <div className='db-session-wrap'>
+      <div
+        className='db-session-wrap'
+        style={dbCodeFontStyle}
+      >
         <div className='db-session-loading'>
           <Spin />
           <span className='db-session-loading-text'>loading database...</span>
@@ -1658,7 +1670,10 @@ export default auto(function DbSession (props) {
   )
 
   return (
-    <div className='db-session-wrap'>
+    <div
+      className='db-session-wrap'
+      style={dbCodeFontStyle}
+    >
       {headBar}
       <div className='db-body' ref={bodyRef}>
         <div

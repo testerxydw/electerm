@@ -40,7 +40,8 @@ const whitelist = new Set([
   'shortcut-bar-h', // shortcut-bar.jsx:160
   'shortcut-bar-kb-offset', // shortcut-bar.jsx:148
   'ai-watermark', // ai-chat-empty.jsx:23
-  'wco-controls-width' // 上游 title-bar-overlay: tabs.styl L29 局部定义,依赖 env(titlebar-area-*)
+  'wco-controls-width', // 上游 title-bar-overlay: tabs.styl L29 局部定义,依赖 env(titlebar-area-*)
+  'db-code-font' // db-session.jsx（S6）：DbSession 根部注入 tab.fontFamily || store._config.fontFamily，CSS 侧回落 --font-mono
 ])
 
 // 收集全部 var(--x) 引用（含 var(--x, fallback) 形式，取逗号前的变量名）
@@ -85,5 +86,42 @@ describe('css-tokens: var() 引用必须有定义', () => {
       .filter(Boolean)
     const dup = names.filter((n, i) => names.indexOf(n) !== i)
     assert.deepEqual(dup, [], `重复定义: ${dup.join(', ')}`)
+  })
+})
+
+describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () => {
+  const dbStylPath = files.find(f => /database[\\/]db-session\.styl$/.test(f))
+  const dbStyl = fs.readFileSync(dbStylPath, 'utf8')
+  const dbJsx = fs.readFileSync(
+    path.resolve(__dirname, '../../client/components/database/db-session.jsx'), 'utf8')
+  // 数据面选择器（网格/键列表/SQL/错误信息/值预览）必须走 --db-code-font
+  // 回落 --font-mono（tab/全局配置缺省时仍等宽）
+  const dataFaceSelectors = [
+    '.db-grid-table',
+    '.db-redis-keys',
+    '.db-sql-editor',
+    '.db-conn-fail-raw',
+    '.db-value-pre'
+  ]
+
+  it('五个数据面选择器字体均为 var(--db-code-font, var(--font-mono))', () => {
+    const missing = dataFaceSelectors.filter(sel => {
+      const i = dbStyl.indexOf(sel + '\n')
+      if (i < 0) return true
+      const block = dbStyl.slice(i, i + 400)
+      return !block.includes('font-family var(--db-code-font, var(--font-mono))')
+    })
+    assert.deepEqual(missing, [], `以下数据面未接入 db-code-font: ${missing.join(', ')}`)
+  })
+
+  it('根部注入点存在（jsx style 注入 + styl 禁连字）', () => {
+    assert.match(dbJsx, /'--db-code-font': tab\.fontFamily \|\| window\.store\._config\?\.fontFamily/,
+      'DbSession 必须注入 tab 字体 → 全局字体，缺省回落 CSS 侧')
+    assert.match(dbStyl, /font-variant-ligatures none/, '数据面禁连字')
+    // 反向：数据面不允许残留裸 var(--font-mono)（会绕过 tab 字体）
+    const bare = dbStyl.split('\n').map((l, i) => ({ l, n: i + 1 }))
+      .filter(x => x.l.includes('font-family var(--font-mono)'))
+    assert.deepEqual(bare.map(x => `db-session.styl:${x.n}`), [],
+      '数据面 font-family 不得直接用 --font-mono（须带 db-code-font 回落链）')
   })
 })
