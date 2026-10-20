@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T5 功能线草图 · 2026-10-20</title>
+<style>
+  /* ── 主题 token（深/浅两套，右上角切换）──────────────── */
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #24292f;
+    --text-2: #57606a;
+    --line: #d8dee4;
+    --line-soft: #eaeef2;
+    --accent: #08c;
+    --danger: #d73a49;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --code-bg: #f6f8fa;
+    --term-bg: #1e1e28;
+    --term-text: #d8dee9;
+    --chip: #eef3f8;
+  }
+  html[data-theme='dark'] {
+    --bg: #16181d;
+    --card: #1f2229;
+    --text: #e6e8eb;
+    --text-2: #9aa0a8;
+    --line: #343a42;
+    --line-soft: #2a2f36;
+    --accent: #4da3ff;
+    --danger: #ff7b72;
+    --ok: #57ab5a;
+    --warn: #d9a343;
+    --code-bg: #24272e;
+    --term-bg: #121218;
+    --term-text: #d8dee9;
+    --chip: #262b33;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    padding: 24px 20px 60px;
+    transition: background .12s, color .12s;
+  }
+  .mono { font-family: "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  /* ── 头部 ── */
+  header { max-width: 980px; margin: 0 auto 20px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; }
+  header .sub { color: var(--text-2); font-size: 13px; }
+  #themeBtn {
+    margin-left: auto; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px;
+    transition: border-color .12s;
+  }
+  #themeBtn:hover { border-color: var(--accent); }
+
+  /* ── 分区卡片 ── */
+  section {
+    max-width: 980px; margin: 0 auto 28px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px 18px;
+  }
+  section > h2 { font-size: 16px; margin-bottom: 4px; }
+  section > .desc { color: var(--text-2); font-size: 13px; margin-bottom: 16px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; vertical-align: 2px; margin-left: 8px; }
+  .tag.done { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .tag.new  { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+  .tag.opt  { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+
+  /* ── legend 标注 ── */
+  .legend { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 12.5px; }
+  .legend .li { display: flex; gap: 8px; align-items: baseline; }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: 999px; margin-top: 6px; }
+  .dot.a { background: var(--accent); } .dot.b { background: var(--danger); }
+  .dot.c { background: var(--ok); } .dot.d { background: var(--warn); }
+  .legend b { font-weight: 600; }
+  code {
+    background: var(--code-bg); border: 1px solid var(--line-soft); border-radius: 4px;
+    padding: 0 5px; font-family: "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px;
+  }
+
+  /* ── 演示框通用 ── */
+  .demo {
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    background: var(--code-bg);
+  }
+  .demo-title { font-size: 11.5px; color: var(--text-2); padding: 6px 12px; border-bottom: 1px dashed var(--line); }
+
+  /* ══ 分区1：终端顶栏会话信息三段 ══ */
+  /* 对齐真实 .terminal-control：高 --session-bar-h(32px)，左 conn-info / 中 pane tabs / 右图标组 */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card); padding: 0 10px; height: 36px; font-size: 12.5px;
+  }
+  .conn-info { display: flex; align-items: center; gap: 6px; color: var(--text-2); flex: none; }
+  .conn-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ok); }
+  .conn-host { color: var(--text); font-weight: 600; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conn-badge { font-size: 10.5px; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; color: var(--text-2); }
+  .pane-tabs { display: flex; gap: 14px; flex: none; }
+  .pane-tab { color: var(--text-2); position: relative; padding: 0 1px; cursor: default; }
+  .pane-tab.active { color: var(--text); font-weight: 600; }
+  .pane-tab.active::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -8px; height: 2px;
+    border-radius: 2px; background: var(--accent);
+  }
+  .topbar-spacer { flex: 1; }
+  /* 新增：会话信息三段 */
+  .bar-status { display: flex; align-items: center; flex: none; }
+  .bar-seg {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0 10px; height: 22px;
+    font-size: 11px; color: var(--text-2);
+    white-space: nowrap;
+  }
+  .bar-seg + .bar-seg { border-left: 1px solid var(--line-soft); }
+  .bar-seg .v { color: var(--text); }
+  .up-arrow { color: var(--ok); font-weight: 600; }
+  .down-arrow { color: var(--accent); font-weight: 600; }
+  /* 顶栏右侧图标组（对齐 .sess-icon 灯态） */
+  .top-icons { display: flex; align-items: center; gap: 10px; flex: none; }
+  .sess-icon { width: 16px; height: 16px; border-radius: 4px; fill: var(--text-2); opacity: .75; }
+  .sess-icon.lit { fill: var(--accent); opacity: 1; }
+  .sess-icon svg { width: 100%; height: 100%; fill: inherit; }
+  .cond-note { font-size: 11px; color: var(--text-2); margin-top: 8px; }
+  .cond-note em { font-style: normal; color: var(--warn); }
+  .bar-off .bar-status { display: none; }
+
+  /* ══ 分区2：transfer 页 ══ */
+  .tp { display: flex; height: 230px; font-size: 12.5px; }
+  .tp-tree { flex: none; width: 170px; border-right: 1px solid var(--line); padding: 10px; background: var(--card); }
+  .tp-main { flex: 1; display: flex; flex-direction: column; background: var(--card); }
+  .tp-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); font-weight: 600; }
+  .tp-count { font-size: 11px; font-weight: 400; background: var(--chip); border-radius: 999px; padding: 0 8px; color: var(--text-2); }
+  .tp-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); }
+  .tp-file { color: var(--text); }
+  .tp-meta { color: var(--text-2); font-size: 11.5px; }
+  .tp-bar { flex: 1; height: 5px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+  .tp-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .tp-bar.i2 i { width: 34%; background: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .tp-actions { display: flex; gap: 6px; }
+  .tp-actions span { cursor: pointer; color: var(--text-2); font-size: 13px; }
+
+  /* ══ 分区3：REC 录制 ══ */
+  .term-frame { position: relative; height: 220px; background: var(--term-bg); padding: 14px 16px; }
+  .term-line { font-family: Menlo, Consolas, monospace; font-size: 12.5px; color: var(--term-text); line-height: 1.7; }
+  .term-line .p { color: #57ab5a; }
+  .term-line .c { color: #d8dee9; }
+  .rec-badge {
+    position: absolute; top: 10px; right: 12px;
+    display: flex; align-items: center; gap: 7px;
+    background: color-mix(in srgb, var(--term-bg) 72%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+    border-radius: 999px; padding: 4px 12px;
+    font-family: Menlo, Consolas, monospace; font-size: 11.5px; color: var(--term-text);
+    cursor: pointer; backdrop-filter: blur(4px);
+  }
+  .rec-badge .rec-dot {
+    width: 9px; height: 9px; border-radius: 999px; background: var(--danger);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .rec-badge .rec-dot { animation: none; } }
+  .rec-toast {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 14px; font-size: 12px; color: var(--text);
+    box-shadow: 0 4px 14px rgba(0,0,0,.18);
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  }
+  .rec-toast .path { font-family: Menlo, Consolas, monospace; color: var(--accent); }
+  .kbd {
+    display: inline-block; border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 0 6px; font-size: 11px; font-family: Menlo, monospace;
+    background: var(--code-bg); color: var(--text);
+  }
+
+  /* ══ 分区4：快捷键设置 ══ */
+  .sk { font-size: 12.5px; background: var(--card); }
+  .sk-row { display: flex; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); gap: 10px; }
+  .sk-name { flex: 1; }
+  .sk-sub { color: var(--text-2); font-size: 11px; }
+  .sk-keys { display: flex; gap: 4px; align-items: center; }
+  .sk-keys .none { color: var(--text-2); font-size: 11.5px; }
+  .sk-row.new-row { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .foot-note { margin-top: 12px; font-size: 12px; color: var(--text-2); }
+  .foot-note b { color: var(--danger); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>T5 功能线草图</h1>
+  <span class="sub">终端顶栏会话信息 / transfer 页 / ⌘R 录制 · 2026-10-20 · 仅设计稿未改代码</span>
+  <button id="themeBtn" onclick="toggleTheme()">切换深色</button>
+</header>
+
+<!-- ═══ 分区 1：终端顶栏会话信息三段 + 显隐开关 ═══ -->
+<section>
+  <h2>① 终端顶栏会话信息：ssh2·算法 / zsh 版本 / ↑↓ 速率 <span class="tag new">T5-2 新增</span></h2>
+  <div class="desc">插入位置：终端顶栏（.terminal-control，session-control.jsx）——底栏已有按钮与快速命令带，不再往底栏加。<b>架构约束：每个小功能全项目仅实现一次，展示为公共组件，其他页面（数据库/SFTP 等）需要时一行调用。</b></div>
+
+  <div class="demo" style="margin-bottom: 10px;">
+    <div class="demo-title">复用架构（一次实现 → 多处调用，与 session-bar-actions / db-engine-mark 同模式）</div>
+    <div style="display: flex; align-items: stretch; gap: 8px; padding: 12px; font-size: 11.5px; flex-wrap: wrap; background: var(--card);">
+      <div style="flex: 1; min-width: 150px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px;">
+        <b style="font-size: 11px; color: var(--ok);">数据管线（后端，一次实现）</b>
+        <div class="mono" style="color: var(--text-2); margin-top: 4px; font-size: 10.5px;">session-ssh.js → handshake 上报<br>session-local.js → zsh 版本上报</div>
+      </div>
+      <div style="flex: 1; min-width: 150px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px;">
+        <b style="font-size: 11px; color: var(--ok);">计数模块（前端，一次实现）</b>
+        <div class="mono" style="color: var(--text-2); margin-top: 4px; font-size: 10.5px;">common/session-traffic.js<br>socket 挂接一次 → 500ms 窗口 → store</div>
+      </div>
+      <div style="flex: 1.2; min-width: 180px; border: 1.5px solid var(--accent); border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, var(--accent) 6%, transparent);">
+        <b style="font-size: 11px; color: var(--accent);">公共组件（一次实现）</b>
+        <div class="mono" style="color: var(--text-2); margin-top: 4px; font-size: 10.5px;">common/session-bar-status.jsx<br>&lt;SessionBarStatus tab={tab} /&gt;<br>段显隐判断 + 开关图标 + config 消费</div>
+      </div>
+      <div style="flex: 1; min-width: 150px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px;">
+        <b style="font-size: 11px; color: var(--text-2);">调用方（仅一行）</b>
+        <div class="mono" style="color: var(--text-2); margin-top: 4px; font-size: 10.5px;">session-control.jsx（终端页）<br>db-session.jsx（数据库页，按需）<br>sftp 页等其他 session 页（按需）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo" style="margin-bottom: 10px;">
+    <div class="demo-title">页面需求矩阵（一次设计好 · 本次 MVP 仅终端页三类 tab，其余明确不接）</div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; background: var(--card);">
+      <thead>
+        <tr style="color: var(--text-2); text-align: left;">
+          <th style="padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 600;">页面 / tab 类型</th>
+          <th style="padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 600;">ssh2·算法</th>
+          <th style="padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 600;">zsh 版本</th>
+          <th style="padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 600;">↑↓ 速率</th>
+          <th style="padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 600;">本次</th>
+        </tr>
+      </thead>
+      <tbody style="color: var(--text);">
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">终端页 · SSH tab</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ok);">✔ kex+cipher</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ok);">✔</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--accent); font-weight: 600;">本次落地</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">终端页 · 本地 tab</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ok);">✔</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ok);">✔</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--accent); font-weight: 600;">本次落地</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">终端页 · telnet / serial</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ok);">✔</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--accent); font-weight: 600;">本次落地</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">数据库页 <span style="color: var(--text-2); font-size: 10px;">(.db-head 独立顶栏)</span></td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘ 非 ssh2 协议</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--warn);">暂不接</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">未来一行调用</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">SFTP pane / transfer 面板</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘ 列表已带 MB/s</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">不接</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">vnc / rdp / spice 桌面页</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘ 无顶栏</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">✘</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--warn);">暂不接</td>
+          <td style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2);">未来一行调用</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 10px;">首页 / 书签列表</td>
+          <td colspan="4" style="padding: 6px 10px; color: var(--text-2);">✘ 无会话概念</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="demo" style="margin-bottom: 10px;">
+    <div class="demo-title">顶栏示意 · SSH 标签 · 开关开启（默认）</div>
+    <div class="topbar">
+      <div class="conn-info">
+        <i class="conn-dot"></i><b class="conn-host">10.0.0.8</b>
+        <span class="conn-badge">已连接</span><span class="conn-badge">SSH</span>
+      </div>
+      <div class="pane-tabs"><span class="pane-tab active">终端</span><span class="pane-tab">SFTP</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="bar-status mono">
+        <span class="bar-seg"><span>ssh2</span><span class="v">curve25519-sha256</span><span>·</span><span class="v">aes256-ctr</span></span>
+        <span class="bar-seg"><span class="up-arrow">↑</span><span class="v">12.3 KB/s</span><span class="down-arrow">↓</span><span class="v">456 B/s</span></span>
+      </div>
+      <div class="top-icons">
+        <span class="sess-icon"><svg viewBox="0 0 16 16"><path d="M8 2C5 2 2.6 3.6 1 6c1.6 2.4 4 4 7 4s5.4-1.6 7-4c-1.6-2.4-4-4-7-4zm0 6.5A2.5 2.5 0 1 1 8 3.5a2.5 2.5 0 0 1 0 5z"/></svg></span>
+        <span class="sess-icon lit"><svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zm.75 9.5h-1.5v-1.5h1.5v1.5zm0-2.5h-1.5V5h1.5v4z"/></svg></span>
+        <span class="sess-icon"><svg viewBox="0 0 16 16"><path d="M2 3h12v1.5H2V3zm0 4.25h8v1.5H2v-1.5zM2 11.5h12V13H2v-1.5z"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo" style="margin-bottom: 10px;">
+    <div class="demo-title">顶栏示意 · 本地 zsh 标签（无 ssh2 算法段）· 开关开启</div>
+    <div class="topbar">
+      <div class="conn-info">
+        <i class="conn-dot"></i><b class="conn-host">local</b>
+        <span class="conn-badge">zsh</span>
+      </div>
+      <div class="pane-tabs"><span class="pane-tab active">终端</span><span class="pane-tab">文件</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="bar-status mono">
+        <span class="bar-seg"><span>zsh</span><span class="v">5.9</span></span>
+        <span class="bar-seg"><span class="up-arrow">↑</span><span class="v">1.1 KB/s</span><span class="down-arrow">↓</span><span class="v">88 B/s</span></span>
+      </div>
+      <div class="top-icons">
+        <span class="sess-icon"><svg viewBox="0 0 16 16"><path d="M8 2C5 2 2.6 3.6 1 6c1.6 2.4 4 4 7 4s5.4-1.6 7-4c-1.6-2.4-4-4-7-4zm0 6.5A2.5 2.5 0 1 1 8 3.5a2.5 2.5 0 0 1 0 5z"/></svg></span>
+        <span class="sess-icon lit"><svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zm.75 9.5h-1.5v-1.5h1.5v1.5zm0-2.5h-1.5V5h1.5v4z"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo">
+    <div class="demo-title">顶栏示意 · 开关关闭（点击右侧 ⓘ 图标后，三段整体隐藏，conn-info 面包屑保留）</div>
+    <div class="topbar bar-off">
+      <div class="conn-info">
+        <i class="conn-dot"></i><b class="conn-host">10.0.0.8</b>
+        <span class="conn-badge">已连接</span><span class="conn-badge">SSH</span>
+      </div>
+      <div class="pane-tabs"><span class="pane-tab active">终端</span><span class="pane-tab">SFTP</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="bar-status mono"><span class="bar-seg"><span class="v">（已隐藏）</span></span></div>
+      <div class="top-icons">
+        <span class="sess-icon"><svg viewBox="0 0 16 16"><path d="M8 2C5 2 2.6 3.6 1 6c1.6 2.4 4 4 7 4s5.4-1.6 7-4c-1.6-2.4-4-4-7-4zm0 6.5A2.5 2.5 0 1 1 8 3.5a2.5 2.5 0 0 1 0 5z"/></svg></span>
+        <span class="sess-icon"><svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zm.75 9.5h-1.5v-1.5h1.5v1.5zm0-2.5h-1.5V5h1.5v4z"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cond-note"><em>条件显隐：</em>ssh2 算法段仅 SSH 标签；zsh 版本段仅本地 zsh 标签；速率段无流量时整段隐藏（图中 SSH 标签不显示 zsh 段、本地标签不显示算法段）。开关关闭是全局偏好（config），对活动 tab 生效。</div>
+  <div class="legend">
+    <div class="li"><span class="dot a"></span><span><b>蓝色落点：</b>新增 <code>.bar-status</code> 组插在顶栏中部空白区（右图标组左侧），mono 字体 11px（与 T2-S6 字体统一一致），分段竖线用 <code>--line-soft</code>；不改动顶栏高度 <code>--session-bar-h</code> 与左右分区结构。</span></div>
+    <div class="li"><span class="dot b"></span><span><b>显隐开关：</b>开关图标由公共组件 <code>session-bar-status.jsx</code> 自带（与 keepalive/广播同款 sess-icon 灯态契约），点击切换 <code>config.sessionBarInfoVisible</code>（主进程 default-setting.js 与渲染层同步定义，偏好持久化）。关闭后仅隐藏三段，conn-info 面包屑不受影响。</span></div>
+    <div class="li"><span class="dot c"></span><span><b>复用契约：</b>调用方只传 <code>tab</code>，段显隐/开关/格式化全部在组件内——终端页、数据库页等任何 session 页一行调用即可获得同等能力；数据管线（算法上报/zsh 探测/速率计数）各一处实现，页面不重复。</span></div>
+    <div class="li"><span class="dot d"></span><span><b>空间约束：</b>三段总宽随内容自适应，超宽时 ellipsis；分屏/窄窗口下优先保 conn-info，bar-status 可被开关收起。</span></div>
+  </div>
+</section>
+
+<!-- ═══ 分区 2：transfer 页 ═══ -->
+<section>
+  <h2>② transfer 传输页（右面板） <span class="tag done">T5-3 已接入 · 真机验证</span></h2>
+  <div class="desc">核实结论：审计"内容未接入传输队列"已过时 —— TransferPanel 已复用 TransferModal（列表+历史+进度），fileTransfers 数据链完整。本项无代码改动，仅真机验证以下交互。</div>
+  <div class="demo">
+    <div class="demo-title">右面板 · 传输页现状示意（已实现，验证基线）</div>
+    <div class="tp">
+      <div class="tp-tree">
+        <div style="color: var(--text-2); font-size: 11px; margin-bottom: 6px;">本地 / 远程文件树</div>
+        <div class="tp-row" style="padding: 4px 0; border: 0;"><span class="tp-file">📁 documents</span></div>
+        <div class="tp-row" style="padding: 4px 0; border: 0;"><span class="tp-file">📄 notes.txt</span></div>
+        <div class="tp-row" style="padding: 4px 0; border: 0;"><span class="tp-file">📄 build.log</span></div>
+      </div>
+      <div class="tp-main">
+        <div class="tp-head">传输 <span class="tp-count">2</span></div>
+        <div class="tp-row">
+          <span class="tp-file">deploy-v2.tar.gz</span>
+          <div class="tp-bar"><i style="width: 78%"></i></div>
+          <span class="tp-meta">78% · 4.2 MB/s</span>
+          <div class="tp-actions"><span title="暂停">⏸</span><span title="取消">✕</span></div>
+        </div>
+        <div class="tp-row">
+          <span class="tp-file">logs-2026.zip</span>
+          <div class="tp-bar i2"><i></i></div>
+          <span class="tp-meta">34% · 2.1 MB/s</span>
+          <div class="tp-actions"><span title="暂停">⏸</span><span title="取消">✕</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="li"><span class="dot c"></span><span><b>真机验证点：</b>发起 SFTP 上传/下载 → 进度推进、暂停/恢复生效、完成进历史、空态文案显示、底栏传输图标灯态与面板打开状态一致。</span></div>
+    <div class="li"><span class="dot d"></span><span><b>T5-1 联动：</b>FTP 协议传输完成后同页验证进度条平滑度（onData 节流 3s 后仍正常收尾，onEnd 兜底末值）。</span></div>
+  </div>
+</section>
+
+<!-- ═══ 分区 3：REC 录制 ═══ -->
+<section>
+  <h2>③ 终端会话录制 REC 指示 <span class="tag new">T5-4 新增</span></h2>
+  <div class="desc">⌘R（Mac）/ 设置页可配置 开始/停止录制；asciinema v2 格式落盘 ~/Downloads，默认仅录输出不录键盘输入。</div>
+  <div class="demo">
+    <div class="demo-title">终端右上角浮层（录制中）+ 停止后 toast</div>
+    <div class="term-frame">
+      <div class="term-line"><span class="p">➜  electerm</span> <span class="c">git status</span></div>
+      <div class="term-line"><span class="c">On branch ui-beautification</span></div>
+      <div class="term-line"><span class="c">nothing to commit, working tree clean</span></div>
+      <div class="term-line"><span class="p">➜  electerm</span> <span class="c">▊</span></div>
+      <div class="rec-badge"><span class="rec-dot"></span>REC <span>00:12</span></div>
+      <div class="rec-toast">已保存：<span class="path">~/Downloads/electerm-rec-20261020-223015.cast</span> <span style="color: var(--text-2);">（点击复制路径）</span></div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="li"><span class="dot a"></span><span><b>落点：</b>浮层 absolute 于终端区右上角（session-wrap 内），不动 flex 布局；红点用 danger 色派生 token，闪烁动画带 <code>prefers-reduced-motion</code> 兜底。</span></div>
+    <div class="li"><span class="dot c"></span><span><b>行为：</b>点击浮层 = 停止录制并 toast 文件路径；开始录制同样 toast；tab 关闭自动停录并 flush 最终缓冲。</span></div>
+    <div class="li"><span class="dot b"></span><span><b>隐私边界：</b>仅记录输出事件 <code>'o'</code>（asciinema v2 JSONL），<b>不记录键盘输入</b>；缓冲 500ms / 256KB 批量写，长会话内存有上限。</span></div>
+  </div>
+</section>
+
+<!-- ═══ 分区 4：快捷键设置 ═══ -->
+<section>
+  <h2>④ 快捷键设置页新增条目 <span class="tag new">T5-4a</span></h2>
+  <div class="desc">shortcuts-defaults.js 注册 <code>terminal_toggleSessionRecord</code>，设置页列表自动出现（buildConfig 驱动，无需改设置页代码）。</div>
+  <div class="demo">
+    <div class="sk">
+      <div class="sk-row">
+        <span class="sk-name">清屏 <span class="sk-sub">terminal_clear</span></span>
+        <span class="sk-keys"><span class="kbd">⌘</span><span class="kbd">L</span></span>
+      </div>
+      <div class="sk-row new-row">
+        <span class="sk-name">开始/停止会话录制 <span class="sk-sub">terminal_toggleSessionRecord</span> <span style="color: var(--accent); font-size: 11px;">← 新增</span></span>
+        <span class="sk-keys"><span class="kbd">⌘</span><span class="kbd">R</span></span>
+      </div>
+      <div class="sk-row">
+        <span class="sk-name">重新加载当前标签 <span class="sk-sub">app_reloadCurrentTab</span></span>
+        <span class="sk-keys"><span class="kbd">Alt</span><span class="kbd">R</span> <span style="color: var(--text-2); font-size: 11px;">（与录制键不冲突）</span></span>
+      </div>
+    </div>
+  </div>
+  <div class="foot-note">
+    <b>绑定边界：</b>Win/Linux 默认<b>不绑定</b>（Ctrl+R 是 shell 反向历史搜索，不可劫持）；仅 Mac 默认 <span class="kbd">⌘</span><span class="kbd">R</span>（meta 前缀不透传 shell）。alternate buffer（vim/TUI）下 handleKeyboardEvent 直接放行 xterm —— 录制开关在 TUI 内自然失效，属预期行为。
+  </div>
+</section>
+
+<!-- ═══ 分区 5：T5-5 可选 ═══ -->
+<section>
+  <h2>⑤ 首页空态 / 会话树状态点 <span class="tag opt">T5-5 待拍板</span></h2>
+  <div class="desc">纯前端小项。本轮未核实现状（bookmarks 空态 / 会话树行首状态点），确认实施后先补现状探索再出细化草图；本区仅占位示意方向。</div>
+  <div class="legend">
+    <div class="li"><span class="dot d"></span><span><b>待确认：</b>是否纳入 T5 收尾，或并入下一条功能线。</span></div>
+  </div>
+</section>
+
+<script>
+  // 深/浅主题切换，默认跟随系统
+  const saved = localStorage.getItem('t5-sketch-theme')
+  const preferDark = saved
+    ? saved === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches
+  applyTheme(preferDark ? 'dark' : 'light')
+  function applyTheme (t) {
+    document.documentElement.setAttribute('data-theme', t)
+    document.getElementById('themeBtn').textContent = t === 'dark' ? '切换浅色' : '切换深色'
+    localStorage.setItem('t5-sketch-theme', t)
+  }
+  function toggleTheme () {
+    const cur = document.documentElement.getAttribute('data-theme')
+    applyTheme(cur === 'dark' ? 'light' : 'dark')
+  }
+</script>
+</body>
+</html>
