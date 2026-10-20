@@ -35,15 +35,14 @@
 
 ## 2. 待执行（按序）
 
-### 2-0 · 🔥 收尾（仅剩真机复测）
+### 2-0 · 🔥 收尾 ✅ 全部完成（2026-10-20 真机复测通过）
 - [x] 网格横向滚动条改动已提交（`1d01a4b0` + 单测 `1be47fb2` + 方案文档 `3f993577`）
-- [ ] 用户真机 Redis 页复测（选库出键列表 / 点键出详情 / 宽键名横滚条位置）
+- [x] 用户真机 Redis 页复测（选库出键列表 / 点键出详情 / 宽键名横滚条位置）——✅ 通过
 
-### S0 · RemoteSessionShell → 通用 SessionShell（**下一步，零行为变化**）
-- [ ] `common/remote-session-shell.jsx/.styl` 重命名/导出为 `SessionShell`（保留旧名导出兜底亦可）
-- [ ] rdp / vnc / spice 三页改引用
-- 验收：三页 CDP 行为与改前逐项一致（控制条位置、浮层、全屏、缩放）
-- 提交：`refactor(ui): RemoteSessionShell → 通用 SessionShell`
+### S0 · RemoteSessionShell → 通用 SessionShell ✅ 2026-10-20
+- [x] `common/remote-session-shell.jsx/.styl` 重命名为 `session-shell.jsx/.styl`，导出 `SessionShell`（`6323de6f`；DOM 类名 remote-session-* 保持不变）
+- [x] rdp / vnc / spice 三页改引用
+- 验收：standard + 845 单测 + compile 全过；CDP 三页行为零变化（纯改名）
 
 ### S1 · 窗口级动作共享（SessionBarActions）
 - [ ] 新建 `common/session-bar-actions.jsx`：`{ searchOpen, onToggleSearch, onFullscreen }`
@@ -83,16 +82,16 @@
 - [ ] 🔥 P1-7：MySQL 元数据 N+1 串行 + 单库失败整体失败 + 系统库入树（每库 try/catch 降级 + 可选过滤 information_schema/mysql/performance_schema）
 - [ ] P2-12 剩余：db-client 单测补全（生命周期/竞态 `d60c1a7b`、redis 空值守卫 `bcafe29e` 已有；testConnection / 只读白名单 / SCAN 游标 / normalizeResults 纯函数单测仍缺）
 - [ ] 阶段1 遗留：书签树 database 类型专属图标（全项目无映射）
-- [ ] P2-13 剩余：空态文案 i18n（`no metadata` / `select a db node` 硬编码英文）
-- [ ] P2-14：AI/MCP 书签 schema（`bookmark-schemas.js`）未含 database → AI 无法建数据库书签
-- [ ] P2-15：`on-close.js` 未 await `closeAllDbTabs()`
+- [x] P2-13：空态文案 i18n → 已修（`1876d175`，缺 key 回退 key 名）
+- [x] P2-14：AI/MCP 书签 schema（`bookmark-schemas.js`）→ 已加 database（`803ce9b2`，add_bookmark/open_tab 枚举自动带上）
+- [x] P2-15：`on-close.js` await `closeAllDbTabs()` → 已修（`9b388bc0`）
 - [x] P2-16：`hasMore` 边界误判 → 已修（`5648ebfb` 跳空页二分回退实测末页）
 - [ ] P2-19：全局 15s 超时无区分（大表 SQL 被中断且报错统一）
 - [ ] 树筛选/搜索：已实现，待真实库验证（本机无 mysqld）
 - [ ] ⏸ 阶段3：数据增删改 / 导出 CSV / 执行历史（未立项）；quick-connect URI（二期）
 
 ### 同步与底栏（独立小项）
-- [ ] 关键字高亮同步（方案 A，待拍板见 §5）：`configSyncKeys` 加 `keywords`（1 行，无历史同步数据、无兼容负担）→ 可选升级方案 B（按 keyword 合并）
+- [x] 关键字高亮同步（方案 A）：`configSyncKeys` 加 `keywords` 已实施（`a7b0336f`）；方案 B（按 keyword 合并）视多设备覆盖困扰再叠加
 - [x] 底栏快速命令带：已实施（`fdd3fbbc` 首版 + `6cd9ace9` 挤压截断修复，`footer/quick-cmd-strip.jsx`）
 
 ### 上游跟踪（`doc/上游issue分析-2026-10-13.md`）
