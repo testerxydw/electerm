@@ -44,18 +44,19 @@
 - [x] rdp / vnc / spice 三页改引用
 - 验收：standard + 845 单测 + compile 全过；CDP 三页行为零变化（纯改名）
 
-### S1 · 窗口级动作共享（SessionBarActions）
-- [ ] 新建 `common/session-bar-actions.jsx`：`{ searchOpen, onToggleSearch, onFullscreen }`
-- [ ] 终端 `SessionControl` 右侧、DB `.db-head-actions` 改用它
-- [ ] **telnet**：从"关 bar"名单移出，接入 shell + 动作（补齐查找/全屏）
-- [ ] **web**：补全屏入口（现在整类缺失）
-- 验收：telnet 有查找/全屏且行为与终端一致；web 出现全屏；三页位置/tooltip 一致
+### S1 · 窗口级动作共享（SessionBarActions）✅ 2026-10-20
+- [x] 新建 `common/session-bar-actions.jsx`：`{ searchOpen, onToggleSearch, onFullscreen, showSearch, showFullscreen }`（`5310f8c9`）
+- [x] 终端 `SessionControl` 右侧、DB `.db-head-actions` 改用它（DB 由 antd Button 换统一 icon 形态，激活态统一 `.search-open`）
+- [x] **telnet**：从"关 bar"名单移出（`isNotTerminalType`），接入 shell + 动作（补齐查找/全屏）
+- [x] **web**：地址栏右端补全屏入口（`showSearch=false`，web 内容不可搜）
+- 验证：CDP 实测终端/telnet/web 动作位 DOM 断言过；DB 页因本机无 redis 走连接失败态（headBar 不渲染，与改动无关），真机复测补验；994→1002 单测
 
-### S2 · 骨架与高度 token 单点化
-- [ ] 新增 token `--session-bar-h: 32px`（`css/includes/tokens.styl`）
-- [ ] 终端 `.terminal-control` / DB `.db-head` 都改用；DB 侧去掉 `session.jsx` 的 `+ termControlHeight` 补偿
-- [ ] 标签栏三个数字收敛：`store.tabsHeight(36)` / `session.styl padding-top 36px` / `tabs.styl height 38px`
-- 验收：各页顶栏高度/分隔线一致；DB `gapBelowBox === 0`
+### S2 · 骨架与高度 token 单点化 ✅ 2026-10-20
+- [x] 新增 token `--session-bar-h: 32px` / `--tabs-bar-h: 36px`（`5b920d9d`；与 JS 侧 `termControlHeight`/`tabsHeight` 互为镜像，s2-tokens.spec.js 锁定同值）
+- [x] 终端 `.terminal-control` line-height / DB `.db-head` height / `.session-wrap` padding-top 改用 token
+- [x] DB 侧去掉 `session.jsx` 的 `+ termControlHeight` 补偿：`height = H - tabsHeight`（与原值 H-36 等价，零视觉变化）
+- [x] 标签栏收敛：`store.tabsHeight(36)` / `session.styl padding-top` token 化；`.tabs` 渲染 38px（32 底对齐+边框区）为有意设计，注释注明勿收敛
+- 验证：1000 单测（含反向断言：裸 px 回归/补偿复活/JS-CSS 漂移）+ 编译产物 grep 确认 token 落位；CDP 六场景（终端/DB/分屏/全屏/web/rdp）留待打包后真机回归
 
 ### S3 · SearchBar（UI 与引擎分离）✅ 2026-10-19
 - [x] 新建 `common/search-bar.jsx`：输入框 + `(i/n)` + 上一个/下一个 + 关闭 + Esc（autoFocus/allowClear/Enter=下一个）
@@ -72,11 +73,11 @@
 - [ ] `.session-wrap` 改 flex 列（去 `padding-top 36px` 抵消）；删除 `computeHeight` 的 32 扣减与 DB 补偿
 - ⚠️ 风险：xterm `fit()` 时机、**隐藏标签守卫 `isElementVisible()` 必须保留**、分栏/全屏/web/rdp 六项回归
 
-### S6 · 数据库字体与终端统一（§十 方案 1）
-- [ ] `DbSession` 根部注入 `--db-code-font`（`tab.fontFamily || config.fontFamily` + `--font-mono` 兜底）
-- [ ] 网格单元格 / 键列表 / SQL 编辑器 / 值预览 / 原始错误改用；`font-variant-ligatures: none`
-- [ ] `css-tokens.spec.js` 白名单加入 `--db-code-font`
-- ⏸ 字号跟随终端：暂不做；树对象名是否一并使用待拍板（建议一并）
+### S6 · 数据库字体与终端统一（§十 方案 1）✅ 2026-10-20
+- [x] `DbSession` 根部注入 `--db-code-font`（`tab.fontFamily || store._config.fontFamily`，缺省 React 忽略 undefined → CSS 侧回落 `--font-mono`）
+- [x] 网格单元格 / 键列表 / SQL 编辑器 / 值预览（.db-value-pre/.db-value-pane-text）/ 原始错误（.db-conn-fail-raw）改用；`.db-session-wrap` 加 `font-variant-ligatures: none` 防连字混淆
+- [x] `css-tokens.spec.js` 白名单加入 `--db-code-font` + S6 契约 describe（5 数据面回落链 + 反向拦裸 `--font-mono`）
+- ⏸ 字号跟随终端：暂不做；树对象名（antd Tree 内部）未接入，待拍板（可后续按同模式加）
 
 ### DB · 数据库功能遗留缺口（来自实现审计，均为已修后的剩余项）
 - [ ] 🔥 P1-7：MySQL 元数据 N+1 串行 + 单库失败整体失败 + 系统库入树（每库 try/catch 降级 + 可选过滤 information_schema/mysql/performance_schema）
