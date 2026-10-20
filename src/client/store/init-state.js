@@ -97,6 +97,9 @@ export default () => {
     // 会话顶栏数据 (key=tabId): ssh2 算法 / shell 信息 / 流量等, 见 common/session-bar-data.js
     sessionInfoMap: {},
 
+    // 会话录制状态 (key=tabId): { path, startTime, width, height }, 见 store/session.js toggleSessionRecord
+    recState: {},
+
     // batch input selected tab ids
     _batchInputSelectedTabIds: new Set(),
     aiChatHistory: [],

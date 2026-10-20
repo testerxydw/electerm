@@ -1,6 +1,7 @@
 import { loadAttachAddon } from './xterm-loader.js'
 import { handleSessionControlMessage } from '../../common/session-bar-data.js'
 import SessionTrafficTracker from '../../common/session-traffic.js'
+import SessionRecorder from '../../common/session-recorder.js'
 
 // Cursor-positioning sequences stripped from the head of surviving output
 // after a drop. These are either relative (ESC[nA rewinds n rows) or restore
@@ -153,6 +154,8 @@ export default class AttachAddonCustom {
     this.trafficTracker = infoTabId
       ? new SessionTrafficTracker({ tabId: infoTabId })
       : null
+    // 会话录制 (common/session-recorder.js), 状态源 store.recState, dispose 时收尾落盘
+    this.recorder = infoTabId ? new SessionRecorder(infoTabId) : null
     this.outputSuppressed = false
     this.suppressedData = []
     this.suppressedChars = 0
@@ -519,6 +522,9 @@ export default class AttachAddonCustom {
         }
       }
     }
+    // 录制在 taps 同位挂接（解码后、coalescing 前, suppressed 输出已被
+    // early-return 拦住不录）
+    this.recorder?.onData(str)
     this._enqueueWrite(str)
   }
 
@@ -690,6 +696,9 @@ export default class AttachAddonCustom {
     this.disposed = true
     this.trafficTracker?.stop()
     this.trafficTracker = null
+    // tab 关闭兜底停录: 落盘尾部缓冲
+    this.recorder?.stop()
+    this.recorder = null
     this._stopKeepalive()
     clearTimeout(this._echoCheckTimer)
     this._echoCheckTimer = null

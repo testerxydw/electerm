@@ -11,6 +11,8 @@ const {
   globalShortcut,
   shell
 } = require('electron')
+const fs = require('fs')
+const { join } = require('path')
 const globalState = require('./glob-state')
 const log = require('../common/log')
 const ipcSyncFuncs = require('./ipc-sync')
@@ -230,6 +232,29 @@ function initIpc () {
       event.returnValue = result
     }
   })
+  // 会话录制 (T5-4): 渲染层攒缓冲, 主进程只负责建文件与追加。
+  // recRecordFiles 白名单校验 append 目标, 防渲染层传任意路径写文件。
+  const recRecordFiles = new Set()
+  const createRecordFile = async () => {
+    const dir = app.getPath('downloads')
+    const d = new Date()
+    const pad = n => String(n).padStart(2, '0')
+    const base = `electerm-rec-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+    let path = join(dir, base + '.cast')
+    let i = 1
+    while (fs.existsSync(path)) {
+      path = join(dir, `${base}-${i++}.cast`)
+    }
+    await fs.promises.writeFile(path, '')
+    recRecordFiles.add(path)
+    return path
+  }
+  const appendRecFile = async (path, content) => {
+    if (!recRecordFiles.has(path)) {
+      throw new Error('appendRecFile: path not created by createRecordFile')
+    }
+    await fs.promises.appendFile(path, content)
+  }
   const asyncGlobals = {
     confirmExit: () => {
       globalState.set('confirmExit', true)
@@ -247,6 +272,8 @@ function initIpc () {
     closeDbTab: (...args) => require('./db-client').closeDbTab(...args),
     closeAllDbTabs: (...args) => require('./db-client').closeAllDbTabs(...args),
     loadFontList,
+    createRecordFile,
+    appendRecFile,
     doUpgrade: (...args) => upgrade().doUpgrade(...args),
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
     checkMigrate,
