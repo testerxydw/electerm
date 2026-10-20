@@ -10,7 +10,9 @@ import {
   ColumnWidthOutlined,
   LogoutOutlined,
   PlusOutlined,
-  MinusOutlined
+  MinusOutlined,
+  PlayCircleFilled,
+  StopOutlined
 } from '@ant-design/icons'
 import { Tooltip, Popover } from 'antd'
 import classnames from 'classnames'
@@ -43,6 +45,7 @@ export default function SessionControl (props) {
     keepaliveEnabled,
     broadcastInput,
     wrapDisabled,
+    recording,
     pasteWhenContextMenu,
     onChangePane,
     toggleCheckSftpPathFollowSsh,
@@ -50,6 +53,7 @@ export default function SessionControl (props) {
     toggleKeepalive,
     toggleBroadcastInput,
     toggleWrap,
+    toggleSessionRecord,
     onFullscreen,
     searchOpen,
     onOpenSearch,
@@ -245,6 +249,24 @@ export default function SessionControl (props) {
     )
   }
 
+  // T5-4d: 录制开关上顶栏 (与 keepalive/broadcast 同形态)。状态源 store.recState
+  // (父级 session.jsx render 读取后传 recording prop, manate 追踪在父级);
+  // 图标/文案与右键菜单同款 (PlayCircleFilled/StopOutlined + record/stopRecord)
+  function renderRecordIcon () {
+    const title = e(recording ? 'stopRecord' : 'record')
+    const iconProps = {
+      className: classnames('sess-icon pointer session-record-toggle', {
+        active: recording
+      }),
+      onClick: toggleSessionRecord
+    }
+    return (
+      <Tooltip title={title}>
+        {recording ? <StopOutlined {...iconProps} /> : <PlayCircleFilled {...iconProps} />}
+      </Tooltip>
+    )
+  }
+
   function renderWrapIcon () {
     const title = e(wrapDisabled ? 'enableWrap' : 'disableWrap')
     const iconProps = {
@@ -367,6 +389,7 @@ export default function SessionControl (props) {
         {renderSftpPathFollowControl()}
         {renderKeepaliveIcon()}
         {renderBroadcastIcon()}
+        {renderRecordIcon()}
         {renderWrapIcon()}
         {renderExitGracefullyIcon()}
         {renderTermControls(true)}
@@ -397,6 +420,7 @@ export default function SessionControl (props) {
       {renderSplitToggle()}
       {renderKeepaliveIcon()}
       {renderBroadcastIcon()}
+      {renderRecordIcon()}
       {renderWrapIcon()}
       {renderExitGracefullyIcon()}
       {renderTermControls()}
