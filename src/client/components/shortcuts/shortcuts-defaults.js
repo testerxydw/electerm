@@ -135,6 +135,13 @@ export default () => {
       name: 'terminal_syncSftpPath',
       shortcut: 'alt+shift+f11',
       shortcutMac: 'alt+shift+f11'
+    },
+    {
+      name: 'terminal_toggleSessionRecord',
+      // Windows/Linux 默认不占键位: Ctrl+R 是 shell 反向搜索, 免冲突;
+      // macOS meta+r 与浏览器刷新无冲突且终端内无系统占用
+      shortcut: '',
+      shortcutMac: 'meta+r'
     }
   ]
 }

@@ -319,5 +319,11 @@ export const contextMenuMixin = {
   showNormalBufferShortcut (e) {
     e.stopPropagation()
     this.openNormalBuffer()
+  },
+
+  // 会话录制开关 (T5-4): 状态与落盘在 store.toggleSessionRecord (store/session.js)
+  toggleSessionRecordShortcut (e) {
+    e.stopPropagation()
+    window.store.toggleSessionRecord(this.props.tab.id)
   }
 }
