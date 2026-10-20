@@ -5,6 +5,7 @@
 import React from 'react'
 import { Component } from 'manate/react/class-components'
 import { LoadingOutlined } from '@ant-design/icons'
+import { Button } from 'antd'
 import { uniq, filter, pick } from 'lodash-es'
 import {
   maxBookmarkGroupTitleLength,
@@ -33,6 +34,8 @@ import {
   treeLevelIndent,
   treeRowHeight
 } from './tree-list-layout'
+
+const e = window.translate
 
 export default class ItemListTree extends Component {
   constructor (props) {
@@ -1101,6 +1104,53 @@ export default class ItemListTree extends Component {
     )
   }
 
+  // T5-5a: 从文件导入书签, 复用 toolbar 的隐藏上传入口 (与 handleExport 同模式)
+  handleImportFromFile = () => {
+    document.querySelector('.upload-bookmark-icon')?.click()
+  }
+
+  // T5-5a: 书签树空态。type=search 搜索无结果(轻提示); type=new 无任何书签(引导新建/导入)。
+  // header(搜索框/工具条)保持渲染, 空态只替换树区; 设置页(staticList)只显示文案
+  renderEmpty = type => {
+    const { staticList } = this.props
+    return (
+      <div className='tree-empty'>
+        {type === 'search'
+          ? (
+            <svg className='tree-empty-icon' width='38' height='38' viewBox='0 0 40 40' fill='none'>
+              <circle cx='17' cy='17' r='10' stroke='var(--border-strong)' strokeWidth='2' />
+              <line x1='25' y1='25' x2='34' y2='34' stroke='var(--border-strong)' strokeWidth='2' strokeLinecap='round' />
+              <line x1='13' y1='17' x2='21' y2='17' stroke='var(--text-dark)' strokeWidth='2' strokeLinecap='round' />
+            </svg>
+            )
+          : (
+            <svg className='tree-empty-icon' width='76' height='56' viewBox='0 0 76 56' fill='none'>
+              <rect x='1.5' y='1.5' width='73' height='53' rx='7' stroke='var(--border-strong)' strokeWidth='1.5' />
+              <line x1='1.5' y1='13' x2='74.5' y2='13' stroke='var(--border-strong)' strokeWidth='1.5' />
+              <circle cx='9' cy='7.5' r='2' fill='var(--border-strong)' />
+              <circle cx='15.5' cy='7.5' r='2' fill='var(--border-strong)' />
+              <circle cx='22' cy='7.5' r='2' fill='var(--border-strong)' />
+              <path d='M12 24 l6 5 -6 5' stroke='var(--primary)' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' />
+              <line x1='23' y1='34' x2='40' y2='34' stroke='var(--primary)' strokeWidth='2' strokeLinecap='round' />
+            </svg>
+            )}
+        <div className='tree-empty-title'>{e('notFoundContent')}</div>
+        {
+          type === 'new' && !staticList && (
+            <div className='tree-empty-btns'>
+              <Button type='primary' size='small' onClick={this.handleNewBookmark}>
+                {`${e('new')} ${e('bookmarks')}`}
+              </Button>
+              <Button size='small' onClick={this.handleImportFromFile}>
+                {e('importFromFile')}
+              </Button>
+            </div>
+          )
+        }
+      </div>
+    )
+  }
+
   render () {
     const { ready } = this.state
     if (!ready || this.props.initLoadingData) {
@@ -1117,6 +1167,11 @@ export default class ItemListTree extends Component {
     } = this.props
     const { rows } = this.getVisibleTreeData()
     const editor = this.getEditorOverlayState(rows)
+    const { keyword } = this.state
+    // T5-5a 空态判定: 搜索无结果 or 无任何书签; 空态只替换树区, header 保持可用
+    const emptyType = keyword && !rows.length
+      ? 'search'
+      : (!keyword && !(this.props.bookmarks || []).length ? 'new' : null)
     return (
       <div className={`tree-list item-type-${type}`}>
         <div className='tree-list-header'>
@@ -1137,8 +1192,16 @@ export default class ItemListTree extends Component {
           onKeyDown={this.handleListKeyDown}
           onDoubleClick={this.handleDoubleClick}
         >
-          {this.renderVirtualTreeContent(rows, editor)}
-          {this.renderEditorOverlay(editor)}
+          {
+            emptyType
+              ? this.renderEmpty(emptyType)
+              : this.renderVirtualTreeContent(rows, editor)
+          }
+          {
+            emptyType
+              ? null
+              : this.renderEditorOverlay(editor)
+          }
         </div>
       </div>
     )
