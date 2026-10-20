@@ -34,6 +34,7 @@ import { uniq } from 'lodash-es'
 import deepCopy from 'json-deep-copy'
 import getBrand from '../components/ai/get-brand'
 import {
+  isShellSessionTab,
   settingMap,
   terminalSshConfigType,
   paneMap,
@@ -212,18 +213,11 @@ class Store {
 
   // 有 shell 会话的页（ssh/local/telnet/serial，会话 server 级，pane 无关）：
   // 远程监控采集走 exec-cmd 通道，仅此类页可用；rdp/vnc/spice 为 GUI 桌面会话
-  // 无 shell，database/web/ftp 无会话 server，监控页签/按钮据此隐藏（type 缺省
-  // 的旧 ssh 数据沿用 visibility.js 同款惯例视为 ssh）
+  // 无 shell，database/web/ftp 无会话 server，监控页签/按钮据此隐藏
+  // （白名单口径见 constants.js 的 isShellSessionTab，与批量输入目标筛选共用）
   get hasShellSession () {
     const { currentTab } = window.store
-    if (!currentTab) {
-      return false
-    }
-    const { type } = currentTab
-    if (!type || type === 'ssh' || type === 'local' || type === 'telnet' || type === 'serial') {
-      return true
-    }
-    return false
+    return isShellSessionTab(currentTab)
   }
 
   get defaultProfileId () {

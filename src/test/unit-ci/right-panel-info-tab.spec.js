@@ -69,10 +69,30 @@ describe('右面板终端日志页签 gating', () => {
     // 反向：监控可用性是会话 server 级（ssh 页 sftp pane 也可采集），不得读 pane
     assert.doesNotMatch(getter, /pane/, 'hasShellSession 不得含 pane 因素')
     assert.doesNotMatch(getter, /showModal/, 'hasShellSession 不得含 showModal 因素')
-    // ssh/local/telnet/serial 白名单 + 旧数据 type 缺省视为 ssh
-    for (const t of ["'ssh'", "'local'", "'telnet'", "'serial'", '!type']) {
-      assert.match(getter, new RegExp(t.replace(/'/g, "\\'").replace('!', '\\!')), `须覆盖 ${t}`)
+    // 白名单口径抽取至 constants.js isShellSessionTab（与批量输入目标筛选共用）：
+    // getter 必须委托它，禁止回退为内联黑名单枚举
+    assert.match(getter, /isShellSessionTab\(currentTab\)/, 'hasShellSession 必须委托 isShellSessionTab')
+    const constantsJs = read('src/client/common/constants.js')
+    const whitelist = constantsJs.match(/shellSessionTypeSet = new Set\(\[[\s\S]*?\]\)/)[0]
+    // 允许字面量或 constants 常量引用（terminalLocalType 等），禁止黑名单枚举回退
+    const whitelistPatterns = {
+      ssh: ["'ssh'"],
+      local: ["'local'", 'terminalLocalType'],
+      telnet: ["'telnet'", 'terminalTelnetType'],
+      serial: ["'serial'", 'terminalSerialType']
     }
+    for (const [t, patterns] of Object.entries(whitelistPatterns)) {
+      assert.ok(
+        patterns.some(p => whitelist.includes(p)),
+        `白名单须覆盖 '${t}'`
+      )
+    }
+    // 旧 ssh 数据 type 缺省沿用 visibility.js 同款惯例视为 ssh
+    assert.match(
+      constantsJs.match(/isShellSessionTab = \(tab\) => \{[\s\S]*?\n\}/)[0],
+      /!tab\.type/,
+      'type 缺省必须视为 ssh'
+    )
     // 底栏监控按钮：inActiveTerminal 且 hasShellSession
     const footerJsx = read('src/client/components/footer/footer-entry.jsx')
     assert.match(

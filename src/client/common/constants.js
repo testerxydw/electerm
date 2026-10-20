@@ -184,6 +184,20 @@ export const terminalLocalType = 'local'
 export const terminalFtpType = 'ftp'
 export const terminalSpiceType = 'spice'
 export const terminalDatabaseType = 'database'
+// 拥有真实终端实例（可写入命令/采集监控）的会话类型白名单：ssh/local/telnet/
+// serial。rdp/vnc/spice 为 GUI 桌面会话、database/ftp/web 无 shell 终端，
+// batchInput/监控等终端级功能仅对此白名单内的类型有意义；旧 ssh 数据 type
+// 缺省沿用 visibility.js 同款惯例视为 ssh。store.hasShellSession 与批量输入
+// 目标筛选共用此口径，新增终端类型时在此同步维护（禁止再写黑名单枚举）。
+export const shellSessionTypeSet = new Set([
+  'ssh',
+  terminalLocalType,
+  terminalTelnetType,
+  terminalSerialType
+])
+export const isShellSessionTab = (tab) => {
+  return !!tab && (!tab.type || shellSessionTypeSet.has(tab.type))
+}
 export const openedSidebarKey = 'opened-sidebar'
 export const sidebarPinnedKey = 'sidebar-pinned'
 export const leftSideBarOpenKey = 'left-side-bar-open'
