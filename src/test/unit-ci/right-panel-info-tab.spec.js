@@ -27,25 +27,54 @@ describe('右面板终端日志页签 gating', () => {
     assert.doesNotMatch(active, /paneMap\.terminal/, '判定逻辑不得在 inActiveTerminal 重复')
   })
 
-  test('main.jsx 向右面板传 inTerminalTab', () => {
+  test('main.jsx 向右面板传 inTerminalTab / hasShellSession', () => {
     assert.match(mainJsx, /inTerminalTab: store\.inTerminalTab/)
+    assert.match(mainJsx, /hasShellSession: store\.hasShellSession/)
   })
 
-  test('side-panel-r：info 页签按 inTerminalTab 过滤 + 自动切 transfer', () => {
+  test('side-panel-r：info/monitor 页签按可用性过滤 + 自动切 transfer', () => {
     // 页签过滤（与 AI disabled 同链）
     assert.match(
       panelJsx,
       /t\.key !== 'info' \|\| inTerminalTab/,
       'info 页签必须按 inTerminalTab 过滤'
     )
-    // info+非终端时自动切 transfer 的重定向 effect 存在
-    const redirect = panelJsx.match(/rightPanelTab === 'info' && !inTerminalTab[\s\S]*?rightPanelTab = 'transfer'/)
-    assert.ok(redirect, '必须存在 info→transfer 重定向')
+    assert.match(
+      panelJsx,
+      /t\.key !== 'monitor' \|\| hasShellSession/,
+      'monitor 页签必须按 hasShellSession 过滤'
+    )
+    // info/monitor 正被选中且不可用时自动切 transfer 的重定向 effect 存在
+    const redirect = panelJsx.match(
+      /rightPanelTab === 'info' && !inTerminalTab[\s\S]{0,80}rightPanelTab === 'monitor' && !hasShellSession[\s\S]{0,80}rightPanelTab = 'transfer'/
+    )
+    assert.ok(redirect, '必须存在 info/monitor→transfer 重定向')
     // 反向：重定向 effect 必须在渲染期 early return（return null）之前声明；
     // 用 return null 特征匹配，避开 Esc effect 内同文本的 if (!rightPanelVisible)
     const effectIdx = panelJsx.indexOf("rightPanelTab === 'info' && !inTerminalTab")
     const earlyReturnIdx = panelJsx.indexOf('if (!rightPanelVisible) {\n    return null\n  }')
     assert.ok(effectIdx > -1 && earlyReturnIdx > effectIdx, 'hook 必须保持在 early return 之上')
+  })
+
+  test('hasShellSession：shell 会话页口径（不含 pane/弹窗因素）+ 监控按钮 gating', () => {
+    const getter = storeJs.match(/get hasShellSession \(\) \{[\s\S]*?\n {2}\}/)[0]
+    assert.ok(getter, 'hasShellSession getter 必须存在')
+    // 反向：监控可用性是会话 server 级（ssh 页 sftp pane 也可采集），不得读 pane
+    assert.doesNotMatch(getter, /pane/, 'hasShellSession 不得含 pane 因素')
+    assert.doesNotMatch(getter, /showModal/, 'hasShellSession 不得含 showModal 因素')
+    // ssh/local/telnet/serial 白名单 + 旧数据 type 缺省视为 ssh
+    for (const t of ["'ssh'", "'local'", "'telnet'", "'serial'", '!type']) {
+      assert.match(getter, new RegExp(t.replace(/'/g, "\\'").replace('!', '\\!')), `须覆盖 ${t}`)
+    }
+    // 底栏监控按钮：inActiveTerminal 且 hasShellSession
+    const footerJsx = read('src/client/components/footer/footer-entry.jsx')
+    assert.match(
+      footerJsx,
+      /inActiveTerminal && props\.store\.hasShellSession && renderMonitorIcon\(\)/,
+      '监控按钮必须叠加 hasShellSession'
+    )
+    // AI/传输保持全局（不得被 hasShellSession 误伤）
+    assert.match(footerJsx, /inActiveTerminal && !isAIDisabled\(\) && renderTransferIcon\(\)/)
   })
 
   test('TerminalInfo 空态门控仍在（双保险不拆除）', () => {

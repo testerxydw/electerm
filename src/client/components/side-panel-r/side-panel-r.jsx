@@ -22,6 +22,7 @@ export default memo(function RightSidePanel (
     rightPanelTab,
     isMobile,
     inTerminalTab,
+    hasShellSession,
     cmdHistoryInRightPanel,
     quickCommandsInRightPanel
   }
@@ -54,14 +55,18 @@ export default memo(function RightSidePanel (
   }, [rightPanelVisible])
 
   // 非终端类页（数据库/web 等）时终端日志页签隐藏（底栏开关同口径隐藏），
-  // 面板若正开在 info 页签则自动切到传输页签，避免留下无人处置的空白面板
-  // （TerminalInfo 对 pid 不匹配渲染 null，见 terminal-info.jsx）。此 hook
-  // 同样必须保持在 early return 之上。
+  // 无 shell 会话页（rdp/vnc/spice/database 等）时监控页签同样隐藏
+  // （exec-cmd 采集通道不存在，开着只会空转）；两者正被选中时自动切传输页签，
+  // 避免留下无人处置的空白面板（TerminalInfo 对 pid 不匹配渲染 null，
+  // MonitorPanel 无会话永远采集不到）。此 hook 同样必须保持在 early return 之上。
   useEffect(() => {
-    if (rightPanelTab === 'info' && !inTerminalTab) {
+    if (
+      (rightPanelTab === 'info' && !inTerminalTab) ||
+      (rightPanelTab === 'monitor' && !hasShellSession)
+    ) {
       window.store.rightPanelTab = 'transfer'
     }
-  }, [rightPanelTab, inTerminalTab])
+  }, [rightPanelTab, inTerminalTab, hasShellSession])
 
   if (!rightPanelVisible) {
     return null
@@ -73,6 +78,7 @@ export default memo(function RightSidePanel (
   // 对齐重设计草图的右面板页签：AI / 传输 / 监控；
   // 终端日志与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动，
   // 仅终端类页显示（inTerminalTab，数据库等页隐藏）；
+  // 监控仅 shell 会话页显示（hasShellSession，rdp/vnc/spice/database 隐藏）；
   // 命令历史/快捷命令寄居右面板时（双 home），顶栏动态出现对应页签并选中
   const aiDisabled = isAIDisabled()
   const tabs = [
@@ -141,7 +147,11 @@ export default memo(function RightSidePanel (
       >
         {
           tabs
-            .filter(t => (t.key !== 'ai' || !aiDisabled) && (t.key !== 'info' || inTerminalTab))
+            .filter(t =>
+              (t.key !== 'ai' || !aiDisabled) &&
+              (t.key !== 'info' || inTerminalTab) &&
+              (t.key !== 'monitor' || hasShellSession)
+            )
             .map(t => (
               <span
                 key={t.key}

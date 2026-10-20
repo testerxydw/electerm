@@ -355,7 +355,8 @@ export default auto(function FooterEntry (props) {
         {showSidebarIcon}
         {inActiveTerminal && !isAIDisabled() && renderAIIcon()}
         {inActiveTerminal && !isAIDisabled() && renderTransferIcon()}
-        {inActiveTerminal && !isAIDisabled() && renderMonitorIcon()}
+        {/* 监控采集走 exec-cmd 通道：无 shell 会话页（rdp/vnc/spice/database 等）隐藏按钮 */}
+        {inActiveTerminal && props.store.hasShellSession && renderMonitorIcon()}
         {inActiveTerminal && renderCmdHistory()}
         {inActiveTerminal && renderQuickCommands()}
         {inActiveTerminal && renderTriggers()}

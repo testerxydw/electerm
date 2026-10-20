@@ -295,6 +295,8 @@ export default auto(function Index (props) {
     isMobile: store.isMobile,
     // 终端日志页签可用性（终端类页才显示，与底栏按钮同口径但不含弹窗因素）
     inTerminalTab: store.inTerminalTab,
+    // 监控页签/按钮可用性（有 shell 会话的页才可采集）
+    hasShellSession: store.hasShellSession,
     // 双 home 工具 (命令历史/快捷命令) 寄居右面板时, 顶栏据此出现动态页签
     cmdHistoryInRightPanel: store.cmdHistoryInRightPanel,
     quickCommandsInRightPanel: store.quickCommandsInRightPanel
