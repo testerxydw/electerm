@@ -82,6 +82,8 @@ module.exports = exports.default = {
   proxyAI: '',
   sessionLogPath: '',
   sshSftpSplitView: false,
+  // 终端顶栏会话信息三段 (ssh2 算法 / zsh 版本 / ↑↓ 速率) 显隐, 顶栏图标可切换
+  sessionBarInfoVisible: true,
   showCmdSuggestions: false,
   restoreTerminalSessionOnReload: false,
   startDirectoryLocal: '',

@@ -24,6 +24,7 @@ import {
 import { SplitViewIcon } from '../icons/split-view'
 import { HeartbeatIcon } from '../icons/heartbeat'
 import SessionBarActions from '../common/session-bar-actions'
+import SessionBarStatus from '../common/session-bar-status'
 import TermSearch from '../terminal/term-search'
 import './session-control.styl'
 
@@ -285,6 +286,13 @@ export default function SessionControl (props) {
     )
   }
 
+  // T5-2d：会话信息三段（ssh2 算法 / zsh 版本 / ↑↓ 速率），公共组件一行调用
+  function renderBarStatus () {
+    return (
+      <SessionBarStatus tab={tab} />
+    )
+  }
+
   function renderFontSizeIcons () {
     // touch screens have no ctrl +/- shortcut to resize the terminal font,
     // so the icons only show there — driven by store.isTouchDevice, which
@@ -384,6 +392,7 @@ export default function SessionControl (props) {
     <div className='terminal-control fix'>
       {renderConnInfo()}
       {renderPaneControl()}
+      {renderBarStatus()}
       {renderSftpPathFollowControl()}
       {renderSplitToggle()}
       {renderKeepaliveIcon()}

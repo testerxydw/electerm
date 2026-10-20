@@ -86,6 +86,46 @@
 .sess-icon
     margin-right 0
 
+// T5-2d 会话信息三段（ssh2 算法 / zsh 版本 / ↑↓ 速率），右端灯态开关
+.session-bar-status
+  display inline-flex
+  align-items center
+  margin-right 8px
+  min-width 0
+  .session-bar-status-segs
+    display inline-flex
+    align-items center
+    min-width 0
+    overflow hidden
+  .session-bar-seg
+    display inline-flex
+    align-items center
+    gap 4px
+    padding 0 10px
+    white-space nowrap
+    font-size 11px
+    overflow hidden
+    text-overflow ellipsis
+    & + .session-bar-seg
+      border-left 1px solid var(--border)
+    .seg-k
+      color var(--text-dark)
+    .seg-v
+      color var(--text)
+      overflow hidden
+      text-overflow ellipsis
+    .seg-up
+      color var(--success)
+      font-weight 600
+    .seg-down
+      color var(--primary)
+      font-weight 600
+  .session-bar-status-toggle
+    flex none
+    transition color var(--dur-2) var(--ease)
+    &.active
+      color var(--primary)
+
 // 查找入口激活态：展开查找条时染主色（与数据库页 .db-search-on 同口径）
 .search-open
   color var(--primary)
