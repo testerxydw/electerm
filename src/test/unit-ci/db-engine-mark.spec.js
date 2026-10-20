@@ -63,14 +63,11 @@ describe('db-engine: 组件与接线契约', () => {
     assert.doesNotMatch(markJsx, /#[0-9a-fA-F]{6}/, '组件内不得有裸色值')
   })
 
-  it('tab.jsx：圆柱与徽标均带 isDbSession 守卫（非 db tab 不渲染）', () => {
+  it('tab.jsx：圆柱带 isDbSession 守卫；tab 内禁止徽标（窄空间缩略失义，仅树保留）', () => {
     assert.match(tabJsx, /isDbSession\(tab\) && <DbEngineMark dbType=\{tab\.dbType\} \/>/)
-    assert.match(tabJsx, /isDbSession\(tab\) && <DbEngineBadge dbType=\{tab\.dbType\}/)
-    // 反向：守卫次数必须 ≥ 渲染次数（无裸 <DbEngineMark 直渲染）
-    const guards = (tabJsx.match(/isDbSession\(tab\)/g) || []).length
-    const marks = (tabJsx.match(/<DbEngineMark/g) || []).length
-    const badges = (tabJsx.match(/<DbEngineBadge/g) || []).length
-    assert.ok(guards >= marks + badges, `守卫 ${guards} 次须覆盖 Mark ${marks} + Badge ${badges}`)
+    // 反向：tab.jsx 不得渲染 DbEngineBadge（树行尾徽标即可）
+    assert.doesNotMatch(tabJsx, /DbEngineBadge/, 'tab 内不得出现徽标')
+    assert.match(tabJsx, /isDbSession\(tab\)/, '圆柱必须带守卫')
   })
 
   it('tree-list-item.jsx：图标入标题行、徽标在行尾，均带守卫；areEqual 比对 dbType', () => {
@@ -91,11 +88,9 @@ describe('db-engine: 形态 styl 契约', () => {
       'touch 设备徽标须让位')
   })
 
-  it('tab 徽标=淡底 + 可收缩（宽不足先缩徽标）', () => {
-    const block = tabsStyl.match(/\.db-engine-mark[\s\S]*?\.db-engine-badge[\s\S]*?white-space nowrap/)
-    assert.ok(block, 'tabs.styl 缺 db 引擎标识形态段')
-    assert.match(block[0], /background var\(--hover-bg\)/)
-    assert.match(block[0], /flex 0 1 auto/)
-    assert.match(block[0], /text-overflow ellipsis/)
+  it('tab 侧仅圆柱形态（无徽标样式残留）', () => {
+    assert.match(tabsStyl, /\.db-engine-mark\s*\n\s*margin-right 3px/)
+    // 反向：tabs.styl 不得有 .db-engine-badge 样式（徽标样式仅存 tree-list.styl）
+    assert.doesNotMatch(tabsStyl, /\.db-engine-badge/, 'tabs.styl 不得残留徽标样式')
   })
 })
