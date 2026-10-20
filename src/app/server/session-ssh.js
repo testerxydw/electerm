@@ -792,6 +792,19 @@ class TerminalSshBase extends TerminalBase {
     this.authPartiallySucceeded = false
     connectOptions.authHandler = this.createAuthHandler(connectOptions)
     return new Promise((resolve, reject) => {
+      // ssh2 握手完成时协商出的算法 (先于 ready 触发), 上报渲染层供顶栏展示
+      conn.once('handshake', (negotiated) => {
+        this.ws?.s({
+          action: 'ssh-handshake-info',
+          tabId: this.initOptions.srcTabId,
+          update: {
+            kex: negotiated.kex,
+            serverHostKey: negotiated.serverHostKey,
+            cipherClientToServer: negotiated.cs?.cipher,
+            cipherServerToClient: negotiated.sc?.cipher
+          }
+        })
+      })
       conn.on('keyboard-interactive', async (
         name,
         instructions,

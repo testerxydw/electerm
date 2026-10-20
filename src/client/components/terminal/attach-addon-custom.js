@@ -1,4 +1,5 @@
 import { loadAttachAddon } from './xterm-loader.js'
+import { handleSessionControlMessage } from '../../common/session-bar-data.js'
 
 // Cursor-positioning sequences stripped from the head of surviving output
 // after a drop. These are either relative (ESC[nA rewinds n rows) or restore
@@ -141,10 +142,12 @@ export function truncateTerminalOutput (str, maxChars) {
 }
 
 export default class AttachAddonCustom {
-  constructor (term, socket, isWindowsShell) {
+  constructor (term, socket, isWindowsShell, infoTabId = '') {
     this.term = term
     this.socket = socket
     this.isWindowsShell = isWindowsShell
+    // session socket 上报的控制消息 (ssh-handshake-info 等) 归属的 tab
+    this.infoTabId = infoTabId
     this.outputSuppressed = false
     this.suppressedData = []
     this.suppressedChars = 0
@@ -351,6 +354,10 @@ export default class AttachAddonCustom {
       try {
         const msg = JSON.parse(ev.data)
         if (msg.action === 'zmodem-event' || msg.action === 'trzsz-event' || msg.action === 'xmodem-event') {
+          return
+        }
+        // 会话顶栏控制消息 (ssh-handshake-info 等): 交给公共模块写入 store
+        if (handleSessionControlMessage(msg, this.infoTabId)) {
           return
         }
       } catch (e) {}

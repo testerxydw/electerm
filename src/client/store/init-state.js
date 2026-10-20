@@ -94,6 +94,9 @@ export default () => {
     selectedSessions: [],
     sessionModalVisible: false,
 
+    // 会话顶栏数据 (key=tabId): ssh2 算法 / shell 信息 / 流量等, 见 common/session-bar-data.js
+    sessionInfoMap: {},
+
     // batch input selected tab ids
     _batchInputSelectedTabIds: new Set(),
     aiChatHistory: [],

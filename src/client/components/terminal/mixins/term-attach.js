@@ -17,7 +17,8 @@ export const attachMixin = {
     this.attachAddon = new AttachAddon(
       this.term,
       this.socket,
-      isWin && !this.isRemote()
+      isWin && !this.isRemote(),
+      this.props.tab.id
     )
     this.attachAddon.decoder = new TextDecoder(
       this.encode || this.props.tab.encode || 'utf-8'
