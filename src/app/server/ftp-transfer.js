@@ -4,6 +4,8 @@
  * Note: basic-ftp only supports one active transfer per client connection
  */
 
+const _ = require('../lib/lodash.js')
+
 class Transfer {
   constructor ({
     remotePath,
@@ -28,6 +30,14 @@ class Transfer {
     this.startPromise = null
     this.src = null
     this.dst = null
+    // 与 transfer.js (SFTP 版) 同模式: onData 3s 节流上报, 避免高频 ws 消息
+    this.onData = _.throttle((total) => {
+      if (this.pausing) return
+      this.ws?.s({
+        id: `transfer:data:${this.id}`,
+        data: total
+      })
+    }, 3000)
     this.start()
   }
 
@@ -36,14 +46,6 @@ class Transfer {
     const chunk = info.bytes - this.total
     this.total = info.bytes
     this.onData(this.total, chunk)
-  }
-
-  onData = (total, chunk) => {
-    if (this.pausing) return
-    this.ws?.s({
-      id: `transfer:data:${this.id}`,
-      data: total
-    })
   }
 
   onEnd = () => {
