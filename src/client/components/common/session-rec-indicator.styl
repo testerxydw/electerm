@@ -1,0 +1,34 @@
+// T5-4c 会话录制指示浮层: 终端区右上胶囊, 红点闪烁;
+// prefers-reduced-motion 时红点静止 (全局兜底口径)
+.session-rec-indicator
+  position absolute
+  top 6px
+  right 10px
+  z-index 30
+  display inline-flex
+  align-items center
+  gap 4px
+  padding 1px 8px
+  border-radius var(--radius-pill)
+  font-size 10px
+  font-weight 600
+  letter-spacing 1px
+  color var(--text)
+  background unquote('color-mix(in srgb, var(--error) 18%, var(--main))')
+  border 1px solid unquote('color-mix(in srgb, var(--error) 55%, transparent)')
+  .rec-dot
+    width 6px
+    height 6px
+    border-radius var(--radius-pill)
+    background var(--error)
+    animation rec-blink 1.2s steps(2, start) infinite
+
+@keyframes rec-blink
+  from
+    opacity 1
+  to
+    opacity 0.25
+
+@media (prefers-reduced-motion: reduce)
+  .session-rec-indicator .rec-dot
+    animation none

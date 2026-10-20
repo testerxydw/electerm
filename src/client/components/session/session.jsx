@@ -26,6 +26,7 @@ import {
 } from '../../common/constants'
 import { refs } from '../common/ref'
 import sanitizeFilename from '../../common/sanitize-filename.js'
+import SessionRecIndicator from '../common/session-rec-indicator'
 import SessionControl from './session-control'
 import LazyBoundary from '../common/lazy-boundary'
 import './session.styl'
@@ -654,6 +655,18 @@ export default class SessionWrapper extends Component {
 
   render () {
     const { pane } = this.props.tab
+    // T5-4c: 录制中浮层。render 里读 recState 让 manate 追踪 (开/停录触发重渲染),
+    // 仅终端类 tab 显示 (数据库/桌面/网页页无会话录制)
+    const rec = window.store.recState[this.props.tab.id]
+    const recIndicator = this.isNotTerminalType()
+      ? null
+      : (
+        <SessionRecIndicator
+          recording={!!rec}
+          recPath={rec?.path}
+          tabId={this.props.tab.id}
+        />
+        )
     const cls = classnames(
       'term-sftp-box',
       pane,
@@ -703,6 +716,7 @@ export default class SessionWrapper extends Component {
           onOpenContextMenu={this.handleOpenContextMenu}
           onExitGracefully={this.handleExitGracefully}
         />
+        {recIndicator}
         <Suspense fallback={null}>
           {this.renderViews()}
         </Suspense>
