@@ -61,13 +61,21 @@ function getAdapter (dbType) {
   return require('./' + name)
 }
 
+// 建连/元数据/键操作走快路径；executeSql/getPageData 给足时间，
+// 避免 24 万行大表扫描、深分页被统一 15s 误杀（P2-19）
 const OVERALL_TIMEOUT = 15000
+const OP_TIMEOUTS = {
+  default: 15000,
+  executeSql: 120000,
+  getPageData: 60000
+}
 
-function withTimeout (promise, ms) {
+// label 用于区分超时来源（connection/metadata/db op xxx），错误消息随 label 穿透到前端
+function withTimeout (promise, ms, label = 'connection') {
   return Promise.race([
     promise,
     new Promise((resolve, reject) => {
-      setTimeout(() => reject(new Error('connection timeout')), ms)
+      setTimeout(() => reject(new Error(`${label} timeout (${Math.round(ms / 1000)}s)`)), ms)
     })
   ])
 }
@@ -166,7 +174,7 @@ async function openDbTab (dbBookmark, sshBookmark) {
       throw new Error('db tab closed while opening')
     }
     // open metadata eagerly to surface metadata errors at tab open
-    await withTimeout(adapter.getMetadata(inst.conn), OVERALL_TIMEOUT)
+    await withTimeout(adapter.getMetadata(inst.conn), OVERALL_TIMEOUT, 'metadata')
     if (pending.aborted) {
       throw new Error('db tab closed while opening')
     }
@@ -211,7 +219,8 @@ async function dbClientOp (tabId, op, args) {
     ...(args || {}),
     readOnly: inst.readOnly
   }
-  return withTimeout(adapter[method](inst.conn, safeArgs), OVERALL_TIMEOUT)
+  const opMs = OP_TIMEOUTS[op] || OP_TIMEOUTS.default
+  return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`)
 }
 
 // 页面上切换只读模式：白名单以主进程实例为权威（渲染层传参不可信），
