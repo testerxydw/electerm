@@ -54,14 +54,17 @@ export default memo(function RightSidePanel (
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [rightPanelVisible])
 
-  // 非终端类页（数据库/web 等）时终端日志页签隐藏（底栏开关同口径隐藏），
-  // 无 shell 会话页（rdp/vnc/spice/database 等）时监控页签同样隐藏
-  // （exec-cmd 采集通道不存在，开着只会空转）；两者正被选中时自动切传输页签，
-  // 避免留下无人处置的空白面板（TerminalInfo 对 pid 不匹配渲染 null，
-  // MonitorPanel 无会话永远采集不到）。此 hook 同样必须保持在 early return 之上。
+  // 终端日志页签依赖真实终端实例（term-info refs + 会话 writeLog），口径 =
+  // inTerminalTab && hasShellSession：inTerminalTab 是底栏布局口径
+  // （rdp/vnc/spice 有意同等对待、database pane 默认 terminal），但这些页无
+  // 终端实例，单用它会在 vnc/database 页留下空白面板（#218 真机实测）；
+  // 无 shell 会话页监控页签同口径隐藏（exec-cmd 采集通道不存在，开着只会
+  // 空转）。两者正被选中时自动切传输页签，避免留下无人处置的空白面板
+  // （TerminalInfo 对 pid 不匹配渲染 null，MonitorPanel 无会话永远采集不到）。
+  // 此 hook 同样必须保持在 early return 之上。
   useEffect(() => {
     if (
-      (rightPanelTab === 'info' && !inTerminalTab) ||
+      (rightPanelTab === 'info' && (!inTerminalTab || !hasShellSession)) ||
       (rightPanelTab === 'monitor' && !hasShellSession)
     ) {
       window.store.rightPanelTab = 'transfer'
@@ -77,7 +80,8 @@ export default memo(function RightSidePanel (
   const pinned = rightPanelPinned && !isMobile
   // 对齐重设计草图的右面板页签：AI / 传输 / 监控；
   // 终端日志与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动，
-  // 仅终端类页显示（inTerminalTab，数据库等页隐藏）；
+  // 仅"有终端实例的终端页"显示（inTerminalTab && hasShellSession，
+  // rdp/vnc/spice/database 均无终端实例，见上方重定向注释）；
   // 监控仅 shell 会话页显示（hasShellSession，rdp/vnc/spice/database 隐藏）；
   // 命令历史/快捷命令寄居右面板时（双 home），顶栏动态出现对应页签并选中
   const aiDisabled = isAIDisabled()
@@ -149,7 +153,7 @@ export default memo(function RightSidePanel (
           tabs
             .filter(t =>
               (t.key !== 'ai' || !aiDisabled) &&
-              (t.key !== 'info' || inTerminalTab) &&
+              (t.key !== 'info' || (inTerminalTab && hasShellSession)) &&
               (t.key !== 'monitor' || hasShellSession)
             )
             .map(t => (

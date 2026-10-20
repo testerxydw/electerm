@@ -33,12 +33,19 @@ describe('右面板终端日志页签 gating', () => {
   })
 
   test('side-panel-r：info/monitor 页签按可用性过滤 + 自动切 transfer', () => {
-    // 页签过滤（与 AI disabled 同链）
+    // 页签过滤（与 AI disabled 同链）。info 必须 = inTerminalTab && hasShellSession
+    // 双口径：inTerminalTab 是布局口径（rdp/vnc/spice=true、database pane 默认
+    // terminal=true），但这些页无终端实例，单用它会在 vnc/database 页漏放
+    // 终端日志页签（点开空白面板，218 真机实测回归）
     assert.match(
       panelJsx,
-      /t\.key !== 'info' \|\| inTerminalTab/,
-      'info 页签必须按 inTerminalTab 过滤'
+      /t\.key !== 'info' \|\| \(inTerminalTab && hasShellSession\)/,
+      'info 页签必须按 inTerminalTab && hasShellSession 双口径过滤'
     )
+    // 反向：info 过滤分支内禁止只出现单口径（防回退 218 版本行为）
+    const infoBranch = panelJsx.match(/t\.key !== 'info' \|\| \(([^)]+)\)/)[1]
+    assert.match(infoBranch, /inTerminalTab/, 'info 口径必须含 inTerminalTab')
+    assert.match(infoBranch, /hasShellSession/, 'info 口径必须含 hasShellSession')
     assert.match(
       panelJsx,
       /t\.key !== 'monitor' \|\| hasShellSession/,
@@ -46,12 +53,12 @@ describe('右面板终端日志页签 gating', () => {
     )
     // info/monitor 正被选中且不可用时自动切 transfer 的重定向 effect 存在
     const redirect = panelJsx.match(
-      /rightPanelTab === 'info' && !inTerminalTab[\s\S]{0,80}rightPanelTab === 'monitor' && !hasShellSession[\s\S]{0,80}rightPanelTab = 'transfer'/
+      /rightPanelTab === 'info' && \(!inTerminalTab \|\| !hasShellSession\)[\s\S]{0,80}rightPanelTab === 'monitor' && !hasShellSession[\s\S]{0,80}rightPanelTab = 'transfer'/
     )
     assert.ok(redirect, '必须存在 info/monitor→transfer 重定向')
     // 反向：重定向 effect 必须在渲染期 early return（return null）之前声明；
     // 用 return null 特征匹配，避开 Esc effect 内同文本的 if (!rightPanelVisible)
-    const effectIdx = panelJsx.indexOf("rightPanelTab === 'info' && !inTerminalTab")
+    const effectIdx = panelJsx.indexOf("rightPanelTab === 'info' && (!inTerminalTab || !hasShellSession)")
     const earlyReturnIdx = panelJsx.indexOf('if (!rightPanelVisible) {\n    return null\n  }')
     assert.ok(effectIdx > -1 && earlyReturnIdx > effectIdx, 'hook 必须保持在 early return 之上')
   })
@@ -72,6 +79,13 @@ describe('右面板终端日志页签 gating', () => {
       footerJsx,
       /inActiveTerminal && props\.store\.hasShellSession && renderMonitorIcon\(\)/,
       '监控按钮必须叠加 hasShellSession'
+    )
+    // 底栏终端日志按钮（信息图标）与页签同口径：rdp/vnc/spice/database 页
+    // 无终端实例，单 inActiveTerminal 会漏放按钮（点开空白面板，218 真机回归）
+    assert.match(
+      footerJsx,
+      /inActiveTerminal && props\.store\.hasShellSession && renderInfoIcon\(\)/,
+      '终端日志按钮必须叠加 hasShellSession'
     )
     // AI/传输保持全局（不得被 hasShellSession 误伤）
     assert.match(footerJsx, /inActiveTerminal && !isAIDisabled\(\) && renderTransferIcon\(\)/)

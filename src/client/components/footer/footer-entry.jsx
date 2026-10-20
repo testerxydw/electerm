@@ -363,7 +363,9 @@ export default auto(function FooterEntry (props) {
         {inActiveTerminal && renderBatchInputs()}
         {inActiveTerminal && renderQuickCmdStrip()}
         {inActiveTerminal && renderEncodingInfo()}
-        {inActiveTerminal && renderInfoIcon()}
+        {/* 终端日志依赖真实终端实例：rdp/vnc/spice/database 页无终端，
+            inTerminalTab 单口径会漏放按钮（点开是空白面板），加 hasShellSession */}
+        {inActiveTerminal && props.store.hasShellSession && renderInfoIcon()}
         {!isMobile && renderGlobalActions()}
       </div>
     </div>
