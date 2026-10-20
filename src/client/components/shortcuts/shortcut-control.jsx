@@ -24,10 +24,18 @@ function isInputActive () {
 
 class ShortcutControl extends React.PureComponent {
   componentDidMount () {
-    const onEvent = this.handleKeyboardEvent.bind(this)
+    // bind 副本存到实例：卸载时 removeEventListener 必须用同一引用
+    this.boundKeyboardEvent = this.handleKeyboardEvent.bind(this)
     document.addEventListener('keydown', this.onEvent, true)
-    document.addEventListener('mousedown', onEvent)
-    document.addEventListener('mousewheel', onEvent)
+    document.addEventListener('mousedown', this.boundKeyboardEvent)
+    document.addEventListener('mousewheel', this.boundKeyboardEvent)
+  }
+
+  componentWillUnmount () {
+    // keydown 挂载时带 capture=true，移除必须同样参数
+    document.removeEventListener('keydown', this.onEvent, true)
+    document.removeEventListener('mousedown', this.boundKeyboardEvent)
+    document.removeEventListener('mousewheel', this.boundKeyboardEvent)
   }
 
   onEvent = (e) => {
