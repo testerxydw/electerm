@@ -17,7 +17,7 @@ import Modal from '../common/modal'
 import { copy, readClipboard } from '../../common/clipboard'
 import VncForm from './vnc-form'
 import RemoteFloatControl from '../common/remote-float-control'
-import RemoteSessionShell from '../common/remote-session-shell'
+import SessionShell from '../common/session-shell'
 import './vnc.styl'
 
 // noVNC module imports — loaded dynamically
@@ -661,7 +661,7 @@ export default class VncSession extends PureComponent {
       </>
     )
     return (
-      <RemoteSessionShell
+      <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='vnc-session-wrap'
@@ -675,7 +675,7 @@ export default class VncSession extends PureComponent {
           className='remote-session-fill vnc-session-mount'
           ref={this.domRef}
         />
-      </RemoteSessionShell>
+      </SessionShell>
     )
   }
 }

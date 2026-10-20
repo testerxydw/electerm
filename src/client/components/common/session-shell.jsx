@@ -18,9 +18,9 @@
 import { PureComponent, createRef } from 'react'
 import { Spin } from 'antd'
 import classnames from 'classnames'
-import './remote-session-shell.styl'
+import './session-shell.styl'
 
-export default class RemoteSessionShell extends PureComponent {
+export default class SessionShell extends PureComponent {
   constructor (props) {
     super(props)
     this.viewRef = createRef()

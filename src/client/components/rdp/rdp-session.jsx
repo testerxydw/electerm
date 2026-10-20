@@ -22,7 +22,7 @@ import scanCode from './code-scan'
 import resolutions from './resolutions'
 import { readClipboardAsync } from '../../common/clipboard'
 import RemoteFloatControl from '../common/remote-float-control'
-import RemoteSessionShell from '../common/remote-session-shell'
+import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
 import SwitchLabel from '../common/switch'
 import HelpIcon from '../common/help-icon'
@@ -797,7 +797,7 @@ export default class RdpSession extends PureComponent {
     const { width, height, loading } = this.state
     const controlProps = this.getControlProps()
     return (
-      <RemoteSessionShell
+      <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='rdp-session-wrap'
@@ -813,7 +813,7 @@ export default class RdpSession extends PureComponent {
           tabIndex={0}
           ref={this.canvasRef}
         />
-      </RemoteSessionShell>
+      </SessionShell>
     )
   }
 }

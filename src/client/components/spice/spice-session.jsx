@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons'
 import * as ls from '../../common/safe-local-storage'
 import RemoteFloatControl from '../common/remote-float-control'
-import RemoteSessionShell from '../common/remote-session-shell'
+import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
 import SwitchLabel from '../common/switch'
 import './spice.styl'
@@ -315,7 +315,7 @@ export default class SpiceSession extends PureComponent {
     const { loading } = this.state
     const contrlProps = this.getControlProps()
     return (
-      <RemoteSessionShell
+      <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='spice-session-wrap'
@@ -329,7 +329,7 @@ export default class SpiceSession extends PureComponent {
           id={this.screenId}
           ref={this.domRef}
         />
-      </RemoteSessionShell>
+      </SessionShell>
     )
   }
 }
