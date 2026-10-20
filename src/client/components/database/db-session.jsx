@@ -424,9 +424,15 @@ export default auto(function DbSession (props) {
     message.error(msg)
   }
 
-  const loadTree = () => {
+  // 系统库显示开关：默认显示（专业工具惯例），隐藏偏好持久化在 config
+  const hideSystemSchemas = window.store._config.dbHideSystemSchemas === true
+
+  const loadTree = (hideOverride) => {
+    // hideOverride 供开关切换时显式传值（setConfig 异步生效，闭包读 config 可能拿到旧值）；
+    // refresh 按钮等无参调用读 config。Button onClick 直传 event 的场景须用箭头包一层
+    const hide = hideOverride === undefined ? hideSystemSchemas : hideOverride
     setTreeLoading(true)
-    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {})
+    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', { hideSystemSchemas: hide })
       .then(data => {
         setMetadata(data || [])
         setTreeLoading(false)
@@ -438,11 +444,18 @@ export default auto(function DbSession (props) {
       })
   }
 
+  // 切换后显式按 next 拉树：setConfig 异步生效，不能依赖闭包里的旧值
+  const toggleSys = () => {
+    const next = !(window.store._config.dbHideSystemSchemas === true)
+    window.store.setConfig({ dbHideSystemSchemas: next })
+    loadTree(next)
+  }
+
   // 重新建连：先释放旧连接（openDbTab 内部也会兜底关闭残留），再拉元数据
   const doConnect = () => window.pre.runGlobalAsync('closeDbTab', tabId)
     .catch(() => {})
     .then(() => window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark())))
-    .then(() => window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {}))
+    .then(() => window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', { hideSystemSchemas }))
     .then(data => {
       setMetadata(data || [])
       setConnError('')
@@ -484,7 +497,7 @@ export default auto(function DbSession (props) {
         if (cancelled) {
           return undefined
         }
-        return window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', {})
+        return window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', { hideSystemSchemas })
       })
       .then(data => {
         if (!cancelled) {
@@ -1634,6 +1647,17 @@ export default auto(function DbSession (props) {
           : null
       }
       <span className='db-head-right'>
+        {/* 系统库显示开关：默认显示，关闭即隐藏 information_schema 等（偏好持久化 config） */}
+        <Tooltip title={`${e('systemSchemas')} — ${e('systemSchemasHint')}`}>
+          <span className='db-sys-toggle'>
+            <span className='db-sys-toggle-label'>{e('systemSchemas')}</span>
+            <Switch
+              size='small'
+              checked={!hideSystemSchemas}
+              onChange={toggleSys}
+            />
+          </span>
+        </Tooltip>
         {/* 只读开关常驻工具条：切换后主进程白名单同步生效（不用重开连接） */}
         <Tooltip title={`${e('readOnly')} — ${e('readOnlyHint')}`}>
           <Switch
@@ -1648,7 +1672,7 @@ export default auto(function DbSession (props) {
           icon={<ReloadOutlined />}
           loading={treeLoading}
           title={e('refresh')}
-          onClick={loadTree}
+          onClick={() => loadTree()}
         />
       </span>
       {/* 窗口级动作：与终端顶栏（SessionControl 右侧）同口径——查找 + 全屏入口在这里，

@@ -79,19 +79,44 @@ function buildConn () {
   return { dbHost: 'h', dbPort: 1, dbUser: 'u', dbPassword: 'p' }
 }
 
-describe('mysql getMetadata: 系统库过滤 + 限并发 + per-db 降级', () => {
-  test('系统库不入树，业务库保序', async () => {
-    const pool = makePool({
-      databases: ['zzz', 'information_schema', 'tgfsom', 'mysql', 'performance_schema', 'sys', 'aaa'],
-      tables: {
-        zzz: { list: ['t1'] },
-        tgfsom: { list: ['a', 'b'] },
-        aaa: { list: [] }
-      }
+describe('mysql getMetadata: 系统库过滤参数化 + 限并发 + per-db 降级', () => {
+  const DBS = ['zzz', 'information_schema', 'tgfsom', 'mysql', 'performance_schema', 'sys', 'aaa']
+
+  function makeMetaPool (tables) {
+    return makePool({ databases: DBS, tables })
+  }
+
+  test('默认全显（不传参/传 false）：系统库也在树中，业务库保序', async () => {
+    const pool = makeMetaPool({
+      zzz: { list: ['t1'] },
+      information_schema: { list: ['TABLES'] },
+      tgfsom: { list: ['a', 'b'] },
+      mysql: { list: ['user'] },
+      performance_schema: { list: [] },
+      sys: { list: [] },
+      aaa: { list: [] }
     })
     const mod = loadMysql(pool)
+    // 不传 args：全显
     const meta = await mod.getMetadata(buildConn())
-    // vm 沙箱跨 realm：产出数组原型与宿主不同，须经展开转宿主数组再断言
+    assert.deepEqual([...meta].map(d => d.name), DBS, '默认全显且保序')
+    // 显式传 false：同样全显
+    const meta2 = await mod.getMetadata(buildConn(), { hideSystemSchemas: false })
+    assert.equal(meta2.length, DBS.length)
+  })
+
+  test('hideSystemSchemas:true 过滤系统库，业务库保序', async () => {
+    const pool = makeMetaPool({
+      zzz: { list: ['t1'] },
+      information_schema: { list: ['TABLES'] },
+      tgfsom: { list: ['a', 'b'] },
+      mysql: { list: ['user'] },
+      performance_schema: { list: [] },
+      sys: { list: [] },
+      aaa: { list: [] }
+    })
+    const mod = loadMysql(pool)
+    const meta = await mod.getMetadata(buildConn(), { hideSystemSchemas: true })
     assert.deepEqual([...meta].map(d => d.name), ['zzz', 'tgfsom', 'aaa'], '系统库被滤掉且保序')
     assert.deepEqual([...meta[1].children].map(c => c.name), ['a', 'b'])
     assert.equal(meta[1].type, 'database')

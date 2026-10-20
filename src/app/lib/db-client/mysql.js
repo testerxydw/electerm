@@ -80,7 +80,9 @@ async function testMysqlConnection (conn) {
 
 // ---- Phase2 methods ----
 
-// 系统库不入树（无业务表，白占树高）；过滤默认开
+// 系统库名单：仅当调用方显式 hideSystemSchemas 时过滤。
+// 默认全显（专业工具惯例，排查权限/性能常需 information_schema/mysql），
+// 显示开关由前端持久化（config.dbHideSystemSchemas），后端不越权替用户做决定
 const DB_SYSTEM_SCHEMAS = ['information_schema', 'mysql', 'performance_schema', 'sys']
 // 并发上限与 pool connectionLimit(4) 一致：串行 SHOW TABLES × N 库是元数据加载慢的主因
 const METADATA_CONCURRENCY = 4
@@ -149,12 +151,13 @@ function rowToPlain (rows) {
   })
 }
 
-async function getMetadata (conn) {
+async function getMetadata (conn, args) {
   const pool = await getPool(conn)
   const [dbs] = await pool.query('SHOW DATABASES')
+  const hideSys = args && args.hideSystemSchemas === true
   const dbNames = dbs
     .map(d => d.Database)
-    .filter(n => !DB_SYSTEM_SCHEMAS.includes(String(n).toLowerCase()))
+    .filter(n => !hideSys || !DB_SYSTEM_SCHEMAS.includes(String(n).toLowerCase()))
   // per-db try/catch：单库失败（权限不足等）不再拖垮整棵树，
   // 降级为「库名在 + children 空 + error 标记」，前端提示后可点刷新重试
   return mapLimit(dbNames, METADATA_CONCURRENCY, async dbName => {
