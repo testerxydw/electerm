@@ -25,9 +25,9 @@ exports.onClose = async function (e) {
     return e.preventDefault()
   }
   log.debug('Closing app')
-  // 关闭所有数据库连接（如有）
+  // 关闭所有数据库连接（如有），await 确保连接池清理完成后才退出
   try {
-    require('./db-client').closeAllDbTabs()
+    await require('./db-client').closeAllDbTabs()
   } catch (err) {
     // ignore db client cleanup errors
   }
