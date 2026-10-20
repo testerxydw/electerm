@@ -1,5 +1,6 @@
 import { loadAttachAddon } from './xterm-loader.js'
 import { handleSessionControlMessage } from '../../common/session-bar-data.js'
+import SessionTrafficTracker from '../../common/session-traffic.js'
 
 // Cursor-positioning sequences stripped from the head of surviving output
 // after a drop. These are either relative (ESC[nA rewinds n rows) or restore
@@ -148,6 +149,10 @@ export default class AttachAddonCustom {
     this.isWindowsShell = isWindowsShell
     // session socket 上报的控制消息 (ssh-handshake-info 等) 归属的 tab
     this.infoTabId = infoTabId
+    // 顶栏 ↑↓ 速率计数 (common/session-traffic.js), 全类型 session 一处生效
+    this.trafficTracker = infoTabId
+      ? new SessionTrafficTracker({ tabId: infoTabId })
+      : null
     this.outputSuppressed = false
     this.suppressedData = []
     this.suppressedChars = 0
@@ -350,6 +355,7 @@ export default class AttachAddonCustom {
 
   onMsg = (ev) => {
     this._lastDataTime = Date.now()
+    this.trafficTracker?.countDown(ev.data)
     if (typeof ev.data === 'string') {
       try {
         const msg = JSON.parse(ev.data)
@@ -604,6 +610,7 @@ export default class AttachAddonCustom {
 
   sendToServer = (data) => {
     this._lastInputTime = Date.now()
+    this.trafficTracker?.countUp(data)
     // Start echo detection when password prompt is suspected
     if (this._passwordPromptDetected && !this._pendingEchoCheck && data !== '\r' && data !== '\n' && data !== '\x03') {
       this._pendingEchoCheck = { char: data, time: Date.now() }
@@ -681,6 +688,8 @@ export default class AttachAddonCustom {
       return
     }
     this.disposed = true
+    this.trafficTracker?.stop()
+    this.trafficTracker = null
     this._stopKeepalive()
     clearTimeout(this._echoCheckTimer)
     this._echoCheckTimer = null
