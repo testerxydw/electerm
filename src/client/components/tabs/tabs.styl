@@ -343,6 +343,18 @@
       min-width 0
       overflow hidden
       text-overflow ellipsis
+  // database tab 引擎标识：圆柱随标题前、淡底徽标随标题后
+  // （色由 db-engine-mark.jsx 注入 --db-engine-* token；徽标可收缩，宽不足先缩徽标）
+  .db-engine-mark
+    margin-right 3px
+  .db-engine-badge
+    flex 0 1 auto
+    min-width 0
+    background var(--hover-bg)
+    margin-left 3px
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
 
 .ssh-tunnel-list-wrapper
   max-height 300px

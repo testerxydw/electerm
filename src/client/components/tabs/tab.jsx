@@ -28,6 +28,7 @@ import iconsMap from '../sys-menu/icons-map.jsx'
 import { shortcutDescExtend } from '../shortcuts/shortcut-handler.js'
 import { isDropAfterHalf } from '../../common/drop-position'
 import { splitConfig, terminalDatabaseType, dbTypeLabelMap } from '../../common/constants'
+import { DbEngineMark, DbEngineBadge, isDbSession } from '../../common/db-engine-mark'
 
 const e = window.translate
 const onDragCls = 'ondrag-tab'
@@ -643,7 +644,9 @@ class Tab extends Component {
                     )
                   : null}
                 {tab.isPinned && <PushpinFilled className='tab-pin' />}
+                {isDbSession(tab) && <DbEngineMark dbType={tab.dbType} />}
                 <span className='mg1r tab-title-text'>{title}</span>
+                {isDbSession(tab) && <DbEngineBadge dbType={tab.dbType} className='tab-engine-badge' />}
               </span>
             </div>
           </Dropdown>

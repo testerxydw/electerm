@@ -33,6 +33,16 @@
   --warn-bg unquote('color-mix(in srgb, var(--warn) 14%, var(--main))')
   --info-bg unquote('color-mix(in srgb, var(--info) 14%, var(--main))')
 
+  // ---- 数据库引擎标识色（书签树 / tab 的 db 圆柱与徽标共用）----
+  // 官方品牌色：mysql #4479A1 / redis #DC382D / postgres #336791
+  // 深色基底=原色 mix 30% white 提亮（保对比度）；浅色覆盖见 .theme-light
+  // tidb / oceanbase 协议同源 mysql，继承同一色（引擎名由徽标文字区分）
+  --db-engine-mysql #7CA1BD
+  --db-engine-redis #E7746C
+  --db-engine-postgres #7095B2
+  --db-engine-tidb var(--db-engine-mysql)
+  --db-engine-oceanbase var(--db-engine-mysql)
+
   // ---- 静态：圆角（v4：整体上调一档）----
   --radius-xs 4px
   --radius-sm 8px
@@ -82,3 +92,7 @@
   --shadow-1 0 1px 2px rgba(0, 0, 0, .06)
   --shadow-2 0 4px 12px rgba(0, 0, 0, .10)
   --shadow-3 0 18px 48px rgba(0, 0, 0, .14)
+  // 数据库引擎色浅色=官方原色（tidb/oceanbase 继承 mysql 的 var 引用自动跟随）
+  --db-engine-mysql #4479A1
+  --db-engine-redis #DC382D
+  --db-engine-postgres #336791

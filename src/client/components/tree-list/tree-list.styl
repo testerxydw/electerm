@@ -58,6 +58,18 @@
   white-space nowrap
   text-overflow ellipsis
 
+// database 书签引擎标识：圆柱图标 + 行尾描边徽标（色取 --db-engine-* token，
+// 由 db-engine-mark.jsx 内联注入，此处只管形态与间距）
+.tree-item .db-engine-mark
+  margin-right 5px
+.db-engine-badge
+  flex none
+  align-self center
+  border 1px solid currentColor
+  margin-left 6px
+  margin-right 4px
+  opacity .85
+
 .sidebar-panel .tree-item-title
    max-width 100%
 .with-plus
@@ -184,12 +196,17 @@
     .tree-item-op-wrap
       opacity 1
       pointer-events auto
+    // hover 时操作按钮接管行尾，徽标让位隐藏
+    .db-engine-badge
+      opacity 0
 .add-menu-wrap
 .sidebar-panel
   .tree-list-row
     &:hover
       .tree-item-title
         padding-right 20px
+      .db-engine-badge
+        opacity 0
 
 .tree-list-row-group
   position relative
@@ -222,8 +239,13 @@
     .tree-item-op-wrap
       opacity 1
       pointer-events auto
+    // 操作按钮常显时徽标同样让位
+    .db-engine-badge
+      opacity 0
   .add-menu-wrap
   .sidebar-panel
     .tree-list-row
       .tree-item-title
         padding-right 20px
+      .db-engine-badge
+        opacity 0

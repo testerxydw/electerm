@@ -4,6 +4,7 @@
 
 import { memo } from 'react'
 import { createTitleTag } from '../../common/create-title'
+import { DbEngineMark, DbEngineBadge, isDbSession } from '../../common/db-engine-mark'
 import classnames from 'classnames'
 import highlight from '../common/highlight'
 import uid from '../../common/uid'
@@ -24,6 +25,7 @@ function areEqual (prevProps, nextProps) {
     prevRowSelected === nextRowSelected &&
     prevMulti === nextMulti &&
     prevProps.item.id === nextProps.item.id &&
+    prevProps.item.dbType === nextProps.item.dbType &&
     prevProps.itemLevel === nextProps.itemLevel &&
     prevProps.itemColor === nextProps.itemColor &&
     prevProps.itemDescription === nextProps.itemDescription &&
@@ -124,8 +126,9 @@ function TreeListItem (props) {
       <div
         {...titleProps}
       >
-        {colorTag}{tag}{titleHighlight}
+        {colorTag}{tag}{isDbSession(item) && <DbEngineMark dbType={item.dbType} />}{titleHighlight}
       </div>
+      {isDbSession(item) && <DbEngineBadge dbType={item.dbType} />}
     </div>
   )
 }
