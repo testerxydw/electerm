@@ -25,9 +25,10 @@ export default class Sessions extends Component {
     window.store.updateTab(id, update)
   }
 
-  // 终端高度 = 布局高 - tabsHeight(36, 顶部标签栏, 对应 session-wrap padding-top)
-  //          - termControlHeight(32, .terminal-control 连接信息条, 高度在 terminal.styl 钉死)
-  // 三处数值联动, 缺一会让终端底部溢出被裁(遮挡光标)或留缝隙
+  // 终端高度 = 布局高 - tabsHeight(36, 顶部标签栏, token 镜像 --tabs-bar-h)
+  //          - termControlHeight(32, 顶栏高, token 镜像 --session-bar-h)
+  // JS 扣减与 CSS 变量双源（JS 拿不到 CSS 变量），值由 s2-tokens.spec.js 锁定；
+  // 缺一会让终端底部溢出被裁(遮挡光标)或留缝隙
   computeHeight = (height) => {
     const {
       tabsHeight

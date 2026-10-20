@@ -53,7 +53,8 @@
   position absolute
   overflow hidden
   z-index 3
-  padding-top 36px
+  // 让位顶部标签栏；与 JS 扣减镜像见 tokens.styl --tabs-bar-h（init-state tabsHeight）
+  padding-top var(--tabs-bar-h)
   box-shadow var(--shadow-1)
   &.session-batch-active
     display block

@@ -6,10 +6,11 @@
   overflow hidden
 
 // 顶部工具条：引擎/目标/状态 + 只读/刷新。
-// 高度 32px 与 .terminal-control 钉死的一致（session/sessions.jsx 扣减口径依赖此值）
+// 高度口径 = tokens.styl --session-bar-h（与 .terminal-control 统一；
+// session/sessions.jsx 的扣减依赖该值，JS 侧镜像见 constants.js termControlHeight）
 .db-head
   flex none
-  height 32px
+  height var(--session-bar-h)
   display flex
   align-items center
   gap 8px
