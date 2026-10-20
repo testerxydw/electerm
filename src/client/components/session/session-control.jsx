@@ -3,8 +3,6 @@
  * On mobile a menu icon is shown; clicking it toggles the control icons.
  */
 import {
-  SearchOutlined,
-  FullscreenOutlined,
   PaperClipOutlined,
   ApartmentOutlined,
   MoreOutlined,
@@ -25,6 +23,7 @@ import {
 } from '../../common/constants'
 import { SplitViewIcon } from '../icons/split-view'
 import { HeartbeatIcon } from '../icons/heartbeat'
+import SessionBarActions from '../common/session-bar-actions'
 import TermSearch from '../terminal/term-search'
 import './session-control.styl'
 
@@ -275,33 +274,14 @@ export default function SessionControl (props) {
     )
   }
 
-  function renderSearchIcon () {
-    const title = e('search')
+  // S1：查找/全屏改走共享动作组件（三页同位置同口径）
+  function renderBarActions () {
     return (
-      <Tooltip title={title} placement='bottomLeft'>
-        <SearchOutlined
-          className={classnames(
-            'mg1r icon-info iblock pointer spliter',
-            {
-              // 展开查找条时染主色，与数据库页 .db-search-on 同口径
-              'search-open': searchOpen
-            }
-          )}
-          onClick={onOpenSearch}
-        />
-      </Tooltip>
-    )
-  }
-
-  function renderFullscreenIcon () {
-    const title = e('fullscreen')
-    return (
-      <Tooltip title={title} placement='bottomLeft'>
-        <FullscreenOutlined
-          className='mg1r icon-info iblock pointer spliter fullscreen-control-icon'
-          onClick={onFullscreen}
-        />
-      </Tooltip>
+      <SessionBarActions
+        searchOpen={searchOpen}
+        onToggleSearch={onOpenSearch}
+        onFullscreen={onFullscreen}
+      />
     )
   }
 
@@ -366,8 +346,7 @@ export default function SessionControl (props) {
         <TermSearch tab={tab} />
         {renderFontSizeIcons()}
         {skipContextMenuIcon ? null : renderContextMenuIcon()}
-        {renderSearchIcon()}
-        {renderFullscreenIcon()}
+        {renderBarActions()}
       </div>
     )
   }

@@ -6,10 +6,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, FullscreenOutlined, SearchOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
+import SessionBarActions from '../common/session-bar-actions'
 import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
@@ -1646,23 +1647,12 @@ export default auto(function DbSession (props) {
               )
             : null
         }
-        <Tooltip title={e('search')}>
-          <Button
-            type='text'
-            size='small'
-            className={searchOpen ? 'db-search-on' : undefined}
-            icon={<SearchOutlined />}
-            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          />
-        </Tooltip>
-        <Tooltip title={e('fullscreen')}>
-          <Button
-            type='text'
-            size='small'
-            icon={<FullscreenOutlined />}
-            onClick={() => window.store.toggleSessFullscreen(true)}
-          />
-        </Tooltip>
+        {/* S1：查找/全屏走共享动作组件，与终端顶栏同位置同口径 */}
+        <SessionBarActions
+          searchOpen={searchOpen}
+          onToggleSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          onFullscreen={() => window.store.toggleSessFullscreen(true)}
+        />
       </span>
     </div>
   )

@@ -12,6 +12,7 @@ const TERM_SEARCH_STYL = path.join(ROOT, 'src/client/components/terminal/term-se
 const SESSION_CONTROL = path.join(ROOT, 'src/client/components/session/session-control.jsx')
 const SESSION_CONTROL_STYL = path.join(ROOT, 'src/client/components/session/session-control.styl')
 const SESSION = path.join(ROOT, 'src/client/components/session/session.jsx')
+const ACTIONS = path.join(ROOT, 'src/client/components/common/session-bar-actions.jsx')
 const LAYOUT = path.join(ROOT, 'src/client/components/layout/layout.jsx')
 const DB_SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const DB_SESSION_STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
@@ -123,14 +124,18 @@ describe('terminal inline wiring (session-control / session / layout)', () => {
   test('search bar rendered inline before the search icon in term-controls', () => {
     const src = sessionControlSrc()
     const i1 = src.indexOf('<TermSearch tab={tab} />')
-    const i2 = src.indexOf('{renderSearchIcon()}')
+    // S1 起查找/全屏图标来自共享动作组件 renderBarActions()
+    const i2 = src.indexOf('{renderBarActions()}')
     assert.ok(i1 >= 0, 'TermSearch must be mounted in session-control')
     assert.ok(i2 > i1, 'search bar must expand to the left of the search icon')
   })
 
   test('search icon active state driven by searchOpen prop', () => {
     const src = sessionControlSrc()
-    assert.ok(src.includes("'search-open': searchOpen"), 'active class drifted')
+    // S1：激活态类移入 common/session-bar-actions.jsx（searchOpen 透传）
+    const actionsSrc = load(ACTIONS)
+    assert.ok(actionsSrc.includes("searchOpen ? ' search-open' : ''"), 'active class drifted')
+    assert.ok(src.includes('searchOpen={searchOpen}'), 'session-control must pass searchOpen to SessionBarActions')
     const styl = load(SESSION_CONTROL_STYL)
     const block = stylBlock(styl, '.search-open')
     assert.ok(block.includes('color var(--primary)'), '.search-open must use primary color (same as .db-search-on)')

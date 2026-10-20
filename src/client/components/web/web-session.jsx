@@ -19,6 +19,11 @@ export default function WebSession (props) {
     description: tab.description,
     zoom,
     onZoom: handleZoom,
+    // S1：web 页此前整类缺失全屏入口，地址栏右端补齐（与终端/DB 同组件同口径）
+    onFullscreen: () => {
+      window.store.activeTabId = tab.id
+      window.store.toggleSessFullscreen(true, tab.id)
+    },
     onOpen: () => {
       window.openLink(tab.url)
     },

@@ -20,7 +20,6 @@ import {
   terminalRdpType,
   terminalVncType,
   terminalWebType,
-  terminalTelnetType,
   terminalFtpType,
   terminalSpiceType,
   terminalDatabaseType,
@@ -385,10 +384,11 @@ export default class SessionWrapper extends Component {
 
   isNotTerminalType = () => {
     const { type } = this.props.tab
+    // telnet 不在名单内（S1）：它本质是终端，与 ssh 同路径走 SessionControl，
+    // 由此获得查找/全屏等窗口级动作（此前整类缺失）
     return type === terminalRdpType ||
       type === terminalVncType ||
       type === terminalWebType ||
-      type === terminalTelnetType ||
       type === terminalFtpType ||
       type === terminalSpiceType ||
       // 数据库页有自己的顶部工具条（引擎/目标/状态/只读/刷新），

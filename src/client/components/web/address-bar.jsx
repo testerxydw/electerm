@@ -11,6 +11,7 @@ import {
   EllipsisOutlined
 } from '@ant-design/icons'
 import ZoomControl from '../common/zoom-control'
+import SessionBarActions from '../common/session-bar-actions'
 
 export default function AddressBar (props) {
   const {
@@ -20,7 +21,8 @@ export default function AddressBar (props) {
     title,
     description,
     zoom,
-    onZoom
+    onZoom,
+    onFullscreen
   } = props
   const content = (
     <>
@@ -70,6 +72,11 @@ export default function AddressBar (props) {
               >
                 <EllipsisOutlined className='pointer' />
               </Dropdown>
+              {/* S1：web 页全屏入口（无查找，web 内容不可搜） */}
+              <SessionBarActions
+                showSearch={false}
+                onFullscreen={onFullscreen}
+              />
             </Space>
           }
         />
