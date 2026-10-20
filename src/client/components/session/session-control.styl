@@ -86,10 +86,12 @@
 .sess-icon
     margin-right 0
 
-// T5-2d 会话信息三段（ssh2 算法 / zsh 版本 / ↑↓ 速率），右端灯态开关
+// T5-2d 会话信息三段（ssh2 算法 / zsh 版本 / ↑↓ 速率），前部灯态开关
+// (T5-4d 布局调整: fright → fleft, 紧跟 终端/SFTP 切换 tab 靠前排布)
 .session-bar-status
   display inline-flex
   align-items center
+  margin-left 4px
   margin-right 8px
   min-width 0
   .session-bar-status-segs
