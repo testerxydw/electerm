@@ -29,7 +29,8 @@ function areEqual (prevProps, nextProps) {
     prevProps.itemLevel === nextProps.itemLevel &&
     prevProps.itemColor === nextProps.itemColor &&
     prevProps.itemDescription === nextProps.itemDescription &&
-    prevProps.itemLabel === nextProps.itemLabel
+    // T5-5b 会话树状态点: 活跃态变化必须穿透 memo, 否则绿点不亮/不灭
+    prevProps.hasActiveSession === nextProps.hasActiveSession
 }
 
 function TreeListItem (props) {
@@ -126,6 +127,7 @@ function TreeListItem (props) {
       <div
         {...titleProps}
       >
+        {!isGroup && props.hasActiveSession && <span className='tree-session-dot' />}
         {colorTag}{tag}{isDbSession(item) && <DbEngineMark dbType={item.dbType} />}{titleHighlight}
       </div>
       {isDbSession(item) && <DbEngineBadge dbType={item.dbType} />}

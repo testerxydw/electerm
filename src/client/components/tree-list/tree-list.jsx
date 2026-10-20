@@ -970,6 +970,12 @@ export default class ItemListTree extends Component {
         multiSelected={this.state.selectedIds.includes(row.item.id)}
         staticList={this.props.staticList}
         leftSidePanelWidth={this.props.leftSidePanelWidth}
+        // T5-5b 会话树状态点: 该书签存在打开中的 tab (srcId 派生) 时行首亮绿点
+        hasActiveSession={
+          this.activeBookmarkIds
+            ? this.activeBookmarkIds.has(row.item.id)
+            : false
+        }
         {...pick(
           this,
           [
@@ -1168,6 +1174,12 @@ export default class ItemListTree extends Component {
     const { rows } = this.getVisibleTreeData()
     const editor = this.getEditorOverlayState(rows)
     const { keyword } = this.state
+    // T5-5b 会话树状态点数据源: 打开中的 tab 的书签 id 集合 (tab.srcId 派生);
+    // 设置页列表(staticList)无会话语义, 不计算。render 内读取 window.store.tabs,
+    // manate 追踪 tab 增删自动刷新状态点
+    this.activeBookmarkIds = staticList
+      ? null
+      : new Set(window.store.tabs.filter(t => t.srcId).map(t => t.srcId))
     // T5-5a 空态判定: 搜索无结果 or 无任何书签; 空态只替换树区, header 保持可用
     const emptyType = keyword && !rows.length
       ? 'search'

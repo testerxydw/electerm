@@ -272,3 +272,25 @@
   display flex
   gap 8px
   margin-top 10px
+
+// T5-5b 会话树状态点: 书签存在打开中的 tab (srcId 派生) 时行首绿点,
+// opacity 呼吸 (与 REC 红点同口径); prefers-reduced-motion 时静止
+.tree-session-dot
+  display inline-block
+  width 7px
+  height 7px
+  margin-right 5px
+  border-radius var(--radius-pill)
+  background var(--success)
+  vertical-align middle
+  animation tree-dot-breathe 2s var(--ease) infinite
+
+@keyframes tree-dot-breathe
+  0%, 100%
+    opacity 1
+  50%
+    opacity .35
+
+@media (prefers-reduced-motion: reduce)
+  .tree-session-dot
+    animation none

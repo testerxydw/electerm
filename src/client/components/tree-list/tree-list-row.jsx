@@ -20,6 +20,7 @@ function TreeListRow (props) {
     multiSelected,
     staticList,
     leftSidePanelWidth,
+    hasActiveSession,
     handleExpand,
     handleUnExpand,
     del,
@@ -75,7 +76,11 @@ function TreeListRow (props) {
         className={`tree-list-row${isHidden ? ' is-hidden' : ''}`}
         style={{ paddingLeft: depth * treeLevelIndent }}
       >
-        <TreeListItem {...itemProps} />
+        <TreeListItem
+          {...itemProps}
+          // T5-5b: 状态点仅书签行, 组行不传
+          hasActiveSession={hasActiveSession}
+        />
         <TreeItemOp
           item={item}
           isGroup={isGroup}
