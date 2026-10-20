@@ -22,6 +22,13 @@ export function handleSessionControlMessage (msg, tabId) {
     }
     return true
   }
+  if (msg.action === 'shell-info' && msg.update) {
+    store.sessionInfoMap[tabId] = {
+      ...store.sessionInfoMap[tabId],
+      ...msg.update
+    }
+    return true
+  }
   return false
 }
 

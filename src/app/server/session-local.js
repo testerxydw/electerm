@@ -3,10 +3,32 @@
  */
 
 const { resolve: pathResolve } = require('path')
+const { execFile } = require('child_process')
 const { TerminalBase } = require('./session-base')
 const globalState = require('./global-state')
 // const { MockBinding } = require('@serialport/binding-mock')
 // MockBinding.createPort('/dev/ROBOT', { echo: true, record: true })
+
+// 顶栏 zsh 版本探测: 本地 zsh shell 起好后一次 exec --version, 失败静默
+function probeZshVersion (execPath, ws, tabId) {
+  if (!/(^|\/)zsh(\.exe)?$/.test(execPath || '')) {
+    return
+  }
+  try {
+    execFile(execPath, ['--version'], { timeout: 1500 }, (err, stdout) => {
+      if (err || !stdout) {
+        return
+      }
+      ws?.s({
+        action: 'shell-info',
+        tabId,
+        update: {
+          shellVersion: stdout.split('\n')[0].trim()
+        }
+      })
+    })
+  } catch (e) {}
+}
 
 class TerminalLocal extends TerminalBase {
   init () {
@@ -65,6 +87,7 @@ class TerminalLocal extends TerminalBase {
     })
     this.term.termType = termType
     globalState.setSession(this.pid, this)
+    probeZshVersion(exec, this.ws, this.initOptions.srcTabId)
     return Promise.resolve(this)
   }
 

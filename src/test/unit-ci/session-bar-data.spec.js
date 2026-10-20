@@ -81,6 +81,19 @@ describe('session-bar-data handleSessionControlMessage', () => {
     assert.equal(handleSessionControlMessage({ action: 'ssh-handshake-info', update: {} }, 'tab-1'), true)
   })
 
+  test('shell-info merges shellVersion into sessionInfoMap', () => {
+    const consumed = handleSessionControlMessage({
+      action: 'shell-info',
+      tabId: 'tab-3',
+      update: { shellVersion: 'zsh 5.9 (x86_64-pc-linux-gnu)' }
+    }, 'tab-3')
+    assert.equal(consumed, true)
+    assert.equal(
+      window.store.sessionInfoMap['tab-3'].shellVersion,
+      'zsh 5.9 (x86_64-pc-linux-gnu)'
+    )
+  })
+
   test('missing store guards against early-boot calls', () => {
     delete window.store
     const consumed = handleSessionControlMessage({
