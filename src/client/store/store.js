@@ -180,12 +180,10 @@ class Store {
     return createTitle(window.store.currentTab)
   }
 
-  get inActiveTerminal () {
-    const { store } = window
-    if (store.showModal) {
-      return false
-    }
-    const { currentTab } = store
+  // 终端类活动页判定（不含弹窗因素）：终端日志页签可用性据此 gating，
+  // 弹窗打开时页签不应跟着消失，故与 inActiveTerminal（含 showModal）拆分
+  get inTerminalTab () {
+    const { currentTab } = window.store
     if (!currentTab) {
       return false
     }
@@ -202,6 +200,14 @@ class Store {
     }
     return currentTab.sshSftpSplitView ||
       currentTab.pane === paneMap.terminal
+  }
+
+  get inActiveTerminal () {
+    const { store } = window
+    if (store.showModal) {
+      return false
+    }
+    return store.inTerminalTab
   }
 
   get defaultProfileId () {

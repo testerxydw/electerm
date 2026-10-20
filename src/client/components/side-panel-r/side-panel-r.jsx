@@ -21,6 +21,7 @@ export default memo(function RightSidePanel (
     title,
     rightPanelTab,
     isMobile,
+    inTerminalTab,
     cmdHistoryInRightPanel,
     quickCommandsInRightPanel
   }
@@ -52,6 +53,16 @@ export default memo(function RightSidePanel (
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [rightPanelVisible])
 
+  // 非终端类页（数据库/web 等）时终端日志页签隐藏（底栏开关同口径隐藏），
+  // 面板若正开在 info 页签则自动切到传输页签，避免留下无人处置的空白面板
+  // （TerminalInfo 对 pid 不匹配渲染 null，见 terminal-info.jsx）。此 hook
+  // 同样必须保持在 early return 之上。
+  useEffect(() => {
+    if (rightPanelTab === 'info' && !inTerminalTab) {
+      window.store.rightPanelTab = 'transfer'
+    }
+  }, [rightPanelTab, inTerminalTab])
+
   if (!rightPanelVisible) {
     return null
   }
@@ -60,7 +71,8 @@ export default memo(function RightSidePanel (
   // would make it full height over the footer for no reachable reason.
   const pinned = rightPanelPinned && !isMobile
   // 对齐重设计草图的右面板页签：AI / 传输 / 监控；
-  // 终端日志与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动；
+  // 终端日志与底栏信息按钮同状态（rightPanelTab='info'），页签/按钮灯态联动，
+  // 仅终端类页显示（inTerminalTab，数据库等页隐藏）；
   // 命令历史/快捷命令寄居右面板时（双 home），顶栏动态出现对应页签并选中
   const aiDisabled = isAIDisabled()
   const tabs = [
@@ -128,18 +140,20 @@ export default memo(function RightSidePanel (
         align='center'
       >
         {
-          tabs.filter(t => t.key !== 'ai' || !aiDisabled).map(t => (
-            <span
-              key={t.key}
-              className={
-                'right-panel-tab' +
-                (rightPanelTab === t.key ? ' on' : '')
-              }
-              onClick={() => { window.store.rightPanelTab = t.key }}
-            >
-              {t.label}
-            </span>
-          ))
+          tabs
+            .filter(t => (t.key !== 'ai' || !aiDisabled) && (t.key !== 'info' || inTerminalTab))
+            .map(t => (
+              <span
+                key={t.key}
+                className={
+                  'right-panel-tab' +
+                  (rightPanelTab === t.key ? ' on' : '')
+                }
+                onClick={() => { window.store.rightPanelTab = t.key }}
+              >
+                {t.label}
+              </span>
+            ))
         }
         <span className='right-panel-tab-grow' />
         <span className='right-panel-tab-title elli'>{title}</span>
