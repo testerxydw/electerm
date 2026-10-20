@@ -42,7 +42,7 @@
 
 #### 5. #4499 + #4501 + #4065 长时使用/长命令渲染错乱（根因：xterm beta）
 - **根因**：`package.json:74` 锁定 `@xterm/xterm 6.1.0-beta.292`（非稳定版）；beta 的 reflow 重写（xterm.js#5321）导致回绕重排错乱；reload 恢复（`term-socket.js:419-432`）把已污染 buffer 原样重放，无法自愈。
-- **修复**：① 升级 xterm 至 6.1 稳定版（根治）；② reload 时先 `term.reset()` 再重放；③ 临时规避：rendererType 切 webgl（`term-theme.js:19-36` 已支持）。
+- **修复**：~~① 升级 xterm 至 6.1 稳定版（根治）~~（2026-10-20 调研修正：xtermjs#5321 已 merged 进 6.0.0 稳定但 beta.302 用户仍错乱——稳定版≠修复；官方 addon 无 6.0 配套稳定版，fork `@electerm/xterm` 补丁=定制滚动条、回官方即丢，结构性不可行，**降级跟踪项**，详见 `调研-xterm稳定版升级影响与路径-2026-10-20.md`）；② reload 时先 `term.reset()` 再重放（仍有效，可独立做）；③ 临时规避：rendererType 切 webgl（`term-theme.js:19-36` 已支持）。
 
 #### 6. #4252 + #4154 + #4090 TUI 应用（claude code / opencode / neovim）错行（高置信）
 - **根因**：`attach-addon-custom.js:196-204` 注释自认：TUI 用 `ESC[nA` 回退重绘，触发 2M 字符丢帧（`:562-575`）即损坏屏幕；`:56-82` 幸存帧头部光标操作又被 `stripLeadingCursorOps` 剥离 → 重绘落错行。
@@ -118,6 +118,6 @@
 | 批次 | 内容 | 理由 |
 | --- | --- | --- |
 | P0 | #4378 崩溃守卫、#4520 解密失败不静默、#4251 队列 try/finally | 崩溃/数据丢失，改动小 |
-| P1 | #4539 背景色（1 处改动）、#4004 排除 showFileModal、#4535 cd /d、#4055 并行 stat、#4216 visibilitychange、xterm 升稳定版 | 高频，多数是小改动；xterm 升级需回归测试单列 |
+| P1 | #4539 背景色（1 处改动）、#4004 排除 showFileModal、#4535 cd /d、#4055 并行 stat、#4216 visibilitychange | 高频，多数是小改动；~~xterm 升稳定版~~已移出（降级跟踪项） |
 | P2 | TUI alternate 直写、#4481 丢帧标记、#4464 补 scheme、#4397 盘根、#4319 选区暂停 | 涉及传输核心逻辑，需单测配套 |
-| 上游 | xterm 6.1.0-beta → 稳定版依赖升级 | 根治 #4499/#4501/#4065/#4252/#4154/#4090 六个渲染错乱类 |
+| 上游 | ~~xterm 6.1.0-beta → 稳定版依赖升级~~ | 2026-10-20 调研修正：结构性不可行，降级跟踪项（见 `调研-xterm稳定版升级影响与路径-2026-10-20.md`）；TUI alternate 直写与版本升级解耦，仍可独立推进 |

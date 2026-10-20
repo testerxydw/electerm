@@ -96,7 +96,7 @@
 - [x] 底栏快速命令带：已实施（`fdd3fbbc` 首版 + `6cd9ace9` 挤压截断修复，`footer/quick-cmd-strip.jsx`）
 
 ### 上游跟踪（`doc/上游issue分析-2026-10-13.md`）
-- [ ] 🔥 xterm 6.1.0-beta reflow 回归（#4499，与我们内部结论互证）：升级稳定版 + alternate buffer 直写，可一并消掉 4501/4481/4439 一类渲染错乱
+- [ ] ⏸ xterm 6.1.0-beta 渲染回归（#4499 等，均属 electerm 仓库）：**已降级为跟踪项**（2026-10-20 调研 `doc/调研-xterm稳定版升级影响与路径-2026-10-20.md`——升 6.0.0 稳定结构性不可行（addon 断层+fork 滚动条补丁丢失），reflow 重写已在 6.0.0 内但错乱未根治）。触发信号：官方 6.1 稳定 / fork rebase / 上游 package.json 变动；TUI alternate buffer 直写（丢帧类）可解耦独立做
 - [ ] 提上游 PR：`fix/window-control-icons`、`style/window-controls-seamless` 分支已 push github 未提 PR；SearchBar/SessionShell 稳定后跟进
 - [ ] #4539（背景色被强制同步主色）：实测一次确认本分支是否复现
 - [ ] 合并上游注意：#4581 标签栏三键与 `.tabs-corner` 并行，冲突面在 `tabs.styl`/`tabs/index.jsx`
@@ -125,4 +125,4 @@
 
 ## 5. 一句话
 
-**先提交在途的网格滚动改动，然后 S0（零风险地基）→ S1/S2（动作不丢 + 口径单点）→ S3/S4（查找体验）→ 间隙穿插 DB 遗留 P1-7 / 关键字同步 A / 快速命令带三个独立小项；xterm 稳定版升级是上游侧收益最大的一项，S6/S5 视情况再做。**
+**先提交在途的网格滚动改动，然后 S0（零风险地基）→ S1/S2（动作不丢 + 口径单点）→ S3/S4（查找体验）→ 间隙穿插 DB 遗留 P1-7 / 关键字同步 A / 快速命令带三个独立小项；xterm 升级已降级为跟踪项（调研见 `doc/调研-xterm稳定版升级影响与路径-2026-10-20.md`），S6/S5 视情况再做。**
