@@ -114,11 +114,12 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
     const dir = order === 'descend' ? 'DESC' : 'ASC'
     sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir
   }
-  sql += ' LIMIT ' + pageSize + ' OFFSET ' + offset
+  // 多取 1 行判定是否还有下一页：末页恰好整页时 hasMore 不再误报 true
+  sql += ' LIMIT ' + (pageSize + 1) + ' OFFSET ' + offset
   const res = await c.query(sql)
   return {
-    rows: res.rows,
-    hasMore: res.rows.length >= pageSize
+    rows: res.rows.slice(0, pageSize),
+    hasMore: res.rows.length > pageSize
   }
 }
 

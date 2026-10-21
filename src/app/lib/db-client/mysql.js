@@ -217,13 +217,14 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
     const dir = order === 'descend' ? 'DESC' : 'ASC'
     sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir
   }
-  sql += ' LIMIT ' + pageSize + ' OFFSET ' + offset
+  // 多取 1 行判定是否还有下一页：末页恰好整页时 hasMore 不再误报 true
+  sql += ' LIMIT ' + (pageSize + 1) + ' OFFSET ' + offset
   log.debug('getPageData sql:', sql)
   const [rows] = await pool.query(sql)
   const totalRows = database ? await getApproxRows(pool, database, table) : undefined
   return {
-    rows: rowToPlain(rows),
-    hasMore: rows.length >= pageSize,
+    rows: rowToPlain(rows.slice(0, pageSize)),
+    hasMore: rows.length > pageSize,
     totalRows
   }
 }
