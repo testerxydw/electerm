@@ -12,6 +12,7 @@ import {
   PlusOutlined,
   MinusOutlined,
   PlayCircleFilled,
+  PauseCircleFilled,
   StopOutlined
 } from '@ant-design/icons'
 import { Tooltip, Popover } from 'antd'
@@ -46,6 +47,7 @@ export default function SessionControl (props) {
     broadcastInput,
     wrapDisabled,
     recording,
+    recPaused,
     pasteWhenContextMenu,
     onChangePane,
     toggleCheckSftpPathFollowSsh,
@@ -54,6 +56,7 @@ export default function SessionControl (props) {
     toggleBroadcastInput,
     toggleWrap,
     toggleSessionRecord,
+    toggleSessionRecordPause,
     onFullscreen,
     searchOpen,
     onOpenSearch,
@@ -249,9 +252,10 @@ export default function SessionControl (props) {
     )
   }
 
-  // T5-4d: 录制开关上顶栏 (与 keepalive/broadcast 同形态)。状态源 store.recState
-  // (父级 session.jsx render 读取后传 recording prop, manate 追踪在父级);
-  // 图标/文案与右键菜单同款 (PlayCircleFilled/StopOutlined + record/stopRecord)
+  // T5-4d/T5-4f: 录制开关上顶栏 (与 keepalive/broadcast 同形态)。状态源 store.recState
+  // (父级 session.jsx render 读取后传 recording/recPaused prop, manate 追踪在父级);
+  // 三态: 未录制 Play 开始 / 录制中 Stop 停止+Pause 暂停 / 暂停中 Stop 停止+Play 继续,
+  // 图标只做快捷控制, 不打开终端日志页。
   function renderRecordIcon () {
     const title = e(recording ? 'stopRecord' : 'record')
     const iconProps = {
@@ -260,10 +264,36 @@ export default function SessionControl (props) {
       }),
       onClick: toggleSessionRecord
     }
+    const pauseTitle = recPaused ? 'Resume' : 'Pause'
     return (
-      <Tooltip title={title}>
-        {recording ? <StopOutlined {...iconProps} /> : <PlayCircleFilled {...iconProps} />}
-      </Tooltip>
+      <>
+        <Tooltip title={title}>
+          {recording ? <StopOutlined {...iconProps} /> : <PlayCircleFilled {...iconProps} />}
+        </Tooltip>
+        {
+          recording
+            ? (
+              <Tooltip title={pauseTitle}>
+                {
+                  recPaused
+                    ? (
+                      <PlayCircleFilled
+                        className='sess-icon pointer session-record-pause'
+                        onClick={toggleSessionRecordPause}
+                      />
+                      )
+                    : (
+                      <PauseCircleFilled
+                        className='sess-icon pointer session-record-pause'
+                        onClick={toggleSessionRecordPause}
+                      />
+                      )
+                }
+              </Tooltip>
+              )
+            : null
+        }
+      </>
     )
   }
 

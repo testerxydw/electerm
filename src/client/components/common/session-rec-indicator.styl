@@ -22,6 +22,10 @@
     border-radius var(--radius-pill)
     background var(--error)
     animation rec-blink 1.2s steps(2, start) infinite
+  // 暂停态: 红点静止变暗, 文字改为 Paused MM:SS
+  &.paused .rec-dot
+    animation none
+    opacity 0.45
 
 @keyframes rec-blink
   from

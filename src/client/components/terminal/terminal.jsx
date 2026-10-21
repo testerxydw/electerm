@@ -69,8 +69,6 @@ class Term extends Component {
       addTimeStampToTermLog: !!this.props.config.addTimeStampToTermLog,
       logPath: this.props.config.sessionLogPath || createDefaultLogPath(),
       logFileName: '',
-      recording: false,
-      recordingFilePath: '',
       passType: 'password',
       lines: [],
       searchResults: [],

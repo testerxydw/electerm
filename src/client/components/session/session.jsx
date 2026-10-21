@@ -663,6 +663,8 @@ export default class SessionWrapper extends Component {
       : (
         <SessionRecIndicator
           recording={!!rec}
+          paused={!!rec?.paused}
+          startTime={rec?.startTime || 0}
           recPath={rec?.path}
           tabId={this.props.tab.id}
         />
@@ -704,6 +706,7 @@ export default class SessionWrapper extends Component {
           wrapDisabled={this.state.wrapDisabled}
           // T5-4d: 录制开关上顶栏, 状态在此读 recState (manate 追踪点) 传下去
           recording={!!rec}
+          recPaused={!!rec?.paused}
           pasteWhenContextMenu={!!this.props.config.pasteWhenContextMenu}
           onChangePane={(pane) => this.onChangePane(pane)}
           toggleCheckSftpPathFollowSsh={this.toggleCheckSftpPathFollowSsh}
@@ -712,6 +715,7 @@ export default class SessionWrapper extends Component {
           toggleBroadcastInput={this.toggleBroadcastInput}
           toggleWrap={this.toggleWrap}
           toggleSessionRecord={() => window.store.toggleSessionRecord(this.props.tab.id)}
+          toggleSessionRecordPause={() => window.store.toggleSessionRecordPause(this.props.tab.id)}
           onFullscreen={this.handleFullscreen}
           onZoomFontSize={this.handleZoomFontSize}
           searchOpen={!!window.store.termSearchOpen}

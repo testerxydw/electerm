@@ -2,7 +2,7 @@ import { pick } from 'lodash-es'
 import { notification } from '../../common/notification'
 import ShowItem from '../../common/show-item.jsx'
 import { refs } from '../../common/ref.js'
-import { startTerminalLogFile, toggleTerminalLog } from '../terminal-apis.js'
+import { startTerminalLogFile } from '../terminal-apis.js'
 import { getFolderFromFilePath } from '../../sftp/file-read.js'
 
 const e = window.translate
@@ -54,32 +54,10 @@ export const logMixin = {
     })
   },
 
-  async onRecord () {
-    const filePath = await this.openLogSaveDialog('record')
-    if (!filePath) {
-      return
-    }
-    const { addTimeStampToTermLog } = this.state
-    startTerminalLogFile(this.pid, filePath, addTimeStampToTermLog).catch(window.store.onError)
-    const { path: logPath, name: logFileName } = getFolderFromFilePath(filePath, false)
-    this.syncTermInfo({ saveTerminalLogToFile: true, logPath, logFileName })
-    this.setState({ recording: true, recordingFilePath: filePath })
-    notification.success({
-      message: e('record'),
-      description: <ShowItem to={filePath}>{filePath}</ShowItem>,
-      duration: 5
-    })
-  },
-
-  onStopRecord () {
-    const { recordingFilePath } = this.state
-    toggleTerminalLog(this.pid).catch(window.store.onError)
-    this.syncTermInfo({ saveTerminalLogToFile: false })
-    this.setState({ recording: false, recordingFilePath: '' })
-    notification.success({
-      message: e('stopRecord'),
-      description: <ShowItem to={recordingFilePath}>{recordingFilePath}</ShowItem>
-    })
+  // T5-4f: 录制与终端日志统一到右侧「终端日志」页；
+  // 右键仅负责打开该页（开始/暂停/停止与日志开关都在页内）。
+  onRecord () {
+    window.store.openInfoPanel()
   },
 
   handleShowInfo () {

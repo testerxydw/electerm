@@ -14,7 +14,7 @@ const e = window.translate
  */
 export const contextMenuMixin = {
   renderContextMenu () {
-    const { hasSelection, recording } = this.state
+    const { hasSelection } = this.state
     const copyed = true
     const copyShortcut = this.getShortcut('terminal_copy')
     const pasteShortcut = this.getShortcut('terminal_paste')
@@ -89,9 +89,9 @@ export const contextMenuMixin = {
         label: e('saveTerminalLogToFile')
       },
       {
-        key: recording ? 'onStopRecord' : 'onRecord',
-        icon: recording ? <iconsMap.StopOutlined /> : <iconsMap.PlayCircleFilled />,
-        label: e(recording ? 'stopRecord' : 'record')
+        key: 'onRecord',
+        icon: <iconsMap.PlayCircleFilled />,
+        label: e('record')
       }
     ]
     if (isSerial) {
