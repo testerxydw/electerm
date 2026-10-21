@@ -20,8 +20,20 @@ function loadIsShellSessionTab () {
   const setDecl = src.match(/const shellSessionTypeSet = new Set\(\[[^\]]*\]\)/)
   const fnDecl = src.match(/const isShellSessionTab = \(tab\) => \{[\s\S]*?\n\}/)
   assert.ok(setDecl && fnDecl, 'constants.js 须导出 shellSessionTypeSet + isShellSessionTab')
+  // Set 里引用了类型常量（terminalLocalType 等），沙箱需先按源码还原这些定义
+  const prelude = ['terminalLocalType', 'terminalTelnetType', 'terminalSerialType']
+    .map(k => {
+      const m = src.match(new RegExp(`export const ${k} = '([^']*)'`))
+      assert.ok(m, `constants.js 须定义 ${k}`)
+      return `const ${k} = '${m[1]}'`
+    })
+    .join('\n')
   const sandbox = {}
-  vm.runInNewContext(`${setDecl[0]}\n${fnDecl[0]}; sandbox.f = isShellSessionTab; sandbox.set = shellSessionTypeSet`, sandbox)
+  sandbox.sandbox = sandbox
+  vm.runInNewContext(
+    `${prelude}\n${setDecl[0]}\n${fnDecl[0]}; sandbox.f = isShellSessionTab; sandbox.set = shellSessionTypeSet`,
+    sandbox
+  )
   return { isShellSessionTab: sandbox.f, set: sandbox.set }
 }
 

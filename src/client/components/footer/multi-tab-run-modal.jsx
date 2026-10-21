@@ -5,6 +5,9 @@
  * Reuses the footer batch input tab panel (`TabSelectList`) for picking the
  * target terminals, and the same selection state + `batchInput` terminal API
  * the footer batch input uses, so both entry points stay consistent.
+ *
+ * Pass `onRun(tabIds)`, `preview` and `title` to run something other than a single
+ * command line, such as a quick command.
  */
 
 import { auto } from 'manate/react'
@@ -19,7 +22,7 @@ import { isShellSessionTab } from '../../common/constants'
 const e = window.translate
 
 export default auto(function MultiTabRunModal (props) {
-  const { store, cmd, onClose } = props
+  const { store, cmd, onClose, onRun, preview, title } = props
   const selectedTabIds = store.batchInputSelectedTabIds
   // 只列有终端实例的 shell 会话 tab（白名单见 constants.js
   // isShellSessionTab），与底栏批量输入同口径
@@ -38,6 +41,12 @@ export default auto(function MultiTabRunModal (props) {
     onSelectNone: store.selectNoneBatchInputTabs
   }
   function handleRun () {
+    if (onRun) {
+      // only the terminals listed here, never a web or remote desktop tab
+      onRun(selectedTabIds.filter(id => tabs.some(t => t.id === id)))
+      onClose()
+      return
+    }
     selectedTabIds.map(id => {
       return refs.get('term-' + id)
     }).forEach(term => {
@@ -49,7 +58,7 @@ export default auto(function MultiTabRunModal (props) {
   return (
     <Modal
       open
-      title={e('runInAllTerminals')}
+      title={title || e('runInAllTerminals')}
       onCancel={onClose}
       destroyOnHidden
       width={520}
@@ -70,7 +79,7 @@ export default auto(function MultiTabRunModal (props) {
         </Button>
       ]}
     >
-      <div className='multi-tab-run-cmd'>{cmd}</div>
+      <div className='multi-tab-run-cmd'>{preview || cmd}</div>
       <TabSelectList {...listProps} />
     </Modal>
   )

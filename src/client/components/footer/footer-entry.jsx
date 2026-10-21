@@ -26,6 +26,10 @@ import TriggerSessionModal from '../triggers/trigger-session-modal'
 import AIIcon from '../icons/ai-icon'
 import { isAIDisabled } from '../../common/ai-feature'
 import CmdHistory from './cmd-history'
+import QmRunStatus from '../quick-commands/qm-run-status'
+import QmRunInTabs from '../quick-commands/qm-run-in-tabs'
+import QmRecordStatus from '../quick-commands/qm-record-status'
+import QmPrompt from '../quick-commands/qm-prompt'
 
 const e = window.translate
 
@@ -359,6 +363,11 @@ export default auto(function FooterEntry (props) {
         {inActiveTerminal && props.store.hasShellSession && renderMonitorIcon()}
         {inActiveTerminal && renderCmdHistory()}
         {inActiveTerminal && renderQuickCommands()}
+        {/* 快捷命令多步执行状态/选择/录制/输入提示：全页面常显（与运行态解耦） */}
+        <QmRunStatus store={props.store} />
+        <QmRunInTabs store={props.store} />
+        <QmRecordStatus store={props.store} />
+        <QmPrompt store={props.store} />
         {inActiveTerminal && renderTriggers()}
         {inActiveTerminal && renderBatchInputs()}
         {inActiveTerminal && renderQuickCmdStrip()}
