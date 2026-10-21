@@ -169,16 +169,17 @@ describe('session-recorder: 接线契约', () => {
     assert.doesNotMatch(sessionStoreJs, /recStart|recStop|startRecord|stopRecord2/)
   })
 
-  it('T5-4e: 停录通知可点击定位文件 (notification.open + showItemInFolder)', () => {
+  it('T5-4e: 停录通知可点击定位文件 (ShowItem 链接模式, 同 term-log 通知)', () => {
     assert.match(sessionStoreJs, /notification\.open\(\{/,
       '停录后应有可点击通知')
     const stopSeg = sessionStoreJs.slice(
       sessionStoreJs.indexOf('delete store.recState[tabId]'),
       sessionStoreJs.indexOf("runGlobalAsync('createRecordFile')")
     )
-    assert.match(stopSeg, /window\.pre\.showItemInFolder\(rec\.path\)/,
-      '点击通知必须走 showItemInFolder 通道')
-    assert.match(stopSeg, /onClick: \(\) => \{/, '通知必须挂 onClick')
+    assert.match(stopSeg, /React\.createElement\(ShowItem, \{ to: rec\.path \}/,
+      '通知 description 必须用 ShowItem 链接 (点击直调 showItemInFolder 通道)')
+    // 反向: antd 6 静态 notification 卡片级 onClick 真机无响应, 弃用该形态
+    assert.doesNotMatch(stopSeg, /onClick: \(\) => \{/, '禁止回退卡片级 onClick')
     // 反向: 不得调 shell.openPath (cast 文件无默认关联程序, 打开会失败);
     // 匹配调用形式而非裸词, 避免注释提及 openPath 时误报
     assert.doesNotMatch(sessionStoreJs, /pre\.[a-zA-Z]*[Oo]penPath|shell\.openPath/)

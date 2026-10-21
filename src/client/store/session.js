@@ -3,8 +3,10 @@
  */
 
 import { debounce } from 'lodash-es'
+import React from 'react'
 import { notification } from 'antd'
 import message from '../components/common/message'
+import ShowItem from '../components/common/show-item'
 import { refs } from '../components/common/ref'
 
 const e = window.translate
@@ -26,19 +28,16 @@ export default Store => {
     const rec = store.recState[tabId]
     if (rec) {
       delete store.recState[tabId]
-      // T5-4e 停录通知可点击: 一键在文件管理器中定位 cast 文件
-      // (window.pre.showItemInFolder, 与 ShowItem/下载完成提示同通道);
-      // cast 文件无默认关联程序, 定位文件夹比 openPath 更通用
-      const key = 'rec-done-' + tabId
+      // T5-4e 停录通知可点击: 一键在文件管理器中定位 cast 文件。
+      // 复用 term-log 停录通知同款 ShowItem 链接模式 (真机验证过的点击通道,
+      // 直调 window.pre.showItemInFolder); antd 6 静态 notification 的卡片级
+      // onClick 真机无响应, 弃用。cast 文件无默认关联程序, 定位文件夹比
+      // openPath 更通用
       notification.open({
-        key,
+        key: 'rec-done-' + tabId,
         message: e('stopRecord'),
-        description: rec.path + ' (' + e('open') + ')',
-        duration: 12,
-        onClick: () => {
-          notification.close(key)
-          window.pre.showItemInFolder(rec.path)
-        }
+        description: React.createElement(ShowItem, { to: rec.path }, rec.path),
+        duration: 12
       })
       return
     }
