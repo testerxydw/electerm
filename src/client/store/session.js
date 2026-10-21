@@ -52,6 +52,19 @@ export default Store => {
       width: term?.cols || 80,
       height: term?.rows || 24
     }
+    // 输入录制默认关闭; 打开时首次开录提醒隐私边界（密码提示仍自动避录）
+    if (store.config.recordInput) {
+      message.warning('Keyboard input recording is on; password prompts are still skipped.')
+    }
     message.success(e('record') + ': ' + path)
+  }
+
+  // T5-4f 录制暂停/继续：只切 recState.paused, 录制引擎按该标志跳过输出与输入
+  Store.prototype.toggleSessionRecordPause = function (tabId) {
+    const rec = window.store.recState[tabId]
+    if (!rec) {
+      return
+    }
+    rec.paused = !rec.paused
   }
 }

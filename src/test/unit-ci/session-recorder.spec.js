@@ -279,6 +279,38 @@ describe('session-recorder: 接线契约', () => {
     assert.match(initStateJs, /recState: \{\}/)
   })
 
+  it('T5-4f 终端日志页: 目录行 + 打开目录 + cast 区控制 + 三个录制选项', () => {
+    const baseJsx = read('client/components/terminal-info/base.jsx')
+    // 顶部统一目录行, 图标与文字按钮同一动作
+    assert.match(baseJsx, /renderLogDir \(\)[\s\S]*?createDefaultLogPath\(\)/, '目录行必须展示统一日志目录')
+    assert.match(baseJsx, /runGlobalAsync\('openSessionLogDir'\)/, '必须经主进程打开目录')
+    assert.match(baseJsx, /FolderOutlined/, '目录行必须有文档图标入口')
+    // cast 区读 store 状态 + 时长 + 文件定位 + 控制
+    assert.match(baseJsx, /window\.store\.recState\[pid\]/, '录制状态必须来自 store')
+    assert.match(baseJsx, /formatDuration\(rec \? now - rec\.startTime : 0\)/, '必须展示录制时长')
+    assert.match(baseJsx, /ShowItem to=\{rec\.path\}/, '录制文件必须可定位')
+    assert.match(baseJsx, /window\.store\.toggleSessionRecord\(this\.props\.pid\)/)
+    assert.match(baseJsx, /window\.store\.toggleSessionRecordPause\(this\.props\.pid\)/)
+    for (const k of ['recordInput', 'recordStripOsc', 'recordAvoidPassword']) {
+      assert.match(baseJsx, new RegExp(`renderRecSetting\\('${k}'`), `${k} 必须在本页可切换`)
+    }
+  })
+
+  it('T5-4f: toggleSessionRecordPause 只切 recState.paused, 不新建文件', () => {
+    const seg = sessionStoreJs.slice(
+      sessionStoreJs.indexOf('Store.prototype.toggleSessionRecordPause'),
+      sessionStoreJs.lastIndexOf('}')
+    )
+    assert.match(seg, /rec\.paused = !rec\.paused/)
+    assert.doesNotMatch(seg, /createRecordFile|delete store\.recState/, '暂停不得改变文件与录制状态')
+    // 反向: 输入录制提醒只在 recordInput 打开时出现
+    assert.match(sessionStoreJs, /if \(store\.config\.recordInput\) \{[\s\S]*?message\.warning\(/)
+  })
+
+  it('T5-4f: 密码避录受 recordAvoidPassword 配置控制', () => {
+    assert.match(addonJs, /recordAvoidPassword !== false[\s\S]*?this\.recorder\?\.pause\(\)/)
+  })
+
   it('store/session.js: toggle 走 createRecordFile IPC + delete 状态 + 复用语言包 record/stopRecord', () => {
     assert.match(sessionStoreJs, /runGlobalAsync\('createRecordFile'\)/)
     assert.match(sessionStoreJs, /delete store\.recState\[tabId\]/)

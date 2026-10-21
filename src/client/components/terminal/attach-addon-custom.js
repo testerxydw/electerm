@@ -504,8 +504,11 @@ export default class AttachAddonCustom {
     this._handleEchoDetection(str)
     if (this._checkPasswordPrompt(str) && !this._passwordPromptDetected) {
       this._passwordPromptDetected = true
-      // 密码提示出现: 录制立刻避录, 直到回车/回显确认提示结束
-      this.recorder?.pause()
+      // 密码提示出现: 录制立刻避录（recordAvoidPassword 关闭时不避录），
+      // 直到回车/回显确认提示结束
+      if (window.store?.config?.recordAvoidPassword !== false) {
+        this.recorder?.pause()
+      }
       // Show password dropdown immediately after terminal renders the prompt
       setTimeout(() => {
         this.term?.parent?.onPasswordPromptDetected?.()
