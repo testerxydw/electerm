@@ -13,6 +13,9 @@ const read = p => readFileSync(join(ROOT, p), 'utf8')
 const controlJsx = read('client/components/session/session-control.jsx')
 const sessionJsx = read('client/components/session/session.jsx')
 const indicatorJsx = read('client/components/common/session-rec-indicator.jsx')
+const baseJsx = read('client/components/terminal-info/base.jsx')
+const settingTerminalJsx = read('client/components/setting-panel/setting-terminal.jsx')
+const localesExtra = require('../../app/common/locales-extra')
 const termLogJs = read('client/components/terminal/mixins/term-log.jsx')
 const contextMenuJs = read('client/components/terminal/mixins/term-context-menu.jsx')
 
@@ -30,9 +33,33 @@ it('T5-4f 顶栏三态: 未录 Play 开始 / 录制中 Stop+Pause / 暂停中 St
     sessionJsx,
     /toggleSessionRecordPause=\{\(\) => window\.store\.toggleSessionRecordPause\(this\.props\.tab\.id\)\}/
   )
-  // 浮层暂停态显示 Paused 时长
-  assert.match(indicatorJsx, /paused \? `Paused \$\{formatDuration\(now - startTime\)\}` : 'REC'/)
+  // 浮层暂停态显示「已暂停」时长（文案走 translate，随语言切换）
+  assert.match(indicatorJsx, /paused \? `\$\{e\('paused'\)\} \$\{formatDuration\(now - startTime\)\}` : 'REC'/)
   assert.match(indicatorJsx, /\(paused \? ' paused' : ''\)/)
+})
+
+it('T5-4f 录制区文案走 translate: 中英文词条齐备, 页面不留裸英文', () => {
+  const keys = [
+    'openLogDir',
+    'sessionRecording',
+    'notRecording',
+    'recording',
+    'paused',
+    'recordInput',
+    'recordStripOsc',
+    'recordAvoidPassword'
+  ]
+  for (const k of keys) {
+    assert.ok(localesExtra.en[k], `en 缺少 ${k}`)
+    assert.ok(localesExtra.zh_cn[k], `zh_cn 缺少 ${k}`)
+  }
+  // 终端日志页与设置页的录制选项必须走 e(key)，不得直接写英文
+  for (const key of keys.slice(1)) {
+    assert.match(baseJsx, new RegExp(`e\\('${key}'\\)`), `终端日志页未翻译 ${key}`)
+  }
+  for (const key of ['recordInput', 'recordStripOsc', 'recordAvoidPassword']) {
+    assert.match(settingTerminalJsx, new RegExp(`renderToggle\\('${key}', 'pd2b', e\\('${key}'\\)\\)`))
+  }
 })
 
 it('T5-4f 右键归并: onRecord 打开终端日志页, 不再直接弹保存框', () => {

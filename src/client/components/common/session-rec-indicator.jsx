@@ -44,7 +44,7 @@ export default function SessionRecIndicator (props) {
         onClick={() => window.store.toggleSessionRecord(tabId)}
       >
         <span className='rec-dot' />
-        {paused ? `Paused ${formatDuration(now - startTime)}` : 'REC'}
+        {paused ? `${e('paused')} ${formatDuration(now - startTime)}` : 'REC'}
       </div>
     </Tooltip>
   )

@@ -177,13 +177,13 @@ export default class TerminalInfoBase extends Component {
         <b>{e('terminalLogPath')}:</b> {dir}{' '}
         <a
           href={dir}
-          title='Open log directory'
+          title={e('openLogDir')}
           onClick={this.handleOpenLogDir}
         >
           <FolderOutlined />
         </a>{' '}
         <a href={dir} onClick={this.handleOpenLogDir}>
-          Open log directory
+          {e('openLogDir')}
         </a>
       </div>
     )
@@ -206,12 +206,12 @@ export default class TerminalInfoBase extends Component {
     const { rec, now } = this.state
     const dur = formatDuration(rec ? now - rec.startTime : 0)
     const status = rec
-      ? (rec.paused ? `Paused ${dur}` : `Recording ${dur}`)
-      : 'Not recording'
+      ? (rec.paused ? `${e('paused')} ${dur}` : `${e('recording')} ${dur}`)
+      : e('notRecording')
     return (
       <div className='pd2t'>
         <div className='pd1b'>
-          <b>Session recording (cast)</b>
+          <b>{e('sessionRecording')}</b>
         </div>
         <div className='pd1b font-xs color-grey'>
           {status}
@@ -225,7 +225,7 @@ export default class TerminalInfoBase extends Component {
                     size='small'
                     onClick={this.handleToggleRecordPause}
                   >
-                    {rec.paused ? 'Resume' : 'Pause'}
+                    {rec.paused ? window.capitalizeFirstLetter(e('resume')) : window.capitalizeFirstLetter(e('pause'))}
                   </Button>
                   <Button
                     size='small'
@@ -254,9 +254,9 @@ export default class TerminalInfoBase extends Component {
             : null
         }
         <div className='pd1b'>
-          {this.renderRecSetting('recordInput', 'Record keyboard input')}
-          {this.renderRecSetting('recordStripOsc', 'Strip shell integration sequences')}
-          {this.renderRecSetting('recordAvoidPassword', 'Pause recording at password prompt')}
+          {this.renderRecSetting('recordInput', e('recordInput'))}
+          {this.renderRecSetting('recordStripOsc', e('recordStripOsc'))}
+          {this.renderRecSetting('recordAvoidPassword', e('recordAvoidPassword'))}
         </div>
       </div>
     )

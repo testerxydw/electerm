@@ -264,7 +264,7 @@ export default function SessionControl (props) {
       }),
       onClick: toggleSessionRecord
     }
-    const pauseTitle = recPaused ? 'Resume' : 'Pause'
+    const pauseTitle = window.capitalizeFirstLetter(e(recPaused ? 'resume' : 'pause'))
     return (
       <>
         <Tooltip title={title}>

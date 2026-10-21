@@ -192,7 +192,16 @@ const en = {
   kwImportNew: 'New subgroup',
   kwImportMerge: 'Merge into existing group',
   kwImportTip: 'Imported rules always belong to the User group; same keyword in the same group is skipped',
-  kwToggleFormat: 'Click to switch raw / formatted view'
+  kwToggleFormat: 'Click to switch raw / formatted view',
+  // 会话录制（cast）区
+  openLogDir: 'Open log directory',
+  sessionRecording: 'Session recording (cast)',
+  notRecording: 'Not recording',
+  recording: 'Recording',
+  paused: 'Paused',
+  recordInput: 'Record keyboard input',
+  recordStripOsc: 'Strip shell integration sequences',
+  recordAvoidPassword: 'Pause recording at password prompt'
 }
 
 // 简体中文
@@ -372,7 +381,16 @@ const zhCn = {
   kwImportNew: '新建子分组',
   kwImportMerge: '并入现有分组',
   kwImportTip: '导入的规则一律归「用户」分组；同分组内重复的关键字会自动跳过',
-  kwToggleFormat: '点击切换 原文 / 格式化显示'
+  kwToggleFormat: '点击切换 原文 / 格式化显示',
+  // 会话录制（cast）区
+  openLogDir: '打开日志目录',
+  sessionRecording: '会话录制（cast）',
+  notRecording: '未在录制',
+  recording: '录制中',
+  paused: '已暂停',
+  recordInput: '记录键盘输入',
+  recordStripOsc: '剥离 shell 集成序列',
+  recordAvoidPassword: '密码提示时暂停录制'
 }
 
 module.exports = {
