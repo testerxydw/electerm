@@ -88,7 +88,7 @@ export default function DbValuePane (props) {
   const activeFormat = formatKey !== 'raw' && formats.some(f => f.key === formatKey)
     ? formatKey
     : 'raw'
-  const formatLabel = activeFormat === 'raw' ? 'raw' : activeFormat
+  const formatLabel = activeFormat === 'raw' ? e('rawText') : activeFormat
   const shown = activeFormat === 'raw' ? value : formatValue(value, activeFormat)
   const highlighted = useMemo(
     () => highlightValue(shown, patterns, themeConfig, { maxLength, maxHits }),
@@ -180,7 +180,7 @@ export default function DbValuePane (props) {
             : null
         }
         {extra}
-        <Button size='small' icon={<CopyOutlined />} title='copy' onClick={() => copy(value)} />
+        <Button size='small' icon={<CopyOutlined />} title={e('copy')} onClick={() => copy(value)} />
         {
           formats.length
             ? (
@@ -198,10 +198,10 @@ export default function DbValuePane (props) {
               ? (
                 <>
                   <Button size='small' type='primary' disabled={!dirty || saving} onClick={save}>
-                    save
+                    {e('save')}
                   </Button>
                   <Button size='small' disabled={saving} onClick={() => setEditing(false)}>
-                    cancel
+                    {e('cancel')}
                   </Button>
                 </>
                 )
@@ -209,17 +209,17 @@ export default function DbValuePane (props) {
                 <Button
                   size='small'
                   disabled={!editable || saving}
-                  title={editable ? 'edit' : editDisabledTitle}
+                  title={editable ? e('edit') : editDisabledTitle}
                   onClick={startEdit}
                 >
-                  edit
+                  {e('edit')}
                 </Button>
                 )
             : null
         }
         {
           onClose
-            ? <Button size='small' icon={<CloseOutlined />} title='close' onClick={onClose} />
+            ? <Button size='small' icon={<CloseOutlined />} title={e('close')} onClick={onClose} />
             : null
         }
       </div>

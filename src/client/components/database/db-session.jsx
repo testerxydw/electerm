@@ -852,7 +852,7 @@ export default auto(function DbSession (props) {
       key: redisKey,
       seconds: Number(ttlInput) || 0
     }).then(() => {
-      message.success('ttl updated')
+      message.success(e('dbTtlUpdated'))
       loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
       selectRedisKey(redisKey)
     }).catch(err => {
@@ -868,7 +868,7 @@ export default auto(function DbSession (props) {
       dbIndex: redisDb,
       key: redisKey
     }).then(() => {
-      message.success('key deleted')
+      message.success(e('dbDeleted'))
       setRedisKey('')
       setRedisDetail(null)
       loadRedisKeys(redisDb, '0', keyList.match)
@@ -920,7 +920,7 @@ export default auto(function DbSession (props) {
           onClick: () => selectCell(row, k),
           onDoubleClick: () => canEditCell && startEdit(row, k),
           className: 'db-cell-editable',
-          title: canEditCell ? 'click to preview, double click to edit' : 'click to preview'
+          title: canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')
         }),
         render: (v, row) => {
           if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
@@ -967,7 +967,7 @@ export default auto(function DbSession (props) {
       <div key={i} className='db-sql-result-one'>
         {
           r.affected !== undefined
-            ? <div className='db-sql-affected'>affected rows: {r.affected}</div>
+            ? <div className='db-sql-affected'>{e('dbAffectedRows').replace('{n}', r.affected)}</div>
             : null
         }
         <DbGridTable
@@ -988,7 +988,7 @@ export default auto(function DbSession (props) {
         className='db-sql-results-tabs'
         items={results.map((r, i) => ({
           key: String(i),
-          label: `result ${i + 1}`,
+          label: e('dbResultN').replace('{n}', i + 1),
           children: renderOne(r, i)
         }))}
       />
@@ -1116,7 +1116,10 @@ export default auto(function DbSession (props) {
   }
 
   // 每页行数切换：写 config.dbPageSize 并回第 1 页重新取数（mysql/redis 共用）
-  const pageSizeOptions = [10, 20, 50, 100, 300, 500, 1000].map(n => ({ value: n, label: n + ' / page' }))
+  const pageSizeOptions = [10, 20, 50, 100, 300, 500, 1000].map(n => ({
+    value: n,
+    label: e('dbPerPage').replace('{n}', n)
+  }))
   const changePageSize = (v) => {
     window.store.setConfig({ dbPageSize: v })
     if (isRedis) {
@@ -1137,7 +1140,7 @@ export default auto(function DbSession (props) {
       onChange={changePageSize}
       // 弹层宽度随内容自适应：默认与触发框同宽会把 "1000 / page" 截断
       popupMatchSelectWidth={false}
-      title='rows per page'
+      title={e('dbRowsPerPage')}
     />
   )
 
@@ -1227,7 +1230,7 @@ export default auto(function DbSession (props) {
       >
         <div className='db-session-loading'>
           <Spin />
-          <span className='db-session-loading-text'>loading database...</span>
+          <span className='db-session-loading-text'>{e('dbLoading')}</span>
         </div>
         <RemoteFloatControl isFullScreen={!!fullscreen} />
       </div>
@@ -1295,7 +1298,7 @@ export default auto(function DbSession (props) {
                   onClick={() => turnPage(grid.page - 1)}
                 />
                 {renderPageTags()}
-                <span className='db-grid-page-no'>page {grid.page}</span>
+                <span className='db-grid-page-no'>{e('dbPageLabel').replace('{n}', grid.page)}</span>
                 <Button
                   size='small'
                   icon={<RightOutlined />}
@@ -1311,10 +1314,10 @@ export default auto(function DbSession (props) {
                   onChange={v => setJumpPage(v)}
                   onPressEnter={goPage}
                   className='db-grid-jump'
-                  placeholder={totalPages ? '1-' + totalPages : 'page#'}
+                  placeholder={totalPages ? '1-' + totalPages : e('dbPagePlaceholder')}
                 />
                 <Button size='small' disabled={!jumpPage} onClick={goPage}>
-                  go
+                  {e('dbGo')}
                 </Button>
               </div>
               )
@@ -1408,7 +1411,7 @@ export default auto(function DbSession (props) {
               )
             : (
               <div className='db-pane-empty'>
-                <Empty description='select a cell to preview' />
+                <Empty description={e('dbSelectCell')} />
               </div>
               )
         }
@@ -1422,7 +1425,7 @@ export default auto(function DbSession (props) {
         value={sqlText}
         onChange={ev => setSqlText(ev.target.value)}
         onKeyDown={onSqlKeyDown}
-        placeholder='SELECT * FROM db.table LIMIT 10   (Ctrl/Cmd+Enter to run)'
+        placeholder={e('dbSqlPlaceholder')}
         autoSize={{ minRows: 4, maxRows: 12 }}
         className='db-sql-editor'
       />
@@ -1433,11 +1436,11 @@ export default auto(function DbSession (props) {
           loading={sqlResult.loading}
           onClick={runSql}
         >
-          run
+          {e('dbRun')}
         </Button>
         {
           isReadonly
-            ? <Tag>read-only</Tag>
+            ? <Tag>{e('dbReadOnly')}</Tag>
             : null
         }
       </div>
@@ -1480,9 +1483,9 @@ export default auto(function DbSession (props) {
   )
 
   const redisKeyColumns = [
-    { title: 'key', dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
-    { title: 'type', dataIndex: 'type', key: 'type', width: 90, render: renderCell },
-    { title: 'ttl', dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
+    { title: e('dbKey'), dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
+    { title: e('type'), dataIndex: 'type', key: 'type', width: 90, render: renderCell },
+    { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
   ]
 
   // redis 详情「加载更多」：detailLimit 分批渲染，避免大 hash/list 一次进 DOM
@@ -1496,7 +1499,7 @@ export default auto(function DbSession (props) {
         className='db-redis-more'
         onClick={() => setDetailLimit(l => l + 200)}
       >
-        load more (left {total - detailLimit})
+        {e('dbLoadMore')} ({e('dbLeft').replace('{n}', total - detailLimit)})
       </Button>
     )
   }
@@ -1513,7 +1516,11 @@ export default auto(function DbSession (props) {
       body = (
         <DbValuePane
           title={redisKey}
-          meta={'type: ' + d.type + ' - ttl: ' + (d.ttl > 0 ? d.ttl + 's' : 'none') + ' - ' + stringValue.length + ' chars'}
+          meta={
+            e('dbTypeMeta').replace('{type}', d.type) + ' - ' +
+            e('dbTtlMeta').replace('{ttl}', d.ttl > 0 ? d.ttl + 's' : e('dbNone')) + ' - ' +
+            e('dbChars').replace('{n}', stringValue.length)
+          }
           value={stringValue}
           patterns={keywordPatterns}
           themeConfig={themeConfig}
@@ -1524,13 +1531,13 @@ export default auto(function DbSession (props) {
               <InputNumber
                 size='small'
                 min={0}
-                placeholder='seconds'
+                placeholder={e('dbSeconds')}
                 value={ttlInput}
                 onChange={setTtlInput}
               />
-              <Button size='small' disabled={isReadonly} onClick={applyTtl}>set ttl</Button>
-              <Popconfirm title='delete this key?' onConfirm={delSelectedKey}>
-                <Button size='small' danger disabled={isReadonly}>delete</Button>
+              <Button size='small' disabled={isReadonly} onClick={applyTtl}>{e('dbSetTtl')}</Button>
+              <Popconfirm title={e('dbDeleteKey')} onConfirm={delSelectedKey}>
+                <Button size='small' danger disabled={isReadonly}>{e('dbDelete')}</Button>
               </Popconfirm>
             </>
           )}
@@ -1540,7 +1547,7 @@ export default auto(function DbSession (props) {
               key: redisKey,
               value: v
             }).then(() => {
-              message.success('saved')
+              message.success(e('saved'))
               selectRedisKey(redisKey)
             }).catch(err => onOpError(err))
           }}
@@ -1554,8 +1561,8 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: 'field', dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
-              { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
+              { title: e('dbValue'), dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
             ]}
             dataSource={hashFields.map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
             rowKey='__rowKey'
@@ -1572,7 +1579,7 @@ export default auto(function DbSession (props) {
             pagination={false}
             columns={[
               { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
-              { title: 'value', dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+              { title: e('dbValue'), dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
             ]}
             dataSource={listRows.map((v, i) => ({ index: i, value: v, __rowKey: i }))}
             rowKey='__rowKey'
@@ -1588,7 +1595,7 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
+              { title: e('dbMember'), dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
             ]}
             dataSource={setRows.map((v, i) => ({ member: v, __rowKey: i }))}
             rowKey='__rowKey'
@@ -1609,8 +1616,8 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: 'member', dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
-              { title: 'score', dataIndex: 'score', key: 'score', width: 120, render: renderCell }
+              { title: e('dbMember'), dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
+              { title: e('dbScore'), dataIndex: 'score', key: 'score', width: 120, render: renderCell }
             ]}
             dataSource={list}
             rowKey='__rowKey'
@@ -1619,7 +1626,7 @@ export default auto(function DbSession (props) {
         </>
       )
     } else {
-      body = <span className='db-cell-null'>unsupported type: {d.type}</span>
+      body = <span className='db-cell-null'>{e('dbUnsupportedType').replace('{type}', d.type)}</span>
     }
     return (
       <div className='db-redis-detail'>
@@ -1630,18 +1637,18 @@ export default auto(function DbSession (props) {
             ? (
               <div className='db-redis-detail-bar'>
                 <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
-                <span className='db-grid-page-no'>type: {d.type}</span>
-                <span className='db-grid-page-no'>ttl: {d.ttl > 0 ? d.ttl + 's' : 'none'}</span>
+                <span className='db-grid-page-no'>{e('dbTypeMeta').replace('{type}', d.type)}</span>
+                <span className='db-grid-page-no'>{e('dbTtlMeta').replace('{ttl}', d.ttl > 0 ? d.ttl + 's' : e('dbNone'))}</span>
                 <InputNumber
                   size='small'
                   min={0}
-                  placeholder='seconds'
+                  placeholder={e('dbSeconds')}
                   value={ttlInput}
                   onChange={setTtlInput}
                 />
-                <Button size='small' disabled={isReadonly} onClick={applyTtl}>set ttl</Button>
-                <Popconfirm title='delete this key?' onConfirm={delSelectedKey}>
-                  <Button size='small' danger disabled={isReadonly}>delete</Button>
+                <Button size='small' disabled={isReadonly} onClick={applyTtl}>{e('dbSetTtl')}</Button>
+                <Popconfirm title={e('dbDeleteKey')} onConfirm={delSelectedKey}>
+                  <Button size='small' danger disabled={isReadonly}>{e('dbDelete')}</Button>
                 </Popconfirm>
               </div>
               )
@@ -1656,13 +1663,13 @@ export default auto(function DbSession (props) {
     <div className='db-redis-area'>
       {
         redisDb < 0
-          ? <Empty description={e('select a db node')} />
+          ? <Empty description={e('dbSelectDb')} />
           : (
             <>
               <div className='db-redis-bar'>
                 <Input
                   size='small'
-                  placeholder='match pattern, e.g. user:*'
+                  placeholder={e('dbMatchPlaceholder')}
                   value={matchInput}
                   onChange={ev => setMatchInput(ev.target.value)}
                   onPressEnter={() => loadRedisKeys(redisDb, '0', matchInput)}
@@ -1673,7 +1680,7 @@ export default auto(function DbSession (props) {
                   size='small'
                   onClick={() => loadRedisKeys(redisDb, '0', matchInput)}
                 >
-                  filter
+                  {e('filter')}
                 </Button>
                 <div className='db-grid-pager'>
                   <Button
@@ -1690,7 +1697,7 @@ export default auto(function DbSession (props) {
                       )
                     }}
                   />
-                  <span className='db-grid-page-no'>page {keyList.stack.length + 1}</span>
+                  <span className='db-grid-page-no'>{e('dbPageLabel').replace('{n}', keyList.stack.length + 1)}</span>
                   <Button
                     size='small'
                     icon={<RightOutlined />}
@@ -1733,7 +1740,7 @@ export default auto(function DbSession (props) {
                     ? renderRedisDetail()
                     : (
                       <div className='db-redis-detail db-redis-detail-empty'>
-                        <Empty description='select a key' />
+                        <Empty description={e('dbSelectKey')} />
                       </div>
                       )
                 }
@@ -1750,7 +1757,7 @@ export default auto(function DbSession (props) {
       <Tabs
         className='db-tabs'
         items={[
-          { key: 'data', label: 'data', forceRender: true, children: dataArea },
+          { key: 'data', label: e('dbDataTab'), forceRender: true, children: dataArea },
           { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea },
           {
             key: 'structure',
@@ -1906,7 +1913,7 @@ export default auto(function DbSession (props) {
                       </Button>
                     </Empty>
                     )
-                  : <Empty description={e('no metadata')} />
+                  : <Empty description={e('dbNoMetadata')} />
             }
           </Spin>
         </div>
@@ -1915,7 +1922,7 @@ export default auto(function DbSession (props) {
         <div
           className='db-tree-resizer'
           onMouseDown={startResize}
-          title='drag to resize'
+          title={e('dbDragResize')}
         />
         <div className='db-main-panel'>
           {
