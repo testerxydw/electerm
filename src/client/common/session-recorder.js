@@ -25,6 +25,7 @@ export const REC_FLUSH_BYTES = 256 * 1024
 export const REC_BATCH_MS = 80
 
 // shell 集成序列 (electerm 注入的 OSC 133/633)，以 BEL 或 ST 结束
+// eslint-disable-next-line no-control-regex
 const SHELL_INTEGRATION_RE = /\x1b\](?:133|633);?[^\x07\x1b]*(?:\x07|\x1b\\)/g
 
 // 剥离 shell 集成序列（OSC 133/633）；无匹配时原样返回
