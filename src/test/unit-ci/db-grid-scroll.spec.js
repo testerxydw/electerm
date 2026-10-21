@@ -89,6 +89,53 @@ describe('DbGridTable: component wiring contract', () => {
   })
 })
 
+describe('批次 C：数据库页渲染收口契约', () => {
+  test('列宽采样抽成 useMemo，columns 不再每次 render 扫前 100 行', () => {
+    const src = loadJsx()
+    assert.ok(src.includes('const columnWidths = useMemo('), 'columnWidths memo missing')
+    const colBlock = src.match(/const columns = grid\.rows\.length[\s\S]*?\n\s{4}: \[\]/)
+    assert.ok(colBlock, 'columns block not found')
+    assert.ok(!colBlock[0].includes('slice(0, 100)'), 'width sampling must stay out of columns')
+    assert.ok(colBlock[0].includes('columnWidths[k]'), 'columns must consume memoized widths')
+  })
+
+  test('treeData 按元数据/筛选/查找关键字记忆化', () => {
+    const src = loadJsx()
+    assert.ok(src.includes('const treeData = useMemo(() => {'), 'treeData must be memoized')
+    const line = src.match(/const treeData = useMemo\([\s\S]*?\}, \[([^\]]+)\]\)/)
+    assert.ok(line, 'treeData memo deps not found')
+    const deps = line[1]
+    ;['visibleMetadata', 'treeFilterKw', 'kw', 'isPg', 'currentDbName'].forEach(k => {
+      assert.ok(deps.includes(k), 'treeData deps missing ' + k)
+    })
+  })
+
+  test('DbGridTable 的 ResizeObserver 只在挂载时创建一次', () => {
+    const fn = loadJsx().match(/function DbGridTable \([\s\S]*?\n\}/)
+    assert.ok(fn, 'DbGridTable definition not found')
+    const code = fn[0]
+    assert.ok(code.includes('const measureRef = useRef'), 'measure ref missing')
+    assert.match(code, /\n\s{2}\}, \[\]\)/, 'observer effect must have empty deps')
+    assert.ok(code.includes('measureRef.current()'), 'data-change remeasure missing')
+  })
+
+  test('网格单元格键盘可达（Tab / Enter / F2 / Esc）', () => {
+    const src = loadJsx()
+    assert.ok(src.includes('tabIndex: 0'), 'cell td must be focusable')
+    assert.ok(src.includes("ev.key === 'F2'"), 'F2 edit shortcut missing')
+    assert.ok(src.includes("'aria-label': k"), 'cell aria-label missing')
+    assert.ok(src.includes("if (ev.key === 'Escape')"), 'Esc exit missing')
+    assert.ok(src.includes('ev.target !== ev.currentTarget'), 'editor key events must not bubble into td handler')
+  })
+
+  test('.db-cell-editable 有 focus-visible 焦点环', () => {
+    const block = stylBlock(loadStyl(), '.db-cell-editable')
+    assert.ok(block, '.db-cell-editable block not found')
+    assert.match(block, /&:focus-visible/, 'focus-visible ring missing')
+    assert.match(block, /outline 2px solid var\(--primary\)/)
+  })
+})
+
 describe('DbGridTable: css layout contract', () => {
   test('.db-grid-table basis is auto (redis keys list collapse guard)', () => {
     const block = stylBlock(loadStyl(), '.db-grid-table')

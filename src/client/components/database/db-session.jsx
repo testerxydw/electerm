@@ -122,13 +122,16 @@ function cycleIndex (i, delta, n) {
 // 数据库网格统一包装（doc/已完成/数据库功能设计归档-2026-10-21.md）：
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
 // 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
-// effect 不带 deps：每次渲染后重测，值不变时 setState 被 React 去重，不会造成循环。
+// ResizeObserver 挂载时创建一次；数据/加载态变化时补测一次。
 // 测量未就绪时不传 y，保持原有的外层容器滚动行为（优雅降级）
 function DbGridTable (props) {
   const { className = '', style, ...rest } = props
   const wrapRef = useRef(null)
+  const measureRef = useRef(() => {})
   const [wrapH, setWrapH] = useState(0)
   const [headH, setHeadH] = useState(0)
+  // ResizeObserver 只在挂载时建一次：原实现每次 render 都新建/断开，
+  // 输入查找、过滤等高频状态变化会带来无谓的观察器与同步测量开销。
   useEffect(() => {
     const el = wrapRef.current
     if (!el) {
@@ -144,8 +147,9 @@ function DbGridTable (props) {
       setWrapH(el.clientHeight)
       setHeadH(head ? Math.ceil(head.getBoundingClientRect().height) : 0)
     }
+    measureRef.current = measure
     measure()
-    const ob = new window.ResizeObserver(measure)
+    const ob = new window.ResizeObserver(() => measureRef.current())
     ob.observe(el)
     // 表头单独观察：首次测量可能落在瞬时渲染态（拿到偏小的高度），数据渲染后表头才稳定
     const head = el.querySelector('.ant-table-header') ||
@@ -154,9 +158,14 @@ function DbGridTable (props) {
       ob.observe(head)
     }
     return () => {
+      measureRef.current = () => {}
       ob.disconnect()
     }
-  })
+  }, [])
+  // 数据/加载态变化后补测一次（列宽与行数变化可能改变表头高度）
+  useEffect(() => {
+    measureRef.current()
+  }, [rest.dataSource, rest.loading])
   const y = wrapH > 0 && headH > 0 && wrapH > headH ? wrapH - headH : 0
   return (
     <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={style}>
@@ -939,11 +948,16 @@ export default auto(function DbSession (props) {
     return cellFilterKw ? hlNode(node, cellFilterKw, 'db-page-hit') : node
   }
 
-  const columns = grid.rows.length
-    ? Object.keys(grid.rows[0]).map(k => {
-      // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
-      // （如"一般"）出现大片空白；虚拟渲染是 fixed 布局，必须显式给宽
-      const sample = grid.rows.slice(0, 100)
+  // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
+  // （如"一般"）出现大片空白；虚拟渲染是 fixed 布局，必须显式给宽。
+  // 采样单独 memo：输入查找/过滤时不必重新扫描 100 行 × 所有列。
+  const columnWidths = useMemo(() => {
+    if (!grid.rows.length) {
+      return {}
+    }
+    const sample = grid.rows.slice(0, 100)
+    const widths = {}
+    for (const k of Object.keys(grid.rows[0])) {
       const maxLen = Math.max(
         k.length,
         ...sample.map(r => {
@@ -951,7 +965,14 @@ export default auto(function DbSession (props) {
           return v === null || v === undefined ? 4 : String(v).length
         })
       )
-      const width = Math.min(360, Math.max(90, maxLen * 12 + 32))
+      widths[k] = Math.min(360, Math.max(90, maxLen * 12 + 32))
+    }
+    return widths
+  }, [grid.rows])
+
+  const columns = grid.rows.length
+    ? Object.keys(grid.rows[0]).map(k => {
+      const width = columnWidths[k] || 90
       return {
         title: k,
         dataIndex: k,
@@ -965,6 +986,28 @@ export default auto(function DbSession (props) {
         onCell: row => ({
           onClick: () => selectCell(row, k),
           onDoubleClick: () => canEditCell && startEdit(row, k),
+          // 键盘可达：Tab 进入单元格，Enter 预览/编辑，F2 直接编辑，Esc 退出
+          tabIndex: 0,
+          'aria-label': k,
+          onKeyDown: ev => {
+            // 编辑框内的按键会冒泡到 td：只处理单元格自身获得焦点时的按键
+            if (ev.target !== ev.currentTarget) {
+              return
+            }
+            if (ev.key === 'Enter') {
+              ev.preventDefault()
+              selectCell(row, k)
+              if (canEditCell) {
+                startEdit(row, k)
+              }
+            } else if (ev.key === 'F2' && canEditCell) {
+              ev.preventDefault()
+              startEdit(row, k)
+            } else if (ev.key === 'Escape') {
+              setSelectedCell(null)
+              setEditing(null)
+            }
+          },
           className: 'db-cell-editable',
           title: canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')
         }),
@@ -978,6 +1021,12 @@ export default auto(function DbSession (props) {
                 value={editValue}
                 onChange={ev => setEditValue(ev.target.value)}
                 onPressEnter={submitEdit}
+                onKeyDown={ev => {
+                  if (ev.key === 'Escape') {
+                    ev.preventDefault()
+                    cancelEdit()
+                  }
+                }}
                 onBlur={cancelEdit}
               />
             )
@@ -1111,49 +1160,53 @@ export default auto(function DbSession (props) {
     }
   }, [treeFilterKw])
 
-  // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
-  const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
-    if (node.type === 'table') {
-      return {
-        title: treeTitle(node.name),
-        key: nodeKey(dbName, schema, node.name),
-        isLeaf: true
+  // 树数据只在元数据/过滤/查找关键字变化时重建：
+  // 输入页筛选、编辑单元格等状态变化不再递归重建整棵树。
+  const treeData = useMemo(() => {
+    // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
+    const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
+      if (node.type === 'table') {
+        return {
+          title: treeTitle(node.name),
+          key: nodeKey(dbName, schema, node.name),
+          isLeaf: true
+        }
       }
-    }
-    // PG schema 节点：S 标记便于与库 / 表区分；空 schema 也保留
-    return {
-      title: (
-        <span className='db-tree-schema'>
-          <span className='db-tree-schema-mark'>S</span>
-          {treeTitle(node.name)}
-        </span>
-      ),
-      key: nodeKey(dbName, node.name),
-      children: toTreeChildren(dbName, node.name, node.children)
-    }
-  })
-
-  const treeData = isRedis
-    ? visibleMetadata.map(db => {
-      const i = metadata.indexOf(db)
+      // PG schema 节点：S 标记便于与库 / 表区分；空 schema 也保留
       return {
-        // 键个数（来自 INFO keyspace）；空 db 显示 0，
-        // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
         title: (
-          <span className='db-tree-db'>
-            <span className='db-tree-db-name'>{treeTitle(db.name)}</span>
-            {
-              typeof db.count === 'number'
-                ? <span className='db-tree-db-count'>{db.count}</span>
-                : null
-            }
+          <span className='db-tree-schema'>
+            <span className='db-tree-schema-mark'>S</span>
+            {treeTitle(node.name)}
           </span>
         ),
-        key: String(i),
-        isLeaf: false
+        key: nodeKey(dbName, node.name),
+        children: toTreeChildren(dbName, node.name, node.children)
       }
     })
-    : visibleMetadata.map(db => ({
+
+    if (isRedis) {
+      return visibleMetadata.map(db => {
+        const i = metadata.indexOf(db)
+        return {
+          // 键个数（来自 INFO keyspace）；空 db 显示 0，
+          // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
+          title: (
+            <span className='db-tree-db'>
+              <span className='db-tree-db-name'>{treeTitle(db.name)}</span>
+              {
+                typeof db.count === 'number'
+                  ? <span className='db-tree-db-count'>{db.count}</span>
+                  : null
+              }
+            </span>
+          ),
+          key: String(i),
+          isLeaf: false
+        }
+      })
+    }
+    return visibleMetadata.map(db => ({
       // 不复用 .db-tree-db（space-between 供 redis 计数用），错误标记须紧邻库名
       title: (
         <span className='db-tree-db-title'>
@@ -1189,6 +1242,7 @@ export default auto(function DbSession (props) {
       key: nodeKey(db.name),
       children: toTreeChildren(db.name, '', db.children)
     }))
+  }, [visibleMetadata, isRedis, metadata, treeFilterKw, kw, isPg, currentDbName])
 
   // 拖拽调整左侧元数据树宽度（松手时持久化）
   const startResize = (ev) => {
