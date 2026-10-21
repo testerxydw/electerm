@@ -200,6 +200,10 @@ const en = {
   dbConnect: 'connect',
   dbConnectOther: 'Connect to another database',
   dbConnectOtherHint: 'PostgreSQL allows one database per connection. A new tab will open with the same host and credentials.',
+  dbExact: 'Exact',
+  dbExactRows: 'Exact rows',
+  dbExactTag: 'exact',
+  dbCountFailed: 'Exact count failed, still showing the estimate',
   // —— 连接失败提示（人话错误原因）——
   connectionFailed: 'Failed to connect to database',
   dbConnTarget: 'Target',
@@ -439,6 +443,10 @@ const zhCn = {
   dbConnect: '连接',
   dbConnectOther: '连接其他数据库',
   dbConnectOtherHint: 'PostgreSQL 一个连接只能访问一个库；将使用相同主机与凭据新开一个临时标签页。',
+  dbExact: '精确',
+  dbExactRows: '精确行数',
+  dbExactTag: '精确',
+  dbCountFailed: '精确计数失败，仍显示估算值',
   // —— 连接失败提示（人话错误原因）——
   connectionFailed: '连接数据库失败',
   dbConnTarget: '目标',

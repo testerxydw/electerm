@@ -331,6 +331,9 @@ export default auto(function DbSession (props) {
     orderBy: '',
     order: 'ascend'
   })
+  // T11 精确总行数：默认只显示服务端估算值，用户点击后才执行 COUNT(*)
+  const [exactRows, setExactRows] = useState({ loading: false, value: null })
+  const resetExactRows = () => setExactRows({ loading: false, value: null })
   // T1 当前页行过滤：仅前端过滤已加载的这一页，不触发 SQL / 分页变化
   const [pageFilter, setPageFilter] = useState('')
   const pageFilterKw = pageFilter.trim().toLowerCase()
@@ -587,6 +590,7 @@ export default auto(function DbSession (props) {
     const [database, schema, table] = JSON.parse(node.key)
     const next = { database, schema: schema || '', table }
     resetPageFilter()
+    resetExactRows()
     setSel(next)
     loadPage(next, 1, '', 'ascend')
     loadStructure(next)
@@ -692,6 +696,24 @@ export default auto(function DbSession (props) {
     })
   }
 
+  // T11：按需精确计数；失败只提示，不影响已加载的页面数据
+  const countExactRows = () => {
+    if (!sel) {
+      return
+    }
+    setExactRows(s => ({ ...s, loading: true }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'countRows', {
+      database: sel.database,
+      schema: sel.schema || '',
+      table: sel.table
+    }).then(res => {
+      setExactRows({ loading: false, value: Number(res && res.count) || 0 })
+    }).catch(() => {
+      setExactRows(s => ({ ...s, loading: false }))
+      message.error(e('dbCountFailed'))
+    })
+  }
+
   const turnPage = (page) => {
     if (!sel) {
       return
@@ -707,6 +729,7 @@ export default auto(function DbSession (props) {
     const orderBy = sorter && sorter.field ? sorter.field : ''
     const order = sorter && sorter.order ? sorter.order : 'ascend'
     resetPageFilter()
+    resetExactRows()
     loadPage(sel, grid.page, orderBy, order)
   }
 
@@ -1202,6 +1225,7 @@ export default auto(function DbSession (props) {
       }
     } else if (sel) {
       resetPageFilter()
+      resetExactRows()
       loadPage(sel, 1, grid.orderBy, grid.order)
     }
   }
@@ -1325,10 +1349,37 @@ export default auto(function DbSession (props) {
           {tableLabel}
         </span>
         {
-          sel && typeof grid.totalRows === 'number'
+          sel
             ? (
               <span className='db-grid-total'>
-                {e('approxRows')}: {grid.totalRows}
+                {
+                  exactRows.value === null
+                    ? (typeof grid.totalRows === 'number'
+                        ? `${e('approxRows')}: ${grid.totalRows}`
+                        : null)
+                    : (
+                      <>
+                        {e('dbExactRows')}: {exactRows.value}
+                        <Tag className='db-exact-tag'>{e('dbExactTag')}</Tag>
+                      </>
+                      )
+                }
+                {
+                  // 精确值已拿到后不再显示入口；切换表/排序/页大小/刷新会重置
+                  exactRows.value === null
+                    ? (
+                      <Button
+                        type='link'
+                        size='small'
+                        className='db-exact-btn'
+                        loading={exactRows.loading}
+                        onClick={countExactRows}
+                      >
+                        {e('dbExact')}
+                      </Button>
+                      )
+                    : null
+                }
               </span>
               )
             : null
@@ -1415,6 +1466,7 @@ export default auto(function DbSession (props) {
                 title={e('refresh')}
                 onClick={() => {
                   resetPageFilter()
+                  resetExactRows()
                   loadPage(sel, grid.page, grid.orderBy, grid.order)
                 }}
               />

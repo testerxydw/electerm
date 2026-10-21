@@ -172,6 +172,18 @@ async function describeTable (conn, { table, schema }) {
   }))
 }
 
+// 精确总行数（按需触发；大表会全扫描，故不默认执行）
+async function countRows (conn, { database, schema, table }) {
+  const c = await getClient(conn)
+  if (database && database !== c.database) {
+    throw new Error('cross-database query not supported for postgres, connect with that database')
+  }
+  const full = quoteIdent(schema || 'public') + '.' + quoteIdent(table)
+  const res = await c.query('SELECT COUNT(*) AS c FROM ' + full)
+  const n = res.rows && res.rows[0] ? res.rows[0].c : 0
+  return { count: Number(n) || 0 }
+}
+
 // 单元格编辑写入门控：只读模式下由主进程直接拒绝（渲染层传参不可信）
 function checkWritable (readOnly) {
   if (readOnly) {
@@ -254,6 +266,7 @@ module.exports = {
   getPageData,
   describeTable,
   updateCell,
+  countRows,
   executeSql,
   closePostgresConnection
 }

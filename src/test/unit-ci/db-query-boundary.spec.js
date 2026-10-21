@@ -111,6 +111,51 @@ describe('T7 hasMore boundary: mysql', () => {
   })
 })
 
+describe('T11 exact row count', () => {
+  test('mysql countRows 走限定表名并返回数字', async () => {
+    const { mod, calls } = makeMysql([{ c: 1234 }])
+    const res = await mod.countRows(conn, { database: 'db', table: 't' })
+    assert.equal(res.count, 1234)
+    assert.match(calls.queries[0], /SELECT COUNT\(\*\) AS c FROM `db`\.`t`/)
+  })
+
+  test('postgres countRows 限定 schema，默认 public', async () => {
+    const { mod, calls } = makePostgres(() => ({ rows: [{ c: '42' }] }))
+    const res = await mod.countRows(conn, { database: 'd', schema: 'analytics', table: 'events' })
+    assert.equal(res.count, 42)
+    assert.match(calls.queries[0].sql, /FROM "analytics"\."events"/)
+    await mod.countRows(conn, { database: 'd', table: 't' })
+    assert.match(calls.queries[1].sql, /FROM "public"\."t"/)
+  })
+
+  test('postgres 跨库计数拒绝', async () => {
+    const { mod } = makePostgres(() => ({ rows: [{ c: 1 }] }))
+    await assert.rejects(
+      mod.countRows(conn, { database: 'other', table: 't' }),
+      /cross-database/
+    )
+  })
+
+  test('op 注册与超时：countRows 60s、redis 不注册', async () => {
+    const INDEX = path.join(ROOT, 'src/app/lib/db-client/index.js')
+    const src = fs.readFileSync(INDEX, 'utf8')
+    const mapHits = src.match(/countRows: 'countRows'/g) || []
+    assert.equal(mapHits.length, 2, 'mysql/postgres must register countRows')
+    assert.match(src, /countRows: 60000/, 'countRows needs a 60s timeout')
+    const redisMap = src.match(/redis: \{[\s\S]*?\n\s{2}\}/)[0]
+    assert.ok(!redisMap.includes('countRows'), 'redis has no total row count')
+  })
+
+  test('前端点击才计数，切表/排序/页大小/刷新重置', async () => {
+    const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+    const src = fs.readFileSync(JSX, 'utf8')
+    assert.ok(src.includes("dbClientOp', tabId, 'countRows'"), 'must call countRows op')
+    const resets = src.match(/resetExactRows\(\)/g) || []
+    assert.ok(resets.length >= 4, 'expected reset on table/sort/pageSize/refresh, got ' + resets.length)
+    assert.ok(src.includes('exactRows.value === null'), 'exact value replaces the estimate')
+  })
+})
+
 describe('T3 postgres schema hierarchy', () => {
   test('当前库返回 schema 层级，非当前库仍为空', async () => {
     const { mod } = makePostgres(sql => {

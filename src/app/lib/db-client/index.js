@@ -36,6 +36,7 @@ const OP_MAP = {
     getPageData: 'getPageData',
     describeTable: 'describeTable',
     updateCell: 'updateCell',
+    countRows: 'countRows',
     executeSql: 'executeSql'
   },
   postgres: {
@@ -43,6 +44,7 @@ const OP_MAP = {
     getPageData: 'getPageData',
     describeTable: 'describeTable',
     updateCell: 'updateCell',
+    countRows: 'countRows',
     executeSql: 'executeSql'
   },
   redis: {
@@ -69,7 +71,8 @@ const OVERALL_TIMEOUT = 15000
 const OP_TIMEOUTS = {
   default: 15000,
   executeSql: 120000,
-  getPageData: 60000
+  getPageData: 60000,
+  countRows: 60000
 }
 
 // label 用于区分超时来源（connection/metadata/db op xxx），错误消息随 label 穿透到前端
