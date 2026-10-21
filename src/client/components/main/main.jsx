@@ -25,6 +25,9 @@ import {
   isWin,
   quickCommandBoxHeight,
   remoteMonitorBarHeight,
+  terminalRdpType,
+  terminalSpiceType,
+  terminalVncType,
   textTerminalBgValue
 } from '../../common/constants'
 import { isAIDisabled } from '../../common/ai-feature'
@@ -158,6 +161,13 @@ export default auto(function Index (props) {
   } = store
   const upgradeInfo = deepCopy(store.upgradeInfo)
   const remoteMonitorBarVisible = isRemoteMonitorBarVisible(store)
+  // GUI 远程桌面页（rdp/vnc/spice）：inTerminalTab 为底栏可见性把它与终端
+  // 同等对待，但全屏时底栏不能保留（否则压住远程桌面下缘）
+  const guiRemoteTab = [
+    terminalRdpType,
+    terminalVncType,
+    terminalSpiceType
+  ].includes(store.currentTab?.type)
   const cls = classnames({
     loaded: configLoaded,
     'not-webapp': !window.et.isWebApp,
@@ -183,8 +193,9 @@ export default auto(function Index (props) {
     'qm-pinned': pinnedQuickCommandBar && !quickCommandsInRightPanel,
     fullscreen,
     // terminal fullscreen keeps the footer visible (rdp/vnc/spice fullscreen
-    // does not — the footer would be an empty bar there)
-    'fs-with-footer': fullscreen && store.inActiveTerminal,
+    // does not: their tab type is excluded above, the footer would cover the
+    // remote desktop)
+    'fs-with-footer': fullscreen && store.inActiveTerminal && !guiRemoteTab,
     'is-main': !isSecondInstance,
     'is-mobile': store.isMobile,
     'is-desktop': !store.isMobile,

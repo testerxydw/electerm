@@ -15,6 +15,7 @@ const ROOT = join(__dirname, '../../')
 const read = p => readFileSync(join(ROOT, p), 'utf8')
 
 const fullscreenStyl = read('client/components/main/term-fullscreen.styl')
+const mainJsx = read('client/components/main/main.jsx')
 
 it('全屏隐藏右侧面板（与左侧图标栏同口径）', () => {
   // .fullscreen 的 hide 列表里必须包含 .right-side-panel
@@ -25,6 +26,21 @@ it('全屏隐藏右侧面板（与左侧图标栏同口径）', () => {
   )
   // 旧的"面板保留在全屏"定位规则若回归，会与 display none 相互矛盾
   assert.doesNotMatch(fullscreenStyl, /\.fullscreen:not\(\.fs-with-footer\)\s*\n\s*\.right-side-panel/)
+})
+
+it('GUI 远程桌面（rdp/vnc/spice）全屏不得保留底栏', () => {
+  // fs-with-footer 会让 .fullscreen 的 hide 列表里的 .main-footer 重新显示，
+  // 从而压住全屏远程桌面下缘；GUI 会话类型必须被排除在条件之外
+  assert.match(
+    mainJsx,
+    /'fs-with-footer': fullscreen && store\.inActiveTerminal && !guiRemoteTab/,
+    'fs-with-footer 必须排除 rdp/vnc/spice'
+  )
+  assert.match(
+    mainJsx,
+    /\[[\s\S]*?terminalRdpType,[\s\S]*?terminalVncType,[\s\S]*?terminalSpiceType[\s\S]*?\]\.includes\(store\.currentTab\?\.type\)/,
+    'guiRemoteTab 必须按 rdp/vnc/spice 类型判定'
+  )
 })
 
 it('终端全屏保留底栏时隐藏右面板入口', () => {

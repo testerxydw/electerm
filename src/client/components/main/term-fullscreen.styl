@@ -54,8 +54,8 @@
 
 // Terminal fullscreen keeps the footer (and the quick-command popup above it)
 // visible; the session shrinks to sit on top of the footer. RDP/VNC/Spice
-// fullscreen stays footer-less — inActiveTerminal is false for those tabs, so
-// the fs-with-footer class is absent there.
+// fullscreen stays footer-less — main.jsx excludes those GUI tab types from
+// fs-with-footer, so the footer never covers the remote desktop.
 // --footer-stack-height includes the 30px footer and the optional monitor row.
 .fullscreen.fs-with-footer
   .main-footer
