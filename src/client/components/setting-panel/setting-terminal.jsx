@@ -574,6 +574,16 @@ export default class SettingTerminal extends Component {
         }
         {this.renderToggle('addTimeStampToTermLog')}
         {
+          // T5-4f 会话录制内容选项（语言包无对应 key, 显式给英文标签）
+          this.renderToggle('recordInput', 'pd2b', 'Record keyboard input')
+        }
+        {
+          this.renderToggle('recordStripOsc', 'pd2b', 'Strip shell integration sequences')
+        }
+        {
+          this.renderToggle('recordAvoidPassword', 'pd2b', 'Pause recording at password prompt')
+        }
+        {
           [
             'cursorBlink',
             'rightClickSelectsWord',

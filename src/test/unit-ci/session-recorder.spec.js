@@ -208,4 +208,19 @@ describe('session-recorder: 接线契约', () => {
     // 失败不抛错弹窗, 只记日志
     assert.match(ipcJs, /if \(err\) \{\s*\n\s*log\.error\('\[session-log\]/)
   })
+
+  it('T5-4f: 三个录制配置在主进程/渲染层 default-setting 双处定义', () => {
+    const appDefaults = read('app/common/default-setting.js')
+    const clientDefaults = read('client/common/default-setting.js')
+    const settingTerminal = read('client/components/setting-panel/setting-terminal.jsx')
+    const expect = /recordInput: false,\s*\n\s*recordStripOsc: true,\s*\n\s*recordAvoidPassword: true,/
+    assert.match(appDefaults, expect, '主进程默认值缺失会导致配置 key 被跳过')
+    assert.match(clientDefaults, expect, '渲染层默认值缺失同样静默失效')
+    for (const k of ['recordInput', 'recordStripOsc', 'recordAvoidPassword']) {
+      assert.match(settingTerminal, new RegExp(`renderToggle\\('${k}'`), `${k} 必须在设置页终端区可编辑`)
+    }
+    // 反向: 不得引入上一版被否决的 recordFormat 三选
+    assert.doesNotMatch(appDefaults, /recordFormat|recordAnsiFilter/)
+    assert.doesNotMatch(clientDefaults, /recordFormat|recordAnsiFilter/)
+  })
 })

@@ -81,6 +81,10 @@ module.exports = exports.default = {
   authHeaderNameAI: 'Authorization: Bearer',
   proxyAI: '',
   sessionLogPath: '',
+  // 会话录制 (T5-4f): 输出+键盘输入 / 剥离 shell 集成序列 / 密码提示自动避录
+  recordInput: false,
+  recordStripOsc: true,
+  recordAvoidPassword: true,
   sshSftpSplitView: false,
   // 终端顶栏会话信息三段 (ssh2 算法 / zsh 版本 / ↑↓ 速率) 显隐, 顶栏图标可切换
   sessionBarInfoVisible: true,
