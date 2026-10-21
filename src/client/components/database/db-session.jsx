@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -180,6 +180,11 @@ export default auto(function DbSession (props) {
   // （props 里的 fullscreen 不订阅 store，切全屏时页面不会重渲染）
   const fullscreen = window.store.fullscreen
   const isRedis = tab.dbType === 'redis'
+  const isPg = tab.dbType === 'postgres'
+  // PG 一个连接只绑定一个库；当前库名按驱动默认值回退到用户名
+  const currentDbName = tab.dbName || tab.dbUser || ''
+  // 跨库连接弹窗目标库（null = 关闭）
+  const [connectDb, setConnectDb] = useState(null)
   // 页面内查找（顶栏搜索）：搜索框开关 + 关键字 + 命中数（命中数由 DOM 统计）
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -491,6 +496,21 @@ export default auto(function DbSession (props) {
       setReady(true)
       return null
     })
+
+  // T4 跨库连接：复用当前连接的主机/端口/账号，目标库另开临时 tab（不写书签）
+  const connectOtherDb = () => {
+    if (!connectDb) {
+      return
+    }
+    const next = clone(tab)
+    delete next.id
+    delete next.tabCount
+    delete next.status
+    delete next.title
+    next.dbName = connectDb
+    window.store.addTab(next)
+    setConnectDb(null)
+  }
 
   // 掉线后重连：失败仍留在界面上（顶部横幅提示），便于继续排查
   const reconnect = () => doConnect()
@@ -1113,7 +1133,7 @@ export default auto(function DbSession (props) {
     : visibleMetadata.map(db => ({
       // 不复用 .db-tree-db（space-between 供 redis 计数用），错误标记须紧邻库名
       title: (
-        <>
+        <span className='db-tree-db-title'>
           {treeTitle(db.name)}
           {
             // per-db 元数据降级标记：单库 SHOW TABLES 失败（权限等），
@@ -1122,7 +1142,26 @@ export default auto(function DbSession (props) {
               ? <Tooltip title={db.error}><span className='db-tree-db-err'>!</span></Tooltip>
               : null
           }
-        </>
+          {
+            // T4：PG 非当前库给「连接」入口，新开临时 tab（不写书签、不回显密码）
+            isPg && db.name !== currentDbName
+              ? (
+                <Button
+                  type='link'
+                  size='small'
+                  className='db-tree-connect'
+                  onClick={ev => {
+                    ev.preventDefault()
+                    ev.stopPropagation()
+                    setConnectDb(db.name)
+                  }}
+                >
+                  {e('dbConnect')}
+                </Button>
+                )
+              : null
+          }
+        </span>
       ),
       key: nodeKey(db.name),
       children: toTreeChildren(db.name, '', db.children)
@@ -1983,6 +2022,28 @@ export default auto(function DbSession (props) {
           {mainArea}
         </div>
       </div>
+      {/* T4：PG 跨库连接确认（凭据沿用当前连接，弹窗不回显密码） */}
+      <Modal
+        open={!!connectDb}
+        title={e('dbConnectOther')}
+        okText={e('dbConnect')}
+        cancelText={e('cancel')}
+        onOk={connectOtherDb}
+        onCancel={() => setConnectDb(null)}
+      >
+        <div className='db-connect-rows'>
+          <div className='db-connect-row'><span>{e('host')}</span><span>{tab.dbHost}</span></div>
+          <div className='db-connect-row'><span>{e('port')}</span><span>{tab.dbPort}</span></div>
+          <div className='db-connect-row'><span>{e('username')}</span><span>{tab.dbUser}</span></div>
+          <div className='db-connect-row'><span>{e('dbName')}</span><span>{connectDb}</span></div>
+        </div>
+        <Alert
+          className='db-connect-hint'
+          type='info'
+          showIcon
+          description={e('dbConnectOtherHint')}
+        />
+      </Modal>
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>

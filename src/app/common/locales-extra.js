@@ -197,6 +197,9 @@ const en = {
   dbNoMetadata: 'no metadata',
   dbDataTab: 'data',
   dbPerPage: '{n} / page',
+  dbConnect: 'connect',
+  dbConnectOther: 'Connect to another database',
+  dbConnectOtherHint: 'PostgreSQL allows one database per connection. A new tab will open with the same host and credentials.',
   // —— 连接失败提示（人话错误原因）——
   connectionFailed: 'Failed to connect to database',
   dbConnTarget: 'Target',
@@ -433,6 +436,9 @@ const zhCn = {
   dbNoMetadata: '没有元数据',
   dbDataTab: '数据',
   dbPerPage: '{n} / 页',
+  dbConnect: '连接',
+  dbConnectOther: '连接其他数据库',
+  dbConnectOtherHint: 'PostgreSQL 一个连接只能访问一个库；将使用相同主机与凭据新开一个临时标签页。',
   // —— 连接失败提示（人话错误原因）——
   connectionFailed: '连接数据库失败',
   dbConnTarget: '目标',
