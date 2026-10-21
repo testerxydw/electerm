@@ -88,20 +88,42 @@ async function getMetadata (conn) {
     'SELECT datname FROM pg_database ' +
     'WHERE datistemplate = false AND datallowconn = true ORDER BY datname'
   )
-  const tblRes = await c.query(
-    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+  // 当前库的 schema 层级：排除系统 schema，空 schema 也保留
+  const schRes = await c.query(
+    'SELECT nspname FROM pg_namespace ' +
+    'WHERE nspname NOT LIKE \'pg\\_%\' AND nspname <> \'information_schema\' ' +
+    'ORDER BY nspname'
   )
+  const tblRes = await c.query(
+    'SELECT schemaname, tablename FROM pg_tables ' +
+    "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') " +
+    'ORDER BY schemaname, tablename'
+  )
+  const bySchema = new Map()
+  for (const r of schRes.rows) {
+    bySchema.set(r.nspname, [])
+  }
+  for (const r of tblRes.rows) {
+    if (!bySchema.has(r.schemaname)) {
+      bySchema.set(r.schemaname, [])
+    }
+    bySchema.get(r.schemaname).push({ name: r.tablename, type: 'table' })
+  }
   const current = c.database
   return dbRes.rows.map(row => ({
     name: row.datname,
     type: 'database',
     children: row.datname === current
-      ? tblRes.rows.map(r => ({ name: r.tablename, type: 'table' }))
+      ? Array.from(bySchema.keys()).sort().map(name => ({
+        name,
+        type: 'schema',
+        children: bySchema.get(name)
+      }))
       : []
   }))
 }
 
-async function getPageData (conn, { database, table, page, pageSize, orderBy, order }) {
+async function getPageData (conn, { database, schema, table, page, pageSize, orderBy, order }) {
   const c = await getClient(conn)
   // pg 连接绑定单一库，跨库查询不支持
   if (database && database !== c.database) {
@@ -109,7 +131,8 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
   }
   pageSize = Math.min(Number(pageSize) || 100, 1000)
   const offset = ((Number(page) || 1) - 1) * pageSize
-  let sql = 'SELECT * FROM ' + quoteIdent(table)
+  // 显式 schema 限定，避免依赖 search_path；默认 public 兼容旧书签
+  let sql = 'SELECT * FROM ' + quoteIdent(schema || 'public') + '.' + quoteIdent(table)
   if (orderBy) {
     const dir = order === 'descend' ? 'DESC' : 'ASC'
     sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir

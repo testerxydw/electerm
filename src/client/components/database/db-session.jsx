@@ -558,13 +558,14 @@ export default auto(function DbSession (props) {
       return
     }
     if (!node.isLeaf) {
-      // mysql 库节点：点击标题切换展开/收起
+      // 库 / schema 节点：点击标题切换展开/收起
       const k = String(node.key)
       setExpandedKeys(ks => (ks.includes(k) ? ks.filter(x => x !== k) : [...ks, k]))
       return
     }
-    const [database, table] = JSON.parse(node.key)
-    const next = { database, table }
+    // key 编码 [database, schema, table]；MySQL schema 为空串
+    const [database, schema, table] = JSON.parse(node.key)
+    const next = { database, schema: schema || '', table }
     resetPageFilter()
     setSel(next)
     loadPage(next, 1, '', 'ascend')
@@ -589,7 +590,7 @@ export default auto(function DbSession (props) {
   // 选中态：叶子=当前表，redis=当前 db 节点
   const selectedKeys = isRedis
     ? (redisDb >= 0 ? [String(redisDb)] : [])
-    : (sel ? [nodeKey(sel.database, sel.table)] : [])
+    : (sel ? [nodeKey(sel.database, sel.schema, sel.table)] : [])
 
   // 空页回退：totalRows 来自 information_schema 估算，常偏大 → 尾部页可能无数据。
   // 用 pageSize=1 探测二分查找真实末页（log2(页数) 次轻量查询）
@@ -599,6 +600,7 @@ export default auto(function DbSession (props) {
     // （probe 的 page 单位是行：page=(p-1)*size+1 → OFFSET (p-1)*size）
     const probe = p => window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       database: target.database,
+      schema: target.schema || '',
       table: target.table,
       page: (p - 1) * size + 1,
       pageSize: 1,
@@ -630,6 +632,7 @@ export default auto(function DbSession (props) {
     setGrid(g => ({ ...g, loading: true, error: '' }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       database: target.database,
+      schema: target.schema || '',
       table: target.table,
       page,
       pageSize: getDbPageSize(),
@@ -995,37 +998,43 @@ export default auto(function DbSession (props) {
     )
   }
 
-  // T2：树过滤只作用于已加载的 metadata，不重新请求后端。
-  // 库名命中时保留全部子节点；仅表名命中时只保留命中的表。
+  // T2/T3：树过滤只作用于已加载的 metadata，不重新请求后端。
+  // 递归支持 PG 的「库 → schema → 表」：节点自身命中时保留全部子节点，
+  // 仅子节点命中时只保留命中的分支。
   const visibleMetadata = useMemo(() => {
     if (!treeFilterKw) {
       return metadata
     }
-    return metadata.map(db => {
-      const dbHit = String(db.name || '').toLowerCase().includes(treeFilterKw)
-      if (isRedis) {
-        return dbHit ? db : null
+    const hit = name => String(name || '').toLowerCase().includes(treeFilterKw)
+    const filterNode = node => {
+      const nodeHit = hit(node.name)
+      if (node.type === 'table') {
+        return nodeHit ? node : null
       }
-      const children = (db.children || []).filter(t => (
-        String(t.name || '').toLowerCase().includes(treeFilterKw)
-      ))
-      if (!dbHit && !children.length) {
+      const children = (node.children || []).map(filterNode).filter(Boolean)
+      if (!nodeHit && !children.length) {
         return null
       }
-      return { ...db, children: dbHit ? (db.children || []) : children }
-    }).filter(Boolean)
+      return { ...node, children: nodeHit ? (node.children || []) : children }
+    }
+    return metadata.map(db => (
+      isRedis
+        ? (hit(db.name) ? db : null)
+        : filterNode(db)
+    )).filter(Boolean)
   }, [metadata, isRedis, treeFilterKw])
-  const treeFilterNodeCount = visibleMetadata.reduce(
-    (n, db) => n + 1 + (db.children ? db.children.length : 0),
+  const countTreeNodes = nodes => (nodes || []).reduce(
+    (n, node) => n + 1 + countTreeNodes(node.children),
     0
   )
+  const treeFilterNodeCount = countTreeNodes(visibleMetadata)
   // 树过滤命中用 db-tree-hit（不复用 db-kw-hit，避免顶栏查找计数误收）；
   // 再套一层顶栏查找高亮，保留两套高亮叠加
   const treeTitle = (text) => hlNode(
     hlText(text, treeFilterKw, 'db-tree-hit'),
     kw
   )
-  // 进入过滤时记录原展开状态并展开命中库；清空后还原（见下一个 effect）
+  // 进入过滤时记录原展开状态并展开命中的库 / schema；清空后还原（见下一个 effect）
   useEffect(() => {
     if (!treeFilterKw || isRedis) {
       return
@@ -1033,12 +1042,20 @@ export default auto(function DbSession (props) {
     if (treeExpandedBeforeFilter.current === null) {
       treeExpandedBeforeFilter.current = expandedKeys
     }
-    const keys = metadata.filter(db => {
-      const dbHit = String(db.name || '').toLowerCase().includes(treeFilterKw)
-      return dbHit || (db.children || []).some(t => (
-        String(t.name || '').toLowerCase().includes(treeFilterKw)
-      ))
-    }).map(db => nodeKey(db.name, ''))
+    const keys = []
+    const walk = (db, nodes) => {
+      (nodes || []).forEach(node => {
+        if (node.type === 'table') {
+          return
+        }
+        keys.push(nodeKey(db.name, node.name))
+        walk(db, node.children)
+      })
+    }
+    visibleMetadata.forEach(db => {
+      keys.push(nodeKey(db.name))
+      walk(db, db.children)
+    })
     setExpandedKeys(keys)
   }, [treeFilterKw, metadata, isRedis])
   useEffect(() => {
@@ -1050,6 +1067,28 @@ export default auto(function DbSession (props) {
       treeExpandedBeforeFilter.current = null
     }
   }, [treeFilterKw])
+
+  // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
+  const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
+    if (node.type === 'table') {
+      return {
+        title: treeTitle(node.name),
+        key: nodeKey(dbName, schema, node.name),
+        isLeaf: true
+      }
+    }
+    // PG schema 节点：S 标记便于与库 / 表区分；空 schema 也保留
+    return {
+      title: (
+        <span className='db-tree-schema'>
+          <span className='db-tree-schema-mark'>S</span>
+          {treeTitle(node.name)}
+        </span>
+      ),
+      key: nodeKey(dbName, node.name),
+      children: toTreeChildren(dbName, node.name, node.children)
+    }
+  })
 
   const treeData = isRedis
     ? visibleMetadata.map(db => {
@@ -1085,12 +1124,8 @@ export default auto(function DbSession (props) {
           }
         </>
       ),
-      key: nodeKey(db.name, ''),
-      children: (db.children || []).map(t => ({
-        title: treeTitle(t.name),
-        key: nodeKey(db.name, t.name),
-        isLeaf: true
-      }))
+      key: nodeKey(db.name),
+      children: toTreeChildren(db.name, '', db.children)
     }))
 
   // 拖拽调整左侧元数据树宽度（松手时持久化）
@@ -1237,14 +1272,18 @@ export default auto(function DbSession (props) {
     )
   }
 
+  // PG 选中表显示 schema.table；MySQL 显示 database.table
+  const tableLabel = sel
+    ? (sel.schema ? `${sel.schema}.${sel.table}` : `${sel.database}.${sel.table}`)
+    : ''
   const dataArea = (
     <div className='db-grid-area'>
       <div className='db-grid-head'>
         <span
           className='db-grid-title'
-          title={sel ? `${sel.database}.${sel.table}` : ''}
+          title={tableLabel}
         >
-          {sel ? `${sel.database}.${sel.table}` : ''}
+          {tableLabel}
         </span>
         {
           sel && typeof grid.totalRows === 'number'

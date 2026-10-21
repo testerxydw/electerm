@@ -111,6 +111,74 @@ describe('T7 hasMore boundary: mysql', () => {
   })
 })
 
+describe('T3 postgres schema hierarchy', () => {
+  test('当前库返回 schema 层级，非当前库仍为空', async () => {
+    const { mod } = makePostgres(sql => {
+      if (/pg_database/.test(sql)) {
+        return { rows: [{ datname: 'd' }, { datname: 'other' }] }
+      }
+      if (/pg_namespace/.test(sql)) {
+        return { rows: [{ nspname: 'analytics' }, { nspname: 'public' }] }
+      }
+      if (/pg_tables/.test(sql)) {
+        return {
+          rows: [
+            { schemaname: 'public', tablename: 'users' },
+            { schemaname: 'analytics', tablename: 'events' }
+          ]
+        }
+      }
+      return { rows: [] }
+    })
+    const meta = await mod.getMetadata(conn)
+    assert.deepEqual([...meta].map(d => d.name), ['d', 'other'])
+    assert.deepEqual([...meta[0].children].map(s => s.name), ['analytics', 'public'])
+    assert.equal(meta[0].children[0].type, 'schema')
+    assert.deepEqual([...meta[0].children[0].children].map(t => t.name), ['events'])
+    assert.deepEqual([...meta[0].children[1].children].map(t => t.name), ['users'])
+    assert.deepEqual([...meta[1].children], [], '非当前库不展开')
+  })
+
+  test('空 schema 也保留在树中', async () => {
+    const { mod } = makePostgres(sql => {
+      if (/pg_database/.test(sql)) {
+        return { rows: [{ datname: 'd' }] }
+      }
+      if (/pg_namespace/.test(sql)) {
+        return { rows: [{ nspname: 'empty_schema' }, { nspname: 'public' }] }
+      }
+      if (/pg_tables/.test(sql)) {
+        return { rows: [{ schemaname: 'public', tablename: 't' }] }
+      }
+      return { rows: [] }
+    })
+    const meta = await mod.getMetadata(conn)
+    assert.deepEqual([...meta[0].children].map(s => s.name), ['empty_schema', 'public'])
+    assert.deepEqual([...meta[0].children[0].children], [])
+  })
+
+  test('getPageData 显式限定 schema，默认 public', async () => {
+    const { mod, calls } = makePostgres(makeRows(1))
+    await mod.getPageData(conn, { database: 'd', schema: 'analytics', table: 'events', page: 1, pageSize: 20 })
+    assert.match(calls.queries[0].sql, /FROM "analytics"\."events"/)
+    await mod.getPageData(conn, { database: 'd', table: 't', page: 1, pageSize: 20 })
+    assert.match(calls.queries[1].sql, /FROM "public"\."t"/)
+  })
+
+  test('渲染层传递 schema 并生成 S 标记 / schema.table 标题', async () => {
+    const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+    const src = fs.readFileSync(JSX, 'utf8')
+    assert.ok(src.includes('const nodeKey = (database, schema, table)'), 'node key must carry 3 parts')
+    const schemaArgs = src.match(/schema: target\.schema \|\| ''/g) || []
+    assert.ok(schemaArgs.length >= 2, 'loadPage / findLastPage must pass schema')
+    assert.ok(src.includes('db-tree-schema-mark'), 'schema node needs S mark')
+    assert.ok(
+      /sel\.schema \? `\$\{sel\.schema\}\.\$\{sel\.table\}`/.test(src),
+      'grid title must show schema.table'
+    )
+  })
+})
+
 describe('T7 hasMore boundary: postgres', () => {
   test('恰好整页 → hasMore false，只回 pageSize 行', async () => {
     const { mod, calls } = makePostgres(makeRows(20))

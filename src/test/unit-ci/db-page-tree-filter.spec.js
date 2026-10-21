@@ -107,6 +107,29 @@ describe('T2 metadata tree filter (real source)', () => {
     assert.equal(filterTree(mysqlTree, false, 'zzz').length, 0)
   })
 
+  test('pg schema branch is filtered recursively (T3)', () => {
+    const pgTree = [{
+      name: 'shop',
+      type: 'database',
+      children: [{
+        name: 'public',
+        type: 'schema',
+        children: [
+          { name: 'orders', type: 'table' },
+          { name: 'users', type: 'table' }
+        ]
+      }]
+    }]
+    const byTable = filterTree(pgTree, false, 'user')
+    assert.equal(byTable.length, 1)
+    assert.equal(byTable[0].children.length, 1)
+    assert.equal(byTable[0].children[0].name, 'public')
+    assert.deepEqual(byTable[0].children[0].children.map(t => t.name), ['users'])
+
+    const bySchema = filterTree(pgTree, false, 'public')
+    assert.equal(bySchema[0].children[0].children.length, 2, 'schema hit keeps all tables')
+  })
+
   test('redis filters db nodes by name and keeps count', () => {
     const redisTree = [
       { name: 'db0', count: 12 },
