@@ -193,4 +193,19 @@ describe('session-recorder: 接线契约', () => {
     // 反向: 文件名固定前缀, 不得接受渲染层传任意文件名
     assert.match(ipcJs, /electerm-rec-\$\{d\.getFullYear\(\)\}/)
   })
+
+  it('T5-4f: cast 落统一会话日志目录 (与文本日志同处), 不再写 Downloads', () => {
+    assert.match(ipcJs, /const getSessionLogDir = \(\) => \{[\s\S]*?config\.sessionLogPath \|\| join\(app\.getPath\('appData'\), 'electerm', 'session_logs'\)/)
+    assert.match(ipcJs, /const createRecordFile = async \(\) => \{\s*\n\s*const dir = getSessionLogDir\(\)/)
+    assert.match(ipcJs, /fs\.mkdirSync\(dir, \{ recursive: true \}\)/, '目录不存在时必须自建')
+    // 反向: 不得回退到 Downloads
+    assert.doesNotMatch(ipcJs, /app\.getPath\('downloads'\)/)
+  })
+
+  it('T5-4f: openSessionLogDir 建目录后用 shell.openPath 打开, 并导出为 asyncGlobal', () => {
+    assert.match(ipcJs, /createRecordFile,\n\s*appendRecFile,\n\s*openSessionLogDir,/, 'asyncGlobals 必须导出 openSessionLogDir')
+    assert.match(ipcJs, /const openSessionLogDir = async \(\) => \{[\s\S]*?fs\.mkdirSync\(dir, \{ recursive: true \}\)[\s\S]*?shell\.openPath\(dir\)/)
+    // 失败不抛错弹窗, 只记日志
+    assert.match(ipcJs, /if \(err\) \{\s*\n\s*log\.error\('\[session-log\]/)
+  })
 })

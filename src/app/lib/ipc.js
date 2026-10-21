@@ -235,8 +235,15 @@ function initIpc () {
   // 会话录制 (T5-4): 渲染层攒缓冲, 主进程只负责建文件与追加。
   // recRecordFiles 白名单校验 append 目标, 防渲染层传任意路径写文件。
   const recRecordFiles = new Set()
+  // 会话日志统一目录 (T5-4f): 文本日志与 cast 录制同处一处,
+  // 默认值与渲染层 default-log-path.js 保持一致。
+  const getSessionLogDir = () => {
+    const config = globalState.get('config') || {}
+    return config.sessionLogPath || join(app.getPath('appData'), 'electerm', 'session_logs')
+  }
   const createRecordFile = async () => {
-    const dir = app.getPath('downloads')
+    const dir = getSessionLogDir()
+    fs.mkdirSync(dir, { recursive: true })
     const d = new Date()
     const pad = n => String(n).padStart(2, '0')
     const base = `electerm-rec-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
@@ -254,6 +261,17 @@ function initIpc () {
       throw new Error('appendRecFile: path not created by createRecordFile')
     }
     await fs.promises.appendFile(path, content)
+  }
+  // 打开日志目录（终端日志页的「打开日志目录」入口）:
+  // 目录缺失时先建, 由 OS 文件管理器打开; 失败只记日志不弹错。
+  const openSessionLogDir = async () => {
+    const dir = getSessionLogDir()
+    fs.mkdirSync(dir, { recursive: true })
+    const err = await shell.openPath(dir)
+    if (err) {
+      log.error('[session-log] open dir failed', dir, err)
+    }
+    return dir
   }
   const asyncGlobals = {
     confirmExit: () => {
@@ -274,6 +292,7 @@ function initIpc () {
     loadFontList,
     createRecordFile,
     appendRecFile,
+    openSessionLogDir,
     doUpgrade: (...args) => upgrade().doUpgrade(...args),
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
     checkMigrate,
