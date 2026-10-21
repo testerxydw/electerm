@@ -24,7 +24,7 @@ export default auto(function CommandPalette (props) {
       batch: t.batch,
       label: t.title || t.host || t.id,
       keywords: `${t.host || ''} ${t.id || ''}`,
-      hint: '会话'
+      hint: e('sessionList')
     }))
     const actions = [
       {
@@ -32,7 +32,7 @@ export default auto(function CommandPalette (props) {
         action: 'newSsh',
         label: e('newTab') || 'New session',
         keywords: 'new ssh tab connect session 新建 会话',
-        hint: '动作'
+        hint: e('actionList')
       }
     ]
     return [...tabs, ...actions]
@@ -115,7 +115,7 @@ export default auto(function CommandPalette (props) {
             ref={inputRef}
             className='cmd-palette-input'
             value={query}
-            placeholder='搜索会话、动作…'
+            placeholder={e('commandPaletteHint')}
             onChange={ev => {
               setQuery(ev.target.value)
               setIndex(0)
@@ -125,7 +125,7 @@ export default auto(function CommandPalette (props) {
         </div>
         <div className='cmd-palette-list'>
           {filtered.length === 0 && (
-            <div className='cmd-palette-empty'>无匹配项</div>
+            <div className='cmd-palette-empty'>{e('noMatches')}</div>
           )}
           {filtered.map((it, i) => (
             <div

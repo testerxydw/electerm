@@ -7,6 +7,8 @@ import { auto } from 'manate/react'
 import TransferModal from '../sidebar/transfer-modal'
 import './transfer-panel.styl'
 
+const e = window.translate
+
 export default auto(function TransferPanel ({ store }) {
   const fileTransfers = store.fileTransfers || []
   const transferHistory = store.transferHistory || []
@@ -14,14 +16,14 @@ export default auto(function TransferPanel ({ store }) {
   return (
     <div className='transfer-panel'>
       <div className='transfer-panel-head'>
-        <span>传输</span>
+        <span>{e('transferPanel')}</span>
         <span className='transfer-panel-count'>{fileTransfers.length}</span>
       </div>
       {
         empty
           ? (
             <div className='transfer-panel-hint'>
-              暂无传输任务。拖拽文件或使用 SFTP 面板即可开始传输。
+              {e('transferEmpty')}
             </div>
             )
           : (

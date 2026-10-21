@@ -126,7 +126,7 @@ export default memo(function SidebarPanel (props) {
         </div>
         {/* 面板头（对齐草图 .panel-hd）：小字标题 + 页签 */}
         <div className='sidebar-panel-tabs pd1y pd2x'>
-          <span className='sidebar-panel-title'>会话</span>
+          <span className='sidebar-panel-title'>{e('sessionList')}</span>
           <Tabs {...tabsProps} />
         </div>
       </div>

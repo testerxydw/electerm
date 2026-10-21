@@ -87,8 +87,8 @@ export default memo(function RightSidePanel (
   const aiDisabled = isAIDisabled()
   const tabs = [
     { key: 'ai', label: 'AI' },
-    { key: 'transfer', label: '传输' },
-    { key: 'monitor', label: '监控' },
+    { key: 'transfer', label: e('transferPanel') },
+    { key: 'monitor', label: e('monitorPanel') },
     { key: 'info', label: e('terminalLog') }
   ]
   if (cmdHistoryInRightPanel) {

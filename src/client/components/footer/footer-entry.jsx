@@ -168,7 +168,7 @@ export default auto(function FooterEntry (props) {
         <SwapOutlined
           onClick={() => window.store.toggleTransferPanel()}
           className={'pointer font14 terminal-transfer-icon' + (active ? ' active' : '')}
-          title='传输'
+          title={e('transferPanel')}
         />
       </div>
     )
@@ -182,7 +182,7 @@ export default auto(function FooterEntry (props) {
         <DashboardOutlined
           onClick={() => window.store.toggleMonitorPanel()}
           className={'pointer font14 terminal-monitor-icon' + (active ? ' active' : '')}
-          title='监控'
+          title={e('monitorPanel')}
         />
       </div>
     )
@@ -285,7 +285,7 @@ export default auto(function FooterEntry (props) {
       {
         key: 'palette',
         icon: <SearchOutlined />,
-        title: `命令面板 (${isMac ? '⌘K' : 'Ctrl+K'})`,
+        title: `${e('commandPalette')} (${isMac ? '⌘K' : 'Ctrl+K'})`,
         run: () => window.dispatchEvent(new Event('open-command-palette'))
       },
       {

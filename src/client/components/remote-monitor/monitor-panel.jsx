@@ -13,6 +13,7 @@ import { useMonitorDetails } from './use-monitor-details'
 import { groupOf, formatBytes, formatRate, selectPrimaryNetwork } from './monitor-model'
 import './monitor-panel.styl'
 
+const e = window.translate
 const ITEMS = ['cpu', 'memory', 'disks', 'network']
 
 function pct (v) {
@@ -70,7 +71,7 @@ export default auto(function MonitorPanel ({ store }) {
   return (
     <div className='monitor-panel'>
       <div className='monitor-panel-head'>
-        <span>系统负载</span>
+        <span>{e('systemLoad')}</span>
         <span className='monitor-panel-host'>{(store.currentTab && store.currentTab.host) || ''}</span>
         <Switch
           size='small'
@@ -82,8 +83,7 @@ export default auto(function MonitorPanel ({ store }) {
         !monitorOn
           ? (
             <div className='monitor-panel-hint'>
-              资源监控默认关闭。打开右上角开关后才会连接远端采集
-              CPU / 内存 / 磁盘 / 网络 指标。
+              {e('monitorOffHint')}
             </div>
             )
           : (
@@ -117,7 +117,7 @@ export default auto(function MonitorPanel ({ store }) {
               />
               {
                 !snapshot
-                  ? <div className='monitor-panel-hint'>正在采集系统指标…（需要与远端建立连接）</div>
+                  ? <div className='monitor-panel-hint'>{e('monitorConnecting')}</div>
                   : null
               }
             </>
