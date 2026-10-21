@@ -166,7 +166,7 @@ describe('T5 wiring: renderer no longer builds SQL', () => {
     assert.ok(src.includes("dbClientOp', tabId, 'updateCell'"), 'must call updateCell op')
     assert.ok(src.includes('pkValue: row[pkColumn]'), 'must send primary key value')
     assert.ok(!src.includes('quoteVal'), 'front-end value quoting must be removed')
-    const block = src.match(/const runCellUpdate =[\s\S]*?\n  \}/)
+    const block = src.match(/const runCellUpdate =[\s\S]*?\n\s{2}\}/)
     assert.ok(block, 'runCellUpdate not found')
     assert.ok(!block[0].includes('executeSql'), 'cell update must not run raw SQL')
     assert.ok(src.includes('is_primary_key'), 'PG primary key marker must be consumed')
