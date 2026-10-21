@@ -132,6 +132,8 @@ ftp-root
 .kilo
 .cursor
 /.codebuddy
+/.trae
+/.trae-html-share-packages
 /.test-build-num
 .lintcache
 .npmcache
