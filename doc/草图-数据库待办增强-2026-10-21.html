@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>草图：数据库页待办增强设计 · T6/T10/T12 之外已实施</title>
+<style>
+  :root {
+    --bg: #1e1f24;
+    --surface: #2a2b31;
+    --surface-2: #33343b;
+    --border: #46474f;
+    --text: #e6e6e6;
+    --muted: #a9aab3;
+    --primary: #5b8def;
+    --ok: #4caf7d;
+    --warn: #d9a04a;
+    --danger: #d06a6a;
+    --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 24px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 10px; }
+  h2 { font-size: 15px; color: var(--primary); margin: 32px 0 8px; }
+  h3 { font-size: 13px; margin: 0 0 8px; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .panel p { color: var(--muted); margin-bottom: 6px; }
+  .panel ul { margin: 4px 0 0 18px; color: var(--muted); }
+  .panel li { margin-bottom: 3px; }
+  .panel b { color: var(--text); }
+  .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .badge {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 16px;
+  }
+  .badge.primary { background: rgba(91, 141, 239, .18); color: var(--primary); }
+  .badge.ok { background: rgba(76, 175, 125, .18); color: var(--ok); }
+  .badge.warn { background: rgba(217, 160, 74, .18); color: var(--warn); }
+  .badge.danger { background: rgba(208, 106, 106, .18); color: var(--danger); }
+  .frame {
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .tabstrip {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 2px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    height: 30px;
+    line-height: 30px;
+    padding: 0 10px;
+    color: var(--muted);
+    font-size: 12px;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--primary); }
+  .db-head {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .db-head .engine { font-weight: 600; }
+  .db-head .target { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; flex: none; }
+  .db-body { display: flex; min-height: 250px; }
+  .tree {
+    width: 232px;
+    flex: none;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 6px;
+  }
+  .tree-filter {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 6px;
+    margin-bottom: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .tree-filter.focus { border-color: var(--primary); }
+  .tree-filter input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .tree-filter .x { color: var(--muted); cursor: pointer; }
+  .tree-row {
+    display: flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 4px;
+    border-radius: 3px;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .tree-row.sel { background: rgba(91, 141, 239, .16); color: var(--text); }
+  .tree-row .caret { width: 12px; flex: none; color: var(--muted); font-size: 10px; }
+  .tree-row .eng {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 5px;
+    flex: none;
+  }
+  .tree-row .tag {
+    margin-left: 6px;
+    font-size: 10px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: 0 4px;
+  }
+  .tree-row .grow { flex: 1; }
+  .tree-row .act { color: var(--primary); font-size: 11px; }
+  .ind-1 { padding-left: 18px; }
+  .ind-2 { padding-left: 36px; }
+  .ind-3 { padding-left: 54px; }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .grid-head {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .title { font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .filterbox {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 6px;
+    background: var(--bg);
+    border: 1px solid var(--primary);
+    border-radius: 4px;
+  }
+  .filterbox input {
+    width: 128px;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .filterbox .x { color: var(--muted); cursor: pointer; }
+  .counter {
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .btn {
+    height: 22px;
+    line-height: 20px;
+    padding: 0 7px;
+    font-size: 11px;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.ghost { background: transparent; }
+  .btn.link { background: transparent; border: 0; color: var(--primary); padding: 0 3px; }
+  .ico-btn { width: 22px; text-align: center; color: var(--muted); font-size: 12px; }
+  table.grid {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+  }
+  table.grid th, table.grid td {
+    height: 26px;
+    padding: 4px 7px;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  table.grid th { color: var(--muted); font-weight: normal; background: var(--surface); }
+  table.grid tr:last-child td { border-bottom: 0; }
+  mark { background: rgba(91, 141, 239, .36); color: var(--text); padding: 0 1px; }
+  .empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .empty .line { margin-bottom: 8px; }
+  .note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .note b { color: var(--text); }
+  .callout {
+    border-left: 2px solid var(--primary);
+    background: rgba(91, 141, 239, .08);
+    padding: 6px 10px;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .callout.warn { border-color: var(--warn); background: rgba(217, 160, 74, .08); }
+  .callout.danger { border-color: var(--danger); background: rgba(208, 106, 106, .08); }
+  .callout b { color: var(--text); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .mini {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+  }
+  .mini h3 { font-size: 12px; margin-bottom: 6px; }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .56);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal {
+    width: 430px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+  }
+  .modal-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .modal-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .field { display: grid; grid-template-columns: 66px 1fr; align-items: center; gap: 8px; font-size: 12px; }
+  .field span { color: var(--muted); }
+  .field input, .field select {
+    height: 26px;
+    padding: 0 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .modal-foot {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .check input { accent-color: var(--primary); }
+  .cell-edit {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .cell-edit input {
+    width: 100%;
+    height: 22px;
+    padding: 0 4px;
+    background: var(--bg);
+    border: 1px solid var(--primary);
+    border-radius: 3px;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .cell-edit .hint { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .sql {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .filter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 8px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .filter-row select, .filter-row input {
+    height: 24px;
+    padding: 0 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 11px;
+  }
+  .filter-row input { width: 110px; }
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .row-act { color: var(--muted); text-align: center; cursor: pointer; font-size: 14px; }
+  .menu-demo {
+    width: 156px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .35);
+  }
+  .menu-demo div {
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .menu-demo div:last-child { border-bottom: 0; color: var(--danger); }
+  .btn.disabled { opacity: .42; }
+  .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 26px; }
+  @media (max-width: 860px) {
+    .three { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 860px) {
+    .split { grid-template-columns: 1fr; }
+    .db-body { flex-direction: column; }
+    .tree { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>草图：数据库页待办增强</h1>
+  <p class="sub">
+    状态：<b>T1~T5、T7~T9、T11 已实施；T6 / T10 / T12 本轮不做</b> · 2026-10-21 · 对应
+    <code>doc/数据库功能总览-2026-10-21.md</code> §3.3 · 仅示意布局与交互，不代表最终像素。
+  </p>
+  <div class="legend">
+    <span class="badge primary">T1 MySQL 当前页行过滤 · 已实施</span>
+    <span class="badge primary">T2 元数据树筛选 · 已实施</span>
+    <span class="badge primary">T3 PG schema 层级 · 已实施</span>
+    <span class="badge primary">T4 PG 跨库连接引导 · 已实施</span>
+    <span class="badge primary">T5 PG 单元格编辑 · 已实施</span>
+    <span class="badge warn">T6 WHERE 下沉 · 本轮不做</span>
+    <span class="badge primary">T11 精确总行数 · 已实施</span>
+    <span class="badge warn">T12 Redis 写操作 · 本轮不做</span>
+  </div>
+  <p class="sub">T7 / T8 / T9 无独立草图，均已实施（hasMore 边界、文案 i18n、真实库 E2E 脚本）。</p>
+
+  <div class="panel">
+    <p><b>设计基线</b>：沿用数据库页现有 32px 顶栏、220~240px 左树、3 tabs（data / SQL / 表结构）；颜色全部走现有 token（--border / --surface / --primary / --ok / --warn），不新增设计语言。T1、T2 为纯前端；T3~T6 涉及主进程或驱动能力，需单独提交。</p>
+  </div>
+
+  <!-- ============ T1 ============ -->
+  <h2 id="t1">T1 · MySQL 当前页行过滤</h2>
+  <p class="sub">在网格头增加本页筛选框；只过滤当前已加载的这一页，不发起 SQL、不改分页语义。</p>
+
+  <div class="frame">
+    <div class="tabstrip">
+      <div class="tab active">data</div>
+      <div class="tab">SQL</div>
+      <div class="tab">表结构</div>
+    </div>
+    <div class="db-head">
+      <span class="dot"></span>
+      <span class="engine">MySQL</span>
+      <span class="target">127.0.0.1:3306 · shop · root</span>
+      <span class="spacer"></span>
+      <span class="badge">系统库</span>
+      <span class="badge">只读</span>
+      <span class="ico-btn">R</span>
+    </div>
+    <div class="db-body">
+      <div class="tree">
+        <div class="tree-filter">
+          <span class="x">⌕</span>
+          <input value="" placeholder="筛选库 / 表">
+        </div>
+        <div class="tree-row"><span class="caret">▾</span><span class="eng" style="background:#4479A1"></span>shop</div>
+        <div class="tree-row sel ind-1"><span class="caret">·</span>orders</div>
+        <div class="tree-row ind-1"><span class="caret">·</span>users</div>
+        <div class="tree-row"><span class="caret">▸</span><span class="eng" style="background:#4479A1"></span>analytics</div>
+      </div>
+      <div class="main">
+        <div class="grid-head">
+          <span class="title">shop.orders</span>
+          <span class="meta">approx rows: 24,180</span>
+          <div class="filterbox">
+            <span class="x">⌕</span>
+            <input value="active" placeholder="筛选当前页">
+            <span class="x">×</span>
+          </div>
+          <span class="counter">7 / 20</span>
+          <span class="spacer"></span>
+          <span class="btn ghost">‹</span>
+          <span class="meta">page 2</span>
+          <span class="btn ghost">›</span>
+          <span class="btn ghost">go</span>
+          <span class="btn ghost">20 / page</span>
+          <span class="btn ghost">刷新</span>
+        </div>
+        <table class="grid">
+          <tr><th style="width:60px">id</th><th>status</th><th>customer</th><th style="width:100px">amount</th></tr>
+          <tr><td>21</td><td><mark>active</mark></td><td>alice</td><td>128.00</td></tr>
+          <tr><td>23</td><td><mark>active</mark></td><td>carol</td><td>320.00</td></tr>
+          <tr><td>24</td><td><mark>active</mark></td><td>dave</td><td>15.00</td></tr>
+          <tr><td>26</td><td><mark>active</mark></td><td>frank</td><td>240.00</td></tr>
+          <tr><td>27</td><td><mark>active</mark></td><td>grace</td><td>88.00</td></tr>
+          <tr><td>29</td><td><mark>active</mark></td><td>heidi</td><td>64.00</td></tr>
+          <tr><td>30</td><td><mark>active</mark></td><td>ivan</td><td>199.00</td></tr>
+        </table>
+        <div class="note" style="padding:0 8px 8px">
+          <b>交互</b>：输入即时过滤；不区分大小写，匹配所有可见列；Esc / × 清空；翻页时保留关键词并对新页重新过滤；切换表或排序时清空。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="split" style="margin-top:12px">
+    <div class="mini">
+      <h3>无匹配（本页）</h3>
+      <div class="empty">
+        <div class="line">本页 20 行中没有匹配 “zzz” 的行</div>
+        <span class="btn">清除筛选</span>
+      </div>
+      <div class="note">不显示“表为空”；空态必须能区分「筛选无结果」与「查询失败 / 空表」。</div>
+    </div>
+    <div class="mini">
+      <h3>边界</h3>
+      <ul>
+        <li>只过滤当前页，不改变总行数、页码与 `hasMore`。</li>
+        <li>跨页找值仍走 SQL 或二期 WHERE（T6），本页筛选不伪装成全表搜索。</li>
+        <li>只读模式同样可用，纯前端不触发写操作。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ T2 ============ -->
+  <h2 id="t2">T2 · 元数据树筛选</h2>
+  <p class="sub">在左树顶部增加筛选框；按库名 / 表名做子串匹配，自动展开命中分支。顶栏查找仍负责“页面可见文本”。</p>
+
+  <div class="split">
+    <div class="frame">
+      <div class="db-head">
+        <span class="dot"></span><span class="engine">PostgreSQL</span>
+        <span class="target">127.0.0.1:5432 · app · postgres</span>
+      </div>
+      <div class="db-body" style="min-height:230px">
+        <div class="tree" style="width:100%;border-right:0">
+          <div class="tree-filter focus">
+            <span class="x">⌕</span>
+            <input value="user" placeholder="筛选库 / 表">
+            <span class="x">×</span>
+          </div>
+          <div class="tree-row"><span class="caret">▾</span><span class="eng" style="background:#336791"></span>app<span class="tag">current</span></div>
+          <div class="tree-row ind-1"><span class="caret">▾</span>public</div>
+          <div class="tree-row sel ind-2"><span class="caret">·</span><mark>user</mark>s</div>
+          <div class="tree-row ind-2"><span class="caret">·</span>audit_<mark>user</mark>_log</div>
+          <div class="tree-row ind-1"><span class="caret">▸</span>app</div>
+          <div class="tree-row"><span class="caret">▸</span><span class="eng" style="background:#336791"></span>analytics</div>
+          <div class="note" style="padding:6px 4px 0">命中 2 个节点 · 自动展开父级</div>
+        </div>
+      </div>
+    </div>
+    <div class="mini">
+      <h3>无匹配</h3>
+      <div class="tree-filter focus">
+        <span class="x">⌕</span>
+        <input value="zzz" placeholder="筛选库 / 表">
+        <span class="x">×</span>
+      </div>
+      <div class="empty">
+        <div class="line">没有匹配的库或表</div>
+        <span class="btn">清除筛选</span>
+      </div>
+      <h3 style="margin-top:12px">规则</h3>
+      <ul>
+        <li>不区分大小写，按节点名称子串匹配。</li>
+        <li>命中节点自动展开；清空后恢复原展开状态。</li>
+        <li>仅前端过滤已加载的元数据，不重新请求后端。</li>
+        <li>与顶栏查找互不替代：树筛选改“看到哪些节点”，顶栏查找定位“页面文本”。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ T3 ============ -->
+  <h2 id="t3">T3 · PostgreSQL schema 层级（已实施）</h2>
+  <p class="sub">PG 树从「库 → 表」扩展为「库 → schema → 表」；仅当前连接的库可展开 schema，其他库保持“未连接”并提供 T4 入口。</p>
+
+  <div class="frame">
+    <div class="db-head">
+      <span class="dot"></span><span class="engine">PostgreSQL</span>
+      <span class="target">127.0.0.1:5432 · app · postgres</span>
+      <span class="spacer"></span>
+      <span class="badge">系统库</span><span class="badge">只读</span>
+    </div>
+    <div class="db-body" style="min-height:270px">
+      <div class="tree">
+        <div class="tree-filter">
+          <span class="x">⌕</span><input placeholder="筛选库 / schema / 表"><span class="x">×</span>
+        </div>
+        <div class="tree-row"><span class="caret">▾</span><span class="eng" style="background:#336791"></span>app<span class="tag">current</span></div>
+        <div class="tree-row"><span class="caret">▾</span><span class="badge" style="line-height:18px">S</span> public</div>
+        <div class="tree-row sel ind-2"><span class="caret">·</span>users</div>
+        <div class="tree-row ind-2"><span class="caret">·</span>orders</div>
+        <div class="tree-row"><span class="caret">▾</span><span class="badge" style="line-height:18px">S</span> app</div>
+        <div class="tree-row ind-2"><span class="caret">·</span>audit_log</div>
+        <div class="tree-row"><span class="caret">▸</span><span class="badge" style="line-height:18px">S</span> reporting</div>
+        <div class="tree-row"><span class="caret">▸</span><span class="eng" style="background:#336791"></span>analytics<span class="grow"></span><span class="act">连接</span></div>
+        <div class="tree-row"><span class="caret">▸</span><span class="eng" style="background:#336791"></span>postgres<span class="grow"></span><span class="act">连接</span></div>
+      </div>
+      <div class="main">
+        <div class="grid-head">
+          <span class="title">public.users</span>
+          <span class="meta">schema: public</span>
+          <span class="spacer"></span>
+          <span class="btn ghost">20 / page</span>
+          <span class="btn ghost">刷新</span>
+        </div>
+        <table class="grid">
+          <tr><th style="width:50px">id</th><th>email</th><th>name</th><th style="width:110px">created_at</th></tr>
+          <tr><td>1</td><td>alice@example.com</td><td>Alice</td><td>2026-10-01</td></tr>
+          <tr><td>2</td><td>bob@example.com</td><td>Bob</td><td>2026-10-02</td></tr>
+          <tr><td>3</td><td>carol@example.com</td><td>Carol</td><td>2026-10-03</td></tr>
+        </table>
+        <div class="note" style="padding:8px">
+          <b>后端</b>：`getMetadata` 为当前库返回 schema 列表；`getPageData` / `describeTable` 增加 `schema` 参数，标识符按 `"schema"."table"` 双侧引用。
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout">
+    <b>兼容</b>：MySQL / Redis 树结构不变；PG 现有书签仍指向库，默认选中 `public`。节点 key 从 `[db, table]` 扩为 `[db, schema, table]`，需同步 selectedKeys / expandedKeys 与表结构、单元格编辑的定位逻辑。
+  </div>
+
+  <!-- ============ T4 ============ -->
+  <h2 id="t4">T4 · PostgreSQL 跨库连接引导（已实施）</h2>
+  <p class="sub">点击非当前库的「连接」不直接查询，而是新建指向目标库的连接 tab；不暴露、不复制密码到界面。</p>
+
+  <div class="frame" style="height:330px">
+    <div class="db-head">
+      <span class="dot"></span><span class="engine">PostgreSQL</span>
+      <span class="target">127.0.0.1:5432 · app · postgres</span>
+    </div>
+    <div class="db-body" style="min-height:290px">
+      <div class="tree">
+        <div class="tree-row"><span class="caret">▾</span><span class="eng" style="background:#336791"></span>app<span class="tag">current</span></div>
+        <div class="tree-row ind-1"><span class="caret">·</span>users</div>
+        <div class="tree-row"><span class="caret">▸</span><span class="eng" style="background:#336791"></span>analytics<span class="grow"></span><span class="act">连接</span></div>
+      </div>
+      <div class="main">
+        <div class="grid-head"><span class="title">app.users</span><span class="spacer"></span><span class="btn ghost">刷新</span></div>
+        <table class="grid">
+          <tr><th style="width:50px">id</th><th>email</th><th>name</th></tr>
+          <tr><td>1</td><td>alice@example.com</td><td>Alice</td></tr>
+          <tr><td>2</td><td>bob@example.com</td><td>Bob</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="overlay">
+      <div class="modal">
+        <div class="modal-head">连接到数据库 analytics</div>
+        <div class="modal-body">
+          <div class="field"><span>主机</span><input value="127.0.0.1" readonly></div>
+          <div class="field"><span>端口</span><input value="5432" readonly></div>
+          <div class="field"><span>用户</span><input value="postgres" readonly></div>
+          <div class="field"><span>目标库</span><input value="analytics" readonly></div>
+          <label class="check"><input type="checkbox" checked> 沿用当前连接的凭据（不在界面回显密码）</label>
+          <div class="callout warn" style="margin-top:2px">
+            PostgreSQL 一个连接只对应一个库。确认后将新建一个临时数据库 tab，当前 tab 不受影响。
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="btn">取消</span>
+          <span class="btn primary">新建连接</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <b>约束</b>：不拼接跨库 SQL（`analytics.public.users` 在 PG 中不可用）；不在日志或 UI 打印密码；目标库不存在时由主进程返回原始错误并停留在错误页。
+  </div>
+
+  <!-- ============ T5 ============ -->
+  <h2 id="t5">T5 · PostgreSQL 单元格编辑（主键检测，已实施）</h2>
+  <p class="sub">把主键检测从 MySQL 专属（`DESC` 的 `Key='PRI'`）扩展为通用 `pkColumn`；有主键才允许行内 UPDATE，无主键保持预览。</p>
+
+  <div class="frame">
+    <div class="tabstrip">
+      <div class="tab">data</div>
+      <div class="tab">SQL</div>
+      <div class="tab active">表结构</div>
+    </div>
+    <div class="grid-head">
+      <span class="title">public.users</span>
+      <span class="meta">4 columns</span>
+      <span class="spacer"></span>
+      <span class="btn ghost">刷新</span>
+    </div>
+    <table class="grid">
+      <tr><th style="width:140px">column_name</th><th style="width:180px">data_type</th><th style="width:80px">nullable</th><th style="width:90px">key</th><th>default</th></tr>
+      <tr><td>id</td><td>integer</td><td>NO</td><td><span class="badge ok">PK</span></td><td>nextval(...)</td></tr>
+      <tr><td>email</td><td>text</td><td>NO</td><td></td><td></td></tr>
+      <tr><td>name</td><td>text</td><td>YES</td><td></td><td></td></tr>
+      <tr><td>created_at</td><td>timestamptz</td><td>NO</td><td></td><td>now()</td></tr>
+    </table>
+  </div>
+
+  <div class="split" style="margin-top:12px">
+    <div class="mini">
+      <h3>有主键：双击单元格进入编辑</h3>
+      <table class="grid">
+        <tr><th style="width:50px">id</th><th>email</th><th style="width:90px">name</th></tr>
+        <tr><td>1</td><td>
+          <span class="cell-edit"><input value="alice@example.com"><span class="hint">Enter 保存 · Esc 取消</span></span>
+        </td><td>Alice</td></tr>
+        <tr><td>2</td><td>bob@example.com</td><td>Bob</td></tr>
+      </table>
+      <div class="note">保存生成 `UPDATE "public"."users" SET "email" = $1 WHERE "id" = $2`；失败留在编辑态并显示错误。</div>
+    </div>
+    <div class="mini">
+      <h3>无主键：只读并说明原因</h3>
+      <table class="grid">
+        <tr><th>event</th><th>payload</th></tr>
+        <tr><td>login</td><td>{...}</td></tr>
+        <tr><td>logout</td><td>{...}</td></tr>
+      </table>
+      <div class="callout warn">
+        <b>该表没有主键</b>，无法安全定位行。可单击预览 / 复制；修改请到 SQL 页手写 UPDATE。
+      </div>
+      <div class="note">悬停禁用单元格时显示同一提示，不弹出可编辑输入框。</div>
+    </div>
+  </div>
+  <div class="callout">
+    <b>后端</b>：`describeTable` 为 PG 增加主键标记（`pg_index` / `information_schema.key_column_usage`）；MySQL 保持 `Key='PRI'`，前端归一为 `pkColumn`。只读模式仍然优先拦截。
+  </div>
+
+  <!-- ============ T6 ============ -->
+  <h2 id="t6">T6 · WHERE 下沉（本轮不做）</h2>
+  <p class="sub">只有“跨页找值”成为高频需求才做；本图仅用于评估交互与风险，不进入本轮实现。</p>
+
+  <div class="frame">
+    <div class="db-head">
+      <span class="dot"></span><span class="engine">MySQL</span>
+      <span class="target">127.0.0.1:3306 · shop · root</span>
+      <span class="spacer"></span>
+      <span class="badge warn">二期</span>
+    </div>
+    <div class="grid-head">
+      <span class="title">shop.orders</span>
+      <span class="meta">approx rows: 24,180</span>
+      <span class="spacer"></span>
+      <span class="btn">筛选</span>
+      <span class="btn ghost">20 / page</span>
+      <span class="btn ghost">刷新</span>
+    </div>
+    <div class="filter-row">
+      <select><option>status</option><option>amount</option><option>customer</option></select>
+      <select><option>=</option><option>&gt;</option><option>LIKE</option></select>
+      <input value="active">
+      <span class="btn ghost">+ 条件</span>
+      <span class="btn primary">应用</span>
+      <span class="btn ghost">清除</span>
+      <span class="spacer"></span>
+      <span class="badge">最多 3 个条件</span>
+    </div>
+    <div class="sql">SELECT * FROM `shop`.`orders` WHERE `status` = ? AND `amount` &gt; ? LIMIT 20 OFFSET 0</div>
+    <table class="grid">
+      <tr><th style="width:60px">id</th><th>status</th><th>customer</th><th style="width:100px">amount</th></tr>
+      <tr><td>21</td><td>active</td><td>alice</td><td>128.00</td></tr>
+      <tr><td>23</td><td>active</td><td>carol</td><td>320.00</td></tr>
+      <tr><td>26</td><td>active</td><td>frank</td><td>240.00</td></tr>
+    </table>
+    <div class="callout warn" style="margin:8px">
+      <b>风险</b>：分页、排序、近似总行数都会随 WHERE 变化；必须参数化绑定，只允许 SELECT；只读模式下仍需通过全句写关键词扫描。通过评审后再立项。
+    </div>
+  </div>
+
+  <!-- ============ T11 ============ -->
+  <h2 id="t11">T11 · 精确总行数（已实施）</h2>
+  <p class="sub">默认仍用估算值；只有用户点击「精确」才执行 COUNT(*)，大表不因打开页面被全扫描。</p>
+
+  <div class="frame">
+    <div class="db-head">
+      <span class="dot"></span><span class="engine">MySQL</span>
+      <span class="target">127.0.0.1:3306 · shop · root</span>
+      <span class="spacer"></span>
+      <span class="badge">只读</span>
+    </div>
+    <div class="grid-head">
+      <span class="title">shop.orders</span>
+      <span class="meta">approx rows: 24,180</span>
+      <span class="btn link">精确</span>
+      <span class="spacer"></span>
+      <span class="btn ghost">‹</span>
+      <span class="meta">page 2</span>
+      <span class="btn ghost">›</span>
+      <span class="btn ghost">20 / page</span>
+      <span class="btn ghost">刷新</span>
+    </div>
+    <table class="grid">
+      <tr><th style="width:60px">id</th><th>status</th><th>customer</th><th style="width:100px">amount</th></tr>
+      <tr><td>21</td><td>active</td><td>alice</td><td>128.00</td></tr>
+      <tr><td>22</td><td>paid</td><td>bob</td><td>76.50</td></tr>
+      <tr><td>23</td><td>active</td><td>carol</td><td>320.00</td></tr>
+      <tr><td>24</td><td>active</td><td>dave</td><td>15.00</td></tr>
+    </table>
+  </div>
+
+  <div class="three" style="margin-top:12px">
+    <div class="mini">
+      <h3>点击后：只影响按钮</h3>
+      <div class="grid-head" style="border:0;padding:0;min-height:24px">
+        <span class="meta">approx rows: 24,180</span>
+        <span class="btn ghost disabled">counting…</span>
+      </div>
+      <div class="note">页面数据、翻页、排序保持可操作，不阻塞整页。</div>
+    </div>
+    <div class="mini">
+      <h3>成功：替换为精确值</h3>
+      <div class="grid-head" style="border:0;padding:0;min-height:24px">
+        <span class="meta">rows: 24,183</span>
+        <span class="badge ok">exact</span>
+      </div>
+      <div class="note">不改当前页与滚动位置；切换表/排序/筛选后回到约值。</div>
+    </div>
+    <div class="mini">
+      <h3>超时/失败：保留约值</h3>
+      <div class="grid-head" style="border:0;padding:0;min-height:24px">
+        <span class="meta">approx rows: 24,180</span>
+        <span class="btn ghost">精确</span>
+      </div>
+      <div class="callout warn" style="margin-top:6px">精确计数超时，仍显示估算值</div>
+    </div>
+  </div>
+  <div class="note">
+    <b>实现</b>：新增 `countRows` op（同一 `dbClientOp` 通道），60s 超时；Redis 无入口。默认打开不产生 COUNT 查询。
+  </div>
+
+  <!-- ============ T12 ============ -->
+  <h2 id="t12">T12 · Redis 写操作扩展（本轮不做）</h2>
+  <p class="sub">常用类型化编辑：hash 字段、set/zset 成员、list 插值/改值、key 重命名；不做通用命令控制台。</p>
+
+  <div class="frame">
+    <div class="db-head">
+      <span class="dot"></span><span class="engine">Redis</span>
+      <span class="target">127.0.0.1:6379 · db0</span>
+      <span class="spacer"></span>
+      <span class="badge ok">可写</span>
+    </div>
+    <div class="db-body" style="min-height:250px">
+      <div class="tree">
+        <div class="tree-row"><span class="caret">▾</span><span class="eng" style="background:#DC382D"></span>db0<span class="tag">128 keys</span></div>
+        <div class="tree-row sel ind-1"><span class="caret">·</span>user:1<span class="tag">hash</span></div>
+        <div class="tree-row ind-1"><span class="caret">·</span>session:42<span class="tag">string</span></div>
+        <div class="tree-row ind-1"><span class="caret">·</span>queue:jobs<span class="tag">list</span></div>
+        <div class="tree-row ind-1"><span class="caret">·</span>tags<span class="tag">set</span></div>
+      </div>
+      <div class="main">
+        <div class="grid-head">
+          <span class="title">user:1</span>
+          <span class="badge">hash</span>
+          <span class="meta">ttl: 3600s</span>
+          <span class="spacer"></span>
+          <span class="btn">rename</span>
+          <span class="btn">+ field</span>
+          <span class="btn">set ttl</span>
+          <span class="btn">delete</span>
+        </div>
+        <table class="grid">
+          <tr><th>field</th><th>value</th><th style="width:34px"></th></tr>
+          <tr><td>name</td><td>Alice</td><td class="row-act">···</td></tr>
+          <tr><td>email</td><td>
+            <span class="cell-edit"><input value="alice@example.com"><span class="hint">Enter 保存 · Esc 取消</span></span>
+          </td><td class="row-act">···</td></tr>
+          <tr><td>age</td><td>30</td><td class="row-act">···</td></tr>
+          <tr><td>city</td><td>Shanghai</td><td class="row-act">···</td></tr>
+        </table>
+        <div class="note" style="padding:8px">
+          <b>成功后</b>：重新拉当前键详情；删键清空详情并移除列表行；重命名就地更新列表行与标题，不重扫 SCAN。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="split" style="margin-top:12px">
+    <div class="mini">
+      <h3>行操作菜单</h3>
+      <div class="menu-demo">
+        <div>编辑 value</div>
+        <div>删除字段</div>
+      </div>
+      <div class="note">右键或行尾 `···` 触发；删除字段二次确认。</div>
+    </div>
+    <div class="mini">
+      <h3>只读态</h3>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <span class="btn disabled">rename</span>
+        <span class="btn disabled">+ field</span>
+        <span class="btn disabled">set ttl</span>
+        <span class="btn disabled">delete</span>
+      </div>
+      <div class="callout warn" style="margin-top:8px">只读模式：前端置灰 + 主进程 `checkWritable` 双重拦截。</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <h3>v1 命令矩阵（候选）</h3>
+    <table class="grid">
+      <tr><th style="width:90px">类型</th><th>操作</th><th style="width:190px">命令</th></tr>
+      <tr><td>hash</td><td>新增/修改 / 删除字段</td><td><code>HSET</code> / <code>HDEL</code></td></tr>
+      <tr><td>set</td><td>添加 / 移除成员</td><td><code>SADD</code> / <code>SREM</code></td></tr>
+      <tr><td>zset</td><td>新增改分 / 移除</td><td><code>ZADD</code> / <code>ZREM</code></td></tr>
+      <tr><td>list</td><td>头尾插入 / 按索引改值 / 按值删除</td><td><code>LPUSH</code> / <code>RPUSH</code> / <code>LSET</code> / <code>LREM 1</code></td></tr>
+      <tr><td>key</td><td>重命名</td><td><code>RENAMENX</code>（目标存在则失败，不覆盖）</td></tr>
+    </table>
+  </div>
+  <div class="callout warn">
+    <b>待需求</b>：list 删除按值只删第一个匹配项（需在 UI 明示）；按索引精确删除要 Lua，暂不做。通用命令框、FLUSHDB/FLUSHALL、KEYS 全量遍历不在范围。
+  </div>
+
+  <!-- ============ 取舍 ============ -->
+  <h2>设计取舍与实施顺序</h2>
+  <div class="panel">
+    <ul>
+      <li><b>T1 / T2 已实施</b>：纯前端、无 IPC、无后端协议变化，已解决“当前页/树里找不到”的高频问题。</li>
+      <li><b>T7 / T8 已实施</b>：`hasMore` 改为 pageSize+1 探测；数据库页文案统一走 translate。</li>
+      <li><b>T5 / T3 / T4 已实施</b>：PG 先补主键检测与参数化 updateCell，再补 schema 层级与跨库连接入口。</li>
+      <li><b>T11 已实施</b>：默认仍用 `TABLE_ROWS` 估算，点击「精确」才执行 COUNT(*)；切换表/排序/页大小/刷新后失效。</li>
+      <li><b>T9 已实施</b>：docker compose + `npm run test-db-e2e`，默认不进日常单测；本机无服务时自动 skipped。</li>
+      <li><b>T6 / T10 / T12 本轮不做</b>：WHERE 下沉、国产数据库批次、Redis 类型化写操作按用户决定暂缓。</li>
+      <li><b>不改变现有布局</b>：新增控件只占用网格头/树顶部已有空隙，不调整 padding、圆角与 32px 条高。</li>
+      <li><b>可访问性</b>：输入框、清除按钮、连接按钮均需键盘可达，焦点环使用现有 `:focus-visible` 规范。</li>
+    </ul>
+  </div>
+
+  <p class="footer">草图结束 · 除 T6 / T10 / T12 外均已实施 · 关联：doc/数据库功能总览-2026-10-21.md §3.3</p>
+</div>
+</body>
+</html>
