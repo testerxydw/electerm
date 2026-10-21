@@ -241,6 +241,36 @@ async function describeTable (conn, { table, database }) {
   return rowToPlain(cols)
 }
 
+// 单元格编辑写入门控：只读模式下由主进程直接拒绝（渲染层传参不可信）
+function checkWritable (readOnly) {
+  if (readOnly) {
+    throw new Error('read-only mode: cell update disabled')
+  }
+}
+
+// 单元格 UPDATE：值走占位符绑定，标识符按反引号引用；
+// 前端只传主键值定位，避免拼接 SQL 带来的注入面
+async function updateCell (conn, { database, table, pkColumn, pkValue, column, value, readOnly }) {
+  checkWritable(readOnly)
+  if (!column || !pkColumn) {
+    throw new Error('updateCell requires column and pkColumn')
+  }
+  if (pkValue === null || pkValue === undefined) {
+    throw new Error('updateCell requires a primary key value')
+  }
+  const pool = await getPool(conn)
+  const fullTable = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  const [res] = await pool.execute(
+    'UPDATE ' + fullTable +
+    ' SET ' + quoteIdent(column) + ' = ?' +
+    ' WHERE ' + quoteIdent(pkColumn) + ' = ?',
+    [value === undefined ? null : value, pkValue]
+  )
+  return { affected: res.affectedRows }
+}
+
 // 只读白名单：首关键词必须在允许集合内，且全句不得出现写关键词。
 // 只校验首关键词会被 `WITH x AS (...) DELETE FROM t` 绕过（MySQL 8 / PG 均支持该写语法），
 // 故追加一次全句写关键词扫描；宁可误拒（如 EXPLAIN DELETE），也不放行写操作。
@@ -312,6 +342,7 @@ module.exports = {
   getMetadata,
   getPageData,
   describeTable,
+  updateCell,
   executeSql,
   closeMysqlConnection
 }

@@ -33,15 +33,16 @@ function runInVm (src, stubs, filename) {
 const conn = { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbPassword: 'p', dbName: 'd' }
 
 // 假 mysql pool：按 rows 数量返回；记录 SQL
-function makeMysql (rows) {
-  const calls = { queries: [] }
+function makeMysql (rows, execResult = [[]]) {
+  const calls = { queries: [], executes: [] }
   const pool = {
     async query (sql) {
       calls.queries.push(sql)
       return [rows]
     },
-    async execute () {
-      return [[]]
+    async execute (sql, params) {
+      calls.executes.push({ sql, params })
+      return execResult
     }
   }
   const mod = runInVm(
@@ -55,8 +56,8 @@ function makeMysql (rows) {
   return { mod, calls }
 }
 
-// 假 pg Client：query 返回 { rows }；记录 SQL
-function makePostgres (rows) {
+// 假 pg Client：rowsOrFn 为数组时固定返回，为函数时按 SQL 路由；记录 SQL/参数
+function makePostgres (rowsOrFn) {
   const calls = { queries: [] }
   class Client {
     constructor (opts) {
@@ -67,7 +68,10 @@ function makePostgres (rows) {
 
     async query (sql, params) {
       calls.queries.push({ sql, params })
-      return { rows }
+      if (typeof rowsOrFn === 'function') {
+        return rowsOrFn(sql, params)
+      }
+      return { rows: rowsOrFn }
     }
 
     async end () {}

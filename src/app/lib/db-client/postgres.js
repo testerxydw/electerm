@@ -123,16 +123,60 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
   }
 }
 
-async function describeTable (conn, { table }) {
+async function describeTable (conn, { table, schema }) {
   const c = await getClient(conn)
+  const sch = schema || 'public'
   const res = await c.query(
     'SELECT column_name, data_type, is_nullable, column_default ' +
     'FROM information_schema.columns ' +
-    "WHERE table_schema = 'public' AND table_name = $1 " +
+    'WHERE table_schema = $1 AND table_name = $2 ' +
     'ORDER BY ordinal_position',
-    [String(table)]
+    [sch, String(table)]
   )
-  return res.rows
+  // 主键列标记：前端据此决定单元格能否安全定位行
+  const pkRes = await c.query(
+    'SELECT a.attname AS column_name FROM pg_index i ' +
+    'JOIN pg_class t ON t.oid = i.indrelid ' +
+    'JOIN pg_namespace n ON n.oid = t.relnamespace ' +
+    'JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey) ' +
+    'WHERE i.indisprimary AND n.nspname = $1 AND t.relname = $2',
+    [sch, String(table)]
+  )
+  const pkSet = new Set(pkRes.rows.map(r => r.column_name))
+  return res.rows.map(r => ({
+    ...r,
+    is_primary_key: pkSet.has(r.column_name)
+  }))
+}
+
+// 单元格编辑写入门控：只读模式下由主进程直接拒绝（渲染层传参不可信）
+function checkWritable (readOnly) {
+  if (readOnly) {
+    throw new Error('read-only mode: cell update disabled')
+  }
+}
+
+// 单元格 UPDATE：值走 $1/$2 占位符绑定，标识符按双引号引用
+async function updateCell (conn, { database, schema, table, pkColumn, pkValue, column, value, readOnly }) {
+  checkWritable(readOnly)
+  if (!column || !pkColumn) {
+    throw new Error('updateCell requires column and pkColumn')
+  }
+  if (pkValue === null || pkValue === undefined) {
+    throw new Error('updateCell requires a primary key value')
+  }
+  const c = await getClient(conn)
+  if (database && database !== c.database) {
+    throw new Error('cross-database query not supported for postgres, connect with that database')
+  }
+  const full = quoteIdent(schema || 'public') + '.' + quoteIdent(table)
+  const res = await c.query(
+    'UPDATE ' + full +
+    ' SET ' + quoteIdent(column) + ' = $1' +
+    ' WHERE ' + quoteIdent(pkColumn) + ' = $2',
+    [value === undefined ? null : value, pkValue]
+  )
+  return { affected: res.rowCount }
 }
 
 // 只读白名单：首关键词必须在允许集合内，且全句不得出现写关键词。
@@ -186,6 +230,7 @@ module.exports = {
   getMetadata,
   getPageData,
   describeTable,
+  updateCell,
   executeSql,
   closePostgresConnection
 }

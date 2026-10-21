@@ -36,18 +36,11 @@ const TREE_MAX_W = 600
 const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
 const CELL_SPLIT_KEY = 'electerm-db-cell-split'
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
-const nodeKey = (database, table) => JSON.stringify([database, table])
-// 单元格编辑生成的 UPDATE（MySQL 系）：标识符反引号转义，值按类型决定是否加引号
-const quoteIdent = (s) => '`' + String(s).replace(/`/g, '``') + '`'
-const quoteVal = (v) => {
-  if (v === null || v === undefined) {
-    return 'NULL'
-  }
-  if (typeof v === 'number' || typeof v === 'boolean') {
-    return String(v)
-  }
-  return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'"
-}
+const nodeKey = (database, schema, table) => JSON.stringify([
+  database,
+  schema || '',
+  table || ''
+])
 // 文本命中包裹：顶栏查找用 db-kw-hit（命中数由 MutationObserver 统计），
 // 局部过滤用 db-tree-hit / db-page-hit（不计入顶栏命中）。
 function hlText (text, kw, hitClass = 'db-kw-hit') {
@@ -583,6 +576,7 @@ export default auto(function DbSession (props) {
     setStructure(s => ({ ...s, loading: true }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'describeTable', {
       database: target.database,
+      schema: target.schema || '',
       table: target.table
     }).then(rows => {
       setStructure({ loading: false, rows: rows || [] })
@@ -718,11 +712,11 @@ export default auto(function DbSession (props) {
     }
   }
 
-  // 行定位列：MySQL 的 DESC 结果含 Key='PRI'。取不到主键就不开单元格编辑，
-  // 否则 UPDATE 的 WHERE 无法唯一定位行，可能一次改掉多行。
+  // 行定位列：MySQL 的 DESC 结果含 Key='PRI'，PG 由 describeTable 补 is_primary_key。
+  // 取不到主键就不开单元格编辑，否则 UPDATE 的 WHERE 无法唯一定位行，可能一次改掉多行。
   const pkColumn = (structure.rows || [])
-    .filter(r => r.Key === 'PRI')
-    .map(r => r.Field)[0] || ''
+    .filter(r => String(r.Key || '').toUpperCase() === 'PRI' || r.is_primary_key === true)
+    .map(r => r.Field || r.column_name)[0] || ''
   const canEditCell = !isReadonly && !isRedis && !!pkColumn
 
   const startEdit = (row, col) => {
@@ -738,17 +732,23 @@ export default auto(function DbSession (props) {
     setEditing(null)
   }
 
-  // 单元格 UPDATE（行内双击编辑与预览面板共用）
+  // 单元格 UPDATE（行内双击编辑与预览面板共用）：主进程按引擎参数化构造 UPDATE，
+  // 前端只传主键值定位，不拼接 SQL
   const runCellUpdate = (rowKey, col, value) => {
     const row = grid.rows[rowKey]
     if (!row || !sel) {
       return
     }
-    const sql = `UPDATE ${quoteIdent(sel.database)}.${quoteIdent(sel.table)}` +
-      ` SET ${quoteIdent(col)} = ${quoteVal(value)}` +
-      ` WHERE ${quoteIdent(pkColumn)} = ${quoteVal(row[pkColumn])}`
     setGrid(g => ({ ...g, loading: true }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', { sql })
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'updateCell', {
+      database: sel.database,
+      schema: sel.schema || '',
+      table: sel.table,
+      pkColumn,
+      pkValue: row[pkColumn],
+      column: col,
+      value
+    })
       .then(() => loadPage(sel, grid.page, grid.orderBy, grid.order))
       .catch(err => {
         setGrid(g => ({ ...g, loading: false }))
@@ -1466,7 +1466,10 @@ export default auto(function DbSession (props) {
       key: k,
       width: 200,
       ellipsis: true,
-      render: renderCell
+      // PG 主键列显示 PK 徽标；MySQL 沿用 DESC 的 Key=PRI 文本
+      render: k === 'is_primary_key'
+        ? v => (v === true ? <Tag className='db-pk-tag'>PK</Tag> : '')
+        : renderCell
     }))
     : []
   const structureArea = (

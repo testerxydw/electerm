@@ -35,12 +35,14 @@ const OP_MAP = {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
     describeTable: 'describeTable',
+    updateCell: 'updateCell',
     executeSql: 'executeSql'
   },
   postgres: {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
     describeTable: 'describeTable',
+    updateCell: 'updateCell',
     executeSql: 'executeSql'
   },
   redis: {
