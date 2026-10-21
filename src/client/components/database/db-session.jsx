@@ -688,7 +688,10 @@ export default auto(function DbSession (props) {
         rows,
         page,
         hasMore: !!(res && res.hasMore),
-        totalRows: res ? res.totalRows : undefined,
+        // 服务端只在首页返回近似行数；翻页沿用上一页的值，切换表/排序回第 1 页会重取
+        totalRows: res && res.totalRows !== undefined
+          ? res.totalRows
+          : (page > 1 ? g.totalRows : undefined),
         // 换表/换排序/换页大小会重置；二分回退与常规翻页保留
         lastPage: opts.keepLastPage ? g.lastPage : undefined,
         error: '',

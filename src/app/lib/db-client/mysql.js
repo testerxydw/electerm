@@ -221,7 +221,10 @@ async function getPageData (conn, { database, table, page, pageSize, orderBy, or
   sql += ' LIMIT ' + (pageSize + 1) + ' OFFSET ' + offset
   log.debug('getPageData sql:', sql)
   const [rows] = await pool.query(sql)
-  const totalRows = database ? await getApproxRows(pool, database, table) : undefined
+  // 近似行数只随表变化，翻页时沿用首页结果，避免每页都查 information_schema
+  const totalRows = (Number(page) || 1) === 1 && database
+    ? await getApproxRows(pool, database, table)
+    : undefined
   return {
     rows: rowToPlain(rows.slice(0, pageSize)),
     hasMore: rows.length > pageSize,

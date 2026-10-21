@@ -62,6 +62,7 @@ export default class VncSession extends PureComponent {
     this.rfb && this.rfb.disconnect()
     delete this.rfb
     clearTimeout(this.timer)
+    clearTimeout(this.screenTimer)
   }
 
   setStatus = status => {
@@ -492,7 +493,8 @@ export default class VncSession extends PureComponent {
   }
 
   onCapabilities = (capabilities) => {
-    setTimeout(this.checkScreens, 1000)
+    clearTimeout(this.screenTimer)
+    this.screenTimer = setTimeout(this.checkScreens, 1000)
   }
 
   processScreens = (screens) => {
@@ -525,9 +527,15 @@ export default class VncSession extends PureComponent {
     }
 
     if (screens && screens.length) {
-      this.setState({
-        screens: this.processScreens(screens)
-      })
+      const next = this.processScreens(screens)
+      const cur = this.state.screens || []
+      // 远端会反复广播 desktopname/capabilities：内容没变就不 setState，
+      // 避免无意义的整页重渲染
+      const same = cur.length === next.length &&
+        next.every((s, i) => s.id === cur[i].id)
+      if (!same) {
+        this.setState({ screens: next })
+      }
     }
   }
 

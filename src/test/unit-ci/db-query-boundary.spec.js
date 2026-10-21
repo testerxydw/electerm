@@ -156,6 +156,24 @@ describe('T11 exact row count', () => {
   })
 })
 
+describe('批次 E：MySQL 近似行数只在首页查询', () => {
+  test('首页查 information_schema，翻页不再查', async () => {
+    const { mod, calls } = makeMysql([{ id: 1 }], [[{ c: 10 }]])
+    const p1 = await mod.getPageData(conn, { database: 'db', table: 't', page: 1, pageSize: 20 })
+    assert.equal(p1.totalRows, 10)
+    assert.equal(calls.executes.length, 1)
+    const p2 = await mod.getPageData(conn, { database: 'db', table: 't', page: 2, pageSize: 20 })
+    assert.equal(p2.totalRows, undefined)
+    assert.equal(calls.executes.length, 1, 'page 2 must reuse the page-1 estimate')
+  })
+
+  test('前端翻页沿用上一页的近似值', () => {
+    const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+    const src = fs.readFileSync(JSX, 'utf8')
+    assert.ok(src.includes('page > 1 ? g.totalRows : undefined'), 'totalRows fallback missing')
+  })
+})
+
 describe('T3 postgres schema hierarchy', () => {
   test('当前库返回 schema 层级，非当前库仍为空', async () => {
     const { mod } = makePostgres(sql => {
