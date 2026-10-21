@@ -181,26 +181,72 @@ async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
   }
 }
 
-async function getKeyDetail (conn, { dbIndex, key }) {
+// hash/set 详情分页：HSCAN/SSCAN 的 COUNT 只是提示，可能一次返回少于 pageSize，
+// 这里循环到凑满一页或游标结束（最多 10 轮，避免异常实例下长时间占用）
+const DETAIL_PAGE_DEFAULT = 200
+const DETAIL_PAGE_MAX = 1000
+const DETAIL_SCAN_MAX_ROUNDS = 10
+
+async function scanPage (scan, pageSize, startCursor) {
+  let cursor = String(startCursor || '0')
+  let items = []
+  for (let i = 0; i < DETAIL_SCAN_MAX_ROUNDS; i++) {
+    const [next, list] = await scan(cursor)
+    items = items.concat(list || [])
+    cursor = String(next)
+    if (cursor === '0' || items.length >= pageSize) {
+      break
+    }
+  }
+  return { cursor, items }
+}
+
+async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
   const c = await useDb(conn, dbIndex)
   const type = await c.type(key)
+  const size = Math.min(Number(pageSize) || DETAIL_PAGE_DEFAULT, DETAIL_PAGE_MAX)
   let value = null
-  let fields = []
+  const fields = []
   let rows = []
+  let nextCursor = '0'
+  let total
   switch (type) {
     case 'string':
       value = await c.get(key)
       break
-    case 'hash':
-      rows = await c.hgetall(key)
-      fields = Object.keys(rows)
+    case 'hash': {
+      // 大 hash 不再 hgetall 全量加载，按 HSCAN 游标分页
+      // HSCAN 返回 field/value 成对元素：目标元素数是 pageSize × 2
+      const page = await scanPage(
+        cur => c.hscan(key, cur, 'COUNT', size),
+        size * 2,
+        cursor
+      )
+      nextCursor = page.cursor
+      rows = {}
+      for (let i = 0; i < page.items.length; i += 2) {
+        const field = page.items[i]
+        fields.push(field)
+        rows[field] = page.items[i + 1]
+      }
+      total = await c.hlen(key)
       break
+    }
     case 'list':
       rows = await c.lrange(key, 0, 1000)
       break
-    case 'set':
-      rows = await c.smembers(key)
+    case 'set': {
+      // 大 set 不再 smembers 全量加载，按 SSCAN 游标分页
+      const page = await scanPage(
+        cur => c.sscan(key, cur, 'COUNT', size),
+        size,
+        cursor
+      )
+      nextCursor = page.cursor
+      rows = page.items
+      total = await c.scard(key)
       break
+    }
     case 'zset':
       rows = await c.zrange(key, 0, 1000, 'WITHSCORES')
       break
@@ -208,7 +254,7 @@ async function getKeyDetail (conn, { dbIndex, key }) {
       value = null
   }
   const ttl = await c.ttl(key).catch(() => -1)
-  return { type, value, fields, rows, ttl }
+  return { type, value, fields, rows, ttl, nextCursor, total }
 }
 
 function checkWritable (readOnly) {

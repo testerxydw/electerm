@@ -35,6 +35,8 @@ const TREE_MAX_W = 600
 // 上下分区比例持久化键（DbSplitPane 消费）：redis 键列表/详情、mysql 网格/单元格预览
 const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
 const CELL_SPLIT_KEY = 'electerm-db-cell-split'
+// Redis hash/set 详情每页条数（后端 HSCAN/SSCAN 游标分页）
+const REDIS_DETAIL_PAGE = 200
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 const nodeKey = (database, schema, table) => JSON.stringify([
   database,
@@ -881,18 +883,40 @@ export default auto(function DbSession (props) {
     })
   }
 
-  const selectRedisKey = (key) => {
-    setRedisKey(key)
+  // cursor/append 供 hash/set 服务端分页：append 时把新一页合并进已加载详情，
+  // 不再把整个键一次性搬进内存
+  const selectRedisKey = (key, cursor = '0', append = false) => {
+    if (!append) {
+      setRedisKey(key)
+    }
     setDetailLoading(true)
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getKeyDetail', {
       dbIndex: redisDb,
-      key
+      key,
+      cursor: String(cursor || '0'),
+      pageSize: REDIS_DETAIL_PAGE
     }).then(res => {
-      setRedisDetail(res || null)
-      setTtlInput(res && res.ttl > 0 ? res.ttl : undefined)
+      const next = res || null
+      setRedisDetail(prev => {
+        if (!append || !prev || !next) {
+          return next
+        }
+        return {
+          ...next,
+          fields: [...(prev.fields || []), ...(next.fields || [])],
+          rows: next.type === 'hash'
+            ? { ...(prev.rows || {}), ...(next.rows || {}) }
+            : [...(prev.rows || []), ...(next.rows || [])]
+        }
+      })
+      if (!append) {
+        setTtlInput(res && res.ttl > 0 ? res.ttl : undefined)
+      }
       setDetailLoading(false)
     }).catch(err => {
-      setRedisDetail(null)
+      if (!append) {
+        setRedisDetail(null)
+      }
       setDetailLoading(false)
       message.error(err && err.message ? err.message : String(err))
     })
@@ -1675,7 +1699,7 @@ export default auto(function DbSession (props) {
     { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
   ]
 
-  // redis 详情「加载更多」：detailLimit 分批渲染，避免大 hash/list 一次进 DOM
+  // list/zset 详情「加载更多」：detailLimit 分批渲染，避免一次进 DOM
   const renderMoreBtn = (total) => {
     if (!total || total <= detailLimit) {
       return null
@@ -1687,6 +1711,26 @@ export default auto(function DbSession (props) {
         onClick={() => setDetailLimit(l => l + 200)}
       >
         {e('dbLoadMore')} ({e('dbLeft').replace('{n}', total - detailLimit)})
+      </Button>
+    )
+  }
+
+  // hash/set 详情「加载更多」：走服务端 HSCAN/SSCAN 游标，只拉下一页
+  const renderScanMore = (d) => {
+    if (!d || !d.nextCursor || d.nextCursor === '0') {
+      return null
+    }
+    const loaded = d.type === 'hash' ? (d.fields || []).length : (d.rows || []).length
+    const left = typeof d.total === 'number' ? Math.max(0, d.total - loaded) : null
+    return (
+      <Button
+        size='small'
+        className='db-redis-more'
+        loading={detailLoading}
+        onClick={() => selectRedisKey(redisKey, d.nextCursor, true)}
+      >
+        {e('dbLoadMore')}
+        {left === null ? '' : ` (${e('dbLeft').replace('{n}', left)})`}
       </Button>
     )
   }
@@ -1741,7 +1785,7 @@ export default auto(function DbSession (props) {
         />
       )
     } else if (d.type === 'hash') {
-      const hashFields = (d.fields || []).slice(0, detailLimit)
+      const hashFields = d.fields || []
       body = (
         <>
           <DbGridTable
@@ -1754,7 +1798,7 @@ export default auto(function DbSession (props) {
             dataSource={hashFields.map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
             rowKey='__rowKey'
           />
-          {renderMoreBtn((d.fields || []).length)}
+          {renderScanMore(d)}
         </>
       )
     } else if (d.type === 'list') {
@@ -1775,7 +1819,7 @@ export default auto(function DbSession (props) {
         </>
       )
     } else if (d.type === 'set') {
-      const setRows = (d.rows || []).slice(0, detailLimit)
+      const setRows = d.rows || []
       body = (
         <>
           <DbGridTable
@@ -1787,7 +1831,7 @@ export default auto(function DbSession (props) {
             dataSource={setRows.map((v, i) => ({ member: v, __rowKey: i }))}
             rowKey='__rowKey'
           />
-          {renderMoreBtn((d.rows || []).length)}
+          {renderScanMore(d)}
         </>
       )
     } else if (d.type === 'zset') {
