@@ -75,6 +75,40 @@ describe('perf guard: highlightValue budget (real source)', () => {
   })
 })
 
+describe('批次 B：config 快照缓存', () => {
+  test('config getter 按版本复用快照，不再每次 deepCopy', () => {
+    const src = loadSrc(path.join(ROOT, 'src/client/store/store.js'))
+    const block = src.match(/get config \(\) \{[\s\S]*?\n\s{2}\}/)
+    assert.ok(block, 'config getter not found')
+    assert.ok(block[0].includes('_configVersion'), 'must read version to keep mobx subscription')
+    assert.ok(block[0].includes('configSnapshots.get(store)'), 'cache lookup missing')
+    assert.ok(block[0].includes('cached.version === version'), 'cache invalidation missing')
+    assert.ok(!/return deepCopy\(window\.store\._config\)/.test(block[0]), 'unconditional deepCopy returned')
+  })
+
+  test('两条配置写入路径都递增版本', () => {
+    const setting = loadSrc(path.join(ROOT, 'src/client/store/setting.js'))
+    assert.ok(/setConfig[\s\S]*?_configVersion \+= 1/.test(setting), 'setConfig must bump version')
+    const load = loadSrc(path.join(ROOT, 'src/client/store/load-data.js'))
+    assert.ok(/store\._config = globs\.config[\s\S]{0,80}_configVersion \+= 1/.test(load), 'initApp must bump version')
+    const init = loadSrc(path.join(ROOT, 'src/client/store/init-state.js'))
+    assert.ok(init.includes('_configVersion: 0'), 'initial version missing')
+  })
+
+  test('getUiThemeConfig 不再为找主题深拷贝配置/主题列表', () => {
+    const src = loadSrc(path.join(ROOT, 'src/client/store/ui-theme.js'))
+    assert.ok(!src.includes('getSidebarList('), 'must not deep-copy the whole theme list')
+    assert.ok(!src.includes('store.config'), 'must read _config directly')
+    assert.ok(src.includes('store._config.theme'), 'theme id read missing')
+    assert.ok(src.includes('copy(theme.uiThemeConfig)'), 'only the selected theme config should be copied')
+  })
+
+  test('settingSidebarList 不重复深拷贝 initItem', () => {
+    const src = loadSrc(path.join(ROOT, 'src/client/store/store.js'))
+    assert.ok(!/deepCopy\(initItem\)/.test(src), 'initItem already comes from the copied list')
+  })
+})
+
 describe('perf guard: source contracts (committed perf fixes stay fixed)', () => {
   test('value pane highlight is memoized (no per-render recompute)', () => {
     const src = loadSrc(path.join(DB_DIR, 'db-value-pane.jsx'))

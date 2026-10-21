@@ -286,6 +286,7 @@ export default (Store) => {
     store.isPortable = globs.isPortable
     store.widgetLogPath = globs.widgetLogPath || ''
     store._config = globs.config
+    store._configVersion += 1
     window.et.langs = globs.langs
     store.zoom(store.config.zoom, false, true)
     await initWsCommon()

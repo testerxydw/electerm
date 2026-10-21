@@ -72,6 +72,8 @@ export default () => {
     profiles: [],
     bookmarkGroups: getDefaultBookmarkGroups([]),
     _config: {},
+    // config 快照缓存版本：任何配置写入都必须 +1（setConfig / initApp）
+    _configVersion: 0,
     terminalThemes: [],
     itermThemes: exclude([]),
     currentBookmarkGroupId: defaultBookmarkGroupId,

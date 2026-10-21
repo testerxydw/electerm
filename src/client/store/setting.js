@@ -25,6 +25,8 @@ export default Store => {
       store._config,
       copy(conf)
     )
+    // 配置快照按版本缓存；写入后失效，auto 组件读版本即可重新渲染
+    store._configVersion += 1
   }
   Store.prototype.setSftpSortSetting = function (conf) {
     Object.assign(

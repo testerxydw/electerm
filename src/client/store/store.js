@@ -50,6 +50,10 @@ import {
 } from 'antd'
 import { refsTabs } from '../components/common/ref'
 
+// config 快照缓存：按 _configVersion 失效，未变更时复用同一份只读快照。
+// 调用方不得 mutate 返回值（全仓库 config 只读；写入统一走 setConfig）。
+const configSnapshots = new WeakMap()
+
 class Store {
   constructor () {
     Object.assign(
@@ -95,7 +99,16 @@ class Store {
   }
 
   get config () {
-    return deepCopy(window.store._config)
+    const { store } = window
+    // 读取版本建立订阅；版本不变时不再深拷贝整份配置
+    const version = store._configVersion
+    const cached = configSnapshots.get(store)
+    if (cached && cached.version === version) {
+      return cached.value
+    }
+    const value = deepCopy(store._config)
+    configSnapshots.set(store, { version, value })
+    return value
   }
 
   get currentQuickCommands () {
@@ -257,7 +270,7 @@ class Store {
       : staticNewItemTabs.has(settingTab)
         ? arr // Don't add initItem for these tabs, they will be handled separately
         : [
-            deepCopy(initItem),
+            initItem,
             ...arr
           ]
   }
