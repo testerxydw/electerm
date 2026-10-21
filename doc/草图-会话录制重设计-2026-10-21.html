@@ -120,66 +120,107 @@ user@host:~$ █</pre>
     <div class="legend">
       <div class="li"><span class="dot a"></span><span><b>OSC 633 噪声</b>：新增"剥离 shell 集成序列"开关（默认开），cast 瘦身 + 干净</span></div>
       <div class="li"><span class="dot b"></span><span><b>碎片行</b>：~80ms 事件微批聚合，行数降一个量级（可选，P1）</span></div>
-      <div class="li"><span class="dot c"></span><span><b>想直接读</b>：cast 做不到可读 → 新增"纯文本记录"格式（见 ③）</span></div>
+      <div class="li"><span class="dot c"></span><span><b>想直接读</b>：<b>已有能力</b>——上游右键菜单的「录制」就是纯文本日志（VT 渲染天然无转义），本次只复用不重造（见 ③）</span></div>
     </div>
   </div>
 
-  <!-- ═══ 2 设置区块 ═══ -->
-  <h2>② 设置区块 · 设置页 → 终端 <span class="tag new">新增</span></h2>
-  <p class="desc">四个 config 项（default-setting.js + 渲染层双处定义），默认值全部保持现状行为不变。</p>
+  <!-- ═══ 2 统一入口 ═══ -->
+  <h2>② 统一入口 · 右侧「终端日志」页 <span class="tag new">改造既有页</span></h2>
+  <p class="desc">不新增页签：右侧 info 页本身就叫「终端日志」，底栏图标已指向它。把「会话录制」区加进这一页，与既有文本日志区并列，全部设置项与控制按钮都在这里。</p>
   <div class="card">
-    <div class="setting-group">
-      <div class="setting-row">
-        <div class="setting-label">录制格式<small>cast=回放文件, log=可读文本</small></div>
-        <div class="radio-pill"><span class="on">cast 回放</span><span>纯文本 log</span><span>两者都生成</span></div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:14px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text2)">
+        <span>AI</span><span>传输</span><span>监控</span>
+        <span style="color:var(--accent);font-weight:600;border-bottom:2px solid var(--accent);padding-bottom:7px;margin-bottom:-10px">终端日志</span>
+        <span style="margin-left:auto;font-size:11px">✕</span>
       </div>
-      <div class="setting-row">
-        <div class="setting-label">录制内容<small>键盘输入入档, 含警告</small></div>
-        <div>
-          <span class="cb-item"><span class="checkbox on">✓</span>仅输出</span>
-          <span class="cb-item"><span class="checkbox"></span>输出 + 键盘输入</span>
+      <div style="padding:12px">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;font-size:11px">
+          <span style="color:var(--text2)">日志目录</span>
+          <span style="color:var(--text2);font-family:var(--mono)">~/.config/electerm/session_logs</span>
+          <span style="margin-left:auto;display:flex;gap:10px;align-items:center">
+            <span style="cursor:pointer;font-size:13px" title="打开日志目录">📂</span>
+            <span style="border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer">打开日志目录</span>
+          </span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px">ID: 3f2a7c19</div>
+
+        <div style="font-size:12px;font-weight:600;margin-bottom:9px">会话录制（cast 回放）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--danger);display:inline-block"></span>
+          <span>录制中 00:37</span>
+          <span style="margin-left:auto;color:var(--text2);font-size:11px">electerm-rec-….cast 📂</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:14px">
+          <span style="border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:12px">⏸ 暂停</span>
+          <span style="border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:12px">⏹ 停止</span>
+          <span style="color:var(--text2);font-size:11px;align-self:center">未录制时此处为「▶ 开始」</span>
+        </div>
+        <div class="setting-group" style="margin-bottom:14px">
+          <div class="setting-row">
+            <div class="setting-label">录制内容<small>键盘输入入档, 含警告</small></div>
+            <div>
+              <span class="cb-item"><span class="checkbox on">✓</span>仅输出</span>
+              <span class="cb-item"><span class="checkbox"></span>输出 + 键盘输入</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">剥离 shell 集成序列<small>去除 OSC 633;A/C/D/E/P</small></div>
+            <div class="switch on"></div>
+            <span style="color:var(--text2);font-size:12px">回放不受影响，文件瘦身</span>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">密码提示自动避录<small>检测到 password 即暂停捕获</small></div>
+            <div class="switch on"></div>
+            <span style="color:var(--text2);font-size:12px">复用既有密码探测钩子</span>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border);padding-top:12px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:9px">终端文本日志 <span class="tag keep">既有</span></div>
+          <div class="setting-group">
+            <div class="setting-row">
+              <div class="setting-label">保存终端日志到文件<small>纯文本，天然无转义</small></div>
+              <div class="switch on"></div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">添加时间戳<small>行首 [HH:MM:SS]</small></div>
+              <div class="switch"></div>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text2);margin-top:8px">日志路径: ~/.config/electerm/log/xxx.log 📂</div>
         </div>
       </div>
-      <div class="setting-row">
-        <div class="setting-label">剥离 shell 集成序列<small>仅 cast 格式生效</small></div>
-        <div class="switch on"></div>
-        <span style="color:var(--text2);font-size:12px">去除 OSC 633;A/C/D/E/P 与标题序列，回放不受影响</span>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">密码提示自动避录<small>检测到 password 即暂停捕获</small></div>
-        <div class="switch on"></div>
-        <span style="color:var(--text2);font-size:12px">复用既有密码探测钩子，默认开</span>
-      </div>
     </div>
   </div>
 
-  <!-- ═══ 3 双格式对比 ═══ -->
-  <h2>③ 产物对比 · cast 回放 vs 纯文本 log <span class="tag new">新增 log</span></h2>
+  <!-- ═══ 3 去重 ═══ -->
+  <h2>③ 和既有「终端日志录制」重复了 <span class="tag warn">必须去重</span></h2>
+  <p class="desc">顶栏按钮与右键菜单的「录制」同名不同物：一套 cast 回放，一套上游纯文本日志。原设计里的"新增纯文本 log"就是重造，已砍掉。</p>
   <div class="cmp">
     <div class="card" style="margin:0">
-      <h4>electerm-rec-*.cast <span class="tag keep">增强</span></h4>
-      <pre>[3.5,"o","<span class="esc">(已剥离633)</span>\u001b[32muser@host\u001b[0m:~$ "]
-[3.6,"i","l"] [3.7,"i","s"]   <span class="esc">← 开输入后</span>
-[3.9,"o","file1  file2\r\n"]
-<span class="esc">// 微批聚合后 ~1/10 行数
-// 播放: asciinema play / 在线回放</span></pre>
+      <h4>既有 · 右键「录制」<span class="tag keep">保留复用</span></h4>
+      <pre><span class="plain">.log 纯文本（headless xterm 逐行渲染）
+天然无转义 + 可选 [HH:MM:SS] 行头
+现: config.sessionLogPath / appData/electerm/session_logs
+主进程 SessionLog（session-base.js）</span></pre>
     </div>
     <div class="card" style="margin:0">
-      <h4>electerm-rec-*.log <span class="tag new">新增</span></h4>
-      <pre><span class="plain">[08:57:30] user@host:~$ history
-[08:57:31]     4  cd /home/9800-1
-[08:57:31]     5  cd /home/9800-1/
-[08:57:33] user@host:~$ ls
-[08:57:33] file1  file2
-[08:57:35] user@host:~$ &gt; sudo apt up<span class="esc">(避录中)</span></span>
-<span class="esc">// ANSI 全剥离 + 时间戳行头
-// 适合归档 / 审计 / 直接阅读</span></pre>
+      <h4>本次 · 顶栏「录制」<span class="tag new">新增</span></h4>
+      <pre>[3.5,"o","<span class="esc">\u001b[32m</span>user@host…"]
+.cast 回放（含 ANSI / OSC）
+改: 同一目录（不再落 ~/Downloads）
+渲染层 SessionRecorder</pre>
     </div>
   </div>
   <div class="card">
+    <h4 style="font-size:13px;margin-bottom:10px">已定方向：统一到右侧「终端日志」页</h4>
     <div class="legend">
-      <div class="li"><span class="dot b"></span><span>log 对 TUI 应用（vim/htop）输出会是乱序文本——定位为「命令行会话归档」，文档注明</span></div>
-      <div class="li"><span class="dot d"></span><span>ANSI 过滤为纯函数（common/ansi-filter.js），全量单测覆盖 SGR/OSC/CSI/残留 ESC</span></div>
+      <div class="li"><span class="dot a"></span><span><b>右侧 info 页</b> = 主入口：cast 录制区 + 既有文本日志区并列，全部设置项与控制按钮都在这（见 ②）</span></div>
+      <div class="li"><span class="dot b"></span><span><b>底栏图标</b>（已有）负责打开该页；<b>顶栏</b>只做开始 / 暂停 / 停止快捷键（见 ⑤）</span></div>
+      <div class="li"><span class="dot c"></span><span><b>右键</b> <code>onRecord/onStopRecord</code> 改为打开该页；<code>onSaveTerminalLog</code>（导出当前缓冲区）保持不动</span></div>
+      <div class="li"><span class="dot d"></span><span><b>目录统一</b>：cast 从 <code>~/Downloads</code> 迁入 <code>~/.config/electerm/session_logs</code>（config.sessionLogPath 优先）；旧文件不迁移</span></div>
+      <div class="li"><span class="dot d"></span><span><b>零平行实现</b>：不新增页签、不新增底栏按钮、不新增 ansi-filter、不新增 .log 写入器</span></div>
     </div>
   </div>
 
@@ -246,17 +287,19 @@ user@host:~$ █</pre>
         <pre style="background:none;padding:0;color:#cfd6dd;font-size:12px">user@host:~$ (暂停期间输入输出均不入文件)</pre>
       </div>
     </div>
-    <p class="desc" style="margin-top:10px">暂停态：暂停按钮切 <b style="color:#ffb75d">▶ 继续</b>，浮层文案切"已暂停 MM:SS"（黄底）。右键菜单同步加"暂停/继续录制"。</p>
+    <p class="desc" style="margin-top:10px">暂停态：暂停按钮切 <b style="color:#ffb75d">▶ 继续</b>，浮层文案切"已暂停 MM:SS"（黄底）。顶栏图标只做控制、<b>不负责打开页面</b>；页面由底栏图标打开，右键 <code>onRecord</code> 也改为打开该页。</p>
   </div>
 
   <!-- ═══ 6 待拍板 ═══ -->
   <h2>⑥ 待拍板清单</h2>
   <div class="card">
     <div class="legend">
-      <div class="li"><span class="dot d"></span><span><b>1. 默认格式</b>：cast（行为不变）作为默认，是否同意</span></div>
-      <div class="li"><span class="dot d"></span><span><b>2. 输入录制粒度</b>：仅全局设置，还是同时加右键菜单"本会话临时录输入"</span></div>
-      <div class="li"><span class="dot d"></span><span><b>3. 剥离 OSC 默认开</b>：调试 shell integration 时需临时关，是否接受</span></div>
-      <div class="li"><span class="dot d"></span><span><b>4. ~80ms 微批聚合</b>：文件更整洁，回放精度略降，P1 可选是否引入</span></div>
+      <div class="li"><span class="dot a"></span><span><b>1. 统一目录</b>：默认 <code>~/.config/electerm/session_logs</code>（沿用文本日志默认，cast 迁入）是否认可，还是改用 <code>~/Documents/electerm-logs</code> 这类可见目录</span></div>
+      <div class="li"><span class="dot d"></span><span><b>2. 页面结构</b>：目录行置顶、cast 区在上、文本日志区在下（如 ②）是否认可</span></div>
+      <div class="li"><span class="dot d"></span><span><b>3. 右键归并</b>：<code>onRecord</code> 改为「打开终端日志页」是否接受（不再直接弹保存框）</span></div>
+      <div class="li"><span class="dot d"></span><span><b>4. 剥离 OSC 默认开</b>：调试 shell integration 时需临时关，是否接受</span></div>
+      <div class="li"><span class="dot d"></span><span><b>5. ~80ms 微批聚合</b>：文件更整洁，回放精度略降，P1 可选是否引入</span></div>
+      <div class="li"><span class="dot d"></span><span><b>6. 输入录制粒度</b>：仅全局设置，还是再加「本会话临时开关」</span></div>
     </div>
   </div>
 
