@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -48,9 +48,9 @@ const quoteVal = (v) => {
   }
   return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'"
 }
-// 页面内查找（顶栏搜索）：把命中片段包成 <mark className='db-kw-hit'>，
-// 命中数直接数页面里该 class 的个数（见 DbSession 里的 MutationObserver）
-function hlText (text, kw) {
+// 文本命中包裹：顶栏查找用 db-kw-hit（命中数由 MutationObserver 统计），
+// 局部过滤用 db-tree-hit / db-page-hit（不计入顶栏命中）。
+function hlText (text, kw, hitClass = 'db-kw-hit') {
   const s = text === null || text === undefined ? '' : String(text)
   if (!kw) {
     return s
@@ -64,7 +64,7 @@ function hlText (text, kw) {
     if (i > from) {
       out.push(s.slice(from, i))
     }
-    out.push(<mark className='db-kw-hit' key={n++}>{s.slice(i, i + kw.length)}</mark>)
+    out.push(<mark className={hitClass} key={n++}>{s.slice(i, i + kw.length)}</mark>)
     from = i + kw.length
     i = lower.indexOf(kw, from)
   }
@@ -77,22 +77,24 @@ function hlText (text, kw) {
   return out
 }
 // 单元格文本是「关键字高亮」产出的节点树（可能含多个 span），
-// 需要递归到 children 里再套查找命中，二者才能叠加
-function hlNode (node, kw) {
+// 需要递归到 children 里再套查找命中，二者才能叠加；
+// hitClass 区分顶栏查找（db-kw-hit）与页面/树局部过滤（db-page-hit / db-tree-hit），
+// 避免局部过滤的 mark 被顶栏查找计数与导航误收。
+function hlNode (node, kw, hitClass = 'db-kw-hit') {
   if (!kw || node === null || node === undefined || typeof node === 'boolean') {
     return node
   }
   if (typeof node === 'string' || typeof node === 'number') {
-    return hlText(node, kw)
+    return hlText(node, kw, hitClass)
   }
   if (Array.isArray(node)) {
-    return node.map((n, i) => <React.Fragment key={i}>{hlNode(n, kw)}</React.Fragment>)
+    return node.map((n, i) => <React.Fragment key={i}>{hlNode(n, kw, hitClass)}</React.Fragment>)
   }
   if (React.isValidElement(node)) {
     const { children } = node.props
     return children === undefined || children === null
       ? node
-      : React.cloneElement(node, {}, hlNode(children, kw))
+      : React.cloneElement(node, {}, hlNode(children, kw, hitClass))
   }
   return node
 }
@@ -331,6 +333,29 @@ export default auto(function DbSession (props) {
     orderBy: '',
     order: 'ascend'
   })
+  // T1 当前页行过滤：仅前端过滤已加载的这一页，不触发 SQL / 分页变化
+  const [pageFilter, setPageFilter] = useState('')
+  const pageFilterKw = pageFilter.trim().toLowerCase()
+  // 过滤后的行保留原始 __rowKey（选中单元格 / 行内编辑 / UPDATE 仍按原页索引定位）
+  const filteredRows = useMemo(() => {
+    const rows = grid.rows.map((r, i) => ({ ...r, __rowKey: i }))
+    if (!pageFilterKw) {
+      return rows
+    }
+    return rows.filter(r => Object.keys(r).some(k => {
+      if (k === '__rowKey') {
+        return false
+      }
+      const v = r[k]
+      return (v === null || v === undefined ? 'NULL' : String(v))
+        .toLowerCase()
+        .includes(pageFilterKw)
+    }))
+  }, [grid.rows, pageFilterKw])
+  // T2 元数据树过滤：仅前端过滤已加载节点；进入过滤前记录展开状态，清空后还原
+  const [treeFilter, setTreeFilter] = useState('')
+  const treeFilterKw = treeFilter.trim().toLowerCase()
+  const treeExpandedBeforeFilter = useRef(null)
 
   // 元数据树宽度（可拖拽；持久化到 localStorage，避免污染用户配置）
   const [treeWidth, setTreeWidth] = useState(() => {
@@ -349,6 +374,17 @@ export default auto(function DbSession (props) {
   const panelValue = selectedCell && grid.rows[selectedCell.rowKey]
     ? String(grid.rows[selectedCell.rowKey][selectedCell.col] ?? '')
     : ''
+  // T1 过滤变化会改变可见行：清掉选中/编辑，避免原索引指向另一行
+  const resetPageFilter = () => {
+    setPageFilter('')
+    setSelectedCell(null)
+    setEditing(null)
+  }
+  const onPageFilterChange = (ev) => {
+    setPageFilter(ev.target.value)
+    setSelectedCell(null)
+    setEditing(null)
+  }
   // 连接层错误：用于顶部提示 + 重连按钮
   const [connError, setConnError] = useState('')
 
@@ -536,6 +572,7 @@ export default auto(function DbSession (props) {
     }
     const [database, table] = JSON.parse(node.key)
     const next = { database, table }
+    resetPageFilter()
     setSel(next)
     loadPage(next, 1, '', 'ascend')
     loadStructure(next)
@@ -652,6 +689,7 @@ export default auto(function DbSession (props) {
     }
     const orderBy = sorter && sorter.field ? sorter.field : ''
     const order = sorter && sorter.order ? sorter.order : 'ascend'
+    resetPageFilter()
     loadPage(sel, grid.page, orderBy, order)
   }
 
@@ -841,15 +879,18 @@ export default auto(function DbSession (props) {
     })
   }
 
-  const renderCell = (v) => {
+  const renderCell = (v, cellFilterKw = '') => {
+    let node
     if (v === null || v === undefined) {
-      return <span className='db-cell-null'>NULL</span>
+      node = <span className='db-cell-null'>NULL</span>
+    } else if (typeof v === 'object') {
+      node = hlNode(highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig), kw)
+    } else {
+      // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类
+      node = hlNode(highlightValue(String(v), keywordPatterns, themeConfig), kw)
     }
-    if (typeof v === 'object') {
-      return hlNode(highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig), kw)
-    }
-    // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类
-    return hlNode(highlightValue(String(v), keywordPatterns, themeConfig), kw)
+    // T1 本页过滤高亮用独立 class，避免被顶栏查找计数/导航误收
+    return cellFilterKw ? hlNode(node, cellFilterKw, 'db-page-hit') : node
   }
 
   const columns = grid.rows.length
@@ -895,7 +936,7 @@ export default auto(function DbSession (props) {
               />
             )
           }
-          return renderCell(v)
+          return renderCell(v, pageFilterKw)
         }
       }
     })
@@ -954,28 +995,87 @@ export default auto(function DbSession (props) {
     )
   }
 
+  // T2：树过滤只作用于已加载的 metadata，不重新请求后端。
+  // 库名命中时保留全部子节点；仅表名命中时只保留命中的表。
+  const visibleMetadata = useMemo(() => {
+    if (!treeFilterKw) {
+      return metadata
+    }
+    return metadata.map(db => {
+      const dbHit = String(db.name || '').toLowerCase().includes(treeFilterKw)
+      if (isRedis) {
+        return dbHit ? db : null
+      }
+      const children = (db.children || []).filter(t => (
+        String(t.name || '').toLowerCase().includes(treeFilterKw)
+      ))
+      if (!dbHit && !children.length) {
+        return null
+      }
+      return { ...db, children: dbHit ? (db.children || []) : children }
+    }).filter(Boolean)
+  }, [metadata, isRedis, treeFilterKw])
+  const treeFilterNodeCount = visibleMetadata.reduce(
+    (n, db) => n + 1 + (db.children ? db.children.length : 0),
+    0
+  )
+  // 树过滤命中用 db-tree-hit（不复用 db-kw-hit，避免顶栏查找计数误收）；
+  // 再套一层顶栏查找高亮，保留两套高亮叠加
+  const treeTitle = (text) => hlNode(
+    hlText(text, treeFilterKw, 'db-tree-hit'),
+    kw
+  )
+  // 进入过滤时记录原展开状态并展开命中库；清空后还原（见下一个 effect）
+  useEffect(() => {
+    if (!treeFilterKw || isRedis) {
+      return
+    }
+    if (treeExpandedBeforeFilter.current === null) {
+      treeExpandedBeforeFilter.current = expandedKeys
+    }
+    const keys = metadata.filter(db => {
+      const dbHit = String(db.name || '').toLowerCase().includes(treeFilterKw)
+      return dbHit || (db.children || []).some(t => (
+        String(t.name || '').toLowerCase().includes(treeFilterKw)
+      ))
+    }).map(db => nodeKey(db.name, ''))
+    setExpandedKeys(keys)
+  }, [treeFilterKw, metadata, isRedis])
+  useEffect(() => {
+    if (treeFilterKw) {
+      return
+    }
+    if (treeExpandedBeforeFilter.current !== null) {
+      setExpandedKeys(treeExpandedBeforeFilter.current)
+      treeExpandedBeforeFilter.current = null
+    }
+  }, [treeFilterKw])
+
   const treeData = isRedis
-    ? metadata.map((db, i) => ({
-      // 键个数（来自 INFO keyspace）；空 db 显示 0，
-      // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
-      title: (
-        <span className='db-tree-db'>
-          <span className='db-tree-db-name'>{hlText(db.name, kw)}</span>
-          {
-            typeof db.count === 'number'
-              ? <span className='db-tree-db-count'>{db.count}</span>
-              : null
-          }
-        </span>
-      ),
-      key: String(i),
-      isLeaf: false
-    }))
-    : metadata.map(db => ({
+    ? visibleMetadata.map(db => {
+      const i = metadata.indexOf(db)
+      return {
+        // 键个数（来自 INFO keyspace）；空 db 显示 0，
+        // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
+        title: (
+          <span className='db-tree-db'>
+            <span className='db-tree-db-name'>{treeTitle(db.name)}</span>
+            {
+              typeof db.count === 'number'
+                ? <span className='db-tree-db-count'>{db.count}</span>
+                : null
+            }
+          </span>
+        ),
+        key: String(i),
+        isLeaf: false
+      }
+    })
+    : visibleMetadata.map(db => ({
       // 不复用 .db-tree-db（space-between 供 redis 计数用），错误标记须紧邻库名
       title: (
         <>
-          {hlText(db.name, kw)}
+          {treeTitle(db.name)}
           {
             // per-db 元数据降级标记：单库 SHOW TABLES 失败（权限等），
             // 库名保留可重试（点顶栏刷新重拉）
@@ -987,7 +1087,7 @@ export default auto(function DbSession (props) {
       ),
       key: nodeKey(db.name, ''),
       children: (db.children || []).map(t => ({
-        title: hlText(t.name, kw),
+        title: treeTitle(t.name),
         key: nodeKey(db.name, t.name),
         isLeaf: true
       }))
@@ -1024,6 +1124,7 @@ export default auto(function DbSession (props) {
         loadRedisKeys(redisDb, '0', matchInput)
       }
     } else if (sel) {
+      resetPageFilter()
       loadPage(sel, 1, grid.orderBy, grid.order)
     }
   }
@@ -1154,6 +1255,38 @@ export default auto(function DbSession (props) {
         {
           sel
             ? (
+              <>
+                <Input
+                  size='small'
+                  className='db-page-filter'
+                  value={pageFilter}
+                  onChange={onPageFilterChange}
+                  onKeyDown={ev => {
+                    if (ev.key === 'Escape') {
+                      ev.preventDefault()
+                      resetPageFilter()
+                    }
+                  }}
+                  placeholder={e('dbFilterPage')}
+                  title={e('dbFilterPageHint')}
+                  allowClear
+                />
+                {
+                  pageFilterKw
+                    ? (
+                      <span className='db-page-filter-count'>
+                        {filteredRows.length} / {grid.rows.length}
+                      </span>
+                      )
+                    : null
+                }
+              </>
+              )
+            : null
+        }
+        {
+          sel
+            ? (
               <div className='db-grid-pager'>
                 <Button
                   size='small'
@@ -1199,7 +1332,10 @@ export default auto(function DbSession (props) {
                 icon={<ReloadOutlined />}
                 loading={grid.loading}
                 title={e('refresh')}
-                onClick={() => loadPage(sel, grid.page, grid.orderBy, grid.order)}
+                onClick={() => {
+                  resetPageFilter()
+                  loadPage(sel, grid.page, grid.orderBy, grid.order)
+                }}
               />
               )
             : null
@@ -1225,23 +1361,32 @@ export default auto(function DbSession (props) {
             size='small'
             loading={grid.loading}
             columns={columns}
-            dataSource={grid.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+            dataSource={filteredRows}
             rowKey='__rowKey'
             pagination={false}
             onChange={onTableChange}
             locale={{
               emptyText: grid.error
                 ? e('queryFailed')
-                : (
-                  <span className='db-empty-tip'>
-                    {e('tableEmpty')}
-                    {
-                      typeof grid.totalRows === 'number'
-                        ? ` (${e('approxRows')}: ${grid.totalRows})`
-                        : ''
-                    }
-                  </span>
-                  )
+                : pageFilterKw
+                  ? (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={e('dbFilterNoPageMatch')}
+                    >
+                      <Button size='small' onClick={resetPageFilter}>{e('dbFilterClear')}</Button>
+                    </Empty>
+                    )
+                  : (
+                    <span className='db-empty-tip'>
+                      {e('tableEmpty')}
+                      {
+                        typeof grid.totalRows === 'number'
+                          ? ` (${e('approxRows')}: ${grid.totalRows})`
+                          : ''
+                      }
+                    </span>
+                    )
             }}
           />
         }
@@ -1716,6 +1861,26 @@ export default auto(function DbSession (props) {
           className='db-tree-panel'
           style={{ width: treeWidth }}
         >
+          <div className='db-tree-filter'>
+            <Input
+              size='small'
+              prefix={<SearchOutlined />}
+              placeholder={e('dbFilterTree')}
+              value={treeFilter}
+              onChange={ev => setTreeFilter(ev.target.value)}
+              allowClear
+              aria-label={e('dbFilterTree')}
+            />
+          </div>
+          {
+            treeFilterKw
+              ? (
+                <div className='db-tree-filter-count'>
+                  {treeFilterNodeCount} {e('dbFilterNodes')}
+                </div>
+                )
+              : null
+          }
           <Spin spinning={treeLoading}>
             {
               treeData.length
@@ -1730,7 +1895,18 @@ export default auto(function DbSession (props) {
                     className='db-tree'
                   />
                   )
-                : <Empty description={e('no metadata')} />
+                : treeFilterKw
+                  ? (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={e('dbFilterNoTreeMatch')}
+                    >
+                      <Button size='small' onClick={() => setTreeFilter('')}>
+                        {e('dbFilterClear')}
+                      </Button>
+                    </Empty>
+                    )
+                  : <Empty description={e('no metadata')} />
             }
           </Spin>
         </div>

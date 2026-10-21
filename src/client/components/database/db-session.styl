@@ -71,6 +71,16 @@
     outline 1px solid var(--primary-contrast)
   border-radius var(--radius-xs)
 
+// T1/T2 局部过滤命中：独立 class，避免被顶栏查找的计数与导航误收
+.db-page-hit
+  background var(--accent-wash)
+  color var(--text)
+  border-radius var(--radius-xs)
+.db-tree-hit
+  background var(--accent-wash)
+  color var(--text)
+  border-radius var(--radius-xs)
+
 // 左右分栏容器（树 | 拖拽条 | 主区）：原 .db-session-wrap 的内边距搬到这里
 .db-body
   flex 1 1 0
@@ -112,6 +122,17 @@
     border-radius var(--radius-xs)
     border 1px solid transparent
     background-clip content-box
+
+// T2 树过滤：占树面板顶部一行，不改变面板高度
+.db-tree-filter
+  margin-bottom 6px
+
+.db-tree-filter-count
+  color var(--text-dark)
+  font-size 12px
+  margin 0 2px 6px
+  white-space nowrap
+  font-variant-numeric tabular-nums
 
 // 拖拽条：命中区骑跨在左侧容器右边框上，因此"拖的就是容器边缘"，
 // 而不是浮在面板与主区之间的独立竖条。
@@ -224,6 +245,18 @@
 .db-grid-total
   color var(--text-dark)
   font-size 12px
+
+// T1 当前页过滤：窄窗口允许收缩，不把网格头挤成两行
+.db-page-filter
+  width 132px
+  flex 0 1 132px
+  min-width 96px
+
+.db-page-filter-count
+  color var(--text-dark)
+  font-size 12px
+  white-space nowrap
+  font-variant-numeric tabular-nums
 
 // 取数失败：错误落在表格区内（不再只 toast）
 .db-grid-error
