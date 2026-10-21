@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会话录制重设计草图 · T5-4f</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1f2329; --text2: #646a73;
+    --border: #dee0e3; --accent: #08c; --ok: #06b358; --warn: #b35c00;
+    --danger: #d93026; --code-bg: #f0f1f3; --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #17191c; --card: #1f2226; --text: #e8eaed; --text2: #9aa0a6;
+    --border: #34383d; --accent: #4db8ff; --ok: #3dd68c; --warn: #ffb75d;
+    --danger: #ff7875; --code-bg: #14161a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.7 -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; padding: 32px 16px 80px; transition: background .2s, color .2s; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin: 40px 0 6px; padding-left: 10px; border-left: 4px solid var(--accent); }
+  .desc { color: var(--text2); font-size: 13px; margin-bottom: 14px; }
+  .theme-btn { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 14px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; vertical-align: 3px; margin-left: 8px; }
+  .tag.new { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+  .tag.keep { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  .tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .tag.opt { background: color-mix(in srgb, var(--text2) 15%, transparent); color: var(--text2); }
+  code { font-family: var(--mono); font-size: 12px; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  pre { font-family: var(--mono); font-size: 12px; background: var(--code-bg); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.6; }
+  .legend { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .legend .li { display: flex; gap: 8px; align-items: baseline; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; position: relative; top: -1px; }
+  .dot.a { background: var(--ok); } .dot.b { background: var(--warn); } .dot.c { background: var(--danger); } .dot.d { background: var(--text2); }
+
+  /* ── mock: 设置区块 ── */
+  .setting-group { border: 1px solid var(--border); border-radius: 10px; }
+  .setting-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { width: 190px; flex: none; font-weight: 500; }
+  .setting-label small { display: block; color: var(--text2); font-weight: 400; font-size: 12px; }
+  .radio-pill { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .radio-pill span { padding: 5px 14px; font-size: 13px; cursor: pointer; border-right: 1px solid var(--border); }
+  .radio-pill span:last-child { border-right: none; }
+  .radio-pill .on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); font-weight: 500; }
+  .switch { width: 36px; height: 20px; border-radius: 999px; background: var(--border); position: relative; cursor: pointer; flex: none; }
+  .switch::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; left: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 18px; }
+  .checkbox { width: 16px; height: 16px; border: 1.5px solid var(--text2); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex: none; }
+  .checkbox.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cb-item { display: inline-flex; gap: 7px; align-items: center; font-size: 13px; margin-right: 18px; cursor: pointer; }
+  .cb-item.dis { opacity: .45; cursor: not-allowed; }
+
+  /* ── mock: 对比 ── */
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .cmp { grid-template-columns: 1fr; } }
+  .cmp h4 { font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .cmp pre { min-height: 150px; font-size: 11px; }
+  .esc { color: var(--danger); opacity: .75; }
+  .plain { color: var(--ok); }
+
+  /* ── mock: 终端顶栏 + 浮层 ── */
+  .term-mock { background: #101216; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); position: relative; color: #cfd6dd; font-family: var(--mono); font-size: 12px; }
+  .term-bar { display: flex; align-items: center; padding: 0 12px; height: 34px; background: #1a1d22; border-bottom: 1px solid #26292f; gap: 10px; }
+  .term-bar .crumb { font-size: 12px; color: #8b939c; }
+  .term-bar .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #3dd68c; display: inline-block; margin-right: 6px; }
+  .term-bar .spacer { flex: 1; }
+  .term-bar .seg { font-size: 11px; color: #8b939c; padding: 0 10px; border-left: 1px solid #26292f; height: 18px; line-height: 18px; }
+  .term-body { padding: 14px 16px; height: 130px; }
+  .rec-float { position: absolute; top: 44px; right: 14px; display: flex; align-items: center; gap: 8px; background: rgba(220,38,38,.92); color: #fff; border-radius: 999px; padding: 5px 12px; font-size: 12px; font-family: -apple-system, 'PingFang SC', sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+  .rec-float .pulse { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: pu 1.2s infinite; }
+  @keyframes pu { 50% { opacity: .25; } }
+  .rec-float .fbtn { background: rgba(255,255,255,.18); border-radius: 6px; padding: 1px 8px; cursor: pointer; font-size: 11px; }
+  .rec-float.paused { background: rgba(255,183,93,.94); color: #1f2329; }
+  .rec-float.paused .pulse { animation: none; background: #1f2329; }
+
+  /* ── mock: toast ── */
+  .toast { display: flex; gap: 10px; align-items: flex-start; background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 10px; padding: 12px 16px; max-width: 480px; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+  .toast b { display: block; font-size: 13px; margin-bottom: 2px; }
+  .toast p { font-size: 12px; color: var(--text2); }
+  .flow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .flow .node { border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; background: var(--code-bg); }
+  .flow .arr { color: var(--text2); }
+  .flow .node.hot { border-color: var(--warn); color: var(--warn); }
+  footer { margin-top: 48px; color: var(--text2); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>会话录制重设计 <span class="tag opt">T5-4f · 待拍板</span></h1>
+    <button class="theme-btn" onclick="toggleTheme()">切换深色</button>
+  </header>
+  <p class="desc">问题：cast 满屏转义符 + 需要可选输入录制。方案对齐 asciinema（回放）与 script/TermRecord（可读归档）两类形态，<b>回放与阅读分离</b>。设计详情见 <code>doc/T5-4f会话录制重设计-2026-10-21.md</code></p>
+
+  <!-- ═══ 1 根因 ═══ -->
+  <h2>① 转义符从哪来（固有形态，非 bug）</h2>
+  <p class="desc">cast 是 asciinema v2「终端字节流重放」格式——录的就是终端协议本身。asciinema 官方录出的文件同样如此，设计上给播放器渲染（asciinema play），不是给人直接读的。electerm 里观感最差的是自家 shell 集成注入的 OSC 633 序列（每条命令回显一次，几百字符）。</p>
+  <div class="cmp">
+    <div class="card" style="margin:0">
+      <h4>cast 源文件（编辑器视角）<span class="tag keep">现状</span></h4>
+      <pre>[2.294,"o","h"]
+[2.355,"o","i"]
+[3.261,"o","<span class="esc">\u001b]633;E;history\u0007\u001b]633;C\u0007</span>    4  cd /home/9800-1<span class="esc">\r\n</span>
+[3.5,"o","<span class="esc">\u001b[32m</span>user@host<span class="esc">\u001b[0m</span>:~$ "]</pre>
+    </div>
+    <div class="card" style="margin:0">
+      <h4>播放器渲染（asciinema play 视角）<span class="tag keep">现状</span></h4>
+      <pre style="color:var(--ok)">user@host:~$ history
+    4  cd /home/9800-1
+    5  cd /home/9800-1/
+user@host:~$ █</pre>
+    </div>
+  </div>
+  <div class="card">
+    <div class="legend">
+      <div class="li"><span class="dot a"></span><span><b>OSC 633 噪声</b>：新增"剥离 shell 集成序列"开关（默认开），cast 瘦身 + 干净</span></div>
+      <div class="li"><span class="dot b"></span><span><b>碎片行</b>：~80ms 事件微批聚合，行数降一个量级（可选，P1）</span></div>
+      <div class="li"><span class="dot c"></span><span><b>想直接读</b>：cast 做不到可读 → 新增"纯文本记录"格式（见 ③）</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ 2 设置区块 ═══ -->
+  <h2>② 设置区块 · 设置页 → 终端 <span class="tag new">新增</span></h2>
+  <p class="desc">四个 config 项（default-setting.js + 渲染层双处定义），默认值全部保持现状行为不变。</p>
+  <div class="card">
+    <div class="setting-group">
+      <div class="setting-row">
+        <div class="setting-label">录制格式<small>cast=回放文件, log=可读文本</small></div>
+        <div class="radio-pill"><span class="on">cast 回放</span><span>纯文本 log</span><span>两者都生成</span></div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">录制内容<small>键盘输入入档, 含警告</small></div>
+        <div>
+          <span class="cb-item"><span class="checkbox on">✓</span>仅输出</span>
+          <span class="cb-item"><span class="checkbox"></span>输出 + 键盘输入</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">剥离 shell 集成序列<small>仅 cast 格式生效</small></div>
+        <div class="switch on"></div>
+        <span style="color:var(--text2);font-size:12px">去除 OSC 633;A/C/D/E/P 与标题序列，回放不受影响</span>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">密码提示自动避录<small>检测到 password 即暂停捕获</small></div>
+        <div class="switch on"></div>
+        <span style="color:var(--text2);font-size:12px">复用既有密码探测钩子，默认开</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 3 双格式对比 ═══ -->
+  <h2>③ 产物对比 · cast 回放 vs 纯文本 log <span class="tag new">新增 log</span></h2>
+  <div class="cmp">
+    <div class="card" style="margin:0">
+      <h4>electerm-rec-*.cast <span class="tag keep">增强</span></h4>
+      <pre>[3.5,"o","<span class="esc">(已剥离633)</span>\u001b[32muser@host\u001b[0m:~$ "]
+[3.6,"i","l"] [3.7,"i","s"]   <span class="esc">← 开输入后</span>
+[3.9,"o","file1  file2\r\n"]
+<span class="esc">// 微批聚合后 ~1/10 行数
+// 播放: asciinema play / 在线回放</span></pre>
+    </div>
+    <div class="card" style="margin:0">
+      <h4>electerm-rec-*.log <span class="tag new">新增</span></h4>
+      <pre><span class="plain">[08:57:30] user@host:~$ history
+[08:57:31]     4  cd /home/9800-1
+[08:57:31]     5  cd /home/9800-1/
+[08:57:33] user@host:~$ ls
+[08:57:33] file1  file2
+[08:57:35] user@host:~$ &gt; sudo apt up<span class="esc">(避录中)</span></span>
+<span class="esc">// ANSI 全剥离 + 时间戳行头
+// 适合归档 / 审计 / 直接阅读</span></pre>
+    </div>
+  </div>
+  <div class="card">
+    <div class="legend">
+      <div class="li"><span class="dot b"></span><span>log 对 TUI 应用（vim/htop）输出会是乱序文本——定位为「命令行会话归档」，文档注明</span></div>
+      <div class="li"><span class="dot d"></span><span>ANSI 过滤为纯函数（common/ansi-filter.js），全量单测覆盖 SGR/OSC/CSI/残留 ESC</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ 4 输入录制+密码避录 ═══ -->
+  <h2>④ 输入录制与密码避录 <span class="tag warn">隐私边界</span></h2>
+  <div class="card">
+    <h4 style="font-size:13px;margin-bottom:10px">开启「输出 + 键盘输入」时，首次 toast 警告</h4>
+    <div class="toast">
+      <span style="font-size:18px">⚠️</span>
+      <div>
+        <b>键盘输入将被记录</b>
+        <p>包括密码按键（密码不在屏幕回显但会录入 cast 的 i 事件）。「密码提示自动避录」已开启，检测到密码提示即暂停，但不承诺覆盖所有形式。可在设置中随时关闭。</p>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h4 style="font-size:13px;margin-bottom:10px">密码避录流程（复用 attach addon 既有探测）</h4>
+    <div class="flow">
+      <span class="node">输出含 password 提示</span><span class="arr">→</span>
+      <span class="node hot">recorder.pause() 暂停捕获</span><span class="arr">→</span>
+      <span class="node">回车 / Ctrl+C / 200ms 无回显</span><span class="arr">→</span>
+      <span class="node hot">resume() 恢复</span>
+    </div>
+    <p class="desc" style="margin-top:10px">纯输出模式下同样生效：sudo 提示期间的回显内容不落盘。浮层暂停期间输入输出均不入文件。</p>
+  </div>
+
+  <!-- ═══ 5 顶栏按钮 ═══ -->
+  <h2>⑤ 终端顶栏录制按钮增强 <span class="tag new">新增暂停</span></h2>
+  <div class="card">
+    <div class="term-mock">
+      <div class="term-bar">
+        <span class="crumb"><span class="conn-dot"></span>dev@9800-1</span>
+        <span class="crumb">SSH</span>
+        <span class="spacer"></span>
+        <span class="seg">ssh2 · curve25519-sha256</span>
+        <span class="seg">↑ 1.2 KB/s ↓ 8.4 KB/s</span>
+        <span class="seg" style="display:flex;gap:10px;align-items:center;border-left:1px solid #26292f">
+          <b style="color:#ff7875;font-weight:400">⏺ 停止</b>
+          <b style="color:#cfd6dd;font-weight:400">⏸ 暂停</b>
+        </span>
+      </div>
+      <div class="term-body">
+        <div class="rec-float">
+          <span class="pulse"></span> REC 12:03
+          <span class="fbtn" style="cursor:default">停止可点</span>
+        </div>
+        <pre style="background:none;padding:0;color:#cfd6dd;font-size:12px">user@host:~$ systemctl status ssh</pre>
+      </div>
+    </div>
+    <p class="desc" style="margin-top:10px">录制中：顶栏录制开关（<b style="color:#ff7875">⏺ 停止</b>，T5-4d 现状）旁新增 <b>⏸ 暂停</b>，同 <code>sess-icon</code> 形态，仅录制中渲染。REC 浮层保持纯状态指示（可点停止，现状不变）。</p>
+    <div class="term-mock" style="margin-top:12px">
+      <div class="term-bar">
+        <span class="crumb"><span class="conn-dot"></span>dev@9800-1</span>
+        <span class="spacer"></span>
+        <span class="seg" style="display:flex;gap:10px;align-items:center">
+          <b style="color:#ff7875;font-weight:400">⏺ 停止</b>
+          <b style="color:#ffb75d;font-weight:400">▶ 继续</b>
+        </span>
+      </div>
+      <div class="term-body">
+        <div class="rec-float paused">
+          <span class="pulse"></span> ⏸ 已暂停 00:37
+        </div>
+        <pre style="background:none;padding:0;color:#cfd6dd;font-size:12px">user@host:~$ (暂停期间输入输出均不入文件)</pre>
+      </div>
+    </div>
+    <p class="desc" style="margin-top:10px">暂停态：暂停按钮切 <b style="color:#ffb75d">▶ 继续</b>，浮层文案切"已暂停 MM:SS"（黄底）。右键菜单同步加"暂停/继续录制"。</p>
+  </div>
+
+  <!-- ═══ 6 待拍板 ═══ -->
+  <h2>⑥ 待拍板清单</h2>
+  <div class="card">
+    <div class="legend">
+      <div class="li"><span class="dot d"></span><span><b>1. 默认格式</b>：cast（行为不变）作为默认，是否同意</span></div>
+      <div class="li"><span class="dot d"></span><span><b>2. 输入录制粒度</b>：仅全局设置，还是同时加右键菜单"本会话临时录输入"</span></div>
+      <div class="li"><span class="dot d"></span><span><b>3. 剥离 OSC 默认开</b>：调试 shell integration 时需临时关，是否接受</span></div>
+      <div class="li"><span class="dot d"></span><span><b>4. ~80ms 微批聚合</b>：文件更整洁，回放精度略降，P1 可选是否引入</span></div>
+    </div>
+  </div>
+
+  <footer>electerm · T5-4f 会话录制重设计草图 · 2026-10-21</footer>
+</div>
+<script>
+  const saved = localStorage.getItem('t54f-theme')
+  const preferDark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+  apply(preferDark ? 'dark' : 'light')
+  function apply (t) {
+    document.documentElement.setAttribute('data-theme', t)
+    document.querySelector('.theme-btn').textContent = t === 'dark' ? '切换浅色' : '切换深色'
+    localStorage.setItem('t54f-theme', t)
+  }
+  function toggleTheme () {
+    apply(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark')
+  }
+  // 交互演示: 开关/radio 可点
+  document.querySelectorAll('.switch').forEach(s => s.addEventListener('click', () => s.classList.toggle('on')))
+  document.querySelectorAll('.checkbox').forEach(c => c.addEventListener('click', () => c.classList.toggle('on')))
+  document.querySelectorAll('.radio-pill').forEach(p => p.querySelectorAll('span').forEach(s =>
+    s.addEventListener('click', () => {
+      p.querySelectorAll('span').forEach(x => x.classList.remove('on'))
+      s.classList.add('on')
+    })))
+</script>
+</body>
+</html>
