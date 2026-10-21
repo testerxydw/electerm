@@ -93,8 +93,8 @@ describe('T1 sweep: P2-15 on-close awaits db cleanup', () => {
 describe('T1 sweep: P2-13 empty-state copy i18n', () => {
   test('empty states go through translate', () => {
     const src = fs.readFileSync(DB_SESSION, 'utf8')
-    assert.ok(src.includes("e('select a db node')"), 'redis empty state i18n')
-    assert.ok(src.includes("e('no metadata')"), 'tree empty state i18n')
+    assert.ok(src.includes("e('dbSelectDb')"), 'redis empty state i18n')
+    assert.ok(src.includes("e('dbNoMetadata')"), 'tree empty state i18n')
   })
 
   test('reverse: no hardcoded english description props', () => {
