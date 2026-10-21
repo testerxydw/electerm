@@ -171,7 +171,7 @@ export default class TerminalInfoBase extends Component {
 
   // 统一日志目录行（T5-4f）：路径展示 + 文档图标/文字按钮同一动作
   renderLogDir () {
-    const dir = createDefaultLogPath()
+    const dir = window.store.config.sessionLogPath || createDefaultLogPath()
     return (
       <div className='pd1b font-xs color-grey'>
         <b>{e('terminalLogPath')}:</b> {dir}{' '}
