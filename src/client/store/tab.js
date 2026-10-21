@@ -701,7 +701,7 @@ export default Store => {
 
   // 关闭一个「空窗格」：剩余窗格按序紧凑重排，并降级到与之匹配的布局。
   // 布局是固定枚举（common/constants.js 的 splitConfig），没有"缺角"形态，
-  // 所以关掉任意一格后只能线性化重排（见 doc/设计-分屏空窗格关闭方案.md）
+  // 所以关掉任意一格后只能线性化重排（见 doc/已完成/设计-分屏空窗格关闭方案-2026-10-14.md）
   Store.prototype.closePane = function (batchIndex) {
     const { store } = window
     const { tabs, layout } = store

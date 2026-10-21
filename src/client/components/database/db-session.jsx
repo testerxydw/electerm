@@ -124,7 +124,7 @@ function cycleIndex (i, delta, n) {
   return r < 0 ? r + n : r
 }
 
-// 数据库网格统一包装（doc/数据库表格横向滚动条优化方案.md）：
+// 数据库网格统一包装（doc/已完成/数据库功能设计归档-2026-10-21.md）：
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
 // 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
 // effect 不带 deps：每次渲染后重测，值不变时 setState 被 React 去重，不会造成循环。

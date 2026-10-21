@@ -13,7 +13,7 @@ const INIT_STATE = path.join(ROOT, 'src/client/store/init-state.js')
 const SESSION = path.join(ROOT, 'src/client/components/session/session.jsx')
 const SESSIONS = path.join(ROOT, 'src/client/components/session/sessions.jsx')
 
-// S2 骨架高度 token 单点化（doc/TODO-顶栏与显示页统一执行计划.md §S2）：
+// S2 骨架高度 token 单点化（doc/TODO-顶栏与显示页统一执行计划-2026-10-21.md §S2）：
 // --session-bar-h(32) / --tabs-bar-h(36) 与 JS 侧常量互为镜像（JS 布局扣减
 // 拿不到 CSS 变量），两源必须同值；DB 去掉"扣 32 再加回 32"补偿。
 // 每项含反向断言（裸 32px/36px 回归、补偿复活都会被拦）。

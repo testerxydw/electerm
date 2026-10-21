@@ -9,7 +9,7 @@ const SRC = path.join(ROOT, 'src/client/components/database/db-highlight.jsx')
 
 // highlightValue 是 .jsx（返回 JSX 片段），node 无法直接 require。
 // 抽真实函数源码，用 React.createElement 桩在 vm 里跑——测的是发布实现。
-// 背景见 doc/数据库表格横向滚动条优化方案.md 同目录的值预览高亮修复：
+// 背景见 doc/已完成/数据库功能设计归档-2026-10-21.md 同目录的值预览高亮修复：
 // 表格单元格默认上限（4096/200）防正则拖慢整表；值预览 <pre> 单值专用查看区，
 // 通过 opts 放宽上限（大 JSON 也要高亮）
 const loadHighlightValue = () => {

@@ -38,7 +38,7 @@ function compilePatterns (keywords) {
 export function useKeywordPatterns () {
   // ⚠️ 读 _config 而非 config getter：后者每次访问都 deepCopy 整个配置，
   // 在"每渲染一次"的 hook 里是稳定的内存/CPU 垃圾源（性能分析见
-  // doc/分析-数据库页性能热点与优化方案.md）。此处只读不写，安全。
+  // doc/分析-性能热点与优化总案-2026-10-21.md）。此处只读不写，安全。
   const raw = (window.store && window.store._config && window.store._config.keywords) || []
   // 与终端同一口径：被取消勾选（off）的规则不参与高亮
   const keywords = activeKeywords(raw)

@@ -8,7 +8,7 @@ const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
-// 数据库网格统一滚动（doc/数据库表格横向滚动条优化方案.md）：
+// 数据库网格统一滚动（doc/已完成/数据库功能设计归档-2026-10-21.md）：
 // 表体定高（scroll.y）→ 横向滚动条常驻可视区底边、表头吸顶。
 // 这里守护三块：y 推导逻辑（跑真实源码表达式）、组件接线契约、CSS 布局契约。
 // CSS 契约背景：auto 高度的 flex 容器里子项 flex-basis 0 会把内容高缩成 0
@@ -122,7 +122,7 @@ describe('DbGridTable: css layout contract', () => {
     const block = stylBlock(styl, '.db-redis-keys')
     assert.ok(
       !block || !/max-height/.test(block),
-      'fixed max-height returns the rigid 45/55 split (see doc/设计-redis键空间右侧高度分配.md)'
+      'fixed max-height returns the rigid 45/55 split (see doc/已完成/数据库功能设计归档-2026-10-21.md)'
     )
   })
 

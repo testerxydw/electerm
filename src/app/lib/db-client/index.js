@@ -144,7 +144,7 @@ async function openDbTab (dbBookmark, sshBookmark) {
   }
   // 竞态占位（P4 审计修复）：closeDbTab 在 open 完成前到达时 instances 无正式
   // 记录会变成 no-op，连接在 open 完成后无主滞留（慢连接 + 秒关 tab，实测可复现，
-  // 见 doc/分析-mysql-redis登录后内存占用与优化方案.md）。
+  // 见 doc/分析-性能热点与优化总案-2026-10-21.md）。
   // 占位记录 aborted 标记与中间产物：closeDbTab 置位，openDbTab 分步检查。
   log.debug('[db-client] openDbTab', dbBookmark.id)
   const pending = {

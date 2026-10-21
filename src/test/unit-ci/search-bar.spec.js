@@ -17,7 +17,7 @@ const LAYOUT = path.join(ROOT, 'src/client/components/layout/layout.jsx')
 const DB_SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const DB_SESSION_STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
-// 统一查找条（doc/草图-统一搜索条.html + doc/设计-数据库页查找与过滤分工.md）：
+// 统一查找条（doc/已完成/草图-统一搜索条-2026-10-19.html + doc/数据库功能总览-2026-10-21.md）：
 // 终端页与数据库页共用 SearchBar UI（引擎注入）；终端从右上浮层迁入顶栏内联；
 // DB 命中清单 = .db-kw-hit 标记 + textarea 文本命中（选区定位）。
 // 这里守护：SearchBar UI 契约、终端接线契约、DB 命中逻辑（跑真实源码）、CSS 契约。
