@@ -415,6 +415,8 @@ export default class AttachAddonCustom {
         clearTimeout(this._echoCheckTimer)
         this._pendingEchoCheck = null
         this._echoCheckTimer = null
+        // 有回显说明不是密码提示: 恢复录制
+        this.recorder?.resume()
         // Cancel the password dropdown if it was shown
         this.term?.parent?.onPasswordPromptCancelled?.()
       }
@@ -502,6 +504,8 @@ export default class AttachAddonCustom {
     this._handleEchoDetection(str)
     if (this._checkPasswordPrompt(str) && !this._passwordPromptDetected) {
       this._passwordPromptDetected = true
+      // 密码提示出现: 录制立刻避录, 直到回车/回显确认提示结束
+      this.recorder?.pause()
       // Show password dropdown immediately after terminal renders the prompt
       setTimeout(() => {
         this.term?.parent?.onPasswordPromptDetected?.()
@@ -627,12 +631,18 @@ export default class AttachAddonCustom {
     if (data === '\r' || data === '\n' || data === '\x03') {
       if (this._passwordPromptDetected) {
         this.term?.parent?.onPasswordPromptCancelled?.()
+        // 密码输入结束: 恢复录制 (输入密码期间 recorder.pause 避录)
+        this.recorder?.resume()
       }
       this._passwordPromptDetected = false
       this._lastOutputLine = ''
       this._pendingEchoCheck = null
       clearTimeout(this._echoCheckTimer)
       this._echoCheckTimer = null
+    }
+    // 输入录制 (asciinema i 事件): 与输出同源单点挂接, 受 recordInput 配置控制
+    if (typeof data === 'string') {
+      this.recorder?.onInput(data)
     }
     this._sendData(data)
   }

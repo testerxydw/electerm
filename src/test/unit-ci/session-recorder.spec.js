@@ -21,7 +21,7 @@ function setupWindow () {
     globalThis.window = globalThis
   }
   appends.length = 0
-  window.store = { recState: {} }
+  window.store = { recState: {}, config: {} }
   window.pre = {
     runGlobalAsync: async (name, p, content) => {
       appends.push({ name, p, content })
@@ -68,6 +68,24 @@ describe('session-recorder: asciinema v2 纯函数', () => {
       prev = ts
     }
   })
+
+  it('buildCastLine: type 参数支持输入事件 i', () => {
+    const line = JSON.parse(mod.buildCastLine('ls\r', 500, 'i'))
+    assert.deepEqual(line.slice(1), ['i', 'ls\r'])
+  })
+
+  it('stripShellIntegration: 剥离 OSC 633/133, 保留普通文本与颜色序列', () => {
+    const bel = String.fromCharCode(7)
+    const esc = String.fromCharCode(27)
+    const input = `a${esc}]633;A${bel}b${esc}]633;E;ls;x${bel}c${esc}]133;C${bel}d`
+    assert.equal(mod.stripShellIntegration(input), 'abcd')
+    // 颜色/光标序列不属于 shell 集成, 必须保留
+    const color = `${esc}[32mok${esc}[0m`
+    assert.equal(mod.stripShellIntegration(color), color)
+    // 标题 OSC 0 不在剥离范围
+    const title = `${esc}]0;bash${bel}`
+    assert.equal(mod.stripShellIntegration(title), title)
+  })
 })
 
 describe('session-recorder: SessionRecorder 缓冲与落盘', () => {
@@ -91,7 +109,7 @@ describe('session-recorder: SessionRecorder 缓冲与落盘', () => {
     assert.equal(appends.length, 0)
   })
 
-  it('开录后首块写 header 行, 500ms 窗口 flush 一次落盘', async () => {
+  it('开录后首块写 header 行, 微批+500ms 窗口后一次落盘', async () => {
     const t = mock.timers
     window.store.recState.tab1 = {
       path: '/tmp/x.cast',
@@ -101,7 +119,7 @@ describe('session-recorder: SessionRecorder 缓冲与落盘', () => {
     }
     const r = new Recorder('tab1')
     r.onData('hello')
-    t.tick(501)
+    t.tick(mod.REC_BATCH_MS + mod.REC_FLUSH_INTERVAL + 1)
     assert.equal(appends.length, 1)
     const lines = appends[0].content.split('\n').filter(Boolean).map(l => JSON.parse(l))
     assert.equal(lines[0].version, 2, '首块必须先落 header')
@@ -109,10 +127,27 @@ describe('session-recorder: SessionRecorder 缓冲与落盘', () => {
     r.stop()
   })
 
-  it('256KB 阈值不等定时器立即 flush', async () => {
+  it('80ms 微批: 窗口内多块输出合并成一条 o 事件', async () => {
+    const t = mock.timers
+    window.store.recState.tab1 = { path: '/tmp/x.cast', startTime: 0, width: 80, height: 24 }
+    const r = new Recorder('tab1')
+    r.onData('hel')
+    t.tick(20)
+    r.onData('lo')
+    t.tick(mod.REC_BATCH_MS - 20)
+    r.stop()
+    const lines = appends.map(a => a.content).join('').split('\n').filter(Boolean).map(l => JSON.parse(l))
+    const outs = lines.filter(l => l[1] === 'o')
+    assert.equal(outs.length, 1, '窗口内碎片只成一条事件')
+    assert.equal(outs[0][2], 'hello')
+  })
+
+  it('256KB 阈值不等定时器立即 flush（微批窗口后）', async () => {
+    const t = mock.timers
     const r = new Recorder('tab1')
     window.store.recState.tab1 = { path: '/tmp/x.cast', startTime: 0, width: 80, height: 24 }
     r.onData('a'.repeat(mod.REC_FLUSH_BYTES + 1))
+    t.tick(mod.REC_BATCH_MS)
     assert.equal(appends.length, 1, '超阈值应立即落盘')
     r.stop()
   })
@@ -131,6 +166,86 @@ describe('session-recorder: SessionRecorder 缓冲与落盘', () => {
     r.onData('after-stop')
     t.tick(100000)
     assert.equal(appends.length, count, '停录后不得继续录')
+  })
+
+  it('recordStripOsc: 默认剥离 OSC 633 噪声, 关闭后原样保留', async () => {
+    const t = mock.timers
+    const esc = String.fromCharCode(27)
+    const bel = String.fromCharCode(7)
+    window.store.recState.tab1 = { path: '/tmp/x.cast', startTime: 0, width: 80, height: 24 }
+    const r = new Recorder('tab1')
+    r.onData(`hi${esc}]633;A${bel}there`)
+    t.tick(mod.REC_BATCH_MS)
+    r.stop()
+    const on = appends.map(a => a.content).join('')
+    assert.ok(on.includes('hithere'), '默认剥离 shell 集成序列')
+    assert.ok(!on.includes('633;A'), 'OSC 633 不得落盘')
+
+    appends.length = 0
+    window.store.config.recordStripOsc = false
+    window.store.recState.tab2 = { path: '/tmp/y.cast', startTime: 0, width: 80, height: 24 }
+    const r2 = new Recorder('tab2')
+    r2.onData(`hi${esc}]633;A${bel}there`)
+    t.tick(mod.REC_BATCH_MS)
+    r2.stop()
+    const off = appends.map(a => a.content).join('')
+    assert.ok(off.includes('633;A'), '关闭剥离后必须原样保留')
+  })
+
+  it('recordInput: 开关打开才产生 i 事件, 且先落已有输出', async () => {
+    const t = mock.timers
+    window.store.recState.tab1 = { path: '/tmp/x.cast', startTime: 0, width: 80, height: 24 }
+    const r = new Recorder('tab1')
+    r.onData('out')
+    r.onInput('ls\r')
+    r.stop()
+    const offLines = appends.map(a => a.content).join('').split('\n').filter(Boolean).map(l => JSON.parse(l))
+    assert.ok(!offLines.some(l => l[1] === 'i'), 'recordInput 默认关闭, 不录输入')
+
+    appends.length = 0
+    window.store.config.recordInput = true
+    window.store.recState.tab2 = { path: '/tmp/y.cast', startTime: 0, width: 80, height: 24 }
+    const r2 = new Recorder('tab2')
+    r2.onData('out')
+    r2.onInput('ls\r')
+    t.tick(mod.REC_BATCH_MS)
+    r2.stop()
+    const lines = appends.map(a => a.content).join('').split('\n').filter(Boolean).map(l => JSON.parse(l))
+    const outs = lines.filter(l => l[1] === 'o')
+    const ins = lines.filter(l => l[1] === 'i')
+    assert.equal(ins.length, 1, '打开后必须记录输入事件')
+    assert.equal(ins[0][2], 'ls\r')
+    assert.equal(outs[0][2], 'out')
+    assert.ok(lines.indexOf(outs[0]) < lines.indexOf(ins[0]), '输入事件必须在已有输出之后')
+  })
+
+  it('密码避录: pause 期间输出/输入均不入 cast, resume 后恢复', async () => {
+    window.store.recState.tab1 = { path: '/tmp/x.cast', startTime: 0, width: 80, height: 24 }
+    window.store.config.recordInput = true
+    const r = new Recorder('tab1')
+    r.onData('before')
+    r.pause()
+    r.onData('secret-out')
+    r.onInput('secret-input')
+    r.resume()
+    r.onData('after')
+    r.stop()
+    const all = appends.map(a => a.content).join('')
+    assert.ok(all.includes('before'))
+    assert.ok(all.includes('after'))
+    assert.ok(!all.includes('secret'), '避录期间不得落盘')
+  })
+
+  it('用户暂停(recState.paused) 时输出不入 cast, 取消暂停后恢复', async () => {
+    window.store.recState.tab1 = { path: '/tmp/x.cast', startTime: 0, width: 80, height: 24, paused: true }
+    const r = new Recorder('tab1')
+    r.onData('paused-out')
+    window.store.recState.tab1.paused = false
+    r.onData('live-out')
+    r.stop()
+    const all = appends.map(a => a.content).join('')
+    assert.ok(!all.includes('paused-out'))
+    assert.ok(all.includes('live-out'))
   })
 
   it('stop() 强制落盘尾部（tab 关闭 dispose 场景）', async () => {
@@ -154,6 +269,10 @@ describe('session-recorder: 接线契约', () => {
     assert.match(addonJs, /this\.recorder = infoTabId \? new SessionRecorder\(infoTabId\) : null/)
     assert.match(addonJs, /this\.recorder\?\.onData\(str\)/)
     assert.match(addonJs, /this\.recorder\?\.stop\(\)/, 'dispose 必须收尾落盘')
+    // T5-4f: 输入录制在 sendToServer 单点挂接; 密码提示 pause/resume
+    assert.match(addonJs, /sendToServer = \(data\) => \{[\s\S]*?this\.recorder\?\.onInput\(data\)/)
+    assert.match(addonJs, /this\.recorder\?\.pause\(\)/, '密码提示必须触发避录')
+    assert.match(addonJs, /this\.recorder\?\.resume\(\)/, '提示结束必须恢复录制')
   })
 
   it('init-state.js: recState 初始化', () => {
