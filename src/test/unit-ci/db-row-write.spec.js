@@ -391,4 +391,11 @@ describe('B1 wiring: renderer 接线', () => {
       assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
     }
   })
+
+  test('A3/A5 词条两区同步', () => {
+    const loc = fs.readFileSync(LOCALES, 'utf8')
+    for (const k of ['dbFormatSql', 'dbQuickConnect', 'dbQuickConnectPlaceholder', 'dbQuickConnectTip']) {
+      assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
+    }
+  })
 })
