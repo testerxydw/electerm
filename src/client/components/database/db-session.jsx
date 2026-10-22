@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -18,7 +18,8 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
-import { downloadCsv } from '../../common/db-csv'
+import { downloadCsv, buildCopyStatements } from '../../common/db-csv'
+import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
@@ -958,6 +959,25 @@ export default auto(function DbSession (props) {
     downloadCsv(`db-sql-result-${i + 1}-${tsName()}.csv`, headers, rows)
   }
 
+  // A1 复制为 INSERT/UPDATE/JSON/TSV：有选中行 = 仅选中行；无选中 = 当前可见
+  // 结果集（含 T1 过滤，所见即所得）。列序以 grid.rows 首行键为准（无 __rowKey）
+  const copyGridAs = (kind) => {
+    if (!grid.rows.length || !sel) {
+      return
+    }
+    const rows = selectedRowKeys.length
+      ? grid.rows.filter((_, i) => selectedRowKeys.includes(i))
+      : filteredRows
+    const text = buildCopyStatements(kind, {
+      table: sel.table,
+      headers: Object.keys(grid.rows[0]),
+      rows,
+      pkColumn,
+      quote: isPg ? 'double' : 'backtick'
+    })
+    copy(text)
+  }
+
   // ---- S3-C SQL 执行历史（localStorage 环形 200 条，仅本地） ----
 
   const [sqlHistoryOpen, setSqlHistoryOpen] = useState(false)
@@ -1706,6 +1726,37 @@ export default auto(function DbSession (props) {
                   onClick={exportGridCsv}
                 />
               </Tooltip>
+              )
+            : null
+        }
+        {
+          // A1 复制为 SQL/JSON/TSV：有选中行 = 仅选中行；无选中 = 当前可见结果集
+          sel && grid.rows.length
+            ? (
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'insert', label: e('dbCopyInsert') },
+                    {
+                      key: 'update',
+                      // 无主键表无法安全定位行 → 禁用（提示复用 dbNoPrimaryKey 语义）
+                      label: (
+                        <span title={pkColumn ? undefined : e('dbNoPrimaryKey')}>
+                          {e('dbCopyUpdate')}
+                        </span>
+                      ),
+                      disabled: !pkColumn
+                    },
+                    { key: 'json', label: 'JSON' },
+                    { key: 'tsv', label: e('dbCopyTsv') }
+                  ],
+                  onClick: ({ key }) => copyGridAs(key)
+                }}
+              >
+                <Tooltip title={e('dbCopyAs')}>
+                  <Button size='small' icon={<CopyOutlined />} />
+                </Tooltip>
+              </Dropdown>
               )
             : null
         }
