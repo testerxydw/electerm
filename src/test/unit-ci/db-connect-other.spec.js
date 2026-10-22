@@ -36,10 +36,12 @@ describe('T4 postgres cross-database connect', () => {
 
   test('弹窗不回显密码', () => {
     const src = read(JSX)
-    const modal = src.match(/<Modal[\s\S]*?<\/Modal>/)
+    // 页面现有多处 Modal（B1 插入行等）：按标题锚定 T4 连接弹窗，而非首个 <Modal
+    const modals = src.match(/<Modal[\s\S]*?<\/Modal>/g) || []
+    const modal = modals.find(m => m.includes("{e('dbConnectOther')}"))
     assert.ok(modal, 'connect modal missing')
-    assert.ok(!modal[0].includes('dbPassword'), 'password must not be rendered')
-    assert.ok(modal[0].includes("{e('dbName')}"), 'target database row missing')
+    assert.ok(!modal.includes('dbPassword'), 'password must not be rendered')
+    assert.ok(modal.includes("{e('dbName')}"), 'target database row missing')
   })
 
   test('i18n 词条与样式存在', () => {

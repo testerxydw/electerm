@@ -261,6 +261,37 @@
   line-height 14px
   border-radius var(--radius-xs)
 
+// B1 插入行弹窗：列名(含 PK/自增标记) + 输入框 + NULL 勾选，一行一列
+.db-insert-form
+  display flex
+  flex-direction column
+  gap 8px
+  max-height 60vh
+  overflow-y auto
+  padding-right 4px
+.db-insert-row
+  display flex
+  align-items center
+  gap 8px
+.db-insert-col
+  flex 0 0 38%
+  display inline-flex
+  align-items center
+  gap 4px
+  min-width 0
+.db-insert-col-name
+  color var(--text)
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+.db-insert-col-type
+  flex 0 0 auto
+  color var(--text-dark)
+  font-size 11px
+.db-insert-row .ant-input
+  flex 1 1 auto
+  min-width 0
+
 // T4 PG 跨库连接入口与确认弹窗
 .db-tree-connect
   margin-left 6px

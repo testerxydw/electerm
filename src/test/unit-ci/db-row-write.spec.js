@@ -292,3 +292,78 @@ describe('B1 wiring: OP_MAP 注册', () => {
     assert.ok(!redisBlock[0].includes('deleteRows'))
   })
 })
+
+const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
+
+// 从 jsx 源码切出模块级纯函数（无 JSX 依赖）后在沙箱求值
+function extractFn (src, name) {
+  const start = src.indexOf(`const ${name} =`)
+  assert.ok(start >= 0, `${name} not found`)
+  const end = src.indexOf('\n}', start)
+  assert.ok(end > start, `${name} body not closed`)
+  const code = src.slice(start, end + 2)
+  const sandbox = {}
+  vm.createContext(sandbox)
+  return vm.runInContext(`(function () { ${code}; return ${name} })()`, sandbox)
+}
+
+describe('B1 wiring: renderer 接线', () => {
+  const src = fs.readFileSync(JSX, 'utf8')
+
+  test('前端走 insertRow/deleteRows op', () => {
+    assert.ok(src.includes("dbClientOp', tabId, 'insertRow'"), 'must call insertRow op')
+    assert.ok(src.includes("dbClientOp', tabId, 'deleteRows'"), 'must call deleteRows op')
+    // 删除只传主键值，不传整行数据
+    assert.ok(src.includes('pkValues'), 'delete must send pkValues')
+  })
+
+  test('rowSelection 仅主数据网格透传一次', () => {
+    assert.equal((src.match(/rowSelection=\{rowSelection\}/g) || []).length, 1)
+    // 重新取数（切表/翻页/刷新）必须清空选中
+    const block = src.match(/const loadPage = [\s\S]*?\n {2}\}/)
+    assert.ok(block, 'loadPage not found')
+    assert.ok(block[0].includes('setSelectedRowKeys([])'), 'loadPage must clear row selection')
+  })
+
+  test('删除入口受 只读+主键+选中数 门控', () => {
+    const block = src.match(/B1 删除选中[\s\S]*?: null\n {8}\}/)
+    assert.ok(block, 'delete button block not found')
+    assert.ok(block[0].includes('!isReadonly'))
+    assert.ok(block[0].includes('pkColumn'))
+    assert.ok(block[0].includes('selectedRowKeys.length'))
+    assert.ok(block[0].includes('Popconfirm'), 'must double confirm')
+  })
+
+  test('buildInsertFormColumns 归一化两引擎列定义', () => {
+    const fn = extractFn(src, 'buildInsertFormColumns')
+    const mysqlCols = fn([
+      { Field: 'id', Type: 'int(11)', Null: 'NO', Key: 'PRI', Default: null, Extra: 'auto_increment' },
+      { Field: 'name', Type: 'varchar(255)', Null: 'YES', Key: '', Default: null, Extra: '' }
+    ], 'mysql')
+    assert.equal(mysqlCols.length, 2)
+    assert.deepEqual(
+      { name: mysqlCols[0].name, isPk: mysqlCols[0].isPk, isAutoInc: mysqlCols[0].isAutoInc, isNumeric: mysqlCols[0].isNumeric },
+      { name: 'id', isPk: true, isAutoInc: true, isNumeric: true }
+    )
+    assert.equal(mysqlCols[1].isPk, false)
+    assert.equal(mysqlCols[1].isNumeric, false)
+
+    const pgCols = fn([
+      { column_name: 'id', data_type: 'integer', is_primary_key: true, column_default: "nextval('t_id_seq'::regclass)" },
+      { column_name: 'body', data_type: 'text', is_primary_key: false, column_default: null }
+    ], 'postgres')
+    assert.equal(pgCols[0].isPk, true)
+    assert.equal(pgCols[0].isAutoInc, true)
+    assert.equal(pgCols[0].isNumeric, true)
+    assert.equal(pgCols[1].isPk, false)
+    assert.equal(pgCols[1].isAutoInc, false)
+  })
+
+  test('新词条 en/zh_cn 两区同步', () => {
+    const loc = fs.readFileSync(LOCALES, 'utf8')
+    for (const k of ['dbAddRow', 'dbDeleteRows', 'dbDeleteRowsConfirm', 'dbInsertRowTitle', 'dbAutoInc', 'dbAffected']) {
+      assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
+    }
+  })
+})

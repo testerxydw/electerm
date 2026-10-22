@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox } from 'antd'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -46,6 +46,27 @@ const nodeKey = (database, schema, table) => JSON.stringify([
   schema || '',
   table || ''
 ])
+
+// B1 插入行表单列归一化：两引擎 describeTable 字段名不同
+// （MySQL: Field/Type/Key/Extra；PG: column_name/data_type/is_primary_key/column_default），
+// 统一为 [{name, type, isPk, isAutoInc, isNumeric}] 供插入弹窗渲染与校验
+const buildInsertFormColumns = (structureRows, dbType) => {
+  const isPg = dbType === 'postgres'
+  return (structureRows || []).map(r => {
+    const name = isPg ? r.column_name : r.Field
+    const type = String(isPg ? r.data_type : (r.Type || '')).toLowerCase()
+    const extra = String(r.Extra || '').toLowerCase()
+    const isPk = isPg
+      ? r.is_primary_key === true
+      : String(r.Key || '').toUpperCase() === 'PRI'
+    // 自增：MySQL 看 Extra=auto_increment；PG 看 column_default 含 nextval（serial/identity）
+    const isAutoInc = isPg
+      ? String(r.column_default || '').includes('nextval')
+      : extra.includes('auto_increment')
+    const isNumeric = /(int|decimal|numeric|float|double|real|number|serial)/.test(type)
+    return { name, type, isPk, isAutoInc, isNumeric }
+  }).filter(c => c.name)
+}
 // 数据库网格统一包装（doc/已完成/数据库功能设计归档-2026-10-21.md）：
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
 // 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
@@ -273,6 +294,9 @@ export default auto(function DbSession (props) {
   // T1 当前页行过滤：仅前端过滤已加载的这一页，不触发 SQL / 分页变化
   const [pageFilter, setPageFilter] = useState('')
   const pageFilterKw = pageFilter.trim().toLowerCase()
+  // B1 行选择（checkbox 列）：按 __rowKey（当前页原始索引）定位；
+  // 任何重新取数（切表/翻页/排序/刷新）都会重排索引 → loadPage 里统一清空
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
   // 过滤后的行保留原始 __rowKey（选中单元格 / 行内编辑 / UPDATE 仍按原页索引定位）
   const filteredRows = useMemo(() => {
     const rows = grid.rows.map((r, i) => ({ ...r, __rowKey: i }))
@@ -593,6 +617,8 @@ export default auto(function DbSession (props) {
   }
 
   const loadPage = (target, page, orderBy, order, opts = {}) => {
+    // 行选择挂在当前页索引上，重新取数后索引必然重排 → 先清空
+    setSelectedRowKeys([])
     setGrid(g => ({ ...g, loading: true, error: '' }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       database: target.database,
@@ -752,6 +778,107 @@ export default auto(function DbSession (props) {
       return
     }
     runCellUpdate(target.rowKey, target.col, editValue)
+  }
+
+  // ---- B1 行级 INSERT / DELETE（主进程占位绑定构造 SQL，前端只传值） ----
+
+  // 行选择透传 antd rowSelection（仅主数据网格使用；redis 无行概念）
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: keys => setSelectedRowKeys(keys)
+  }
+
+  // 插入行弹窗：列清单来自 describeTable 缓存（structure.rows）
+  const [insertOpen, setInsertOpen] = useState(false)
+  const [insertCols, setInsertCols] = useState([])
+  // 每列编辑态：{ text, isNull }；勾选 NULL 后输入框禁用
+  const [insertValues, setInsertValues] = useState({})
+
+  const openInsertModal = () => {
+    const cols = buildInsertFormColumns(structure.rows, tab.dbType)
+    const init = {}
+    cols.forEach(c => {
+      init[c.name] = { text: '', isNull: false }
+    })
+    setInsertCols(cols)
+    setInsertValues(init)
+    setInsertOpen(true)
+  }
+
+  const setInsertCol = (name, patch) => {
+    setInsertValues(v => ({
+      ...v,
+      [name]: { ...(v[name] || { text: '', isNull: false }), ...patch }
+    }))
+  }
+
+  // 至少一列有值（或勾 NULL），且数值列文本均可转数字
+  const canSubmitInsert = insertCols.some(c => {
+    const st = insertValues[c.name] || {}
+    return st.isNull || st.text !== ''
+  }) && insertCols.every(c => {
+    const st = insertValues[c.name] || {}
+    if (st.isNull || st.text === '' || !c.isNumeric) {
+      return true
+    }
+    return !Number.isNaN(Number(st.text))
+  })
+
+  const submitInsert = () => {
+    if (!sel || !canSubmitInsert) {
+      return
+    }
+    const values = {}
+    insertCols.forEach(c => {
+      const st = insertValues[c.name] || {}
+      if (st.isNull) {
+        values[c.name] = null
+      } else if (st.text !== '') {
+        // 数值列转数字传参，其余按文本；留空列不传（交给数据库默认值/自增）
+        values[c.name] = c.isNumeric ? Number(st.text) : st.text
+      }
+    })
+    setGrid(g => ({ ...g, loading: true }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'insertRow', {
+      database: sel.database,
+      schema: sel.schema || '',
+      table: sel.table,
+      values
+    })
+      .then(res => {
+        setInsertOpen(false)
+        message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
+        loadPage(sel, grid.page, grid.orderBy, grid.order)
+      })
+      .catch(err => {
+        setGrid(g => ({ ...g, loading: false }))
+        onOpError(err)
+      })
+  }
+
+  // 批量删除选中行：仅主键 IN 定位（无主键表不显示入口），二次确认后执行
+  const runDeleteRows = () => {
+    if (!sel || !pkColumn) {
+      return
+    }
+    const pkValues = grid.rows
+      .filter((_, i) => selectedRowKeys.includes(i))
+      .map(r => r[pkColumn])
+    if (!pkValues.length) {
+      return
+    }
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'deleteRows', {
+      database: sel.database,
+      schema: sel.schema || '',
+      table: sel.table,
+      pkColumn,
+      pkValues
+    })
+      .then(res => {
+        message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
+        loadPage(sel, grid.page, grid.orderBy, grid.order)
+      })
+      .catch(onOpError)
   }
 
   // 预览面板：选中单元格 + 保存
@@ -1582,6 +1709,39 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+        {
+          // B1 添加行：只读隐藏；无主键表仍可添加（INSERT 不依赖主键）
+          sel && !isReadonly && grid.rows.length
+            ? (
+              <Tooltip title={e('dbAddRow')}>
+                <Button
+                  size='small'
+                  icon={<PlusOutlined />}
+                  onClick={openInsertModal}
+                />
+              </Tooltip>
+              )
+            : null
+        }
+        {
+          // B1 删除选中：仅 n>0 且可写且有主键时显示（无主键无法安全定位行）
+          sel && !isReadonly && pkColumn && selectedRowKeys.length
+            ? (
+              <Popconfirm
+                title={
+                  e('dbDeleteRowsConfirm')
+                    .replace('{table}', sel.table)
+                    .replace('{n}', String(selectedRowKeys.length))
+                }
+                onConfirm={runDeleteRows}
+              >
+                <Button size='small' danger icon={<DeleteOutlined />}>
+                  {e('dbDeleteRows')}({selectedRowKeys.length})
+                </Button>
+              </Popconfirm>
+              )
+            : null
+        }
       </div>
       {
         grid.error
@@ -1607,6 +1767,7 @@ export default auto(function DbSession (props) {
             rowKey='__rowKey'
             pagination={false}
             onChange={onTableChange}
+            rowSelection={rowSelection}
             locale={{
               emptyText: grid.error
                 ? e('queryFailed')
@@ -1655,6 +1816,66 @@ export default auto(function DbSession (props) {
               )
         }
       />
+      {
+        // B1 插入行弹窗：每列 文本输入 + NULL 勾选；自增列留空（占位提示），
+        // 提交前数值列校验（非法输入按钮禁用，不再弹文案）
+        insertOpen
+          ? (
+            <Modal
+              open={insertOpen}
+              title={e('dbInsertRowTitle').replace('{table}', tableLabel)}
+              onCancel={() => setInsertOpen(false)}
+              onOk={submitInsert}
+              okButtonProps={{ disabled: !canSubmitInsert }}
+              cancelText={e('cancel')}
+              okText={e('default')}
+              width={560}
+            >
+              <div className='db-insert-form'>
+                {
+                  insertCols.map(c => {
+                    const st = insertValues[c.name] || { text: '', isNull: false }
+                    const invalid = c.isNumeric && !st.isNull && st.text !== '' &&
+                      Number.isNaN(Number(st.text))
+                    return (
+                      <div className='db-insert-row' key={c.name}>
+                        <span className='db-insert-col' title={c.name}>
+                          <span className='db-insert-col-name'>{c.name}</span>
+                          {
+                            c.isPk
+                              ? <Tag className='db-pk-tag'>PK</Tag>
+                              : null
+                          }
+                          {
+                            c.isAutoInc
+                              ? <Tag className='db-exact-tag'>{e('dbAutoInc')}</Tag>
+                              : null
+                          }
+                          <span className='db-insert-col-type'>{c.type}</span>
+                        </span>
+                        <Input
+                          size='small'
+                          value={st.text}
+                          disabled={st.isNull}
+                          status={invalid ? 'error' : undefined}
+                          placeholder={c.isAutoInc ? e('dbAutoInc') : ''}
+                          onChange={ev => setInsertCol(c.name, { text: ev.target.value })}
+                        />
+                        <Checkbox
+                          checked={st.isNull}
+                          onChange={ev => setInsertCol(c.name, { isNull: ev.target.checked })}
+                        >
+                          NULL
+                        </Checkbox>
+                      </div>
+                    )
+                  })
+                }
+              </div>
+            </Modal>
+            )
+          : null
+      }
     </div>
   )
 
