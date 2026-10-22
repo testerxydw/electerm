@@ -15,6 +15,7 @@ const SESSION = path.join(ROOT, 'src/client/components/session/session.jsx')
 const ACTIONS = path.join(ROOT, 'src/client/components/common/session-bar-actions.jsx')
 const LAYOUT = path.join(ROOT, 'src/client/components/layout/layout.jsx')
 const DB_SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+const DB_SEARCH = path.join(ROOT, 'src/client/components/database/db-search.jsx')
 const DB_SESSION_STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
 // 统一查找条（doc/已完成/草图-统一搜索条-2026-10-19.html + doc/数据库功能总览-2026-10-21.md）：
@@ -38,13 +39,13 @@ const stylBlock = (styl, selector) => {
   return m ? m[0] : ''
 }
 
-// 从 db-session.jsx 抽出纯函数定义，vm 跑发布代码而非拷贝
+// 从 db-search.jsx 抽出纯函数定义，vm 跑发布代码而非拷贝
 const loadHelpers = () => {
-  const src = dbSessionSrc()
+  const src = load(DB_SEARCH)
   const pick = name => {
-    const m = src.match(new RegExp('function ' + name + ' \\([\\s\\S]*?\\n\\}'))
-    assert.ok(m, name + ' definition not found in db-session.jsx')
-    return m[0]
+    const m = src.match(new RegExp('export function ' + name + ' \\([\\s\\S]*?\\n\\}'))
+    assert.ok(m, name + ' definition not found in db-search.jsx')
+    return m[0].replace(/^export /, '')
   }
   const code = pick('scanTextHits') + '\n' + pick('cycleIndex') + ';({ scanTextHits, cycleIndex })'
   return vm.runInNewContext(code, {})

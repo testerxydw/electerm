@@ -109,6 +109,47 @@ describe('批次 B：config 快照缓存', () => {
   })
 })
 
+describe('main.jsx 深拷贝治理', () => {
+  const src = () => loadSrc(path.join(ROOT, 'src/client/components/main/main.jsx'))
+
+  test('不再导入/调用 json-deep-copy', () => {
+    const code = src()
+    assert.ok(!code.includes("from 'json-deep-copy'"), 'deepCopy import must be removed')
+    assert.ok(!code.includes('deepCopy('), 'no deepCopy calls expected')
+  })
+
+  test('传输列表/历史改浅拷贝，变更键只看控制字段', () => {
+    const code = src()
+    assert.ok(code.includes('fileTransfers.map(t => ({ ...t }))'), 'transfer snapshot missing')
+    assert.ok(code.includes('transferHistory.map(t => ({ ...t }))'), 'history snapshot missing')
+    assert.ok(!code.includes('JSON.stringify(copiedTransfer)'), 'full JSON signature must be removed')
+    assert.ok(code.includes('t.inited ? 1 : 0'), 'control key missing inited/pausing fields')
+    assert.ok(code.includes('t.typeFrom}:'), 'control key missing type fields')
+    assert.ok(code.includes(".join('|')"), 'control key join missing')
+  })
+
+  test('upgradeInfo / resolutions / terminalInfoProps 不再深拷贝', () => {
+    const code = src()
+    assert.ok(code.includes('{ ...store.upgradeInfo }'), 'upgradeInfo shallow copy missing')
+    assert.ok(code.includes('store.resolutions.slice()'), 'resolutions shallow copy missing')
+    assert.ok(code.includes('{...store.terminalInfoProps}'), 'terminalInfoProps spread missing')
+  })
+})
+
+describe('批次 F：db-session 算法簇抽取', () => {
+  test('查找算法独立成 db-search.jsx，db-session 只导入引用', () => {
+    const search = loadSrc(path.join(ROOT, 'src/client/components/database/db-search.jsx'))
+    ;['hlText', 'hlNode', 'scanTextHits', 'cycleIndex'].forEach(name => {
+      assert.ok(search.includes('export function ' + name + ' ('), name + ' not exported')
+    })
+    const session = loadSrc(path.join(ROOT, 'src/client/components/database/db-session.jsx'))
+    assert.ok(session.includes("from './db-search'"), 'db-session must import the helper module')
+    ;['hlText', 'hlNode', 'scanTextHits', 'cycleIndex'].forEach(name => {
+      assert.ok(!session.includes('function ' + name + ' ('), name + ' must not be redefined')
+    })
+  })
+})
+
 describe('perf guard: source contracts (committed perf fixes stay fixed)', () => {
   test('value pane highlight is memoized (no per-render recompute)', () => {
     const src = loadSrc(path.join(DB_DIR, 'db-value-pane.jsx'))

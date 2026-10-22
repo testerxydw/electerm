@@ -4,7 +4,7 @@
  * S5 将在此目录扩展 Redis 键空间形态，S4 增加 SQL 编辑器
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
@@ -16,6 +16,7 @@ import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
+import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
@@ -43,84 +44,6 @@ const nodeKey = (database, schema, table) => JSON.stringify([
   schema || '',
   table || ''
 ])
-// 文本命中包裹：顶栏查找用 db-kw-hit（命中数由 MutationObserver 统计），
-// 局部过滤用 db-tree-hit / db-page-hit（不计入顶栏命中）。
-function hlText (text, kw, hitClass = 'db-kw-hit') {
-  const s = text === null || text === undefined ? '' : String(text)
-  if (!kw) {
-    return s
-  }
-  const lower = s.toLowerCase()
-  const out = []
-  let from = 0
-  let n = 0
-  let i = lower.indexOf(kw)
-  while (i >= 0) {
-    if (i > from) {
-      out.push(s.slice(from, i))
-    }
-    out.push(<mark className={hitClass} key={n++}>{s.slice(i, i + kw.length)}</mark>)
-    from = i + kw.length
-    i = lower.indexOf(kw, from)
-  }
-  if (!out.length) {
-    return s
-  }
-  if (from < s.length) {
-    out.push(s.slice(from))
-  }
-  return out
-}
-// 单元格文本是「关键字高亮」产出的节点树（可能含多个 span），
-// 需要递归到 children 里再套查找命中，二者才能叠加；
-// hitClass 区分顶栏查找（db-kw-hit）与页面/树局部过滤（db-page-hit / db-tree-hit），
-// 避免局部过滤的 mark 被顶栏查找计数与导航误收。
-function hlNode (node, kw, hitClass = 'db-kw-hit') {
-  if (!kw || node === null || node === undefined || typeof node === 'boolean') {
-    return node
-  }
-  if (typeof node === 'string' || typeof node === 'number') {
-    return hlText(node, kw, hitClass)
-  }
-  if (Array.isArray(node)) {
-    return node.map((n, i) => <React.Fragment key={i}>{hlNode(n, kw, hitClass)}</React.Fragment>)
-  }
-  if (React.isValidElement(node)) {
-    const { children } = node.props
-    return children === undefined || children === null
-      ? node
-      : React.cloneElement(node, {}, hlNode(children, kw, hitClass))
-  }
-  return node
-}
-
-// 文本命中扫描（大小写不敏感，顺序非重叠）：textarea 无法插 <mark>，
-// 命中清单用偏移区间表达，导航轮到时 focus+setSelectionRange 定位
-function scanTextHits (text, kw) {
-  const v = String(text || '')
-  if (!kw) {
-    return []
-  }
-  const lower = v.toLowerCase()
-  const hits = []
-  let i = lower.indexOf(kw)
-  while (i >= 0) {
-    hits.push({ start: i, end: i + kw.length })
-    i = lower.indexOf(kw, i + kw.length)
-  }
-  return hits
-}
-
-// 循环导航序号（上一个/下一个）；n=0 时原地不动。
-// 两段取模兜住任意步长（(i+delta+n)%n 在 |delta|>n 时会出负索引）
-function cycleIndex (i, delta, n) {
-  if (!n) {
-    return i
-  }
-  const r = (i + delta) % n
-  return r < 0 ? r + n : r
-}
-
 // 数据库网格统一包装（doc/已完成/数据库功能设计归档-2026-10-21.md）：
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
 // 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
