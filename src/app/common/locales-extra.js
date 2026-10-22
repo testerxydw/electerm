@@ -300,7 +300,14 @@ const en = {
   paused: 'Paused',
   recordInput: 'Record keyboard input',
   recordStripOsc: 'Strip shell integration sequences',
-  recordAvoidPassword: 'Pause recording at password prompt'
+  recordAvoidPassword: 'Pause recording at password prompt',
+  recordingSecretsWarning: 'Keyboard input is being recorded: avoid typing passwords, tokens or other secrets until recording stops',
+  // 上游语言包 2.3.34 未跟上主仓新增的 pane 布局词条, 本地补齐
+  terminalLog: 'Terminal Log',
+  splitHorizontal: 'Split horizontally',
+  splitVertical: 'Split vertically',
+  moveToPane: 'Move to pane',
+  cannotSplitFurther: 'Already at max layout, cannot split further'
 }
 
 // 简体中文
@@ -588,7 +595,13 @@ const zhCn = {
   paused: '已暂停',
   recordInput: '记录键盘输入',
   recordStripOsc: '剥离 shell 集成序列',
-  recordAvoidPassword: '密码提示时暂停录制'
+  recordAvoidPassword: '密码提示时暂停录制',
+  recordingSecretsWarning: '正在录制键盘输入：停止录制前请避免输入密码、令牌等敏感信息',
+  terminalLog: '终端日志',
+  splitHorizontal: '水平分屏',
+  splitVertical: '垂直分屏',
+  moveToPane: '移动到窗格',
+  cannotSplitFurther: '已达最大分屏数，无法继续分屏'
 }
 
 module.exports = {
