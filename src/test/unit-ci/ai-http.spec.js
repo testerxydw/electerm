@@ -90,6 +90,50 @@ before(async () => {
     }
 
     if (req.url === '/chat/completions') {
+      // DeepSeek V4 thinking mode: every replayed assistant turn needs a
+      // reasoning_content, with or without tools in the request.
+      if (/deepseek/.test(body.model || '')) {
+        const missing = body.messages.some(m =>
+          m.role === 'assistant' && typeof m.reasoning_content !== 'string'
+        )
+        if (missing) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          return res.end(JSON.stringify({
+            error: { message: 'The reasoning_content in the thinking mode must be passed back to the API.' }
+          }))
+        }
+        return json({
+          choices: [{ message: { role: 'assistant', content: 'ok', reasoning_content: 'r' } }]
+        })
+      }
+      if (body.model === 'thinking-test') {
+        const missingReasoning = body.messages.some(m =>
+          m.role === 'assistant' && typeof m.reasoning_content !== 'string'
+        )
+        if (body.tools && missingReasoning) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          return res.end(JSON.stringify({
+            error: { message: 'The reasoning_content in the thinking mode must be passed back to the API.' }
+          }))
+        }
+        const toolResult = body.messages.find(m => m.role === 'tool')
+        return json({
+          choices: [{
+            message: toolResult
+              ? { role: 'assistant', content: 'done', reasoning_content: 'The tool finished.' }
+              : {
+                  role: 'assistant',
+                  content: null,
+                  reasoning_content: 'Check the current directory.',
+                  tool_calls: [{
+                    id: 'thinking-call',
+                    type: 'function',
+                    function: { name: 'run_command', arguments: '{"cmd":"pwd"}' }
+                  }]
+                }
+          }]
+        })
+      }
       if (body.stream) {
         return writeSse(res, [
           'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n',
@@ -190,6 +234,79 @@ async function collectStream (sessionId) {
 }
 
 describe('AIchatWithTools - non streaming', () => {
+  it('resumes a compressed thinking conversation and preserves reasoning through a tool round trip', async () => {
+    const { applySummary } = await import('../../../src/client/components/ai/ai-auto-compress.js')
+    const { buildSessionMessages } = await import('../../../src/client/components/ai/ai-context.js')
+    const live = [
+      { role: 'system', content: 'agent instructions' },
+      { role: 'user', content: 'check the directory' },
+      { role: 'assistant', content: 'checking', reasoning_content: 'Inspect the directory.' }
+    ]
+    applySummary(live, 'Continue checking the directory.')
+    const restored = buildSessionMessages({
+      history: [{
+        id: 'summary',
+        chatSessionId: 'session',
+        timestamp: 1,
+        compressed: true,
+        response: 'Continue checking the directory.'
+      }],
+      chatSessionId: 'session',
+      role: 'agent instructions'
+    })
+    const send = messages => AIchatWithTools(
+      messages, 'thinking-test', baseURL(), '/chat/completions',
+      'sk-test', '', TOOLS, 'Authorization: Bearer'
+    )
+
+    for (const messages of [live, restored]) {
+      const first = await send(messages)
+      assert.equal(first.error, undefined)
+      assert.equal(first.message.reasoning_content, 'Check the current directory.')
+      assert.equal(first.message.tool_calls[0].id, 'thinking-call')
+      messages.push(first.message, {
+        role: 'tool', tool_call_id: 'thinking-call', content: '/tmp'
+      })
+      const second = await send(messages)
+      assert.equal(second.error, undefined)
+      assert.equal(second.message.content, 'done')
+      assert.equal(lastRequest('/chat/completions').body.messages[2].reasoning_content,
+        'Check the current directory.')
+    }
+  })
+
+  it('replays a saved assistant turn with a reasoning placeholder for deepseek models', async () => {
+    // What a resumed conversation looks like: buildSessionMessages rebuilds
+    // assistant turns from the saved text only, so nothing carries reasoning.
+    const messages = [
+      { role: 'system', content: 'agent instructions' },
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'second question' }
+    ]
+    const res = await AIchatWithTools(
+      messages, 'deepseek-v4-flash', baseURL(), '/chat/completions',
+      'sk-test', '', TOOLS, 'Authorization: Bearer'
+    )
+    assert.equal(res.error, undefined)
+    assert.equal(lastRequest('/chat/completions').body.messages[2].reasoning_content, '')
+    // the caller's list (memoized by the component) is left alone
+    assert.equal(messages[2].reasoning_content, undefined)
+  })
+
+  it('does not add reasoning_content for providers that do not need it', async () => {
+    const messages = [
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'second question' }
+    ]
+    await AIchatWithTools(
+      messages, 'gpt-4o', baseURL(), '/chat/completions',
+      'sk-test', '', TOOLS, 'Authorization: Bearer'
+    )
+    assert.equal(lastRequest('/chat/completions').body.messages[1].reasoning_content, undefined)
+  })
+
   it('openai chat completion', async () => {
     const res = await AIchatWithTools(
       [{ role: 'user', content: 'hi' }],

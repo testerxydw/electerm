@@ -146,6 +146,38 @@ export const defaultAIPresets = [
     authHeaderNameAI: 'Authorization: Bearer'
   },
   {
+    id: 'minimax-global',
+    nameAI: 'MiniMax (Global)',
+    baseURLAI: 'https://api.minimax.io/v1',
+    apiPathAI: '/chat/completions',
+    modelAI: 'MiniMax-M3.1-Flash',
+    authHeaderNameAI: 'Authorization: Bearer',
+    // MiniMax returns retired models next to the current ones, so the preset
+    // keeps its own suggestions instead of the fetched/cached list.
+    ignoreCachedModels: true,
+    modelAIs: [
+      { value: 'MiniMax-M3.1-Flash' },
+      { value: 'MiniMax-M3' }
+    ],
+    siteUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key?utm_source=electerm_app&utm_medium=link&utm_campaign=electerm'
+  },
+  {
+    id: 'minimax-cn',
+    nameAI: 'MiniMax (China)',
+    baseURLAI: 'https://api.minimax.cn/v1',
+    // The same endpoint is documented under the older minimaxi.com host.
+    aliasURLs: ['https://api.minimaxi.com/v1'],
+    apiPathAI: '/chat/completions',
+    modelAI: 'MiniMax-M3.1-Flash',
+    authHeaderNameAI: 'Authorization: Bearer',
+    ignoreCachedModels: true,
+    modelAIs: [
+      { value: 'MiniMax-M3.1-Flash' },
+      { value: 'MiniMax-M3' }
+    ],
+    siteUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key?utm_source=electerm_app&utm_medium=link&utm_campaign=electerm'
+  },
+  {
     id: 'xai',
     nameAI: 'xAI (Grok)',
     baseURLAI: 'https://api.x.ai/v1',
@@ -170,6 +202,30 @@ export const defaultAIPresets = [
     authHeaderNameAI: 'Authorization: Bearer'
   }
 ]
+
+export function normalizeAIBaseURL (url) {
+  return (url || '').trim().replace(/\/+$/, '')
+}
+
+function presetForURL (url) {
+  return defaultAIPresets.find(p =>
+    p.baseURLAI === url || (p.aliasURLs || []).includes(url))
+}
+
+// Suggestions do not constrain the editable model value or saved configurations.
+// `fetched` marks a list that just came back from the API: an explicit refresh
+// is the user asking for the real list, so it is merged even for presets that
+// ignore cached lists. A cached list is not trusted the same way, because it can
+// still hold models the provider retired since it was saved.
+export function getAIModelOptions (baseURL, preset, cachedModels = [], fetched = false) {
+  const target = presetForURL(normalizeAIBaseURL(baseURL)) || preset
+  const presetModels = (target?.modelAIs || [])
+    .map(o => (typeof o === 'string' ? o : o.value))
+  const values = target?.ignoreCachedModels && !fetched
+    ? presetModels
+    : [...presetModels, ...cachedModels]
+  return [...new Set(values.filter(Boolean))].map(value => ({ value }))
+}
 
 export function getAIPresets () {
   const presets = [...defaultAIPresets]
