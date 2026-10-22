@@ -1,68 +1,32 @@
 /**
- * SQL 执行历史（数据库页 S3-C，设计见 doc/设计-数据库阶段3-2026-10-22.md）
- * 仅存本地 localStorage（环形上限 200 条，超出丢最旧）；
- * 条目 { sql, dbType, dbHost, dbName, ts, ok }——不存结果、不存密码；
- * 相邻重复语句不重复入栈；失败语句也记录（ok:false）。
+ * SQL 执行历史（数据库页 S3-C）前端接口。
+ * 存储在主进程固定文件（userData/db-sql-history.json），经 IPC 白名单通道读写——
+ * 不用渲染层 localStorage：UI server 动态端口导致 origin 漂移，跨启动互相隔离。
+ * 仅存语句/引擎/库/时间/成败，不存结果、不存密码；环形上限 200 条（主进程侧裁剪）。
+ * 全接口异步；失败静默降级（历史属辅助功能，不干扰主流程）。
  */
 
-const KEY = 'electerm-db-sql-history'
-const MAX = 200
-
-// localStorage 取用统一容错（隐私模式/测试环境无 window 时降级为无存储）
-function safeStore () {
+// 列表：失败/空时返回 []
+export async function listSqlHistory () {
   try {
-    return window.localStorage
+    const r = await window.pre.runGlobalAsync('dbSqlHistoryOp', 'list')
+    return Array.isArray(r) ? r : []
   } catch (e) {
-    return null
-  }
-}
-
-export function listSqlHistory () {
-  const ls = safeStore()
-  if (!ls) {
-    return []
-  }
-  try {
-    const arr = JSON.parse(ls.getItem(KEY) || '[]')
-    return Array.isArray(arr) ? arr : []
-  } catch (e) {
-    // 损坏的存储内容视作无历史（辅助功能，不干扰主流程）
     return []
   }
 }
 
+// 追加：主进程做相邻去重与 200 条环形裁剪；fire-and-forget，失败静默
 export function appendSqlHistory (entry) {
   if (!entry || !entry.sql) {
-    return
+    return Promise.resolve()
   }
-  const ls = safeStore()
-  if (!ls) {
-    return
-  }
-  const list = listSqlHistory()
-  // 相邻重复不叠加（连续重跑同一语句只保留一条）
-  if (list.length && list[0].sql === entry.sql) {
-    return
-  }
-  list.unshift({
-    ...entry,
-    ts: entry.ts || Date.now()
-  })
-  try {
-    ls.setItem(KEY, JSON.stringify(list.slice(0, MAX)))
-  } catch (e) {
-    // 配额满等异常：历史属辅助功能，静默降级
-  }
+  return window.pre.runGlobalAsync('dbSqlHistoryOp', 'append', entry)
+    .catch(() => {})
 }
 
+// 清空
 export function clearSqlHistory () {
-  const ls = safeStore()
-  if (!ls) {
-    return
-  }
-  try {
-    ls.removeItem(KEY)
-  } catch (e) {
-    // 同上：静默降级
-  }
+  return window.pre.runGlobalAsync('dbSqlHistoryOp', 'clear')
+    .catch(() => {})
 }

@@ -992,6 +992,7 @@ export default auto(function DbSession (props) {
       'text/plain;charset=utf-8',
       buildCopyStatements('insert', {
         table: sel.table,
+        database: sel.database,
         headers,
         rows: gridExportRows(),
         pkColumn,
@@ -1036,6 +1037,7 @@ export default auto(function DbSession (props) {
       : filteredRows
     const text = buildCopyStatements(kind, {
       table: sel.table,
+      database: sel.database,
       headers: Object.keys(grid.rows[0]),
       rows,
       pkColumn,
@@ -1044,15 +1046,15 @@ export default auto(function DbSession (props) {
     copy(text)
   }
 
-  // ---- S3-C SQL 执行历史（localStorage 环形 200 条，仅本地） ----
+  // ---- S3-C SQL 执行历史（主进程文件环形 200 条，仅本地，跨启动稳定） ----
 
   const [sqlHistoryOpen, setSqlHistoryOpen] = useState(false)
   const [sqlHistory, setSqlHistory] = useState([])
   const openSqlHistory = (open) => {
     setSqlHistoryOpen(open)
-    // 每次打开刷新列表，避免读陈旧快照
+    // 每次打开刷新列表，避免读陈旧快照（listSqlHistory 已异步，失败静默返回 []）
     if (open) {
-      setSqlHistory(listSqlHistory())
+      listSqlHistory().then(setSqlHistory)
     }
   }
   const pickSqlHistory = (item) => {

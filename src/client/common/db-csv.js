@@ -94,8 +94,9 @@ export function toTsv (headers, rows) {
 
 // 行集合 → 文本：kind = insert / update / json / tsv
 // 列顺序与取值均以 headers 为准（过滤 __rowKey 等辅助键）；
-// update 依赖 pkColumn 定位（无主键返回空串，UI 侧禁用入口）
-export function buildCopyStatements (kind, { table, headers, rows, pkColumn, quote = 'backtick' }) {
+// update 依赖 pkColumn 定位（无主键返回空串，UI 侧禁用入口）；
+// database 非空时表名带库限定（db.table）——连接无默认库时裸表名会报 No database selected
+export function buildCopyStatements (kind, { table, database, headers, rows, pkColumn, quote = 'backtick' }) {
   const heads = Array.isArray(headers) ? headers : []
   const list = Array.isArray(rows) ? rows : []
   if (kind === 'json') {
@@ -112,13 +113,14 @@ export function buildCopyStatements (kind, { table, headers, rows, pkColumn, quo
     return toTsv(heads, list)
   }
   const q = n => sqlQuoteIdent(n, quote)
+  const target = database ? `${q(database)}.${q(table)}` : q(table)
   const lines = []
   for (const row of list) {
     const val = h => sqlQuoteVal(row ? row[h] : null, quote)
     if (kind === 'insert') {
       const cols = heads.map(q).join(', ')
       const vals = heads.map(val).join(', ')
-      lines.push(`INSERT INTO ${q(table)} (${cols}) VALUES (${vals});`)
+      lines.push(`INSERT INTO ${target} (${cols}) VALUES (${vals});`)
     } else if (kind === 'update') {
       if (!pkColumn) {
         continue
@@ -130,7 +132,7 @@ export function buildCopyStatements (kind, { table, headers, rows, pkColumn, quo
       if (!sets) {
         continue
       }
-      lines.push(`UPDATE ${q(table)} SET ${sets} WHERE ${q(pkColumn)} = ${val(pkColumn)};`)
+      lines.push(`UPDATE ${target} SET ${sets} WHERE ${q(pkColumn)} = ${val(pkColumn)};`)
     }
   }
   return lines.join('\n')

@@ -277,6 +277,22 @@ function initIpc () {
     confirmExit: () => {
       globalState.set('confirmExit', true)
     },
+    // SQL 执行历史走主进程固定文件（userData），不进渲染层 localStorage：
+    // UI server 动态端口导致 origin 漂移，localStorage 跨启动互相隔离
+    dbSqlHistoryOp: async (action, arg) => {
+      const file = join(app.getPath('userData'), 'db-sql-history.json')
+      const h = require('./db-sql-history')
+      if (action === 'list') {
+        return h.listSqlHistory(file)
+      }
+      if (action === 'append') {
+        return h.appendSqlHistory(arg, file)
+      }
+      if (action === 'clear') {
+        return h.clearSqlHistory(file)
+      }
+      throw new Error('unknown dbSqlHistoryOp action: ' + action)
+    },
     setPassword,
     checkPassword,
     lookup,

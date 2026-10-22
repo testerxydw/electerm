@@ -1,35 +1,18 @@
 const { describe, test, beforeEach } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
-const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
-const SRC = path.join(ROOT, 'src/client/common/db-sql-history.js')
+const MOD = path.join(ROOT, 'src/app/lib/db-sql-history.js')
+const FRONT = path.join(ROOT, 'src/client/common/db-sql-history.js')
 
 // S3-C SQL 执行历史（doc/设计-数据库阶段3-2026-10-22.md §2）：
-// localStorage 环形 200 条、相邻去重、失败也记录、损坏 JSON 容错。
-// vm 跑真实源码（strip ESM export），window.localStorage 用内存 mock 替换。
-
-const makeStorage = () => {
-  const m = new Map()
-  return {
-    getItem: k => (m.has(k) ? m.get(k) : null),
-    setItem: (k, v) => m.set(k, String(v)),
-    removeItem: k => m.delete(k)
-  }
-}
-
-const loadFns = (storage) => {
-  const code = fs.readFileSync(SRC, 'utf8').replace(/^export /gm, '')
-  const ctx = { window: { localStorage: storage } }
-  vm.createContext(ctx)
-  vm.runInContext(code, ctx)
-  assert.equal(typeof ctx.listSqlHistory, 'function', 'listSqlHistory missing')
-  assert.equal(typeof ctx.appendSqlHistory, 'function', 'appendSqlHistory missing')
-  assert.equal(typeof ctx.clearSqlHistory, 'function', 'clearSqlHistory missing')
-  return ctx
-}
+// 存储已从渲染层 localStorage 迁至主进程固定文件（userData/db-sql-history.json）——
+// UI server 动态端口导致 origin 漂移、localStorage 跨启动互相隔离，历史读空。
+// 本 spec 测主进程实现（纯 fs，无 electron 依赖），文件路径用临时目录隔离。
+const h = require(MOD)
 
 const entry = (sql, extra = {}) => ({
   sql,
@@ -40,23 +23,19 @@ const entry = (sql, extra = {}) => ({
   ...extra
 })
 
-// vm realm 的数组原型与主 realm 不同，deepEqual 会误报
-// "same structure but are not reference-equal"——统一 JSON 化后比较
-const plain = v => JSON.parse(JSON.stringify(v))
-
-describe('db-sql-history', () => {
-  let storage
-  let ctx
+describe('db-sql-history (main-process file store)', () => {
+  let dir
+  let file
 
   beforeEach(() => {
-    storage = makeStorage()
-    ctx = loadFns(storage)
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-db-sql-history-'))
+    file = path.join(dir, 'db-sql-history.json')
   })
 
-  test('append 后 list 返回最新在前（时间倒序）', () => {
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    ctx.appendSqlHistory(entry('SELECT 2'))
-    const list = ctx.listSqlHistory()
+  test('append 后 list 返回最新在前（时间倒序），跨调用（跨启动）可读', () => {
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    h.appendSqlHistory(entry('SELECT 2'), file)
+    const list = h.listSqlHistory(file)
     assert.equal(list.length, 2)
     assert.equal(list[0].sql, 'SELECT 2')
     assert.equal(list[1].sql, 'SELECT 1')
@@ -64,69 +43,83 @@ describe('db-sql-history', () => {
 
   test('环形上限 200：超出丢最旧', () => {
     for (let i = 0; i < 205; i++) {
-      ctx.appendSqlHistory(entry('SELECT ' + i))
+      h.appendSqlHistory(entry('SELECT ' + i), file)
     }
-    const list = ctx.listSqlHistory()
+    const list = h.listSqlHistory(file)
     assert.equal(list.length, 200)
     assert.equal(list[0].sql, 'SELECT 204')
     assert.equal(list[199].sql, 'SELECT 5')
   })
 
   test('相邻重复不叠加，非相邻重复保留', () => {
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    ctx.appendSqlHistory(entry('SELECT 2'))
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    const list = ctx.listSqlHistory()
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    h.appendSqlHistory(entry('SELECT 2'), file)
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    const list = h.listSqlHistory(file)
     assert.equal(list.length, 3)
-    assert.deepEqual(plain(list.map(x => x.sql)), ['SELECT 1', 'SELECT 2', 'SELECT 1'])
+    assert.deepEqual(list.map(x => x.sql), ['SELECT 1', 'SELECT 2', 'SELECT 1'])
   })
 
   test('失败语句也记录（ok:false）', () => {
-    ctx.appendSqlHistory(entry('BAD SQL', { ok: false }))
-    const list = ctx.listSqlHistory()
+    h.appendSqlHistory(entry('BAD SQL', { ok: false }), file)
+    const list = h.listSqlHistory(file)
     assert.equal(list.length, 1)
     assert.equal(list[0].ok, false)
   })
 
-  test('条目字段完整（sql/dbType/dbHost/dbName/ts/ok）', () => {
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    const [item] = ctx.listSqlHistory()
-    assert.equal(item.dbType, 'mysql')
-    assert.equal(item.dbHost, 'h1')
-    assert.equal(item.dbName, 'db1')
-    assert.equal(typeof item.ts, 'number')
-    assert.ok(item.ts > 0)
-  })
-
-  test('空 sql / 无 entry 不写入', () => {
-    ctx.appendSqlHistory(null)
-    ctx.appendSqlHistory({ sql: '' })
-    assert.deepEqual(plain(ctx.listSqlHistory()), [])
+  test('字段白名单：多余字段与敏感字段被剔除，空 sql 不写入', () => {
+    h.appendSqlHistory({
+      ...entry('SELECT 1'),
+      password: 'secret',
+      result: { big: 'payload' }
+    }, file)
+    h.appendSqlHistory(null, file)
+    h.appendSqlHistory({ sql: '' }, file)
+    const list = h.listSqlHistory(file)
+    assert.equal(list.length, 1)
+    const [item] = list
+    assert.deepEqual(
+      Object.keys(item).sort(),
+      ['dbHost', 'dbName', 'dbType', 'ok', 'sql', 'ts']
+    )
+    assert.ok(!JSON.stringify(list).includes('secret'))
+    assert.ok(!JSON.stringify(list).includes('payload'))
   })
 
   test('损坏 JSON 容错：返回空列表且后续可写', () => {
-    storage.setItem('electerm-db-sql-history', '{broken json')
-    assert.deepEqual(plain(ctx.listSqlHistory()), [])
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    assert.equal(ctx.listSqlHistory().length, 1)
+    fs.writeFileSync(file, '{broken json')
+    assert.deepEqual(h.listSqlHistory(file), [])
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    assert.equal(h.listSqlHistory(file).length, 1)
   })
 
   test('非数组 JSON 容错', () => {
-    storage.setItem('electerm-db-sql-history', '{"a":1}')
-    assert.deepEqual(plain(ctx.listSqlHistory()), [])
+    fs.writeFileSync(file, '{"a":1}')
+    assert.deepEqual(h.listSqlHistory(file), [])
   })
 
   test('clearSqlHistory 清空', () => {
-    ctx.appendSqlHistory(entry('SELECT 1'))
-    ctx.clearSqlHistory()
-    assert.deepEqual(plain(ctx.listSqlHistory()), [])
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    h.clearSqlHistory(file)
+    assert.deepEqual(h.listSqlHistory(file), [])
   })
 
-  test('无 localStorage（window 异常）静默降级不抛错', () => {
-    const ctxNoLs = loadFns(undefined)
-    ctxNoLs.appendSqlHistory(entry('SELECT 1'))
-    assert.deepEqual(plain(ctxNoLs.listSqlHistory()), [])
-    ctxNoLs.clearSqlHistory()
+  test('原子写：不残留 .tmp 文件', () => {
+    h.appendSqlHistory(entry('SELECT 1'), file)
+    assert.equal(fs.existsSync(file + '.tmp'), false)
+  })
+
+  test('前端接口已切 IPC 主进程通道（防回退 localStorage 实现）', () => {
+    const src = fs.readFileSync(FRONT, 'utf8')
+    assert.ok(src.includes("runGlobalAsync('dbSqlHistoryOp'"), 'frontend must call main-process IPC')
+    // 反向断言匹配调用形式而非裸词（注释解释性提及不算）
+    assert.ok(!/window\.localStorage|localStorage\./.test(src), 'frontend must not use localStorage (origin 漂移隔离)')
+  })
+
+  test('ipc.js 已注册 dbSqlHistoryOp 白名单通道', () => {
+    const ipc = fs.readFileSync(path.join(ROOT, 'src/app/lib/ipc.js'), 'utf8')
+    assert.ok(ipc.includes('dbSqlHistoryOp'), 'asyncGlobals must export dbSqlHistoryOp')
+    assert.ok(ipc.includes("join(app.getPath('userData'), 'db-sql-history.json')"), 'store file must be under userData')
   })
 })

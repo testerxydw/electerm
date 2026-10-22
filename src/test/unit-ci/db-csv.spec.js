@@ -157,6 +157,17 @@ describe('db-csv buildCopyStatements', () => {
     assert.equal(out, 'INSERT INTO "t" ("id") VALUES (1);')
   })
 
+  test('insert/update 带库名限定（连接无默认库时裸表名报 No database selected）', () => {
+    const out = buildCopyStatements('insert', {
+      table: 't', database: 'db1', headers: ['id'], rows: [{ id: 1 }], pkColumn: 'id', quote: 'backtick'
+    })
+    assert.equal(out, 'INSERT INTO `db1`.`t` (`id`) VALUES (1);')
+    const up = buildCopyStatements('update', {
+      table: 't', database: 'db1', headers: ['id', 'name'], rows: [{ id: 7, name: 'x' }], pkColumn: 'id', quote: 'double'
+    })
+    assert.equal(up, 'UPDATE "db1"."t" SET "name" = \'x\' WHERE "id" = 7;')
+  })
+
   test('update：SET 排除主键列，WHERE 主键定位', () => {
     const out = buildCopyStatements('update', {
       table: 't', headers: ['id', 'name'], rows: [{ id: 7, name: 'x' }], pkColumn: 'id', quote: 'backtick'
