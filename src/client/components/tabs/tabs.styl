@@ -1,8 +1,8 @@
 
 .tabs
   position relative
-  // 对齐草图 .tabbar：38px（tab 32px 底部对齐）
-  height 38px
+  // 对齐草图 .tabbar：标签栏渲染高（tab 底部对齐）
+  height var(--tabs-render-h)
   overflow hidden
   background var(--surface-0)
   border-bottom 1px solid var(--border)
@@ -41,10 +41,10 @@
   z-index 2
   padding 0
   margin-top 0
-  // 对齐草图：标签底部对齐（tab 32px 贴底，上方留白）
+  // 对齐草图：标签底部对齐（tab 贴底，上方留白）
   display flex
   align-items flex-end
-  height 38px
+  height var(--tabs-render-h)
   overflow-x scroll
   overflow-y hidden
 
@@ -66,9 +66,9 @@
   padding 0 14px
   min-width 100px
   max-width 200px
-  // 对齐草图 .tab：32px 高
-  height 32px
-  line-height 32px
+  // 对齐草图 .tab：单 tab 高
+  height var(--tab-item-h)
+  line-height var(--tab-item-h)
   margin 0 1px 0 0
   border-radius var(--radius) var(--radius) 0 0
   background var(--surface-0)
@@ -105,7 +105,7 @@
     top 0
     width 1px
     border 1px dashed var(--text-dark)
-    height 36px
+    height var(--tabs-bar-h)
   &.dragover-tab-after::after
     position absolute
     content ''
@@ -113,7 +113,7 @@
     top 0
     width 1px
     border 1px dashed var(--text-dark)
-    height 36px
+    height var(--tabs-bar-h)
 @keyframes blink
   0%
     background-color transparent
@@ -237,10 +237,10 @@
   z-index 20
   display flex
   align-items flex-start
-  height 38px
+  height var(--tabs-render-h)
   .tabs-dd-icon
     font-size 12px
-    line-height 38px
+    line-height var(--tabs-render-h)
   .window-controls
     position static
 

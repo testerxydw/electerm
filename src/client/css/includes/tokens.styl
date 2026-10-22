@@ -75,6 +75,12 @@
   // 顶部标签栏高度：与 store/init-state.js tabsHeight=36 互为镜像，同由单测锁定。
   // 注意 .tabs 渲染高 38px（32px tab 底对齐 + 下边框区）是有意设计，勿"收敛"
   --tabs-bar-h 36px
+  // 标签栏渲染高（含下边框区）与单个 tab 高：布局扣减仍用 --tabs-bar-h=36，
+  // 渲染层用这两个 token，避免 styl 里散落 38px/32px 裸值
+  --tabs-render-h 38px
+  --tab-item-h 32px
+  // 底部状态栏高度；与 JS 侧 footerHeight=30 互为镜像，同由 s2-tokens.spec.js 锁定
+  --footer-h 30px
 
   // ---- 静态：动效 ----
   --dur-1 120ms

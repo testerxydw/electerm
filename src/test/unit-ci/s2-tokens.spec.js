@@ -12,6 +12,8 @@ const CONSTANTS = path.join(ROOT, 'src/client/common/constants.js')
 const INIT_STATE = path.join(ROOT, 'src/client/store/init-state.js')
 const SESSION = path.join(ROOT, 'src/client/components/session/session.jsx')
 const SESSIONS = path.join(ROOT, 'src/client/components/session/sessions.jsx')
+const TABS_STYL = path.join(ROOT, 'src/client/components/tabs/tabs.styl')
+const FOOTER_STYL = path.join(ROOT, 'src/client/components/footer/footer.styl')
 
 // S2 骨架高度 token 单点化（doc/TODO-顶栏与显示页统一执行计划-2026-10-21.md §S2）：
 // --session-bar-h(32) / --tabs-bar-h(36) 与 JS 侧常量互为镜像（JS 布局扣减
@@ -19,10 +21,15 @@ const SESSIONS = path.join(ROOT, 'src/client/components/session/sessions.jsx')
 // 每项含反向断言（裸 32px/36px 回归、补偿复活都会被拦）。
 
 const load = p => fs.readFileSync(p, 'utf8')
-// 取 styl 顶级选择器块（至下一个顶级选择器）
+// 取 styl 顶级选择器块（至下一个顶级选择器）；先按行首匹配，避免命中后代选择器
 function stylBlock (src, sel) {
-  const i = src.indexOf(sel + '\n')
-  if (i < 0) return ''
+  let i = src.indexOf('\n' + sel + '\n')
+  if (i < 0) {
+    if (!src.startsWith(sel + '\n')) return ''
+    i = 0
+  } else {
+    i += 1
+  }
   const j = src.indexOf('\n.', i + 1)
   const k = src.indexOf('\n#', i + 1)
   const end = [j, k].filter(n => n > 0).sort((a, b) => a - b)[0]
@@ -53,6 +60,43 @@ describe('S2: session-bar-h / tabs-bar-h tokens exist', () => {
     const wrapBlock = stylBlock(load(SESSION_STYL), '.session-wrap')
     assert.ok(wrapBlock.includes('padding-top var(--tabs-bar-h)'), '.session-wrap padding uses token')
     assert.ok(!/padding-top 36px/.test(wrapBlock), 'bare 36px crept back')
+  })
+})
+
+describe('F: tabs / footer 渲染高度 token', () => {
+  test('tokens.styl 定义 tabs-render-h / tab-item-h / footer-h', () => {
+    const src = load(TOKENS)
+    assert.match(src, /--tabs-render-h 38px/)
+    assert.match(src, /--tab-item-h 32px/)
+    assert.match(src, /--footer-h 30px/)
+  })
+
+  test('JS 镜像 footerHeight=30 与 token 同值（反向：漂移被拦）', () => {
+    assert.match(load(CONSTANTS), /export const footerHeight = 30/)
+  })
+
+  test('tabs.styl 使用 token 且无裸 38px/32px/36px（反向：回退被拦）', () => {
+    const src = load(TABS_STYL)
+    const tabsBlock = stylBlock(src, '.tabs')
+    assert.ok(tabsBlock.includes('height var(--tabs-render-h)'), '.tabs 用 --tabs-render-h')
+    const innerBlock = stylBlock(src, '.tabs-inner')
+    assert.ok(innerBlock.includes('height var(--tabs-render-h)'), '.tabs-inner 用 --tabs-render-h')
+    const tabBlock = stylBlock(src, '.tab')
+    assert.ok(tabBlock.includes('height var(--tab-item-h)'), '.tab 用 --tab-item-h')
+    assert.ok(tabBlock.includes('line-height var(--tab-item-h)'), '.tab 行高用 --tab-item-h')
+    const ca = src.match(/\.tabs-corner\n[\s\S]*?\n {2}\.tabs-dd-icon/)
+    assert.ok(ca, '.tabs-corner 块存在')
+    assert.ok(ca[0].includes('height var(--tabs-render-h)'), '.tabs-corner 用 --tabs-render-h')
+    assert.ok(!/(?:height|line-height) 38px/.test(src), '裸 38px 回退')
+    assert.ok(!/(?:height|line-height) 32px/.test(src), '裸 32px 回退')
+    assert.ok(!/(?:height|line-height) 36px/.test(src), '裸 36px 回退')
+  })
+
+  test('footer.styl 使用 --footer-h 且无裸 30px（反向：回退被拦）', () => {
+    const src = load(FOOTER_STYL)
+    const footerBlock = stylBlock(src, '.main-footer')
+    assert.ok(footerBlock.includes('height var(--footer-h)'), '.main-footer 用 --footer-h')
+    assert.ok(!/(?:height|line-height) 30px/.test(src), '裸 30px 回退')
   })
 })
 
