@@ -64,7 +64,7 @@ export default auto(function Layout (props) {
     // 固定与不固定仅差快捷命令寄居位置，不再差遮挡行为
     const r = rightPanelVisible && !isMobile ? rightPanelWidth : 0
     // 面板宽只挤压终端区（.sessions + session 尺寸）；.layout-wrap 仅让位常驻
-    // 图标栏并保持全宽 —— 标签栏横贯（面板 top 38px 起，与其不重叠），
+    // 图标栏并保持全宽 —— 标签栏横贯（面板 top = --tabs-bar-h，与其不重叠），
     // 标题栏不再随面板"避让"变窄
     return {
       height: h,
@@ -84,7 +84,7 @@ export default auto(function Layout (props) {
   } = layoutSize
   // 标签栏层容器恒全宽（仅让位常驻图标栏）—— 标题栏永不随面板收缩。
   // 格子定位分两种:
-  //  - 单格: 全宽格子, 标签栏横贯(含右侧面板上方, 面板 top 38px 起不重叠)
+  //  - 单格: 全宽格子, 标签栏横贯(含右侧面板上方, 面板 top = --tabs-bar-h 不重叠)
   //  - 多格: 格子取终端列网格(termStyles)并平移到容器坐标系, 保证每个
   //    格子的标签栏贴在其终端正上方; 面板上方空隙由 .layout-wrap::before
   //    顶部装饰带补齐(layout.styl), 视觉上标题栏仍横贯

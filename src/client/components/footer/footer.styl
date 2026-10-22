@@ -3,9 +3,10 @@
   height var(--footer-h)
   box-shadow inset 0 1px 0 0 var(--border)
   position absolute
-  // 常驻让位左侧图标栏（图标栏直通窗口底部）；左侧面板宽度由
+  // 常驻让位左侧图标栏（图标栏直通窗口底部）；左缘与标签栏/终端列同源，
+  // 不能额外 +1px（会与上方列错开 1px）。左侧面板宽度由
   // quick-commands-box.jsx 的 qmStyle.left 动态避让, 不在此固定
-  left calc(var(--left-side-bar-width, 43px) + 1px)
+  left var(--left-side-bar-width, 43px)
   right 0
   // 底栏三合一：statusbar/kbar 已并入本条，直接贴底
   bottom 0

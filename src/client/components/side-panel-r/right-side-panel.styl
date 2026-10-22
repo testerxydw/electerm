@@ -1,9 +1,9 @@
 .right-side-panel
   position absolute
   right 0
-  // Stay below the 38px tab bar (tabs.styl) — the panel never covers it in
+  // Stay below the tab bar (--tabs-bar-h) — the panel never covers it in
   // either pin state; pin only changes where quick commands live.
-  top 38px
+  top var(--tabs-bar-h)
   // Stay above the whole bottom stack so the footer chrome is never covered:
   // footer (+ optional monitor row) via --footer-stack-height (main.jsx), the
   // pinned quick-command box (180px) via --qm-bar-h (main.jsx), and the

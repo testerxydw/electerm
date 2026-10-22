@@ -14,6 +14,9 @@ const SESSION = path.join(ROOT, 'src/client/components/session/session.jsx')
 const SESSIONS = path.join(ROOT, 'src/client/components/session/sessions.jsx')
 const TABS_STYL = path.join(ROOT, 'src/client/components/tabs/tabs.styl')
 const FOOTER_STYL = path.join(ROOT, 'src/client/components/footer/footer.styl')
+const SIDEBAR_STYL = path.join(ROOT, 'src/client/components/sidebar/sidebar.styl')
+const RIGHT_PANEL_STYL = path.join(ROOT, 'src/client/components/side-panel-r/right-side-panel.styl')
+const LAYOUT_STYL = path.join(ROOT, 'src/client/components/layout/layout.styl')
 
 // S2 骨架高度 token 单点化（doc/TODO-顶栏与显示页统一执行计划-2026-10-21.md §S2）：
 // --session-bar-h(32) / --tabs-bar-h(36) 与 JS 侧常量互为镜像（JS 布局扣减
@@ -63,39 +66,57 @@ describe('S2: session-bar-h / tabs-bar-h tokens exist', () => {
   })
 })
 
-describe('F: tabs / footer 渲染高度 token', () => {
-  test('tokens.styl 定义 tabs-render-h / tab-item-h / footer-h', () => {
+describe('F/H: tabs / footer 高度 token 与左缘对齐', () => {
+  test('tokens.styl 定义 tabs-bar-h / tab-item-h / footer-h，且无平行 render token', () => {
     const src = load(TOKENS)
-    assert.match(src, /--tabs-render-h 38px/)
+    assert.match(src, /--tabs-bar-h 36px/, '--tabs-bar-h=36（布局预留与渲染同源）')
     assert.match(src, /--tab-item-h 32px/)
     assert.match(src, /--footer-h 30px/)
+    assert.ok(!src.includes('--tabs-render-h'), '禁止再定义 --tabs-render-h 平行 token')
   })
 
-  test('JS 镜像 footerHeight=30 与 token 同值（反向：漂移被拦）', () => {
+  test('JS 镜像 tabsHeight=36 / footerHeight=30（反向：漂移被拦）', () => {
+    assert.match(load(INIT_STATE), /tabsHeight: 36/)
     assert.match(load(CONSTANTS), /export const footerHeight = 30/)
   })
 
-  test('tabs.styl 使用 token 且无裸 38px/32px/36px（反向：回退被拦）', () => {
+  test('tabs.styl 渲染高与预留同源，无裸 38px/32px/36px（反向：回退被拦）', () => {
     const src = load(TABS_STYL)
     const tabsBlock = stylBlock(src, '.tabs')
-    assert.ok(tabsBlock.includes('height var(--tabs-render-h)'), '.tabs 用 --tabs-render-h')
+    assert.ok(tabsBlock.includes('height var(--tabs-bar-h)'), '.tabs 高 = --tabs-bar-h')
     const innerBlock = stylBlock(src, '.tabs-inner')
-    assert.ok(innerBlock.includes('height var(--tabs-render-h)'), '.tabs-inner 用 --tabs-render-h')
+    assert.ok(innerBlock.includes('height calc(var(--tabs-bar-h) - 1px)'), '.tabs-inner 扣 1px 边框')
     const tabBlock = stylBlock(src, '.tab')
     assert.ok(tabBlock.includes('height var(--tab-item-h)'), '.tab 用 --tab-item-h')
     assert.ok(tabBlock.includes('line-height var(--tab-item-h)'), '.tab 行高用 --tab-item-h')
     const ca = src.match(/\.tabs-corner\n[\s\S]*?\n {2}\.tabs-dd-icon/)
     assert.ok(ca, '.tabs-corner 块存在')
-    assert.ok(ca[0].includes('height var(--tabs-render-h)'), '.tabs-corner 用 --tabs-render-h')
+    assert.ok(ca[0].includes('height var(--tabs-bar-h)'), '.tabs-corner 用 --tabs-bar-h')
     assert.ok(!/(?:height|line-height) 38px/.test(src), '裸 38px 回退')
     assert.ok(!/(?:height|line-height) 32px/.test(src), '裸 32px 回退')
     assert.ok(!/(?:height|line-height) 36px/.test(src), '裸 36px 回退')
   })
 
-  test('footer.styl 使用 --footer-h 且无裸 30px（反向：回退被拦）', () => {
+  test('侧面板 / 标题装饰带避让标签栏同源（反向：38px 回退）', () => {
+    const sidebar = load(SIDEBAR_STYL)
+    assert.ok(sidebar.includes('top var(--tabs-bar-h)'), '侧面板 top 用 token')
+    assert.ok(!/top 38px/.test(sidebar), '侧面板裸 38px 回退')
+
+    const right = load(RIGHT_PANEL_STYL)
+    assert.ok(right.includes('top var(--tabs-bar-h)'), '右面板 top 用 token')
+    assert.ok(!/top 38px/.test(right), '右面板裸 38px 回退')
+
+    const layout = load(LAYOUT_STYL)
+    assert.ok(layout.includes('height var(--tabs-bar-h)'), '标题装饰带高用 token')
+    assert.ok(!/height 38px/.test(layout), '装饰带裸 38px 回退')
+  })
+
+  test('footer 使用 --footer-h 且左缘与终端列同源（反向：+1px 回退）', () => {
     const src = load(FOOTER_STYL)
     const footerBlock = stylBlock(src, '.main-footer')
     assert.ok(footerBlock.includes('height var(--footer-h)'), '.main-footer 用 --footer-h')
+    assert.ok(footerBlock.includes('left var(--left-side-bar-width, 43px)'), '左缘与标签栏/终端同源')
+    assert.ok(!src.includes('left calc(var(--left-side-bar-width, 43px) + 1px)'), '禁止 +1px 错位')
     assert.ok(!/(?:height|line-height) 30px/.test(src), '裸 30px 回退')
   })
 })

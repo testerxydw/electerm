@@ -136,7 +136,7 @@ export default function Sidebar (props) {
     : {
         className: 'sidebar-list'
       }
-  // 高度完全由 CSS 决定（top 38px 避让顶栏 + bottom 避让底部常显区），
+  // 高度完全由 CSS 决定（top: --tabs-bar-h 避让顶栏 + bottom 避让底部常显区），
   // 禁止内联 height：绝对定位下 top+height 会顶掉 bottom，导致底边多出标题栏高度
   const sidebarProps = {
     className: `sidebar type-${openedSideBar}${leftSideBarWidth === 0 ? ' collapsed' : ''}`,

@@ -15,8 +15,8 @@
     .list-item-remove
       display none !important
 .sidebar-panel
-  // 对齐 tabs 栏 38px（tabs.styl）：面板永不盖标题栏（与右面板统一）
-  top 38px
+  // 对齐标签栏下缘（与右面板统一）：面板永不盖标题栏
+  top var(--tabs-bar-h)
 .sidebar
   position absolute
   left 0
@@ -156,12 +156,12 @@
 .sidebar-list
   position absolute
   left var(--left-side-bar-width, 43px)
-  // 避让顶栏（tabs 栏 38px，与 .sidebar-panel 一致）：top 0 会盖住 tab 栏挡点击
-  top 38px
+  // 避让标签栏（与 .sidebar-panel 一致）：top 0 会盖住 tab 栏挡点击
+  top var(--tabs-bar-h)
   bottom 0
   z-index 200
   width 0
-  // 容器已避让顶栏，内部面板不再重复 +38px（双重避让会在顶部留出一条空白）
+  // 容器已避让标签栏，内部面板不再重复避让（双重避让会在顶部留出空白）
   .sidebar-panel
     top 0
   // 面板可见即挤压终端（layout.jsx），常驻列与右面板一致，拖拽把手常显
@@ -244,7 +244,7 @@
     display none
 
 // pin 仅保留"点击外部不关闭"行为差异（sidebar.js handleClickOutside），
-// 不再有贴顶停靠样式：面板两种状态都从 38px 标题栏下开始（.sidebar-panel）
+// 不再有贴顶停靠样式：面板两种状态都从 --tabs-bar-h 标题栏下开始（.sidebar-panel）
 .pinned
   .sidebar-panel
     .pinned

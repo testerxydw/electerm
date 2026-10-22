@@ -1,8 +1,8 @@
 
 .tabs
   position relative
-  // 对齐草图 .tabbar：标签栏渲染高（tab 底部对齐）
-  height var(--tabs-render-h)
+  // 标签栏渲染高与布局预留同源（--tabs-bar-h），含 1px 下边框
+  height var(--tabs-bar-h)
   overflow hidden
   background var(--surface-0)
   border-bottom 1px solid var(--border)
@@ -41,10 +41,11 @@
   z-index 2
   padding 0
   margin-top 0
-  // 对齐草图：标签底部对齐（tab 贴底，上方留白）
+  // 标签底部对齐；-1px 为标签栏下边框，tab 底缘贴边框上缘
+  // （父级 AppDrag 无定高，不能用百分比，否则回退为内容高=32）
   display flex
   align-items flex-end
-  height var(--tabs-render-h)
+  height calc(var(--tabs-bar-h) - 1px)
   overflow-x scroll
   overflow-y hidden
 
@@ -237,10 +238,10 @@
   z-index 20
   display flex
   align-items flex-start
-  height var(--tabs-render-h)
+  height var(--tabs-bar-h)
   .tabs-dd-icon
     font-size 12px
-    line-height var(--tabs-render-h)
+    line-height var(--tabs-bar-h)
   .window-controls
     position static
 
