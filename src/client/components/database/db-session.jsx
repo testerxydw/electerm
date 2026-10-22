@@ -908,7 +908,10 @@ export default auto(function DbSession (props) {
       return
     }
     setSqlResult(s => ({ ...s, loading: true, error: '' }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', { sql })
+    // 当前库随语句下传（连接无默认库时后端先 USE 再执行，避免 No database selected）：
+    // 优先树选中表所在库，无选中回退连接库名
+    const database = (sel && sel.database) || tab.dbName || ''
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', database ? { sql, database } : { sql })
       .then(res => {
         setSqlResult({
           loading: false,

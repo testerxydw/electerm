@@ -375,13 +375,24 @@ function normalizeResults (rows, fields) {
   return rows.map((r, i) => toResult(r, fields[i]))
 }
 
-async function executeSql (conn, { sql, readOnly }) {
+async function executeSql (conn, { sql, database, readOnly }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
   const pool = await getPool(conn)
-  const [rows, fields] = await pool.query(sql)
-  return {
-    results: normalizeResults(rows, fields)
+  // 必须同一连接先 USE 再执行：pool.query 两次可能拿到不同连接，USE 会失效；
+  // 连接未指定默认库（如 URI 快速连接不带库名）时"库名.表名"裸表名会报 No database selected，
+  // 前端把树当前选中库传入，这里补 USE（tidb/oceanbase 共用本适配器一并修复）
+  const c = await pool.getConnection()
+  try {
+    if (database) {
+      await c.query('USE ' + quoteIdent(database))
+    }
+    const [rows, fields] = await c.query(sql)
+    return {
+      results: normalizeResults(rows, fields)
+    }
+  } finally {
+    c.release()
   }
 }
 
