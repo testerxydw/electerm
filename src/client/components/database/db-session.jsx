@@ -1869,25 +1869,6 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // B1 删除选中：仅 n>0 且可写且有主键时显示（无主键无法安全定位行）
-          sel && !isReadonly && pkColumn && selectedRowKeys.length
-            ? (
-              <Popconfirm
-                title={
-                  e('dbDeleteRowsConfirm')
-                    .replace('{table}', sel.table)
-                    .replace('{n}', String(selectedRowKeys.length))
-                }
-                onConfirm={runDeleteRows}
-              >
-                <Button size='small' danger icon={<DeleteOutlined />}>
-                  {e('dbDeleteRows')}({selectedRowKeys.length})
-                </Button>
-              </Popconfirm>
-              )
-            : null
-        }
-        {
           // B1 全选/反选合一：无选中时反选=全选本页，Tooltip 随状态切换
           // （表头虚拟滚动渲染不出 selection 列头，不放表头）
           sel && !isReadonly && pkColumn && grid.rows.length
@@ -1899,6 +1880,26 @@ export default auto(function DbSession (props) {
                   onClick={invertSelection}
                 />
               </Tooltip>
+              )
+            : null
+        }
+        {
+          // B1 删除选中：门控 只读+主键（无主键无法安全定位行），常显禁用
+          // （避免选中后按钮突然出现在反选之前、鼠标下方被误点，用户拍板）
+          sel && !isReadonly && pkColumn && grid.rows.length
+            ? (
+              <Popconfirm
+                title={
+                  e('dbDeleteRowsConfirm')
+                    .replace('{table}', sel.table)
+                    .replace('{n}', String(selectedRowKeys.length))
+                }
+                onConfirm={runDeleteRows}
+              >
+                <Button size='small' danger icon={<DeleteOutlined />} disabled={!selectedRowKeys.length}>
+                  {e('dbDeleteRows')}{selectedRowKeys.length ? `(${selectedRowKeys.length})` : ''}
+                </Button>
+              </Popconfirm>
               )
             : null
         }
