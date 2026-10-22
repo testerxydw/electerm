@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, SortOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -21,6 +21,7 @@ import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
+import { formatSql } from '../../common/db-sql-format'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -1048,11 +1049,22 @@ export default auto(function DbSession (props) {
     setSqlHistory([])
   }
 
-  // Ctrl/Cmd+Enter 执行
+  // Ctrl/Cmd+Enter 执行；Ctrl/Cmd+Shift+F 格式化
   const onSqlKeyDown = (ev) => {
     if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
       ev.preventDefault()
       runSql()
+    } else if (ev.key.toLowerCase() === 'f' && (ev.ctrlKey || ev.metaKey) && ev.shiftKey) {
+      ev.preventDefault()
+      formatSqlEditor()
+    }
+  }
+
+  // A3 SQL 格式化：格式化后回填编辑器
+  const formatSqlEditor = () => {
+    const formatted = formatSql(sqlText)
+    if (formatted) {
+      setSqlText(formatted)
     }
   }
 
@@ -2019,6 +2031,19 @@ export default auto(function DbSession (props) {
         >
           {e('dbRun')}
         </Button>
+        {
+          // A3 格式化：Ctrl/Cmd+Shift+F 同功能
+          sqlText.trim()
+            ? (
+              <Button
+                size='small'
+                icon={<SortOutlined />}
+                onClick={formatSqlEditor}
+                title={e('dbFormatSql')}
+              />
+              )
+            : null
+        }
         <Popover
           placement='bottomLeft'
           trigger='click'
