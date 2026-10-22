@@ -285,6 +285,55 @@ async function updateCell (conn, { database, table, pkColumn, pkValue, column, v
   return { affected: res.affectedRows }
 }
 
+// 整行 INSERT：列清单由 values keys 生成（至少 1 列），值全部占位符绑定，
+// 标识符按反引号引用（注入面约束与 updateCell 一致）
+async function insertRow (conn, { database, table, values, readOnly }) {
+  checkWritable(readOnly)
+  const cols = Object.keys(values || {}).filter(k => k)
+  if (!cols.length) {
+    throw new Error('insertRow requires at least one column value')
+  }
+  const pool = await getPool(conn)
+  const fullTable = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  const sql = 'INSERT INTO ' + fullTable +
+    ' (' + cols.map(quoteIdent).join(', ') + ')' +
+    ' VALUES (' + cols.map(() => '?').join(', ') + ')'
+  const [res] = await pool.execute(
+    sql,
+    cols.map(k => (values[k] === undefined ? null : values[k]))
+  )
+  return { affected: res.affectedRows, insertId: res.insertId }
+}
+
+// 整行 DELETE 批量上限：防误操作大范围删除 + IN 子句过长
+const DELETE_ROWS_LIMIT = 200
+
+// 整行 DELETE：仅主键 IN 定位；无主键表无法安全定位行，直接拒绝并引导走 SQL 页
+async function deleteRows (conn, { database, table, pkColumn, pkValues, readOnly }) {
+  checkWritable(readOnly)
+  if (!pkColumn) {
+    throw new Error('deleteRows requires a primary key column (no-pk table, use SQL page instead)')
+  }
+  const list = Array.isArray(pkValues) ? pkValues : []
+  if (!list.length) {
+    throw new Error('deleteRows requires at least one primary key value')
+  }
+  if (list.length > DELETE_ROWS_LIMIT) {
+    throw new Error(`deleteRows supports up to ${DELETE_ROWS_LIMIT} rows at once`)
+  }
+  const pool = await getPool(conn)
+  const fullTable = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  const sql = 'DELETE FROM ' + fullTable +
+    ' WHERE ' + quoteIdent(pkColumn) +
+    ' IN (' + list.map(() => '?').join(', ') + ')'
+  const [res] = await pool.execute(sql, list)
+  return { affected: res.affectedRows }
+}
+
 // 只读白名单：首关键词必须在允许集合内，且全句不得出现写关键词。
 // 只校验首关键词会被 `WITH x AS (...) DELETE FROM t` 绕过（MySQL 8 / PG 均支持该写语法），
 // 故追加一次全句写关键词扫描；宁可误拒（如 EXPLAIN DELETE），也不放行写操作。
@@ -357,6 +406,8 @@ module.exports = {
   getPageData,
   describeTable,
   updateCell,
+  insertRow,
+  deleteRows,
   countRows,
   executeSql,
   closeMysqlConnection,

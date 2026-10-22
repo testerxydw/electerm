@@ -36,6 +36,8 @@ const OP_MAP = {
     getPageData: 'getPageData',
     describeTable: 'describeTable',
     updateCell: 'updateCell',
+    insertRow: 'insertRow',
+    deleteRows: 'deleteRows',
     countRows: 'countRows',
     executeSql: 'executeSql'
   },
@@ -44,6 +46,8 @@ const OP_MAP = {
     getPageData: 'getPageData',
     describeTable: 'describeTable',
     updateCell: 'updateCell',
+    insertRow: 'insertRow',
+    deleteRows: 'deleteRows',
     countRows: 'countRows',
     executeSql: 'executeSql'
   },
