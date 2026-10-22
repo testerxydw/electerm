@@ -413,12 +413,17 @@ describe('B1 wiring: renderer 接线', () => {
     assert.ok(src.includes('<DiffOutlined'), 'invert button must use DiffOutlined icon')
   })
 
-  test('B1 表头全选用自定义 columnTitle（虚拟滚动下默认表头 selection 可能被遮）', () => {
+  test('B1 全选/反选合一按钮（表头虚拟滚动渲染不出 selection 列头，test.242 实测）', () => {
+    // columnTitle 方案已废弃：本网格表头为自研虚拟滚动，selection 列头内容渲染不出来
     const block = src.match(/const rowSelection = \{[\s\S]*?\n {2}\}/)
     assert.ok(block, 'rowSelection missing')
-    assert.ok(block[0].includes('columnTitle'), 'must use custom columnTitle')
-    assert.ok(block[0].includes('allVisibleSelected'), 'must derive select-all state')
-    assert.ok(block[0].includes('indeterminate'), 'must show indeterminate state')
-    assert.ok(src.includes('toggleAllVisible'), 'toggle-all handler missing')
+    assert.ok(!block[0].includes('columnTitle'), 'columnTitle must not be used (headless custom table)')
+    // 无选中时反选=全选（用户拍板）：只留一个反选按钮，Tooltip 随选中态切换
+    assert.ok(!src.includes('<CheckSquareOutlined'), 'no separate select-all button (invert covers it)')
+    assert.ok(src.includes('<DiffOutlined'), 'invert button must use DiffOutlined icon')
+    assert.ok(
+      src.includes("selectedRowKeys.length ? e('dbInvertSelection') : e('dbSelectAllPage')"),
+      'tooltip must switch between select-all and invert by selection state'
+    )
   })
 })

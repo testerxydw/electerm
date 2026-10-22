@@ -785,27 +785,11 @@ export default auto(function DbSession (props) {
   // ---- B1 行级 INSERT / DELETE（主进程占位绑定构造 SQL，前端只传值） ----
 
   // 行选择透传 antd rowSelection（仅主数据网格使用；redis 无行概念）。
-  // 表头全选用自定义 columnTitle：虚拟滚动下 antd 默认表头 selection checkbox
-  // 可能不渲染/被遮挡，自定义后稳定可见；全选范围=当前页可见行
-  const visibleKeys = filteredRows.map(r => r.__rowKey)
-  const allVisibleSelected = visibleKeys.length > 0 &&
-    visibleKeys.every(k => selectedRowKeys.includes(k))
-  const toggleAllVisible = () => {
-    setSelectedRowKeys(allVisibleSelected
-      ? keys => keys.filter(k => !visibleKeys.includes(k))
-      : keys => [...new Set([...keys, ...visibleKeys])])
-  }
+  // 全选不放表头：本网格表头为自研虚拟滚动实现，selection 列头内容渲染不出来
+  // （columnTitle 实测无效，test.242 验证）；无选中时反选=全选，故只留反选一个按钮
   const rowSelection = {
     selectedRowKeys,
-    onChange: keys => setSelectedRowKeys(keys),
-    columnTitle: (
-      <Checkbox
-        checked={allVisibleSelected}
-        indeterminate={selectedRowKeys.length > 0 && !allVisibleSelected}
-        onChange={toggleAllVisible}
-        aria-label={e('dbSelectAllPage')}
-      />
-    )
+    onChange: keys => setSelectedRowKeys(keys)
   }
 
   // 插入行弹窗：列清单来自 describeTable 缓存（structure.rows）
@@ -1904,10 +1888,11 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // B1 反选：按当前页可见行反转勾选（全选（本页）由表头 checkbox 承担）
+          // B1 全选/反选合一：无选中时反选=全选本页，Tooltip 随状态切换
+          // （表头虚拟滚动渲染不出 selection 列头，不放表头）
           sel && !isReadonly && pkColumn && grid.rows.length
             ? (
-              <Tooltip title={e('dbInvertSelection')}>
+              <Tooltip title={selectedRowKeys.length ? e('dbInvertSelection') : e('dbSelectAllPage')}>
                 <Button
                   size='small'
                   icon={<DiffOutlined />}
