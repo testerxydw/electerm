@@ -20,6 +20,9 @@ export default class UnixTimestampTooltip extends Component {
 
   _mouseX = 0
   _mouseY = 0
+  _pendingX = 0
+  _pendingY = 0
+  _rafId = 0
 
   componentDidMount () {
     refsStatic.add('unix-timestamp-tooltip', this)
@@ -29,6 +32,10 @@ export default class UnixTimestampTooltip extends Component {
   componentWillUnmount () {
     refsStatic.remove('unix-timestamp-tooltip')
     document.removeEventListener('mousemove', this.onMouseMove)
+    if (this._rafId) {
+      window.cancelAnimationFrame(this._rafId)
+      this._rafId = 0
+    }
   }
 
   detectUnixTimestamp (txt) {
@@ -45,9 +52,19 @@ export default class UnixTimestampTooltip extends Component {
     return null
   }
 
+  // rAF 节流：全局 mousemove 高频回调，每帧最多落地一次坐标更新；
+  // pending 期间只暂存最新坐标（onSelection 读到的是上一帧坐标，差一帧无感知）
   onMouseMove = (e) => {
-    this._mouseX = e.clientX
-    this._mouseY = e.clientY
+    this._pendingX = e.clientX
+    this._pendingY = e.clientY
+    if (this._rafId) {
+      return
+    }
+    this._rafId = window.requestAnimationFrame(() => {
+      this._rafId = 0
+      this._mouseX = this._pendingX
+      this._mouseY = this._pendingY
+    })
   }
 
   onSelection = (txt) => {
