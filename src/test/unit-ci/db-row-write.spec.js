@@ -362,8 +362,18 @@ describe('B1 wiring: renderer 接线', () => {
 
   test('新词条 en/zh_cn 两区同步', () => {
     const loc = fs.readFileSync(LOCALES, 'utf8')
-    for (const k of ['dbAddRow', 'dbDeleteRows', 'dbDeleteRowsConfirm', 'dbInsertRowTitle', 'dbAutoInc', 'dbAffected']) {
+    for (const k of ['dbAddRow', 'dbDeleteRows', 'dbDeleteRowsConfirm', 'dbInsertRowTitle', 'dbAutoInc', 'dbAffected', 'dbCopyAs', 'dbCopyInsert', 'dbCopyUpdate', 'dbCopyTsv', 'dbExportSql']) {
       assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
     }
+  })
+
+  test('A4 导出菜单接线', () => {
+    assert.ok(src.includes("e('dbExportSql')"), 'grid export menu must have SQL item')
+    // 两处导出按钮均为 Dropdown（网格 + SQL 结果）
+    assert.ok(src.includes('exportGridAs'), 'grid export json/sql dispatcher missing')
+    assert.ok(src.includes('exportSqlJson'), 'sql result json export missing')
+    assert.ok(src.includes('downloadText'), 'downloadText helper must be used')
+    // 导出范围同拍板语义：有选中为选中
+    assert.ok(src.includes('gridExportRows'), 'shared export rows helper missing')
   })
 })

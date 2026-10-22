@@ -28,11 +28,9 @@ export function toCsv (headers, rows) {
   return '\uFEFF' + lines.join('\r\n') + '\r\n'
 }
 
-// 浏览器端下载：Blob + a[download]，Electron 渲染层走默认下载流程
-export function downloadCsv (filename, headers, rows) {
-  const blob = new window.Blob([toCsv(headers, rows)], {
-    type: 'text/csv;charset=utf-8'
-  })
+// 通用文本下载（A4）：CSV/JSON/SQL 导出共用
+export function downloadText (filename, mime, text) {
+  const blob = new window.Blob([text], { type: mime })
   const url = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -42,6 +40,11 @@ export function downloadCsv (filename, headers, rows) {
   a.remove()
   // 释放 URL：延迟给下载进程留读取窗口
   setTimeout(() => window.URL.revokeObjectURL(url), 3000)
+}
+
+// 浏览器端下载：Blob + a[download]，Electron 渲染层走默认下载流程
+export function downloadCsv (filename, headers, rows) {
+  downloadText(filename, 'text/csv;charset=utf-8', toCsv(headers, rows))
 }
 
 // ---- A1 复制为 SQL/JSON/TSV（数据库页，设计 §7.2）----

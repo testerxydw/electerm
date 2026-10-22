@@ -18,7 +18,7 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
-import { downloadCsv, buildCopyStatements } from '../../common/db-csv'
+import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
 import { dbTypeLabelMap } from '../../common/constants'
@@ -933,17 +933,51 @@ export default auto(function DbSession (props) {
     return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
   }
 
-  // 网格导出：列取当前行键（grid.rows 不含 __rowKey），行取 filteredRows
-  // （含 T1 当前页过滤效果；未过滤时即整页，所见即所得）
+  // A4 导出范围（同 A1 拍板语义）：有选中行 = 仅选中行；无选中 = 当前可见结果集
+  const gridExportRows = () => selectedRowKeys.length
+    ? grid.rows.filter((_, i) => selectedRowKeys.includes(i))
+    : filteredRows
+
+  // 网格导出：列取当前行键（grid.rows 不含 __rowKey）
   const exportGridCsv = () => {
     if (!grid.rows.length) {
       return
     }
-    const headers = Object.keys(grid.rows[0])
     downloadCsv(
       `db-${sel.database}-${sel.table}-${tsName()}.csv`,
-      headers,
-      filteredRows
+      Object.keys(grid.rows[0]),
+      gridExportRows()
+    )
+  }
+
+  // 网格导出 JSON / SQL INSERT（共用 A1 语句生成核心）
+  const exportGridAs = (kind) => {
+    if (!grid.rows.length || !sel) {
+      return
+    }
+    const headers = Object.keys(grid.rows[0])
+    const base = `db-${sel.database}-${sel.table}-${tsName()}`
+    if (kind === 'json') {
+      const rows = gridExportRows().map(r => {
+        const o = {}
+        headers.forEach(h => {
+          o[h] = r && r[h] !== undefined ? r[h] : null
+        })
+        return o
+      })
+      downloadText(`${base}.json`, 'application/json;charset=utf-8', JSON.stringify(rows, null, 2))
+      return
+    }
+    downloadText(
+      `${base}.sql`,
+      'text/plain;charset=utf-8',
+      buildCopyStatements('insert', {
+        table: sel.table,
+        headers,
+        rows: gridExportRows(),
+        pkColumn,
+        quote: isPg ? 'double' : 'backtick'
+      })
     )
   }
 
@@ -957,6 +991,19 @@ export default auto(function DbSession (props) {
       ? r.fields
       : Object.keys(rows[0])
     downloadCsv(`db-sql-result-${i + 1}-${tsName()}.csv`, headers, rows)
+  }
+
+  // SQL 结果导出 JSON：直接序列化该结果集 rows
+  const exportSqlJson = (r, i) => {
+    const rows = (r && r.rows) || []
+    if (!rows.length) {
+      return
+    }
+    downloadText(
+      `db-sql-result-${i + 1}-${tsName()}.json`,
+      'application/json;charset=utf-8',
+      JSON.stringify(rows, null, 2)
+    )
   }
 
   // A1 复制为 INSERT/UPDATE/JSON/TSV：有选中行 = 仅选中行；无选中 = 当前可见
@@ -1237,13 +1284,24 @@ export default auto(function DbSession (props) {
           {
             (r.rows || []).length
               ? (
-                <Tooltip title={e('dbExportCsv')}>
-                  <Button
-                    size='small'
-                    icon={<DownloadOutlined />}
-                    onClick={() => exportSqlCsv(r, i)}
-                  />
-                </Tooltip>
+                <Dropdown
+                  menu={{
+                    items: [
+                      { key: 'csv', label: 'CSV' },
+                      { key: 'json', label: 'JSON' }
+                    ],
+                    onClick: ({ key }) => key === 'json'
+                      ? exportSqlJson(r, i)
+                      : exportSqlCsv(r, i)
+                  }}
+                >
+                  <Tooltip title={e('dbExportCsv')}>
+                    <Button
+                      size='small'
+                      icon={<DownloadOutlined />}
+                    />
+                  </Tooltip>
+                </Dropdown>
                 )
               : null
           }
@@ -1716,16 +1774,25 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // S3-B：导出当前页 CSV（含 T1 过滤效果，所见即所得）
+          // A4 导出菜单：CSV/JSON/SQL INSERT，范围同 A1（选中为选中，无选中为当前页）
           sel && grid.rows.length
             ? (
-              <Tooltip title={e('dbExportCsv')}>
-                <Button
-                  size='small'
-                  icon={<DownloadOutlined />}
-                  onClick={exportGridCsv}
-                />
-              </Tooltip>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'csv', label: 'CSV' },
+                    { key: 'json', label: 'JSON' },
+                    { key: 'sql', label: e('dbExportSql') }
+                  ],
+                  onClick: ({ key }) => key === 'csv'
+                    ? exportGridCsv()
+                    : exportGridAs(key)
+                }}
+              >
+                <Tooltip title={e('dbExportCsv')}>
+                  <Button size='small' icon={<DownloadOutlined />} />
+                </Tooltip>
+              </Dropdown>
               )
             : null
         }
