@@ -10,7 +10,7 @@ const FOOTER = path.join(ROOT, 'src/client/components/footer/footer-entry.jsx')
 const HIGHLIGHT = path.join(DB_DIR, 'db-highlight.jsx')
 const DB_SESSION = path.join(DB_DIR, 'db-session.jsx')
 
-// 性能/资源消耗守护单测（配套 doc/分析-性能热点与优化总案-2026-10-21.md）：
+// 性能/资源消耗守护单测（配套 doc/已完成/分析-性能热点与优化总案-2026-10-21.md）：
 // 1) 算法预算：值预览高亮在大文本 × 多规则下的耗时上限（防病态回退）
 // 2) 源码契约：已落地的性能修复锁死——每渲染重算/重建与 deepCopy getter 不得回归
 const loadHighlightValue = () => {
