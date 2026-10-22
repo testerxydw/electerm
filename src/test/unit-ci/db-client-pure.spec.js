@@ -41,7 +41,8 @@ function runInVm (src, stubs, filename) {
     console,
     setTimeout,
     clearTimeout,
-    Promise
+    Promise,
+    Buffer
   }
   vm.createContext(sandbox)
   vm.runInContext(src, sandbox, { filename })
@@ -469,6 +470,52 @@ describe('redis setKey/delKey/expireKey 只读门控（vm 打桩）', () => {
     assert.equal(persistCalls, 1, 'seconds<=0 应调 persist（移除过期）')
     await mod.expireKey({ dbHost: 'h', dbPort: 6379 }, { dbIndex: 0, key: 'k', seconds: 10, readOnly: false })
     assert.equal(calls.selects.length >= 1, true)
+  })
+})
+
+describe('redis getKeyDetail 大 string 截断（vm 打桩）', () => {
+  function loadWithStrings (getImpl) {
+    const { Redis } = makeRedisStub()
+    const mod = loadRedisInVm(Redis)
+    const inst = Redis.inst
+    inst.type = async () => 'string'
+    inst.get = getImpl
+    inst.ttl = async () => -1
+    return mod
+  }
+
+  test('超 256KB：值截断 + fields=[truncated] + total=完整字节数', async () => {
+    const big = 'x'.repeat(300 * 1024)
+    const mod = loadWithStrings(async () => big)
+    const res = await mod.getKeyDetail(
+      { dbHost: 'h', dbPort: 6379 }, { dbIndex: 0, key: 'big' }
+    )
+    assert.equal((res.fields || []).includes('truncated'), true)
+    assert.equal(res.total, 300 * 1024)
+    assert.ok(res.value.length < big.length, '回传值必须小于原值')
+    assert.equal(Buffer.byteLength(res.value) <= 256 * 1024, true)
+  })
+
+  test('小 string：原值透传，无 truncated 标记', async () => {
+    const mod = loadWithStrings(async () => 'hello')
+    const res = await mod.getKeyDetail(
+      { dbHost: 'h', dbPort: 6379 }, { dbIndex: 0, key: 'small' }
+    )
+    assert.equal(res.value, 'hello')
+    assert.deepEqual([...(res.fields || [])], [])
+    assert.equal(res.total, undefined)
+  })
+
+  test('截断切在多字节 UTF-8 中间不抛错（残字节替换 U+FFFD）', async () => {
+    // 256KB 边界附近放中文（3 字节/字）确保切点落在多字节字符内
+    const big = '中'.repeat(100 * 1024)
+    const mod = loadWithStrings(async () => big)
+    const res = await mod.getKeyDetail(
+      { dbHost: 'h', dbPort: 6379 }, { dbIndex: 0, key: 'cjk' }
+    )
+    assert.equal((res.fields || []).includes('truncated'), true)
+    assert.equal(res.total, 300 * 1024)
+    assert.equal(res.value.includes('\uFFFD'), true, '切点残字节应替换为替换符而非抛错')
   })
 })
 

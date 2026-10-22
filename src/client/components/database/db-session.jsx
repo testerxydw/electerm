@@ -367,6 +367,10 @@ export default auto(function DbSession (props) {
   const stringValue = redisDetail && redisDetail.type === 'string'
     ? String(redisDetail.value ?? '')
     : ''
+  // 大 string 截断标记（后端 fields=['truncated']，total=完整字节数）：
+  // 预览非全量，必须禁编辑防截断值覆盖写回真实键
+  const stringTruncated = !!(redisDetail && redisDetail.type === 'string' &&
+    (redisDetail.fields || []).includes('truncated'))
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）
   const getSshBookmark = () => {
@@ -1676,13 +1680,16 @@ export default auto(function DbSession (props) {
           meta={
             e('dbTypeMeta').replace('{type}', d.type) + ' - ' +
             e('dbTtlMeta').replace('{ttl}', d.ttl > 0 ? d.ttl + 's' : e('dbNone')) + ' - ' +
-            e('dbChars').replace('{n}', stringValue.length)
+            e('dbChars').replace('{n}', stringValue.length) +
+            (stringTruncated ? ` (preview truncated, ${d.total} bytes total)` : '')
           }
           value={stringValue}
           patterns={keywordPatterns}
           themeConfig={themeConfig}
-          editable={!isReadonly}
-          editDisabledTitle={e('dbErrReadOnly')}
+          editable={!isReadonly && !stringTruncated}
+          editDisabledTitle={stringTruncated
+            ? 'value too large, preview only (truncated)'
+            : e('dbErrReadOnly')}
           extra={(
             <>
               <InputNumber

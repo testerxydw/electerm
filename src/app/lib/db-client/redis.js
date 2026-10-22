@@ -186,6 +186,8 @@ async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
 const DETAIL_PAGE_DEFAULT = 200
 const DETAIL_PAGE_MAX = 1000
 const DETAIL_SCAN_MAX_ROUNDS = 10
+// string 详情预览软上限（字节）：超过只回传截断预览，防 IPC 克隆内存翻倍
+const MAX_STRING_PREVIEW_BYTES = 256 * 1024
 
 async function scanPage (scan, pageSize, startCursor) {
   let cursor = String(startCursor || '0')
@@ -207,13 +209,25 @@ async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
   const size = Math.min(Number(pageSize) || DETAIL_PAGE_DEFAULT, DETAIL_PAGE_MAX)
   let value = null
   const fields = []
+  // string 截断标记走 fields=['truncated']（total 复用为完整字节数），
+  // hash/set 的 fields/total 语义不变
   let rows = []
   let nextCursor = '0'
   let total
   switch (type) {
-    case 'string':
-      value = await c.get(key)
+    case 'string': {
+      // 大 string 软上限：超过 256KB 只回传预览（防 IPC 结构化克隆内存翻倍），
+      // truncated=true 时前端禁用编辑，防止截断值覆盖写回真实键（数据损坏）
+      const raw = await c.get(key)
+      if (typeof raw === 'string' && Buffer.byteLength(raw) > MAX_STRING_PREVIEW_BYTES) {
+        value = Buffer.from(raw, 'utf8').subarray(0, MAX_STRING_PREVIEW_BYTES).toString('utf8')
+        total = Buffer.byteLength(raw)
+        fields.push('truncated')
+      } else {
+        value = raw
+      }
       break
+    }
     case 'hash': {
       // 大 hash 不再 hgetall 全量加载，按 HSCAN 游标分页
       // HSCAN 返回 field/value 成对元素：目标元素数是 pageSize × 2
