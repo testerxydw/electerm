@@ -369,7 +369,10 @@ export default class AttachAddonCustom {
         if (handleSessionControlMessage(msg, this.infoTabId)) {
           return
         }
-      } catch (e) {}
+      } catch (e) {
+        // 控制消息解析失败降级为普通终端写入，属预期兜底；高频路径用 debug 防刷屏
+        console.debug('[AttachAddon] session control msg parse fails:', e.message)
+      }
     }
 
     this.writeToTerminal(ev.data)

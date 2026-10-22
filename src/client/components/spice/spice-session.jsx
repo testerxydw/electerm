@@ -88,7 +88,10 @@ export default class SpiceSession extends PureComponent {
     if (this.spiceConn) {
       try {
         this.spiceConn.stop()
-      } catch (e) {}
+      } catch (e) {
+        // stop 清理失败仅留痕，后续置 null 防重复调用
+        console.debug('[spice-session] conn stop fails:', e.message)
+      }
       this.spiceConn = null
     }
   }

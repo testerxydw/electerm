@@ -6,6 +6,7 @@ const { resolve: pathResolve } = require('path')
 const { execFile } = require('child_process')
 const { TerminalBase } = require('./session-base')
 const globalState = require('./global-state')
+const log = require('../common/log')
 // const { MockBinding } = require('@serialport/binding-mock')
 // MockBinding.createPort('/dev/ROBOT', { echo: true, record: true })
 
@@ -27,7 +28,10 @@ function probeZshVersion (execPath, ws, tabId) {
         }
       })
     })
-  } catch (e) {}
+  } catch (e) {
+    // zsh 版本探测失败属预期（非 zsh / 无 zsh），静默兜底但留 debug 痕
+    log.debug('probe zsh version fails:', e.message)
+  }
 }
 
 class TerminalLocal extends TerminalBase {

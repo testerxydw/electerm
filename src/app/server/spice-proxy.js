@@ -210,7 +210,10 @@ function createTlsConnection (socket, options = {}) {
       settled = true
       try {
         socket.destroy()
-      } catch (e) {}
+      } catch (e) {
+        // 清理失败不影响主错误上抛，仅留痕
+        log.debug(`${LOG_PREFIX}socket destroy fails:`, e.message)
+      }
       reject(err)
     }
 
@@ -398,7 +401,9 @@ async function handleConnection (ws, options = {}) {
     log.error(`${LOG_PREFIX}[${id}] Connection failed:`, err.message)
     try {
       ws.close()
-    } catch (e) {}
+    } catch (e) {
+      log.debug(`${LOG_PREFIX}[${id}] ws close fails:`, e.message)
+    }
     if (onCleanup) onCleanup()
   }
 }

@@ -69,7 +69,10 @@ function resolveLogDir () {
 function ensureDir (dir) {
   try {
     fs.mkdirSync(dir, { recursive: true })
-  } catch (e) {}
+  } catch (e) {
+    // 目录建不出会导致后续所有日志静默丢失，必须留痕
+    console.warn('[instance-log] mkdirSync fails:', e.message)
+  }
 }
 
 // Best effort: only ever touches *.log files inside our own directory.
@@ -90,7 +93,10 @@ function pruneOld () {
       if (now - fs.statSync(p).mtimeMs > MAX_AGE_MS) {
         fs.unlinkSync(p)
       }
-    } catch (e) {}
+    } catch (e) {
+      // 单个旧日志清理失败不影响新日志写入，仅留痕
+      console.debug('[instance-log] cleanup old log fails:', e.message)
+    }
   }
 }
 
@@ -162,7 +168,10 @@ function rotateIfBig (file) {
       fs.unlinkSync(old)
     }
     fs.renameSync(file, old)
-  } catch (e) {}
+  } catch (e) {
+    // 轮转失败意味着旧日志无法归档，需留痕
+    console.warn('[instance-log] rotate log fails:', e.message)
+  }
 }
 
 function fileSize (file) {
@@ -191,7 +200,10 @@ function write (instanceId, line) {
     }
     fs.appendFileSync(file, text)
     sizes.set(instanceId, size + Buffer.byteLength(text))
-  } catch (e) {}
+  } catch (e) {
+    // 写入失败 = 崩溃诊断通道失效，必须留痕
+    console.warn('[instance-log] appendFileSync fails:', e.message)
+  }
 }
 
 function pushLog (instanceId, level, args) {

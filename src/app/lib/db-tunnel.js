@@ -34,7 +34,10 @@ function createDbTunnel (sshBookmark, dbHost, dbPort) {
       if (err) {
         try {
           conn.end()
-        } catch (e) {}
+        } catch (e) {
+          // 清理失败不影响主错误上抛，仅留痕
+          log.debug('db tunnel conn end cleanup fails:', e.message)
+        }
         return reject(err)
       }
       resolve(res)
@@ -64,10 +67,14 @@ function createDbTunnel (sshBookmark, dbHost, dbPort) {
           close: () => {
             try {
               server.close()
-            } catch (e) {}
+            } catch (e) {
+              log.debug('db tunnel server close fails:', e.message)
+            }
             try {
               conn.end()
-            } catch (e) {}
+            } catch (e) {
+              log.debug('db tunnel conn close fails:', e.message)
+            }
           }
         })
       })
