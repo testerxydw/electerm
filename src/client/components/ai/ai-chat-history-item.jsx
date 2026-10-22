@@ -40,6 +40,14 @@ export default memo(function AIChatHistoryItem ({ item }) {
   // flight (agent mode), so that stopping can cancel it rather than wait for it
   // to come back.
   const abortRef = useRef(false)
+  // 组件卸载守卫：流式轮询链（递归 setTimeout）在条目卸载后必须终止，
+  // 否则 AI 会话多时幽灵轮询叠加（每次卸载残留一条 200ms 链直到流结束）
+  const aliveRef = useRef(true)
+  useEffect(() => {
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
   const {
     prompt,
     sessionId,
@@ -135,6 +143,10 @@ export default memo(function AIChatHistoryItem ({ item }) {
   }, [conversationMessages, modelAI, requestConfig, item.id])
 
   const pollStreamContent = useCallback(async (sid) => {
+    // 卸载后停止轮询链：不再写 store/setState
+    if (!aliveRef.current) {
+      return
+    }
     try {
       const streamResponse = await window.pre.runGlobalAsync('getStreamContent', sid)
 
