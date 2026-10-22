@@ -387,6 +387,14 @@
   // S6：网格单元格数据面字体与终端统一
   font-family var(--db-code-font, var(--font-mono))
 
+// B1 行选择列：虚拟滚动下表头/表体是两个独立 table，selection 列宽若由内容
+// 自适应会不同步 → checkbox 半边被遮。两侧钉同宽对齐，并给足内边距防贴边裁切
+.db-grid-table .ant-table-selection-column
+  width 36px
+  min-width 36px
+  padding-left 10px
+  padding-right 10px
+
 .db-cell-null
   color var(--text)
   opacity 0.5

@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined, DiffOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -884,6 +884,16 @@ export default auto(function DbSession (props) {
         loadPage(sel, grid.page, grid.orderBy, grid.order)
       })
       .catch(onOpError)
+  }
+
+  // 反选：按当前页可见行（filteredRows 的 __rowKey）反转勾选
+  const invertSelection = () => {
+    setSelectedRowKeys(keys => {
+      const cur = new Set(keys)
+      return filteredRows
+        .map(r => r.__rowKey)
+        .filter(k => !cur.has(k))
+    })
   }
 
   // 预览面板：选中单元格 + 保存
@@ -1872,6 +1882,20 @@ export default auto(function DbSession (props) {
                   {e('dbDeleteRows')}({selectedRowKeys.length})
                 </Button>
               </Popconfirm>
+              )
+            : null
+        }
+        {
+          // B1 反选：按当前页可见行反转勾选（全选（本页）由表头 checkbox 承担）
+          sel && !isReadonly && pkColumn && grid.rows.length
+            ? (
+              <Tooltip title={e('dbInvertSelection')}>
+                <Button
+                  size='small'
+                  icon={<DiffOutlined />}
+                  onClick={invertSelection}
+                />
+              </Tooltip>
               )
             : null
         }

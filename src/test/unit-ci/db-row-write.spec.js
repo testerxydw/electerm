@@ -394,8 +394,22 @@ describe('B1 wiring: renderer 接线', () => {
 
   test('A3/A5 词条两区同步', () => {
     const loc = fs.readFileSync(LOCALES, 'utf8')
-    for (const k of ['dbFormatSql', 'dbQuickConnect', 'dbQuickConnectPlaceholder', 'dbQuickConnectTip']) {
+    for (const k of ['dbFormatSql', 'dbQuickConnect', 'dbQuickConnectPlaceholder', 'dbQuickConnectTip', 'dbInvertSelection']) {
       assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
     }
+  })
+
+  test('B1 selection 列钉宽修半遮 + 反选接线', () => {
+    // styl 两侧钉同宽（表头/表体独立 table 对齐）
+    const styl = fs.readFileSync(
+      path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'
+    )
+    assert.ok(styl.includes('.ant-table-selection-column'), 'selection column width rule missing')
+    assert.ok(styl.includes('min-width 36px'), 'selection column must be pinned to 36px')
+    // 反选函数：按 filteredRows 的 __rowKey 反转
+    const inv = src.match(/const invertSelection = [\s\S]*?\n {2}\}/)
+    assert.ok(inv, 'invertSelection missing')
+    assert.ok(inv[0].includes('filteredRows') && inv[0].includes('__rowKey'), 'invert must map visible row keys')
+    assert.ok(src.includes('<DiffOutlined'), 'invert button must use DiffOutlined icon')
   })
 })
