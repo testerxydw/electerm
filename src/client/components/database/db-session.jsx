@@ -794,6 +794,9 @@ export default auto(function DbSession (props) {
   const [insertCols, setInsertCols] = useState([])
   // 每列编辑态：{ text, isNull }；勾选 NULL 后输入框禁用
   const [insertValues, setInsertValues] = useState({})
+  // A2 DDL 查看：仅 mysql 系（SHOW CREATE TABLE 兼容视图，零后端改动走 executeSql）；
+  // PG 隐藏入口（无对应等价语句，用户拍板）
+  const [ddl, setDdl] = useState({ open: false, loading: false, title: '', text: '' })
 
   const openInsertModal = () => {
     const cols = buildInsertFormColumns(structure.rows, tab.dbType)
@@ -2106,6 +2109,39 @@ export default auto(function DbSession (props) {
           {renderSqlResults()}
         </Spin>
       </div>
+      {
+        // A2 DDL 弹窗：等宽字体展示 SHOW CREATE TABLE 结果，一键复制
+        ddl.open
+          ? (
+            <Modal
+              open={ddl.open}
+              title={`${e('dbViewDdl')} - ${ddl.title}`}
+              onCancel={() => setDdl(d => ({ ...d, open: false }))}
+              footer={[
+                <Button key='copy' size='small' onClick={() => copy(ddl.text)}>
+                  {e('copy')}
+                </Button>,
+                <Button key='close' size='small' type='primary' onClick={() => setDdl(d => ({ ...d, open: false }))}>
+                  {e('ok')}
+                </Button>
+              ]}
+              width={720}
+            >
+              {
+                ddl.loading
+                  ? (
+                    <div className='db-pane-empty'>
+                      <Spin />
+                    </div>
+                    )
+                  : (
+                    <pre className='db-ddl-pre'>{ddl.text}</pre>
+                    )
+              }
+            </Modal>
+            )
+          : null
+      }
     </div>
   )
 
@@ -2124,8 +2160,61 @@ export default auto(function DbSession (props) {
         : renderCell
     }))
     : []
+
+  // A2 DDL 查看：SHOW CREATE TABLE 兼容视图，零后端改动走 executeSql
+  const fetchDdl = () => {
+    if (!sel) {
+      return
+    }
+    // 反引号内嵌反引号会破坏语句，标识符注入面剔除
+    const db = String(sel.database).replace(/`/g, '')
+    const tb = String(sel.table).replace(/`/g, '')
+    setDdl(d => ({ ...d, open: true, loading: true, title: tb, text: '' }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', {
+      sql: 'SHOW CREATE TABLE `' + db + '`.`' + tb + '`'
+    })
+      .then(res => {
+        const row = res && res.results && res.results[0] && res.results[0].rows
+          ? res.results[0].rows[0]
+          : null
+        // SHOW CREATE TABLE 返回 Create Table；对视图返回 Create View
+        const text = row
+          ? (row['Create Table'] || row['Create View'] || '')
+          : ''
+        if (!text) {
+          setDdl(d => ({ ...d, loading: false, text: e('dbDdlNotFound') }))
+          return
+        }
+        setDdl(d => ({ ...d, loading: false, text }))
+      })
+      .catch(err => {
+        setDdl(d => ({
+          ...d,
+          loading: false,
+          text: err && err.message ? err.message : String(err)
+        }))
+      })
+  }
+
   const structureArea = (
     <div className='db-struct-area'>
+      {
+        // A2 DDL 入口：仅 mysql 系显示
+        !isPg
+          ? (
+            <div className='db-struct-tools'>
+              <Button
+                size='small'
+                icon={<SearchOutlined />}
+                loading={ddl.loading}
+                onClick={fetchDdl}
+              >
+                {e('dbViewDdl')}
+              </Button>
+            </div>
+            )
+          : null
+      }
       <DbGridTable
         size='small'
         loading={structure.loading}

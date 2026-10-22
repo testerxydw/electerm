@@ -376,4 +376,19 @@ describe('B1 wiring: renderer 接线', () => {
     // 导出范围同拍板语义：有选中为选中
     assert.ok(src.includes('gridExportRows'), 'shared export rows helper missing')
   })
+
+  test('A2 DDL 入口 mysql 系显示 / PG 隐藏', () => {
+    // 走 executeSql op，SHOW CREATE TABLE 语句拼接
+    assert.ok(src.includes('SHOW CREATE TABLE'), 'must use SHOW CREATE TABLE')
+    assert.ok(src.includes("'Create Table'") && src.includes("'Create View'"), 'must read Create Table/View')
+    // 入口块带 !isPg 门控（PG 隐藏）
+    const block = src.match(/A2 DDL 入口[\s\S]*?: null\n {6}\}/)
+    assert.ok(block, 'ddl entry block not found')
+    assert.ok(block[0].includes('!isPg'), 'entry must be gated by !isPg')
+    // 词条两区同步
+    const loc = fs.readFileSync(LOCALES, 'utf8')
+    for (const k of ['dbViewDdl', 'dbDdlNotFound']) {
+      assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
+    }
+  })
 })

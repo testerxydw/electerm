@@ -292,6 +292,22 @@
   flex 1 1 auto
   min-width 0
 
+// A2 结构 tab 工具行 + DDL 弹窗等宽展示
+.db-struct-tools
+  display flex
+  gap 8px
+  margin-bottom 8px
+.db-ddl-pre
+  margin 0
+  max-height 60vh
+  overflow auto
+  padding 10px
+  border-radius var(--radius-sm)
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  white-space pre
+  color var(--text)
+
 // T4 PG 跨库连接入口与确认弹窗
 .db-tree-connect
   margin-left 6px
