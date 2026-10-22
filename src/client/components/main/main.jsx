@@ -49,7 +49,6 @@ import BatchOpRunner from '../batch-op/batch-op-runner'
 import UnixTimestampTooltip from '../terminal/unix-timestamp-tooltip'
 import ImportProgress from '../common/import-progress.jsx'
 import { pick } from 'lodash-es'
-import deepCopy from 'json-deep-copy'
 import './wrapper.styl'
 import TerminalInfo from '../terminal-info/terminal-info-entry'
 import ShortcutBarEntry from '../terminal/shortcut-bar-entry'
@@ -159,7 +158,9 @@ export default auto(function Index (props) {
     rightPanelTab,
     widgetInstances
   } = store
-  const upgradeInfo = deepCopy(store.upgradeInfo)
+  // 这些 props 只被下游读取；浅拷贝即可得到新引用触发 memo/PureComponent 更新，
+  // 无需递归深拷贝（嵌套字段均只读）
+  const upgradeInfo = { ...store.upgradeInfo }
   const remoteMonitorBarVisible = isRemoteMonitorBarVisible(store)
   // GUI 远程桌面页（rdp/vnc/spice）：inTerminalTab 为底栏可见性把它与终端
   // 同等对待，但全屏时底栏不能保留（否则压住远程桌面下缘）
@@ -249,8 +250,15 @@ export default auto(function Index (props) {
   const themeProps = {
     themeConfig: store.getUiThemeConfig()
   }
-  const copiedTransfer = deepCopy(fileTransfers)
-  const copiedHistory = deepCopy(transferHistory)
+  // 传输列表/历史每项只做顶层浅拷贝：Transfer 组件会写 transfer.toPath，
+  // 浅拷贝已隔离该写入；深层字段（路径/配置）下游只读
+  const copiedTransfer = fileTransfers.map(t => ({ ...t }))
+  const copiedHistory = transferHistory.map(t => ({ ...t }))
+  // TransportsActionStore 只关心「谁、是否已初始化/暂停、方向」；
+  // 用它做变更键，避免每次渲染对整份传输列表 JSON.stringify
+  const fileTransferChanged = copiedTransfer
+    .map(t => `${t.id}:${t.typeFrom}:${t.typeTo}:${t.inited ? 1 : 0}:${t.pausing ? 1 : 0}`)
+    .join('|')
   const sidebarProps = {
     ...pick(store, [
       'activeItemId',
@@ -289,11 +297,12 @@ export default auto(function Index (props) {
     upgradeInfo: store.upgradeInfo
   }
   const conflictStoreProps = {
-    fileTransferChanged: JSON.stringify(copiedTransfer),
+    fileTransferChanged,
     fileTransfers: copiedTransfer
   }
   const resProps = {
-    resolutions: deepCopy(store.resolutions),
+    // 编辑弹窗只读列表（增删都走 store），浅拷贝数组即可
+    resolutions: store.resolutions.slice(),
     openResolutionEdit
   }
 
@@ -422,7 +431,7 @@ export default auto(function Index (props) {
               <MonitorPanel store={store} />
             )
           }
-          <TerminalInfo key={store.activeTabId} store={store} {...deepCopy(store.terminalInfoProps)} />
+          <TerminalInfo key={store.activeTabId} store={store} {...store.terminalInfoProps} />
           {/* the cmd history panel has two homes; the footer popover is the
               other one, and both are the same component (see cmd-history.jsx) */}
           <CmdHistory store={store} inline />
