@@ -15,7 +15,7 @@ const SYNC = path.join(SRC, 'client/store/sync.js')
 const SHORTCUT = path.join(SRC, 'client/components/shortcuts/shortcut-control.jsx')
 
 // T1 清扫批（2026-10-20）六项回归守护，配套
-// doc/审计-全项目七维度审计-2026-10-21.md（附：2026-10-20 复核）：
+// doc/已完成/审计-全项目七维度审计-2026-10-21.md（附：2026-10-20 复核）：
 //   S0 改名 / P2-15 await / P2-13 i18n / P2-14 database schema /
 //   关键字同步 A / shortcut 监听清理
 // 每项含正向断言 + 反向验证（防回退、防漂移）
