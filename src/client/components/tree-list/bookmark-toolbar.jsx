@@ -17,7 +17,7 @@ import Upload from '../common/upload'
 import { beforeBookmarkUpload } from './bookmark-upload'
 import { parseDbUri } from '../../common/db-uri'
 import { dbTypeLabelMap } from '../../common/constants'
-import newTerm from '../common/new-terminal'
+import newTerm from '../../common/new-terminal'
 
 const e = window.translate
 

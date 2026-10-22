@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, SortOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -2037,7 +2037,7 @@ export default auto(function DbSession (props) {
             ? (
               <Button
                 size='small'
-                icon={<SortOutlined />}
+                icon={<FormatPainterOutlined />}
                 onClick={formatSqlEditor}
                 title={e('dbFormatSql')}
               />
