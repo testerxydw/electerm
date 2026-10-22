@@ -45,6 +45,8 @@ export default class Tabs extends Component {
       // tabs-extra 让位是否需要），commit 后实测写入
       cornerOverlap: true
     }
+    // 上次测量时的布局输入快照：只在真正影响标签宽度/角控件重叠的输入变化时重测
+    this.measuredLayoutKey = ''
   }
 
   componentDidMount () {
@@ -63,7 +65,27 @@ export default class Tabs extends Component {
   }
 
   componentDidUpdate (prevProps) {
-    this.measureWrapWidth()
+    // 标签标题变化由 ResizeObserver 驱动重测；这里只在数量/布局/面板/窗口
+    // 变化时测量，避免每次父组件重渲染都做 querySelectorAll + 强制布局
+    const { store } = window
+    const layoutKey = [
+      window.innerWidth,
+      store.leftSideBarWidth,
+      store.leftSidePanelWidth,
+      store.openedSideBar ? 1 : 0,
+      store.rightPanelVisible ? 1 : 0,
+      store.rightPanelWidth,
+      (this.props.tabs || []).length,
+      this.props.isMobile ? 1 : 0,
+      this.props.batch,
+      this.props.width
+    ].join('|')
+    if (layoutKey !== this.measuredLayoutKey) {
+      // 测量未就绪（移动端/首帧 DOM 未挂）时不记快照，下次 update 再试
+      if (this.measureWrapWidth()) {
+        this.measuredLayoutKey = layoutKey
+      }
+    }
     if (
       prevProps.currentBatchTabId !== this.props.currentBatchTabId ||
       prevProps.width !== this.props.width ||
@@ -130,7 +152,7 @@ export default class Tabs extends Component {
   // 重渲染才自愈。只在 commit 后（componentDidMount/Update）测量可根治
   measureWrapWidth = () => {
     if (this.props.isMobile || !this.domRef.current) {
-      return
+      return false
     }
     const len = (this.props.tabs || []).length
     const w = tabMargin * len + 10 + this.tabsWidth()
@@ -157,6 +179,7 @@ export default class Tabs extends Component {
     if (overlap !== this.state.cornerOverlap) {
       this.setState({ cornerOverlap: overlap })
     }
+    return true
   }
 
   // render 用：优先实测值；未测前按 tab 标称上限保守估算（偏大不换行）

@@ -136,6 +136,29 @@ describe('main.jsx 深拷贝治理', () => {
   })
 })
 
+describe('批次 E：tabs 测量只在有效变化时触发', () => {
+  const src = () => loadSrc(path.join(ROOT, 'src/client/components/tabs/index.jsx'))
+
+  test('componentDidUpdate 用布局输入快照 gate', () => {
+    const code = src()
+    assert.ok(code.includes('measuredLayoutKey'), 'layout key missing')
+    assert.ok(code.includes('store.leftSideBarWidth'), 'left bar width missing from key')
+    assert.ok(code.includes('store.rightPanelWidth'), 'right panel width missing from key')
+    assert.ok(code.includes('window.innerWidth'), 'window width missing from key')
+    assert.ok(code.includes('if (this.measureWrapWidth())'), 'failed measure must retry next update')
+  })
+
+  test('测量未就绪返回 false，标题变化仍由 ResizeObserver 重测', () => {
+    const code = src()
+    const fn = code.match(/measureWrapWidth = \(\) => \{[\s\S]*?\n\s{2}\}/)
+    assert.ok(fn, 'measureWrapWidth not found')
+    assert.ok(fn[0].includes('return false'), 'not-ready path must return false')
+    assert.ok(fn[0].includes('return true'), 'successful path must return true')
+    assert.ok(code.includes('this.resizeObserver = new ResizeObserver(this.handleTabsResize)'), 'resize observer removed')
+    assert.ok(code.includes('this.measureWrapWidth()'), 'resize handler must remeasure')
+  })
+})
+
 describe('批次 F：db-session 算法簇抽取', () => {
   test('查找算法独立成 db-search.jsx，db-session 只导入引用', () => {
     const search = loadSrc(path.join(ROOT, 'src/client/components/database/db-search.jsx'))
