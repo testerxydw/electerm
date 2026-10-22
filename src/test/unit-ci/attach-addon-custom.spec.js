@@ -3,6 +3,8 @@ const assert = require('node:assert/strict')
 
 global.window = global.window || { xtermAddons: {} }
 global.window.xtermAddons = global.window.xtermAddons || {}
+// _bufferedWrite reads document.hidden for the hidden-window flush fast path
+global.document = global.document || { hidden: false }
 
 const loadModule = () => import('../../client/components/terminal/attach-addon-custom.js')
 
@@ -248,5 +250,191 @@ describe('session keepalive', () => {
     assert.ok(addon._keepaliveTimer)
     addon.dispose()
     assert.equal(addon._keepaliveTimer, null)
+  })
+})
+
+// TUI apps (vim/htop/Ink) repaint incrementally inside the alternate screen
+// buffer and assume every byte reaches the terminal — dropping any frame
+// corrupts the screen. While the alternate screen is active the addon must
+// bypass write coalescing/dropping entirely (upstream electerm behaviour).
+describe('alternate screen lossless direct write', () => {
+  const esc = String.fromCharCode(27)
+
+  describe('findAltBufferSwitch', () => {
+    test('detects enter for all three private-mode forms', async () => {
+      const { findAltBufferSwitch } = await loadModule()
+      for (const n of ['47', '1047', '1049']) {
+        const r = findAltBufferSwitch(`abc${esc}[?${n}h`)
+        assert.equal(r.swType, 'enter', n)
+        assert.equal(r.swOffset, 3, n)
+        assert.equal(r.tailStart, -1, n)
+      }
+    })
+
+    test('takes the last switch when a chunk holds several', async () => {
+      const { findAltBufferSwitch } = await loadModule()
+      const input = `${esc}[?1049hxx${esc}[?1049l`
+      const r = findAltBufferSwitch(input)
+      assert.equal(r.swType, 'exit')
+      assert.equal(r.swOffset, 10)
+    })
+
+    test('ignores non-private, unrelated and reset forms', async () => {
+      const { findAltBufferSwitch } = await loadModule()
+      assert.equal(findAltBufferSwitch(`${esc}[1049h`).swType, null, 'no ? marker')
+      assert.equal(findAltBufferSwitch(`${esc}[?1048h`).swType, null, '1048 is cursor save')
+      assert.equal(findAltBufferSwitch(`${esc}[?25l${esc}[?2004h`).swType, null, 'bracketed paste')
+      assert.equal(findAltBufferSwitch('plain text').swType, null)
+    })
+
+    test('skips OSC string bodies containing switch-like text', async () => {
+      const { findAltBufferSwitch } = await loadModule()
+      const bel = String.fromCharCode(7)
+      const input = `${esc}]0;fake?1049h${bel}${esc}[?1049h`
+      const r = findAltBufferSwitch(input)
+      assert.equal(r.swType, 'enter')
+      assert.equal(r.swOffset, input.lastIndexOf(`${esc}[?1049h`))
+    })
+
+    test('reports a truncated trailing sequence as tailStart', async () => {
+      const { findAltBufferSwitch } = await loadModule()
+      assert.deepEqual(findAltBufferSwitch(`${esc}[?1049`), {
+        swType: null, swOffset: -1, tailStart: 0
+      })
+      assert.deepEqual(findAltBufferSwitch(`ok${esc}[?10`), {
+        swType: null, swOffset: -1, tailStart: 2
+      })
+    })
+  })
+
+  test('writes directly once the alternate screen is active', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      addon._enqueueWrite(`${esc}[?1049hFRAME1`)
+      assert.deepEqual(written, [`${esc}[?1049hFRAME1`], 'flushed synchronously, no coalescing')
+      assert.equal(addon._altBufferActive, true)
+
+      written.length = 0
+      addon._enqueueWrite('FRAME2')
+      assert.deepEqual(written, ['FRAME2'], 'next chunk also bypasses the buffer')
+      assert.equal(addon._writeBuffer.length, 0)
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('the 2MB drop never applies inside the alternate screen', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      addon._enqueueWrite(`${esc}[?1049h`)
+      written.length = 0
+      addon._maxBufferChars = 100
+      addon._enqueueWrite('x'.repeat(5000))
+      assert.equal(addon._droppedChars, 0, 'no frame may be dropped')
+      assert.equal(written[0].length, 5000)
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('flushes buffered normal-screen residue before the first alternate bytes', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      // simulate a burst in progress: the chunk lands inside the 16ms window
+      addon._lastFlushTime = Date.now()
+      addon._enqueueWrite('NORMAL')
+      assert.deepEqual(written, [], 'residue still coalescing')
+
+      addon._enqueueWrite(`${esc}[?1049hALT`)
+      assert.deepEqual(written, ['NORMAL', `${esc}[?1049hALT`])
+      assert.equal(addon._altBufferActive, true)
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('switches back to coalescing on exit', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      addon._enqueueWrite(`${esc}[?1049hA`)
+      addon._enqueueWrite(`${esc}[?1049lB`)
+      assert.equal(addon._altBufferActive, false)
+      // "B" went through the coalescing path inside the burst window
+      assert.equal(addon._writeBuffer.join(''), `${esc}[?1049lB`)
+      assert.deepEqual(written, [`${esc}[?1049hA`])
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('a truncated switch held back flips the mode when the next chunk completes it', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      addon._enqueueWrite(`hello${esc}[?10`)
+      assert.equal(addon._pendingTail, `${esc}[?10`)
+      assert.equal(addon._altBufferActive, false)
+      assert.deepEqual(written, ['hello'], 'body flushed, tail held')
+
+      addon._enqueueWrite('49hFRAME')
+      assert.equal(addon._altBufferActive, true, 'mode flipped only now')
+      assert.equal(addon._pendingTail, '')
+      assert.deepEqual(written, ['hello', `${esc}[?1049hFRAME`])
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('a held-back tail is flushed after the 200ms bail-out', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      addon._lastFlushTime = Date.now()
+      addon._enqueueWrite(`abc${esc}[?1`)
+      assert.equal(addon._pendingTail, `${esc}[?1`)
+
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      assert.equal(addon._pendingTail, '', 'bail-out released the tail')
+      assert.ok(written.includes(`${esc}[?1`), 'tail written on the current path')
+      assert.ok(written.includes('abc'))
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('a tail over the cap is written out instead of being held', async () => {
+    const { addon } = await makeAddon()
+    try {
+      addon._lastFlushTime = Date.now()
+      addon._enqueueWrite(`x${esc}[?${'1'.repeat(5000)}`)
+      assert.equal(addon._pendingTail, '', 'runaway tail must not be held')
+      assert.equal(addon._pendingTailTimer, null, 'no bail-out timer armed')
+      assert.ok(addon._writeBuffer.join('').startsWith(`x${esc}[?1`), 'written as-is')
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('dispose releases a pending tail and its timer', async () => {
+    const { addon } = await makeAddon()
+    addon._lastFlushTime = Date.now()
+    addon._enqueueWrite(`a${esc}[?1`)
+    assert.ok(addon._pendingTailTimer)
+    addon.dispose()
+    assert.equal(addon._pendingTailTimer, null)
+    assert.equal(addon._pendingTail, '')
+  })
+
+  test('enter+exit inside one chunk keeps every byte, none dropped', async () => {
+    const { addon, written } = await makeAddon()
+    try {
+      addon._enqueueWrite(`${esc}[?1049hA${esc}[?1049lB`)
+      assert.equal(addon._altBufferActive, false)
+      // split at the LAST switch: head ran on the old (normal) path, rest on
+      // the new one; both reach the terminal, order preserved
+      assert.ok(written.includes(`${esc}[?1049hA`))
+      assert.equal(addon._writeBuffer.join(''), `${esc}[?1049lB`)
+    } finally {
+      addon.dispose()
+    }
   })
 })

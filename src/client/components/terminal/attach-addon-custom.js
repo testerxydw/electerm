@@ -143,6 +143,51 @@ export function truncateTerminalOutput (str, maxChars) {
   }
 }
 
+// Alternate screen buffer 切换检测 (DECSET/DECRST 47 / 1047 / 1049)。
+// TUI 应用 (vim/htop/Ink 类) 进入 alternate screen 后按"自己维护的屏幕模型"
+// 做增量重绘 (ESC[nA 回退 + 覆写), 假设发出的每个字节都被终端处理——丢帧后
+// 其下一帧仍按它的模型回退定位, 指向从未写入的内容, 必然错乱
+// (stripLeadingCursorOps 无法恢复增量语义)。因此 alternate 激活期间必须绕过
+// 合批丢弃层逐 chunk 直写 (与上游 electerm 原生行为一致)。
+// 返回 { swType, swOffset, tailStart }:
+//   swType    'enter' | 'exit' | null (最后一个切换序列的语义)
+//   swOffset  该序列的起点 (-1 = 无切换); 同一 chunk 内在它之前的部分仍属旧模式
+//   tailStart 尾部被 chunk 边界截断的未闭合序列起点 (-1 = 无); 调用方须暂存
+//             并与下一 chunk 拼接, 否则被截断的 1049h 会漏检导致状态不同步
+const ALT_BUFFER_MODES = { h: 'enter', l: 'exit' }
+const ALT_BUFFER_PARAMS = new Set(['47', '1047', '1049'])
+
+export function findAltBufferSwitch (str) {
+  let index = 0
+  let swType = null
+  let swOffset = -1
+  while (index < str.length) {
+    const esc = str.indexOf(ESC, index)
+    if (esc < 0) {
+      break
+    }
+    const end = ansiSequenceEnd(str, esc)
+    if (end < 0) {
+      return { swType, swOffset, tailStart: esc }
+    }
+    if (str[esc + 1] === '[') {
+      const params = str.slice(esc + 2, end - 1)
+      const mode = ALT_BUFFER_MODES[str[end - 1]]
+      if (mode && params.startsWith('?') && ALT_BUFFER_PARAMS.has(params.slice(1))) {
+        swType = mode
+        swOffset = esc
+      }
+    }
+    index = end
+  }
+  return { swType, swOffset, tailStart: -1 }
+}
+
+// 被截断序列的暂存上限: 真实转义序列远小于此; 超出视为异常流, 放弃暂存直接写出
+const MAX_PENDING_TAIL_CHARS = 4096
+// 暂存尾巴的兜底冲出延时: 服务器空闲时不能让屏幕末尾永远缺一段序列
+const PENDING_TAIL_FLUSH_MS = 200
+
 export default class AttachAddonCustom {
   constructor (term, socket, isWindowsShell, infoTabId = '') {
     this.term = term
@@ -188,6 +233,12 @@ export default class AttachAddonCustom {
     this._bufferChars = 0
     this._flushScheduled = false
     this._flushTimer = null
+    // Alternate screen 直写模式 (见 findAltBufferSwitch 注释): alternate 激活
+    // 期间跳过合批丢弃层, 逐 chunk 直写保证 TUI 重绘流无损。_pendingTail 暂存
+    // 被 chunk 边界截断的序列尾部, 与下一 chunk 拼接后再扫描。
+    this._altBufferActive = false
+    this._pendingTail = ''
+    this._pendingTailTimer = null
     // Coalescing window. Output is flushed at most once per interval.
     // 16ms ~= one frame; low enough that interactive echo feels instant,
     // high enough to merge a multi-MB/s flood into ~60 writes/s.
@@ -538,13 +589,107 @@ export default class AttachAddonCustom {
     this._enqueueWrite(str)
   }
 
-  // Buffer decoded output and flush it on a short timer so a burst of messages
-  // becomes a single (size-capped) term.write() call, keeping the main thread
-  // free to handle UI events and input between flushes.
+  // Entry point for terminal output. Detects alternate screen switches and
+  // routes each part of the chunk to the matching write path; see
+  // findAltBufferSwitch for why alternate-screen output must never be dropped.
   _enqueueWrite = (str) => {
     if (!this.term || !str) {
       return
     }
+    // A truncated sequence held back from the previous chunk completes here:
+    // prepend it so the scanner sees the whole sequence. (xterm's own parser
+    // keeps state across term.write calls, but OUR scanner does not.)
+    if (this._pendingTail) {
+      str = this._pendingTail + str
+      this._pendingTail = ''
+      clearTimeout(this._pendingTailTimer)
+      this._pendingTailTimer = null
+    }
+    const { swType, swOffset, tailStart } = findAltBufferSwitch(str)
+    const hasTail = tailStart >= 0
+    // Body = everything except a truncated trailing sequence; the switch
+    // offsets split it into "old mode" head / "new mode" rest. term.write is
+    // FIFO, so head→rest ordering holds even when the paths differ.
+    const bodyEnd = hasTail ? tailStart : str.length
+    const head = swOffset >= 0 ? str.slice(0, swOffset) : str.slice(0, bodyEnd)
+    const rest = swOffset >= 0 ? str.slice(swOffset, bodyEnd) : ''
+    if (this._altBufferActive) {
+      if (head) {
+        this._writeDirect(head)
+      }
+    } else if (head) {
+      this._bufferedWrite(head)
+    }
+    if (swType === 'enter') {
+      this._altBufferActive = true
+      // Flush normal-buffer residue BEFORE the first alternate-screen bytes:
+      // from here on the 2MB drop must never apply to this stream.
+      this._flushWrites()
+      if (rest) {
+        this._writeDirect(rest)
+      }
+    } else if (swType === 'exit') {
+      this._altBufferActive = false
+      if (rest) {
+        this._bufferedWrite(rest)
+      }
+    }
+    if (!hasTail) {
+      return
+    }
+    const tail = str.slice(tailStart)
+    if (tail.length > MAX_PENDING_TAIL_CHARS) {
+      // Runaway "sequence": give up on holding it and write it out as-is
+      // (xterm's parser tolerates the garbage; correctness of the switch
+      // state is not affected since no complete switch was seen).
+      if (this._altBufferActive) {
+        this._writeDirect(tail)
+      } else {
+        this._bufferedWrite(tail)
+      }
+      return
+    }
+    this._pendingTail = tail
+    clearTimeout(this._pendingTailTimer)
+    this._pendingTailTimer = setTimeout(this._flushPendingTail, PENDING_TAIL_FLUSH_MS)
+  }
+
+  // Bail-out for a held-back tail that never got completed: write it out on
+  // the current path so a quiet server can't leave the screen missing its
+  // last bytes forever.
+  _flushPendingTail = () => {
+    this._pendingTailTimer = null
+    const tail = this._pendingTail
+    if (!tail || !this.term) {
+      this._pendingTail = ''
+      return
+    }
+    this._pendingTail = ''
+    if (this._altBufferActive) {
+      this._writeDirect(tail)
+    } else {
+      this._bufferedWrite(tail)
+    }
+  }
+
+  // Lossless path: write straight through, no coalescing, no dropping. Used
+  // while the alternate screen is active. notifyOnData is debounced (1s) in
+  // term-attach, so the per-chunk call cost is fine.
+  _writeDirect = (str) => {
+    if (!this.term || !str) {
+      return
+    }
+    this._lastFlushTime = Date.now()
+    this.term.write(str)
+    this.term?.parent?.notifyOnData()
+    this.term?.parent?.onTerminalWrite?.()
+  }
+
+  // Coalescing path (normal screen): buffer decoded output and flush it on a
+  // short timer so a burst of messages becomes a single (size-capped)
+  // term.write() call, keeping the main thread free to handle UI events and
+  // input between flushes.
+  _bufferedWrite = (str) => {
     this._writeBuffer.push(str)
     this._bufferChars += str.length
     if (this._bufferChars > this._maxBufferChars) {
@@ -730,6 +875,10 @@ export default class AttachAddonCustom {
     this._flushScheduled = false
     this._writeBuffer = []
     this._bufferChars = 0
+    clearTimeout(this._pendingTailTimer)
+    this._pendingTailTimer = null
+    this._pendingTail = ''
+    this._altBufferActive = false
     this._dataTaps.clear()
     // Reset the streaming decoder so any partial multi-byte sequence held
     // over from this connection can not leak into a reused instance.
