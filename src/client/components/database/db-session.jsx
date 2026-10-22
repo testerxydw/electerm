@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover } from 'antd'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -18,6 +18,8 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
+import { downloadCsv } from '../../common/db-csv'
+import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -769,6 +771,14 @@ export default auto(function DbSession (props) {
           results: (res && res.results) || [],
           error: ''
         })
+        // S3-C：执行历史只存本地（语句/引擎/库），失败也记录
+        appendSqlHistory({
+          sql,
+          dbType: tab.dbType,
+          dbHost: tab.dbHost,
+          dbName: currentDbName,
+          ok: true
+        })
       })
       .catch(err => {
         setSqlResult({
@@ -776,7 +786,69 @@ export default auto(function DbSession (props) {
           results: [],
           error: err && err.message ? err.message : String(err)
         })
+        appendSqlHistory({
+          sql,
+          dbType: tab.dbType,
+          dbHost: tab.dbHost,
+          dbName: currentDbName,
+          ok: false
+        })
       })
+  }
+
+  // ---- S3-B CSV 导出（只导当前可见结果集，全表流式导出属二期） ----
+
+  // 文件名时间戳：yyyymmdd-hhmmss
+  const tsName = () => {
+    const d = new Date()
+    const p = n => String(n).padStart(2, '0')
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+  }
+
+  // 网格导出：列取当前行键（grid.rows 不含 __rowKey），行取 filteredRows
+  // （含 T1 当前页过滤效果；未过滤时即整页，所见即所得）
+  const exportGridCsv = () => {
+    if (!grid.rows.length) {
+      return
+    }
+    const headers = Object.keys(grid.rows[0])
+    downloadCsv(
+      `db-${sel.database}-${sel.table}-${tsName()}.csv`,
+      headers,
+      filteredRows
+    )
+  }
+
+  // SQL 结果导出：列取 fields（缺省回退首行键），行取该结果集 rows
+  const exportSqlCsv = (r, i) => {
+    const rows = (r && r.rows) || []
+    if (!rows.length) {
+      return
+    }
+    const headers = (r.fields && r.fields.length)
+      ? r.fields
+      : Object.keys(rows[0])
+    downloadCsv(`db-sql-result-${i + 1}-${tsName()}.csv`, headers, rows)
+  }
+
+  // ---- S3-C SQL 执行历史（localStorage 环形 200 条，仅本地） ----
+
+  const [sqlHistoryOpen, setSqlHistoryOpen] = useState(false)
+  const [sqlHistory, setSqlHistory] = useState([])
+  const openSqlHistory = (open) => {
+    setSqlHistoryOpen(open)
+    // 每次打开刷新列表，避免读陈旧快照
+    if (open) {
+      setSqlHistory(listSqlHistory())
+    }
+  }
+  const pickSqlHistory = (item) => {
+    setSqlText(item.sql)
+    openSqlHistory(false)
+  }
+  const removeSqlHistory = () => {
+    clearSqlHistory()
+    setSqlHistory([])
   }
 
   // Ctrl/Cmd+Enter 执行
@@ -1014,6 +1086,21 @@ export default auto(function DbSession (props) {
     }
     const renderOne = (r, i) => (
       <div key={i} className='db-sql-result-one'>
+        <div className='db-sql-result-tools'>
+          {
+            (r.rows || []).length
+              ? (
+                <Tooltip title={e('dbExportCsv')}>
+                  <Button
+                    size='small'
+                    icon={<DownloadOutlined />}
+                    onClick={() => exportSqlCsv(r, i)}
+                  />
+                </Tooltip>
+                )
+              : null
+          }
+        </div>
         {
           r.affected !== undefined
             ? <div className='db-sql-affected'>{e('dbAffectedRows').replace('{n}', r.affected)}</div>
@@ -1481,6 +1568,20 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+        {
+          // S3-B：导出当前页 CSV（含 T1 过滤效果，所见即所得）
+          sel && grid.rows.length
+            ? (
+              <Tooltip title={e('dbExportCsv')}>
+                <Button
+                  size='small'
+                  icon={<DownloadOutlined />}
+                  onClick={exportGridCsv}
+                />
+              </Tooltip>
+              )
+            : null
+        }
       </div>
       {
         grid.error
@@ -1576,6 +1677,80 @@ export default auto(function DbSession (props) {
         >
           {e('dbRun')}
         </Button>
+        <Popover
+          placement='bottomLeft'
+          trigger='click'
+          open={sqlHistoryOpen}
+          onOpenChange={openSqlHistory}
+          content={
+            <div className='db-history-pop'>
+              <div className='db-history-head'>
+                <span>{e('dbSqlHistory')}</span>
+                {
+                  sqlHistory.length
+                    ? (
+                      <Popconfirm
+                        title={e('dbSqlHistoryClearConfirm')}
+                        onConfirm={removeSqlHistory}
+                      >
+                        <Button
+                          type='text'
+                          size='small'
+                          icon={<DeleteOutlined />}
+                          title={e('dbSqlHistoryClear')}
+                        />
+                      </Popconfirm>
+                      )
+                    : null
+                }
+              </div>
+              {
+                sqlHistory.length
+                  ? (
+                    <div className='db-history-list'>
+                      {
+                        sqlHistory.map((item, i) => (
+                          <div
+                            key={i}
+                            className='db-history-item'
+                            onClick={() => pickSqlHistory(item)}
+                          >
+                            <div className='db-history-sql'>
+                              {item.sql.length > 80 ? item.sql.slice(0, 80) + '…' : item.sql}
+                            </div>
+                            <div className='db-history-meta'>
+                              <span className='db-history-time'>
+                                {new Date(item.ts).toLocaleString()}
+                              </span>
+                              <span>
+                                {dbTypeLabelMap[item.dbType] || item.dbType}
+                                {item.dbName ? ' · ' + item.dbName : ''}
+                              </span>
+                              {
+                                item.ok === false
+                                  ? <span className='db-history-fail'>{e('dbSqlHistoryFailed')}</span>
+                                  : null
+                              }
+                            </div>
+                          </div>
+                        ))
+                      }
+                    </div>
+                    )
+                  : (
+                    <div className='db-history-empty'>{e('dbSqlHistoryEmpty')}</div>
+                    )
+              }
+              <div className='db-history-note'>{e('dbSqlHistoryNote')}</div>
+            </div>
+          }
+        >
+          <Button
+            size='small'
+            icon={<HistoryOutlined />}
+            title={e('dbSqlHistory')}
+          />
+        </Popover>
         {
           isReadonly
             ? <Tag>{e('dbReadOnly')}</Tag>
