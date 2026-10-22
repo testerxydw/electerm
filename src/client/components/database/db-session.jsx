@@ -784,10 +784,28 @@ export default auto(function DbSession (props) {
 
   // ---- B1 行级 INSERT / DELETE（主进程占位绑定构造 SQL，前端只传值） ----
 
-  // 行选择透传 antd rowSelection（仅主数据网格使用；redis 无行概念）
+  // 行选择透传 antd rowSelection（仅主数据网格使用；redis 无行概念）。
+  // 表头全选用自定义 columnTitle：虚拟滚动下 antd 默认表头 selection checkbox
+  // 可能不渲染/被遮挡，自定义后稳定可见；全选范围=当前页可见行
+  const visibleKeys = filteredRows.map(r => r.__rowKey)
+  const allVisibleSelected = visibleKeys.length > 0 &&
+    visibleKeys.every(k => selectedRowKeys.includes(k))
+  const toggleAllVisible = () => {
+    setSelectedRowKeys(allVisibleSelected
+      ? keys => keys.filter(k => !visibleKeys.includes(k))
+      : keys => [...new Set([...keys, ...visibleKeys])])
+  }
   const rowSelection = {
     selectedRowKeys,
-    onChange: keys => setSelectedRowKeys(keys)
+    onChange: keys => setSelectedRowKeys(keys),
+    columnTitle: (
+      <Checkbox
+        checked={allVisibleSelected}
+        indeterminate={selectedRowKeys.length > 0 && !allVisibleSelected}
+        onChange={toggleAllVisible}
+        aria-label={e('dbSelectAllPage')}
+      />
+    )
   }
 
   // 插入行弹窗：列清单来自 describeTable 缓存（structure.rows）

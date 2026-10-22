@@ -394,7 +394,7 @@ describe('B1 wiring: renderer 接线', () => {
 
   test('A3/A5 词条两区同步', () => {
     const loc = fs.readFileSync(LOCALES, 'utf8')
-    for (const k of ['dbFormatSql', 'dbQuickConnect', 'dbQuickConnectPlaceholder', 'dbQuickConnectTip', 'dbInvertSelection']) {
+    for (const k of ['dbFormatSql', 'dbQuickConnect', 'dbQuickConnectPlaceholder', 'dbQuickConnectTip', 'dbInvertSelection', 'dbSelectAllPage']) {
       assert.equal((loc.match(new RegExp(`\\b${k}:`, 'g')) || []).length, 2, `${k} must exist in both locales`)
     }
   })
@@ -411,5 +411,14 @@ describe('B1 wiring: renderer 接线', () => {
     assert.ok(inv, 'invertSelection missing')
     assert.ok(inv[0].includes('filteredRows') && inv[0].includes('__rowKey'), 'invert must map visible row keys')
     assert.ok(src.includes('<DiffOutlined'), 'invert button must use DiffOutlined icon')
+  })
+
+  test('B1 表头全选用自定义 columnTitle（虚拟滚动下默认表头 selection 可能被遮）', () => {
+    const block = src.match(/const rowSelection = \{[\s\S]*?\n {2}\}/)
+    assert.ok(block, 'rowSelection missing')
+    assert.ok(block[0].includes('columnTitle'), 'must use custom columnTitle')
+    assert.ok(block[0].includes('allVisibleSelected'), 'must derive select-all state')
+    assert.ok(block[0].includes('indeterminate'), 'must show indeterminate state')
+    assert.ok(src.includes('toggleAllVisible'), 'toggle-all handler missing')
   })
 })
