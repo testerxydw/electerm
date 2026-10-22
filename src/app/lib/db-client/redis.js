@@ -306,5 +306,7 @@ module.exports = {
   setKey,
   delKey,
   expireKey,
-  closeRedisConnection
+  closeRedisConnection,
+  // 纯函数导出仅供单测（HSCAN/SSCAN 游标循环）
+  scanPage
 }

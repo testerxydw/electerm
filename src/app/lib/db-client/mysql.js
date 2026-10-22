@@ -359,5 +359,10 @@ module.exports = {
   updateCell,
   countRows,
   executeSql,
-  closeMysqlConnection
+  closeMysqlConnection,
+  // 纯函数导出仅供单测（安全白名单 / 结果规范化）
+  checkReadonly,
+  checkWritable,
+  toResult,
+  normalizeResults
 }
