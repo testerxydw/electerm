@@ -691,12 +691,23 @@
 
 // 多结果集：每个结果集一块（含 affected 行 + 网格）
 // flex 撑满：让内部 .db-grid-table-wrap 拿到确定高度（scroll.y 生效的前提）
+//
+// height 100% 不是冗余：多结果集时本节点的父级是 Tabs 的 pane
+// （.ant-tabs-content，display block），flex-grow 在非 flex 容器里完全不生效
+// → 节点高度退化为「内容高」，而 .db-grid-table-wrap 是 flex 1 1 0 + overflow hidden，
+// 在 auto 高度父级下主尺寸塌成 0 → 表格被整块裁掉（tools 行还看得见，
+// 所以现象是「有下载按钮、没有表格」）。实测 pane 354px 时 wrap 为 0。
+// 单结果集时父级是 .db-sql-result（flex column），flex 属性生效、height 被 flex-basis 覆盖，
+// 两条路径互不干扰。
+// 注意不要改成给 pane 加 display flex：antd 用 .ant-tabs-content-hidden 的
+// display none 隐藏非激活面板，特异性低于本文件的选择器，会被一起覆盖掉。
 .db-sql-result-one
   display flex
   flex-direction column
   gap 4px
   flex 1 1 0
   min-height 0
+  height 100%
 
 .db-sql-results-tabs
   flex 1 1 0
