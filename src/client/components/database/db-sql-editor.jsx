@@ -1,9 +1,10 @@
 /**
- * SQL 编辑器外壳（阶段4 A-1，设计 §4.2 / §4.7）
+ * SQL 编辑器外壳（阶段4 A-1 / A-3，设计 §4.2 / §4.6 / §4.7）
  *
  * 职责边界：
- * - 只做「外壳」：CM6 装配、方言高亮、主题跟随、只读、快捷键转发、页内查找适配
- * - 不做补全（A-3 起在 completion source 里加，见 §4.6）
+ * - 外壳：CM6 装配、方言高亮、主题跟随、只读、快捷键转发、页内查找适配
+ * - 补全接线：只做 CM6 那一侧的适配（source、keymap、score 排序交给引擎），
+ *   补全逻辑本身在 common/db-sql-complete.js，纯函数零依赖
  *
  * 三条实现纪律：
  * 1. 本文件是**唯一** import `@codemirror/*` 的地方 —— db-session 用 React.lazy 引入，
@@ -43,9 +44,14 @@ import {
   HighlightStyle,
   syntaxHighlighting
 } from '@codemirror/language'
+import {
+  autocompletion,
+  startCompletion
+} from '@codemirror/autocomplete'
 import { sql, SQLDialect } from '@codemirror/lang-sql'
 import { tags } from '@lezer/highlight'
 import { getDialect } from '../../common/sql-dialects'
+import { classifyContext, buildCompletions } from '../../common/db-sql-complete'
 import { scanTextHits } from './db-search'
 
 // 4 行 ≈ 96px、12 行 ≈ 260px：与替换前的 Input.TextArea autoSize={minRows:4,maxRows:12} 对齐
@@ -83,6 +89,50 @@ function cmDialect (dbType) {
 
 // 页内查找的命中算法与 textarea 分支同源（db-search.scanTextHits），
 // 只是这里的输入是 CM6 的全文——DOM 里只有可视行，不能靠 DOM 统计
+
+// 候选上限：引擎裁剪与 CM6 渲染上限必须一致，否则"引擎给 200、只渲染 50"
+// 看起来像丢候选
+const MAX_OPTIONS = 50
+
+/**
+ * CM6 补全 source（设计 §4.6 接线六条）。
+ * 每次都从 cfgRef 读最新配置：大小写/元数据变化不需要 reconfigure 编辑器。
+ */
+function createCompletionSource (cfgRef) {
+  return (context) => {
+    const cfg = cfgRef.current || {}
+    if (!context.view) {
+      return null
+    }
+    const text = context.state.doc.toString()
+    const ctx = classifyContext(text, context.pos, { dialect: cfg.dialect })
+    if (!ctx || ctx.kind === 'literal') {
+      return null
+    }
+    // 空前缀（如刚打完 `FROM `）只在显式触发时弹，否则每敲一个空格就蹦菜单
+    if (!context.explicit && !ctx.prefix) {
+      return null
+    }
+    const res = buildCompletions(ctx, {
+      dialect: cfg.dialect,
+      keywordCase: cfg.keywordCase,
+      tables: cfg.tables || [],
+      columns: cfg.columns || {},
+      max: MAX_OPTIONS
+    })
+    if (!res || !res.options.length) {
+      return null
+    }
+    const pureWord = !!(ctx.token && !ctx.token.quoted && !ctx.qualifier.length)
+    return {
+      from: res.from,
+      options: res.options,
+      // §4.6 第 5 条：只有纯标识符前缀才给 validFor。
+      // 带引号或限定链时结果随光标漂移，复用旧结果会给出错位候选
+      validFor: pureWord ? /^[\w$]*$/ : undefined
+    }
+  }
+}
 
 // 高亮配色：全部指向 CSS 变量，浅/深主题靠变量切换，不留第二份色板
 const highlightStyle = HighlightStyle.define([
@@ -145,6 +195,42 @@ const shellTheme = EditorView.theme({
   },
   '.cm-placeholder': {
     color: 'var(--text-disabled)'
+  },
+  // 补全浮层：CM6 自带 baseTheme 是固定的浅色，必须整套改写成 token，
+  // 否则深色主题下会弹出一块白底菜单
+  '.cm-tooltip': {
+    backgroundColor: 'var(--surface-1)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    boxShadow: 'var(--shadow-2)'
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '12px',
+    maxHeight: '230px'
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
+    padding: '3px 8px',
+    lineHeight: '1.4',
+    color: 'var(--text)'
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    backgroundColor: 'var(--hover-bg)',
+    color: 'var(--text)'
+  },
+  '.cm-completionMatchedText': {
+    textDecoration: 'none',
+    color: 'var(--primary)',
+    fontWeight: '600'
+  },
+  '.cm-completionDetail': {
+    color: 'var(--text-dark)',
+    fontStyle: 'normal',
+    marginLeft: '8px'
+  },
+  '.cm-completionIcon': {
+    opacity: '0.7',
+    paddingRight: '4px'
   }
 })
 
@@ -157,6 +243,11 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     readOnly = false,
     dbType,
     placeholder = '',
+    // A-7：补全关键字/函数/类型的大小写，'lower' | 'upper'
+    keywordCase = 'lower',
+    // A-4 / A-5 的数据来源（本轮为空，接元数据后由父组件喂）
+    tables = [],
+    columns = {},
     className = ''
   } = props
 
@@ -167,10 +258,21 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
   const cbRef = useRef({ onChange, onRun, onFormat })
   cbRef.current = { onChange, onRun, onFormat }
 
+  // 补全配置同理：source 在 view 生命周期里只注册一次，配置必须走 ref
+  const cfgRef = useRef({})
+  cfgRef.current = {
+    dialect: getDialect(dbType),
+    keywordCase,
+    tables,
+    columns
+  }
+
   const searchKwRef = useRef('')
   const langCompartment = useRef(new Compartment())
   const roCompartment = useRef(new Compartment())
   const phCompartment = useRef(new Compartment())
+  // A-8 要在这里切"自动补全"开关，先留好 compartment
+  const compCompartment = useRef(new Compartment())
 
   useImperativeHandle(ref, () => ({
     focus () {
@@ -229,6 +331,15 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
         syntaxHighlighting(highlightStyle),
         shellTheme,
         phCompartment.current.of(cmPlaceholder(placeholder)),
+        // 补全：用 override 装自己的 source，不用默认 completeFromList
+        // （默认那个只管单词列表，拿不到场景判定与元数据）
+        compCompartment.current.of(
+          autocompletion({
+            override: [createCompletionSource(cfgRef)],
+            activateOnTyping: true,
+            maxRenderedOptions: MAX_OPTIONS
+          })
+        ),
         roCompartment.current.of([
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly)
@@ -250,6 +361,13 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
               cbRef.current.onFormat && cbRef.current.onFormat()
               return true
             }
+          },
+          // A-2 余项：手动触发补全（mac 上 Cmd-Space 被 Spotlight 占用，
+          // CM6 自带的 Alt-` / Alt-i 仍然可用）
+          {
+            key: 'Mod-Space',
+            preventDefault: true,
+            run: startCompletion
           },
           ...defaultKeymap,
           ...historyKeymap,

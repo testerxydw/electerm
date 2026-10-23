@@ -38,6 +38,11 @@ const getDbPageSize = () => {
   const v = Number(window.store._config && window.store._config.dbPageSize)
   return v >= 10 ? Math.min(v, 1000) : DB_PAGE_SIZE_DEFAULT
 }
+// A-7：SQL 补全关键字大小写（'lower' 默认 / 'upper'），非法值一律回落小写
+const getSqlKeywordCase = () => {
+  const v = window.store._config && window.store._config.dbSqlKeywordCase
+  return v === 'upper' ? 'upper' : 'lower'
+}
 // 元数据树宽度约束与持久化键
 const TREE_WIDTH_KEY = 'electerm-db-tree-width'
 const TREE_MIN_W = 160
@@ -375,6 +380,9 @@ export default auto(function DbSession (props) {
 
   // SQL 编辑器状态（MVP：textarea + Ctrl/Cmd+Enter 执行）
   const [sqlText, setSqlText] = useState('')
+  // A-7：补全关键字大小写。照 dbPageSize 的先例走客户端 config，
+  // 不进主进程默认表（那边没有数据库分区，加键要连带改设置面板结构）
+  const [sqlKeywordCase, setSqlKeywordCase] = useState(getSqlKeywordCase)
   const [sqlResult, setSqlResult] = useState({
     loading: false,
     // 多结果集：每项 { rows, fields, affected }（单条语句时只有 1 项）
@@ -2061,6 +2069,13 @@ export default auto(function DbSession (props) {
     </div>
   )
 
+  // A-7：切换补全关键字大小写。只影响候选插入，不改编辑器里已有文本
+  const toggleSqlKeywordCase = () => {
+    const v = sqlKeywordCase === 'upper' ? 'lower' : 'upper'
+    setSqlKeywordCase(v)
+    window.store.setConfig({ dbSqlKeywordCase: v })
+  }
+
   const sqlArea = (
     <div className='db-sql-area'>
       <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
@@ -2073,6 +2088,7 @@ export default auto(function DbSession (props) {
           readOnly={isReadonly}
           dbType={tab.dbType}
           placeholder={e('dbSqlPlaceholder')}
+          keywordCase={sqlKeywordCase}
         />
       </Suspense>
       <div className='db-sql-bar'>
@@ -2171,6 +2187,20 @@ export default auto(function DbSession (props) {
             title={e('dbSqlHistory')}
           />
         </Popover>
+        {
+          // A-7：补全关键字大小写开关（Aa 小写 / AA 大写）。Redis 无 SQL 语法，不显示
+          !isRedis
+            ? (
+              <Button
+                size='small'
+                onClick={toggleSqlKeywordCase}
+                title={e('dbSqlKeywordCase')}
+              >
+                {sqlKeywordCase === 'upper' ? 'AA' : 'Aa'}
+              </Button>
+              )
+            : null
+        }
         {
           isReadonly
             ? <Tag>{e('dbReadOnly')}</Tag>

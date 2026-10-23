@@ -197,3 +197,101 @@ describe('A-1 替换干净', () => {
     assert.ok(/max-height 260px/.test(styl))
   })
 })
+
+// ------------------------------------------------------------------ A-3 + A-7
+
+const COMPLETE = path.join(ROOT, 'src/client/common/db-sql-complete.js')
+const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
+
+describe('A-3 补全接线（§4.6 六条）', () => {
+  const src = read(EDITOR)
+
+  test('用 autocompletion 的 override 装自建 source，不用默认 completeFromList', () => {
+    assert.match(src, /autocompletion\(\{/)
+    assert.match(src, /override: \[createCompletionSource\(cfgRef\)\]/)
+    assert.ok(!/completeFromList\s*\(/.test(src), '默认词表补全拿不到场景判定')
+  })
+
+  test('候选上限两侧一致（引擎裁剪 = CM6 渲染上限）', () => {
+    assert.match(src, /const MAX_OPTIONS = 50/)
+    assert.match(src, /maxRenderedOptions: MAX_OPTIONS/)
+    assert.match(src, /max: MAX_OPTIONS/)
+  })
+
+  test('补全逻辑不在组件里：引擎来自 common/db-sql-complete', () => {
+    assert.match(src, /from '\.\.\/\.\.\/common\/db-sql-complete'/)
+    assert.match(src, /classifyContext\(text, context\.pos/)
+    assert.match(src, /buildCompletions\(ctx, \{/)
+  })
+
+  test('source 每次读 cfgRef（改大小写/元数据不必重建编辑器）', () => {
+    assert.match(src, /cfgRef\.current = \{/)
+    assert.match(src, /const cfg = cfgRef\.current \|\| \{\}/)
+  })
+
+  test('空前缀只在显式触发时弹（否则每敲空格都蹦菜单）', () => {
+    assert.match(src, /if \(!context\.explicit && !ctx\.prefix\)/)
+  })
+
+  test('validFor 只给纯标识符前缀（引号/限定链会漂移）', () => {
+    assert.match(src, /const pureWord = !!\(ctx\.token && !ctx\.token\.quoted && !ctx\.qualifier\.length\)/)
+    assert.match(src, /validFor: pureWord \? \/\^\[\\w\$\]\*\$\/ : undefined/)
+  })
+
+  test('Mod-Space 手动触发补全（A-2 余项）', () => {
+    assert.match(src, /key: 'Mod-Space'/)
+    assert.match(src, /run: startCompletion/)
+  })
+
+  test('补全浮层配色全部走 token（深色主题不弹白底菜单）', () => {
+    assert.match(src, /'\.cm-tooltip'/)
+    const block = src.slice(src.indexOf("'.cm-tooltip'"), src.indexOf('const SqlCodeEditor'))
+    assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(block), '浮层样式里出现硬编码色值')
+    assert.ok(block.includes('var(--surface-1)'))
+    assert.ok(block.includes('var(--hover-bg)'))
+  })
+})
+
+describe('A-7 关键字大小写配置', () => {
+  const session = read(SESSION)
+
+  test('从 config 读 dbSqlKeywordCase，非法值回落 lower', () => {
+    assert.match(session, /const getSqlKeywordCase = \(\) => \{/)
+    assert.match(session, /v === 'upper' \? 'upper' : 'lower'/)
+    assert.match(session, /useState\(getSqlKeywordCase\)/)
+  })
+
+  test('切换写回 config 并透传给编辑器', () => {
+    assert.match(session, /window\.store\.setConfig\(\{ dbSqlKeywordCase: v \}\)/)
+    assert.match(session, /keywordCase=\{sqlKeywordCase\}/)
+  })
+
+  test('切换入口在 SQL 工具条，Redis 不显示（无 SQL 语法）', () => {
+    assert.match(session, /const toggleSqlKeywordCase = \(\) => \{/)
+    assert.match(session, /sqlKeywordCase === 'upper' \? 'AA' : 'Aa'/)
+    assert.match(session, /!isRedis[\s\S]{0,220}toggleSqlKeywordCase/)
+  })
+
+  test('词条补齐（缺失 key 会让界面露出驼峰原文）', () => {
+    const extra = read(LOCALES)
+    assert.ok(extra.includes('dbSqlKeywordCase:'), '缺少 dbSqlKeywordCase 词条')
+    const count = (extra.match(/dbSqlKeywordCase:/g) || []).length
+    assert.equal(count, 2, 'en 与 zh_cn 都要有')
+  })
+})
+
+describe('A-3 引擎文件本身', () => {
+  test('引擎零依赖（能被 vm 直接加载，不被 CM6 绑死在 UI 层）', () => {
+    const src = read(COMPLETE)
+    assert.ok(!/^import /m.test(src), '引擎不允许 import，否则 node 单测加载不了')
+    assert.match(src, /export function classifyContext/)
+    assert.match(src, /export function buildCompletions/)
+    assert.match(src, /export function maskSqlLiterals/)
+  })
+
+  test('降级铁律写在代码里：排他类目为空时退回静态候选', () => {
+    const src = read(COMPLETE)
+    assert.match(src, /if \(!items\.length\) \{/)
+    assert.match(src, /exclusive = false/)
+  })
+})
