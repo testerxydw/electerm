@@ -56,6 +56,10 @@ const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
 const CELL_SPLIT_KEY = 'electerm-db-cell-split'
 // Redis hash/set 详情每页条数（后端 HSCAN/SSCAN 游标分页）
 const REDIS_DETAIL_PAGE = 200
+// B1 行选择列宽（与 db-session.styl 的 .ant-table-selection-column 同值）：
+// 必须同时给 antd rowSelection.columnWidth（决定 colgroup）与 CSS（内边距），
+// 只给 CSS 时表头那套 table 在列宽超容器后会把该列压成 1px
+const SEL_COL_W = 36
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 const nodeKey = (database, schema, table) => JSON.stringify([
   database,
@@ -864,11 +868,14 @@ export default auto(function DbSession (props) {
   // ---- B1 行级 INSERT / DELETE（主进程占位绑定构造 SQL，前端只传值） ----
 
   // 行选择透传 antd rowSelection（仅主数据网格使用；redis 无行概念）。
-  // 全选不放表头：本网格表头为自研虚拟滚动实现，selection 列头内容渲染不出来
-  // （columnTitle 实测无效，test.242 验证）；无选中时反选=全选，故只留反选一个按钮
+  // columnWidth 必须显式给：表头是独立 table（scroll.y 生效后 header/body 两套），
+  // `table-layout: fixed` 下列宽总和超过容器时，没有显式宽度的列会被压到 1px
+  // → 表头勾选框被挤没、且表头文字相对数据整体左移一列。CSS 里的同宽只是兜底，
+  // 真正决定 colgroup 的是这里（见 db-session.styl 的 .ant-table-selection-column）
   const rowSelection = {
     selectedRowKeys,
-    onChange: keys => setSelectedRowKeys(keys)
+    onChange: keys => setSelectedRowKeys(keys),
+    columnWidth: SEL_COL_W
   }
 
   // 插入行弹窗：列清单来自 describeTable 缓存（structure.rows）
@@ -1947,8 +1954,8 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // B1 全选/反选合一：无选中时反选=全选本页，Tooltip 随状态切换
-          // （表头虚拟滚动渲染不出 selection 列头，不放表头）
+          // B1 反选：表头勾选框已能正常渲染（columnWidth 修复列宽塌陷）负责全选/取消，
+          // 这里保留反选（无选中时等价全选，Tooltip 随状态切换）
           sel && !isReadonly && pkColumn && grid.rows.length
             ? (
               <Tooltip title={selectedRowKeys.length ? e('dbInvertSelection') : e('dbSelectAllPage')}>

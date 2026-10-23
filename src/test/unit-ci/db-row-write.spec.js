@@ -414,13 +414,27 @@ describe('B1 wiring: renderer 接线', () => {
     assert.ok(src.includes('<DiffOutlined'), 'invert button must use DiffOutlined icon')
   })
 
-  test('B1 全选/反选合一按钮（表头虚拟滚动渲染不出 selection 列头，test.242 实测）', () => {
-    // columnTitle 方案已废弃：本网格表头为自研虚拟滚动，selection 列头内容渲染不出来
+  test('B1 selection 列必须显式给 antd columnWidth（否则表头那套 table 把该列压成 1px）', () => {
+    // 根因（test.254 实测）：scroll.y 生效后表头/表体是两个独立 table，
+    // table-layout: fixed + 列宽总和超过容器 → 没有显式宽度的列被压成 1px：
+    // 表头勾选框被挤出可视区、表头文字相对数据整体左移一列。
+    // 只写 CSS 不够（CSS 管的是盒模型，管不到 colgroup），必须走 rowSelection.columnWidth。
     const block = src.match(/const rowSelection = \{[\s\S]*?\n {2}\}/)
     assert.ok(block, 'rowSelection missing')
-    assert.ok(!block[0].includes('columnTitle'), 'columnTitle must not be used (headless custom table)')
-    // 无选中时反选=全选（用户拍板）：只留一个反选按钮，Tooltip 随选中态切换
-    assert.ok(!src.includes('<CheckSquareOutlined'), 'no separate select-all button (invert covers it)')
+    assert.match(block[0], /columnWidth: SEL_COL_W/, 'rowSelection must pin selection column width')
+    const constDecl = src.match(/const SEL_COL_W = (\d+)/)
+    assert.ok(constDecl, 'SEL_COL_W constant missing')
+    // CSS 的 width/min-width 必须与常量同值，否则两侧对齐仍会差几像素
+    const styl = fs.readFileSync(
+      path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'
+    )
+    const w = constDecl[1]
+    assert.ok(styl.includes(`min-width ${w}px`), `styl min-width must equal SEL_COL_W (${w}px)`)
+    // 默认表头勾选框（全选）由 antd 自己渲染，不要用 columnTitle 覆盖
+    assert.ok(!block[0].includes('columnTitle'), 'columnTitle must not be used')
+  })
+
+  test('B1 表格反选按钮保留（表头勾选框负责全选/取消）', () => {
     assert.ok(src.includes('<DiffOutlined'), 'invert button must use DiffOutlined icon')
     assert.ok(
       src.includes("selectedRowKeys.length ? e('dbInvertSelection') : e('dbSelectAllPage')"),

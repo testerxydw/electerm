@@ -387,8 +387,10 @@
   // S6：网格单元格数据面字体与终端统一
   font-family var(--db-code-font, var(--font-mono))
 
-// B1 行选择列：虚拟滚动下表头/表体是两个独立 table，selection 列宽若由内容
-// 自适应会不同步 → checkbox 半边被遮。两侧钉同宽对齐，并给足内边距防贴边裁切
+// B1 行选择列：scroll.y 生效后表头/表体是两个独立 table，列宽由 colgroup 决定，
+// 而 colgroup 的宽度来自 antd rowSelection.columnWidth（见 db-session.jsx SEL_COL_W）。
+// 这里只管盒模型：同宽 + 内边距，保证 16px 勾选框左右各留 10px 不被贴边裁切。
+// ⚠️ 只靠 CSS 给宽度不够：列宽总和超容器时，表头那套 table 会把该列压成 1px
 .db-grid-table .ant-table-selection-column
   width 36px
   min-width 36px
