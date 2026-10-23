@@ -122,6 +122,45 @@ describe('db-safe-clause: 合规样本放行', () => {
   })
 })
 
+describe('db-safe-clause: CAST 与类型词（白名单里的函数必须真能用）', () => {
+  test('CAST(id AS char) 可用 —— AS 与类型词都要放行', () => {
+    const r = accepts('CAST(id AS char) = ?', 'mysql')
+    assert.equal(r.placeholders, 1)
+  })
+
+  test('id = CAST(? AS SIGNED)（mysql 的强转惯用写法）', () => {
+    assert.equal(accepts('id = CAST(? AS SIGNED)', 'mysql').placeholders, 1)
+  })
+
+  test('pg 的 cast 写法同样可用', () => {
+    assert.equal(accepts('CAST(created_at AS date) = $1', 'postgres').placeholders, 1)
+  })
+
+  test('COALESCE(name, ?) = ? 多参数函数计数正确', () => {
+    assert.equal(accepts('COALESCE(name, ?) = ?', 'mysql').placeholders, 2)
+  })
+
+  test('类型词被当列名时不误判为注入（失败方向交给数据库）', () => {
+    // 表里真有一列叫 char/date 时：本地放行、由数据库报语法错 —— 见 TYPE_WORDS 注释
+    assert.equal(accepts('char = 1', 'mysql').placeholders, 0)
+    assert.equal(accepts('date = $1', 'postgres').placeholders, 1)
+  })
+
+  test('类型词表是有限集：瞎写的类型名仍被拒（错误指向那个词）', () => {
+    assert.throws(
+      () => assertSafeClause('CAST(id AS evil_type) = 1', COLS, 'mysql'),
+      /不存在的列: evil_type/
+    )
+  })
+
+  test('引用符包起来的语法词/类型词必须走列白名单', () => {
+    assert.throws(
+      () => assertSafeClause('`AS` = 1', COLS, 'mysql'),
+      /不存在的列: AS/
+    )
+  })
+})
+
 describe('db-safe-clause: 方言差异', () => {
   test('pg 的 E 字符串（含反斜杠转义）放行', () => {
     const clause = "a = E'x\\'y'"
@@ -297,6 +336,18 @@ describe('db-safe-clause × db-grid-view: 生成的片段必须过校验', () =>
         return { column: name.replace(/[`"]/g, '') }
       })
       assertSafeOrderClauses(expr, COLS, dialect)
+    })
+
+    test(dialect + '：250 项 IN → 200 个占位符全过校验，且只报 truncated', () => {
+      const values = Array.from({ length: 250 }, (_, i) => String(i))
+      const { clause, params, rejected, truncated } = buildWhere({
+        conditions: [{ column: 'id', op: 'in', value: values }]
+      }, COLS, dialect)
+      assert.equal(rejected.length, 0, '生效了的条件不能算"未生效"')
+      assert.equal(truncated.length, 1)
+      const r = assertSafeClause(clause, COLS, dialect)
+      assert.equal(r.placeholders, 200)
+      assert.equal(r.placeholders, params.length)
     })
   }
 })

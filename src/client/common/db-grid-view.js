@@ -23,6 +23,15 @@
  * 归一化（normalizeView）是第三道兜底：view 可能来自老版本 JSON、可能被手改过、
  * 也可能是 null。它负责把脏数据裁成"能安全喂给上面两个函数"的形状，并且**只**
  * 输出约定的六个字段 —— 未知字段一律不透传，避免脏数据顺着 view 流到下游。
+ *
+ * 3) **"没生效"与"生效了但被裁剪"必须分开报。**
+ *    buildWhere 返回 rejected 与 truncated 两个清单，不是把它们混成一个：
+ *    rejected 里的条件**完全没有进 SQL**（未知列/未知算子/空值），UI 提示"N 个条件未生效"；
+ *    truncated 里的条件**进了 SQL，只是取值被裁剪**（IN 超 200 项，只用了前 200 个），
+ *    UI 要提示的是"条件已截断"。
+ *    混在一起的后果是具体的：用户看到结果里筛选明明生效了，工具却说"1 个条件未生效" ——
+ *    从此不再相信任何一条提示。"多问一次"和"少筛一条"是两种完全不同的用户预期，
+ *    宁可多一个字段，也不要把它们压进同一个数组。
  */
 
 // 支持的算子。顺序即 UI 下拉框顺序；新增算子必须同步 safe-clause.js 的语法词表，
@@ -197,18 +206,20 @@ function normalizeInValues (value) {
 }
 
 /**
- * 条件归一。返回两份东西：
- * - list：能生成 SQL 的条件（已裁剪，附带原始下标 index 供 rejected 使用）
- * - rejected：被丢掉的条件及其原因（unknownOp / emptyValue / tooManyValues / 空列名）
+ * 条件归一。返回三份东西：
+ * - list：能生成 SQL 的条件（已裁剪，附带原始下标 index 供 rejected/truncated 使用）
+ * - rejected：**完全没生效**的条件（unknownOp / emptyValue / 空列名）
+ * - truncated：**生效了但取值被裁剪**的条件（IN 超 200 项）
  * 为什么要带 index：UI 要能指出"第 2 行条件被忽略了"，而裁剪后下标会错位，
  * 所以 index 必须取它在**原始** conditions 数组里的位置。
  * @param {Array} input 原始 conditions
- * @returns {{list: Array, rejected: Array}} 归一结果
+ * @returns {{list: Array, rejected: Array, truncated: Array}} 归一结果
  */
 function normalizeConditions (input) {
   const arr = Array.isArray(input) ? input : []
   const list = []
   const rejected = []
+  const truncated = []
   for (let index = 0; index < arr.length; index++) {
     if (list.length >= MAX_CONDITIONS) {
       // 超出上限的条件静默丢弃：枚举里的 reason 没有"超上限"这一项，
@@ -231,14 +242,15 @@ function normalizeConditions (input) {
       continue
     }
     if (op === 'in') {
-      const { values, truncated } = normalizeInValues(raw.value)
-      if (!values.length) {
+      const inValues = normalizeInValues(raw.value)
+      if (!inValues.values.length) {
         rejected.push({ index, column, op, reason: 'emptyValue' })
         continue
       }
-      list.push({ index, column, op, value: values })
-      if (truncated) {
-        rejected.push({ index, column, op, reason: 'tooManyValues' })
+      list.push({ index, column, op, value: inValues.values })
+      if (inValues.truncated) {
+        // 这条**生效了**（前 200 个值进了 SQL），所以进 truncated 而不是 rejected
+        truncated.push({ index, column, op, reason: 'tooManyValues' })
       }
       continue
     }
@@ -251,7 +263,7 @@ function normalizeConditions (input) {
     }
     list.push({ index, column, op, value })
   }
-  return { list, rejected }
+  return { list, rejected, truncated }
 }
 
 /**
@@ -420,15 +432,16 @@ function likePattern (op, value) {
 }
 
 /**
- * 条件体 → { clause, params, rejected }。
+ * 条件体 → { clause, params, rejected, truncated }。
  * 返回的 clause **不含前导 WHERE**：调用方据此决定是否拼 WHERE，
  * 全条件被丢弃时 clause 是空串（空串拼进去会得到语法错误的 `WHERE `）。
- * rejected 的语义是"没有按原样生效的条件"，包含 unknownColumn/unknownOp/emptyValue/tooManyValues；
- * 其中 tooManyValues 表示 IN 已按 200 截断**并生效**（UI 可提示"已截断"），其余是没有生效。
+ * rejected = 完全没生效的条件（unknownColumn / unknownOp / emptyValue）；
+ * truncated = 生效了但取值被裁剪的条件（tooManyValues，IN 只用了前 200 项）。
+ * 两个清单都按原始下标排序，UI 要按条件行号提示，乱序会指错行。
  * @param {Object} view 视角
  * @param {Array<string|{name:string}>} columns 列白名单（来自表结构）
  * @param {string} dialect 方言
- * @returns {{clause: string, params: Array, rejected: Array}} 片段、参数与被丢弃的条件
+ * @returns {{clause: string, params: Array, rejected: Array, truncated: Array}} 片段、参数与被丢弃/被裁剪的条件
  */
 export function buildWhere (view, columns, dialect) {
   const d = normalizeDialect(dialect)
@@ -436,6 +449,7 @@ export function buildWhere (view, columns, dialect) {
   const v = view && typeof view === 'object' ? view : {}
   const normalized = normalizeConditions(v.conditions)
   const rejected = normalized.rejected.slice()
+  const truncated = normalized.truncated.slice()
   const parts = []
   const params = []
   for (const cond of normalized.list) {
@@ -470,7 +484,13 @@ export function buildWhere (view, columns, dialect) {
   }
   // 按原始下标排序：UI 要按条件行号提示，乱序的 rejected 会指错行
   rejected.sort((a, b) => a.index - b.index)
-  return { clause: parts.join(' AND '), params, rejected }
+  truncated.sort((a, b) => a.index - b.index)
+  return {
+    clause: parts.join(' AND '),
+    params,
+    rejected,
+    truncated
+  }
 }
 
 /**

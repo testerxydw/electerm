@@ -382,6 +382,25 @@ describe('E2 mysql getPageData: where / orderClauses / count', () => {
     assert.match(calls.queries[0].sql, /ORDER BY `id` DESC/)
   })
 
+  test('orderClauses 条数硬上限 3（不依赖表结构的那一层）', async () => {
+    const { mod, calls } = makeMysqlCapture(makeRows(2))
+    await mod.getPageData(conn, {
+      database: 'db',
+      table: 't',
+      page: 1,
+      pageSize: 20,
+      orderClauses: [
+        { column: 'a', desc: false },
+        { column: 'b', desc: false },
+        { column: 'c', desc: false },
+        { column: 'd', desc: false },
+        { column: 'e', desc: false }
+      ]
+    })
+    assert.match(calls.queries[0].sql, /ORDER BY `a` ASC, `b` ASC, `c` ASC/)
+    assert.ok(!/`d`/.test(calls.queries[0].sql), '第 4 条起必须被截断')
+  })
+
   test('count:true 只发一条 COUNT，返回 total 且不返回 rows', async () => {
     const { mod, calls } = makeMysqlCapture([{ c: '42' }])
     const res = await mod.getPageData(conn, {
@@ -427,6 +446,25 @@ describe('E2 postgres getPageData: where / orderClauses / count', () => {
       orderClauses: [{ column: 'name', desc: true }, { column: 'id', desc: false }]
     })
     assert.match(calls.queries[0].sql, /ORDER BY "name" DESC, "id" ASC/)
+  })
+
+  test('orderClauses 条数硬上限 3（pg）', async () => {
+    const { mod, calls } = makePostgresCapture(makeRows(2))
+    await mod.getPageData(conn, {
+      database: 'd',
+      table: 't',
+      page: 1,
+      pageSize: 20,
+      orderClauses: [
+        { column: 'a', desc: true },
+        { column: 'b', desc: false },
+        { column: 'c', desc: false },
+        { column: 'd', desc: false },
+        { column: 'e', desc: false }
+      ]
+    })
+    assert.match(calls.queries[0].sql, /ORDER BY "a" DESC, "b" ASC, "c" ASC/)
+    assert.ok(!/"d"/.test(calls.queries[0].sql), '第 4 条起必须被截断')
   })
 
   test('count:true 只发一条 COUNT 并返回数字 total', async () => {

@@ -156,12 +156,13 @@ describe('db-grid-view: IN / NULL', () => {
     assert.deepEqual(plain(r.params), ['1', '2', '3'])
   })
 
-  test('in 超 200 截断到 200 并记 tooManyValues', () => {
+  test('in 超 200 截断到 200：进 truncated，不算 rejected（条件确实生效了）', () => {
     const values = Array.from({ length: 250 }, (_, i) => String(i))
     const r = buildWhere(viewOf([{ column: 'id', op: 'in', value: values }]), COLS, 'mysql')
     assert.equal(r.params.length, 200)
     assert.equal((r.clause.match(/\?/g) || []).length, 200)
-    assert.deepEqual(plain(r.rejected), [
+    assert.deepEqual(plain(r.rejected), [], '生效了的条件不能算"未生效"')
+    assert.deepEqual(plain(r.truncated), [
       { index: 0, column: 'id', op: 'in', reason: 'tooManyValues' }
     ])
   })
@@ -185,6 +186,24 @@ describe('db-grid-view: 丢弃与拒绝', () => {
     assert.equal(r.clause, '`id` = ?')
     assert.deepEqual(plain(r.rejected), [
       { index: 1, column: 'nope', op: 'eq', reason: 'unknownColumn' }
+    ])
+    assert.deepEqual(plain(r.truncated), [], '未生效 ≠ 被裁剪')
+  })
+
+  test('未生效与"生效但截断"同时出现时各归各的清单', () => {
+    const many = Array.from({ length: 250 }, (_, i) => String(i))
+    const r = buildWhere(viewOf([
+      { column: 'nope', op: 'eq', value: '1' },
+      { column: 'id', op: 'in', value: many },
+      { column: 'name', op: 'eq', value: '   ' }
+    ]), COLS, 'mysql')
+    assert.equal(r.params.length, 200)
+    assert.deepEqual(plain(r.rejected).map(x => [x.index, x.reason]), [
+      [0, 'unknownColumn'],
+      [2, 'emptyValue']
+    ])
+    assert.deepEqual(plain(r.truncated).map(x => [x.index, x.reason]), [
+      [1, 'tooManyValues']
     ])
   })
 

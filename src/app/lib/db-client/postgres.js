@@ -135,10 +135,20 @@ async function getMetadata (conn) {
 
 // ORDER BY 片段：orderClauses（多列）优先，为空时退回旧的单列 orderBy/order。
 // 列名必须在这里加引用符：orderClauses 来自渲染层且**不绑参数**，是裸着的 SQL 片段。
+// 上限 3 列是**不依赖表结构**的硬上限：主进程的 assertSafeOrderClauses 在没有 where、
+// 又取不到表结构时会放行（排序片段加引用符后没有注入面），那种路径下只有这里的
+// parts.length 判定还拦得住"5000 条排序"变成几十 KB 的 ORDER BY。
+// 3 与 client/common/db-grid-view.js 的 MAX_ORDER_COLUMNS、safe-clause.js 的
+// MAX_ORDER_CLAUSES 保持一致。
+const MAX_ORDER_COLUMNS = 3
+
 function buildOrderSql (orderClauses, orderBy, order) {
   if (Array.isArray(orderClauses) && orderClauses.length) {
     const parts = []
     for (const item of orderClauses) {
+      if (parts.length >= MAX_ORDER_COLUMNS) {
+        break
+      }
       if (!item || typeof item.column !== 'string' || !item.column.trim()) {
         continue
       }

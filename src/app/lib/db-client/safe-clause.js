@@ -20,6 +20,15 @@
  * 方言差异不是细节：mysql 的 `"..."` 是字符串字面量、反引号才是标识符；
  * pg 反过来（`"..."` 标识符），并且额外有 E'...' 与 $tag$...$tag$ 两种字面量写法。
  * 掩码搞错方言，就会出现"合法值被当成标识符拒绝"或"标识符被当值放过"。
+ *
+ * 已知边界（有意不修，写在这里免得后人以为是漏了）：
+ * 1. `@@version = 1` 在表里恰好有 `version` 列时**能通过校验** —— `@` 落到运算符，
+ *    `version` 命中列白名单。没有注入面：值仍然是绑定参数、语句仍然只有一条 WHERE，
+ *    最坏情况是读到会话/全局变量。真要堵需要按方言把 `@@` 当保留前缀识别，
+ *    收益不抵"用户真有一列叫 version"被误伤的代价，本轮不修。
+ * 2. 类型词（TYPE_WORDS）在任意位置都被放行，不做"是否在 CAST 类型位置"的判定
+ *    （详见 TYPE_WORDS 处注释）：代价是表里真有一列叫 char/date 时，写 `char = 1`
+ *    不会在本地被判未知列，而是交给数据库报语法错 —— 失败方向仍是拒绝执行。
  */
 
 'use strict'
@@ -61,7 +70,50 @@ const SYNTAX_WORDS = [
   'BETWEEN',
   'ESCAPE',
   'TRUE',
-  'FALSE'
+  'FALSE',
+  // CAST(x AS type) 的 AS：不放行它，cast 就是白名单里一个"永远用不了的函数"，
+  // 而报错还会指向 AS（"引用了不存在的列: AS"），把人引到错误的方向去怀疑列名
+  'AS'
+]
+
+// CAST 的类型位置允许出现的类型名。
+// 为什么单独一张表、不并进 SYNTAX_WORDS：语法词在所有位置都放行，
+// 而类型词只在 cast 的类型位置有意义 —— 两者语义不同，混在一起会让
+// "表里真有一列叫 date/json 时写 date = 1"这件事变得难以解释。
+// **本轮不做位置判定**（那需要一个跟踪"是否在 cast( 之后"的状态机，收益不抵复杂度），
+// 因此类型词实际在任意位置都被放行。代价明确且可接受：
+// 表里真有一列叫 `char` 时，写 `char = 1` 不会被判成未知列，而是直接发给数据库报语法错 ——
+// 失败方向是"拒绝执行"，不是"放行危险语句"，安全边界没有变薄。
+const TYPE_WORDS = [
+  'char',
+  'varchar',
+  'text',
+  'tinytext',
+  'mediumtext',
+  'longtext',
+  'nchar',
+  'nvarchar',
+  'signed',
+  'unsigned',
+  'integer',
+  'int',
+  'bigint',
+  'smallint',
+  'tinyint',
+  'decimal',
+  'numeric',
+  'float',
+  'double',
+  'real',
+  'boolean',
+  'bool',
+  'date',
+  'time',
+  'datetime',
+  'timestamp',
+  'json',
+  'binary',
+  'varbinary'
 ]
 
 // 语句关键字黑名单：出现在 WHERE 子句里没有任何合法用法
@@ -399,7 +451,7 @@ function assertNoKeyword (skeleton) {
 }
 
 /**
- * 单个标识符是否被允许：列白名单（大小写不敏感）→ 函数白名单 → 语法词
+ * 单个标识符是否被允许：列白名单（大小写不敏感）→ 函数白名单 → 语法词 → 类型词
  * @param {{text:string, quoted:boolean}} token 标识符 token
  * @param {Map<string,string>} lookup 列白名单
  */
@@ -420,7 +472,12 @@ function assertIdentAllowed (token, lookup) {
   if (FN_WHITELIST.indexOf(lower) !== -1) {
     return
   }
+  // 语法词与类型词只对裸标识符生效：加了引用符就是"另一个同名的列"，
+  // 必须走列白名单（写 "AND" 当列名是合法 SQL，但那列得真存在）
   if (!token.quoted && SYNTAX_WORDS.indexOf(text.toUpperCase()) !== -1) {
+    return
+  }
+  if (!token.quoted && TYPE_WORDS.indexOf(lower) !== -1) {
     return
   }
   throw new Error('条件体引用了不存在的列: ' + text)
