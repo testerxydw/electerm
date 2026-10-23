@@ -484,6 +484,101 @@ describe('E2 postgres getPageData: where / orderClauses / count', () => {
   })
 })
 
+// ------------------------------------------- E2 分页参数归一（P2 必修，只新增）
+// 断言口径：**生成的 SQL 里 LIMIT/OFFSET 必须是合法整数**，不是"没抛错"。
+// 非法值以前会原样拼进去（OFFSET -120 / OFFSET Infinity / OFFSET 1e+24 / LIMIT 2.5），
+// 报出来的是数据库语法错，离"页码传错了"的根因非常远。
+const PAGE_CASES = [
+  { name: 'page 负数 → 第 1 页', args: { page: -5, pageSize: 20 }, limit: 21, offset: 0 },
+  { name: 'page Infinity → 第 1 页', args: { page: Infinity, pageSize: 20 }, limit: 21, offset: 0 },
+  { name: 'page 小数 → trunc 后不越界', args: { page: 1.5, pageSize: 20 }, limit: 21, offset: 0 },
+  { name: 'page 0 → 第 1 页', args: { page: 0, pageSize: 20 }, limit: 21, offset: 0 },
+  {
+    name: 'page 1e21 → 偏移钳到安全整数（不产生 1e+23 这种字面量）',
+    args: { page: 1e21, pageSize: 20 },
+    limit: 21,
+    offset: Number.MAX_SAFE_INTEGER
+  },
+  { name: 'pageSize 负数 → 1', args: { page: 1, pageSize: -5 }, limit: 2, offset: 0 },
+  { name: 'pageSize 小数 → 1', args: { page: 1, pageSize: 1.5 }, limit: 2, offset: 0 },
+  { name: 'pageSize 噪声串 → 默认 100', args: { page: 1, pageSize: '20; DROP TABLE t' }, limit: 101, offset: 0 },
+  { name: 'pageSize 1e9 → 上限 1000', args: { page: 1, pageSize: 1e9 }, limit: 1001, offset: 0 },
+  { name: 'pageSize 1.9 → 1（不四舍五入成 2）', args: { page: 2, pageSize: 1.9 }, limit: 2, offset: 1 }
+]
+
+describe('E2 分页参数归一: mysql', () => {
+  for (const c of PAGE_CASES) {
+    test(c.name, async () => {
+      const { mod, calls } = makeMysqlCapture(makeRows(0))
+      await mod.getPageData(conn, Object.assign({ database: 'db', table: 't' }, c.args))
+      assert.match(
+        calls.queries[0].sql,
+        new RegExp('LIMIT ' + c.limit + ' OFFSET ' + c.offset + '$'),
+        '实际 SQL: ' + calls.queries[0].sql
+      )
+    })
+  }
+})
+
+describe('E2 分页参数归一: postgres', () => {
+  for (const c of PAGE_CASES) {
+    test(c.name, async () => {
+      const { mod, calls } = makePostgresCapture(makeRows(0))
+      await mod.getPageData(conn, Object.assign({ database: 'd', table: 't' }, c.args))
+      assert.match(
+        calls.queries[0].sql,
+        new RegExp('LIMIT ' + c.limit + ' OFFSET ' + c.offset + '$'),
+        '实际 SQL: ' + calls.queries[0].sql
+      )
+    })
+  }
+})
+
+describe('E2 旧 orderBy 的形状检查（设计一致性，不改变注入面）', () => {
+  test('mysql: 非标识符 orderBy 被忽略，SQL 不含 ORDER BY', async () => {
+    const { mod, calls } = makeMysqlCapture(makeRows(0))
+    await mod.getPageData(conn, {
+      database: 'db',
+      table: 't',
+      page: 1,
+      pageSize: 20,
+      orderBy: 'id; DROP TABLE t',
+      order: 'descend'
+    })
+    assert.ok(!/ORDER BY/.test(calls.queries[0].sql), '脏 orderBy 不得进 SQL')
+    assert.match(calls.queries[0].sql, /FROM `db`\.`t`/)
+  })
+
+  test('postgres: 非标识符 orderBy 被忽略，SQL 不含 ORDER BY', async () => {
+    const { mod, calls } = makePostgresCapture(makeRows(0))
+    await mod.getPageData(conn, {
+      database: 'd',
+      table: 't',
+      page: 1,
+      pageSize: 20,
+      orderBy: 'id" DESC, (SELECT 1',
+      order: 'descend'
+    })
+    assert.ok(!/ORDER BY/.test(calls.queries[0].sql), '脏 orderBy 不得进 SQL')
+  })
+
+  test('mysql: 合法 orderBy 仍然排序（不是把整条路砍掉）', async () => {
+    const { mod, calls } = makeMysqlCapture(makeRows(0))
+    await mod.getPageData(conn, {
+      database: 'db', table: 't', page: 1, pageSize: 20, orderBy: 'user_id', order: 'descend'
+    })
+    assert.match(calls.queries[0].sql, /ORDER BY `user_id` DESC/)
+  })
+
+  test('postgres: 合法 orderBy 仍然排序', async () => {
+    const { mod, calls } = makePostgresCapture(makeRows(0))
+    await mod.getPageData(conn, {
+      database: 'd', table: 't', page: 1, pageSize: 20, orderBy: 'user_id', order: 'ascend'
+    })
+    assert.match(calls.queries[0].sql, /ORDER BY "user_id" ASC/)
+  })
+})
+
 // ------------------------------- E2 分发层：主进程是条件体的校验权威（只新增）
 // 适配器只能保证"条件拼得对"，拦不住"渲染层直接传一段手写 SQL"。
 // 这里跑的是真实 index.js（vm + 桩适配器），验证被拒发生在**查询发出之前**。

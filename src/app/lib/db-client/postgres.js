@@ -133,6 +133,49 @@ async function getMetadata (conn) {
   }))
 }
 
+// 排序标识符形状：只接受 [A-Za-z0-9_$]。
+// 这是**设计一致性补丁，不是补漏洞** —— quoteIdent 已经兜住了注入面
+// （QA 用 sqlite3 做对照实验：`id; DROP TABLE t` 被包成 `ORDER BY "id; DROP TABLE t"`
+// 时报 no such table 且表还在；同一串不带引号时 DROP 真的执行了）。
+// 补这一层的原因：口径上"主进程以列白名单为安全边界"，而旧 orderBy 这条路径
+// 一次白名单都不查。本轮不改 db-client/index.js（该文件被 UI/存储两条线占用），
+// 所以在这里做能做的对齐：形状不像列名就不参与排序。
+// 选"忽略排序"而不是"报错"：现在脏 orderBy 会让整条查询失败，
+// 忽略它至少还能看到数据 —— 失败方向是"少一个排序"，不是"放行一段 SQL"。
+const SORT_IDENT_RE = /^[A-Za-z0-9_$]+$/
+
+// 分页参数归一。LIMIT/OFFSET 是**拼进 SQL 的字面数字**（不能塞进 params：
+// 值和占位符混在一起会让"第几个 $n 对应哪个值"取决于拼接顺序），
+// 所以拼之前必须保证它一定是有限整数。QA 实测过的非法产物：
+// OFFSET -120 / OFFSET Infinity / OFFSET 1e+24 / LIMIT 2.5 —— 全是数据库语法错，
+// 报错停在解析层，离"页码传错了"这个根因很远（UI 的 pageSize 读自可手改的 config，
+// 1.5 这种脏值真实存在）。
+// - `Number(x) || 默认` 保持旧语义：'1;DROP' → NaN → 默认值
+// - Math.trunc 而不是 floor：-1.5 取 -1 再被 max(1, …) 拉回 1；floor 会先变 -2
+// - 超过安全整数的偏移钳到 MAX_SAFE_INTEGER：页码 1e21 会算出 1e+23 这种带指数的
+//   字面量（非法），钳成合法大整数后查询自然返回空 —— 语义仍是"你要的那页没数据"
+const MAX_SAFE_OFFSET = Number.MAX_SAFE_INTEGER
+
+function normalizePageValue (value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) {
+    return fallback
+  }
+  // trunc(0.5) === 0、trunc(-0.5) === -0：与 `Number(x) || 默认` 的旧语义一致
+  return Math.trunc(n) || fallback
+}
+
+function pageWindow (page, pageSize) {
+  const size = Math.min(1000, Math.max(1, normalizePageValue(pageSize, 100)))
+  const num = Math.max(1, normalizePageValue(page, 1))
+  const offset = (num - 1) * size
+  return {
+    page: num,
+    pageSize: size,
+    offset: Number.isSafeInteger(offset) ? offset : MAX_SAFE_OFFSET
+  }
+}
+
 // ORDER BY 片段：orderClauses（多列）优先，为空时退回旧的单列 orderBy/order。
 // 列名必须在这里加引用符：orderClauses 来自渲染层且**不绑参数**，是裸着的 SQL 片段。
 // 上限 3 列是**不依赖表结构**的硬上限：主进程的 assertSafeOrderClauses 在没有 where、
@@ -159,8 +202,13 @@ function buildOrderSql (orderClauses, orderBy, order) {
     }
   }
   if (orderBy) {
+    const name = String(orderBy).trim()
+    if (!SORT_IDENT_RE.test(name)) {
+      // pg 适配器不引 log（保持依赖最小），静默降级 + 注释说明即可
+      return ''
+    }
     const dir = order === 'descend' ? 'DESC' : 'ASC'
-    return quoteIdent(orderBy) + ' ' + dir
+    return quoteIdent(name) + ' ' + dir
   }
   return ''
 }
@@ -188,8 +236,8 @@ async function getPageData (
     const cell = res.rows && res.rows[0] ? res.rows[0].c : 0
     return { total: Number(cell) || 0 }
   }
-  pageSize = Math.min(Number(pageSize) || 100, 1000)
-  const offset = ((Number(page) || 1) - 1) * pageSize
+  // LIMIT/OFFSET 必须先是合法整数再拼（见 pageWindow 注释）
+  const win = pageWindow(page, pageSize)
   let sql = 'SELECT * FROM ' + fullTable
   if (whereSql) {
     sql += ' WHERE ' + whereSql
@@ -199,11 +247,11 @@ async function getPageData (
     sql += ' ORDER BY ' + orderSql
   }
   // 多取 1 行判定是否还有下一页：末页恰好整页时 hasMore 不再误报 true
-  sql += ' LIMIT ' + (pageSize + 1) + ' OFFSET ' + offset
+  sql += ' LIMIT ' + (win.pageSize + 1) + ' OFFSET ' + win.offset
   const res = whereSql ? await c.query(sql, params) : await c.query(sql)
   return {
-    rows: res.rows.slice(0, pageSize),
-    hasMore: res.rows.length > pageSize
+    rows: res.rows.slice(0, win.pageSize),
+    hasMore: res.rows.length > win.pageSize
   }
 }
 
