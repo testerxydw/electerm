@@ -284,6 +284,64 @@ function checkReadonly (sql, readOnly) {
   }
 }
 
+// ---------------------------------------------------------------- 补全列元数据
+// 阶段4 A-5 的列补全数据源（设计 §4.3）。
+// 主键不在 information_schema.columns 上，需 join 约束视图；用 LEFT JOIN 而不是
+// 两次查询，避免"有表但没有主键"时丢行。PG 无法跨库查询，table_catalog 恒为当前库，
+// 这里仍显式带上（切库连接的唯一性由 sig() 保证）。
+const LIST_COLUMNS_SQL =
+  'SELECT c.table_schema AS s, c.table_name AS t, c.column_name AS c, ' +
+  'c.udt_name AS ty, (pk.column_name IS NOT NULL) AS is_pk ' +
+  'FROM information_schema.columns c ' +
+  'LEFT JOIN ( ' +
+  '  SELECT kcu.table_schema, kcu.table_name, kcu.column_name ' +
+  '  FROM information_schema.table_constraints tc ' +
+  '  JOIN information_schema.key_column_usage kcu ' +
+  '    ON kcu.constraint_name = tc.constraint_name ' +
+  '   AND kcu.table_schema = tc.table_schema ' +
+  "  WHERE tc.constraint_type = 'PRIMARY KEY' " +
+  ') pk ON pk.table_schema = c.table_schema ' +
+  '  AND pk.table_name = c.table_name ' +
+  '  AND pk.column_name = c.column_name ' +
+  'WHERE c.table_catalog = $1 ' +
+  'ORDER BY c.table_schema, c.table_name, c.ordinal_position'
+
+// 纯函数（导出仅供单测）：查询行 → [{ schema, table, columns: [{ name, type, pk }] }]
+// 与 MySQL 的差异：PG 有 schema 层，同名表在不同 schema 下必须区分，故多带一个字段；
+// type 用 udt_name（varchar/int4/timestamptz）而非 data_type（character varying）——
+// 前者是用户写 DDL 时的写法，补全候选里更贴近实际输入
+function groupColumns (rows) {
+  const out = []
+  let cur = null
+  for (const r of rows || []) {
+    if (!cur || cur.schema !== r.s || cur.table !== r.t) {
+      cur = { schema: r.s, table: r.t, columns: [] }
+      out.push(cur)
+    }
+    cur.columns.push({
+      name: r.c,
+      type: r.ty || '',
+      pk: r.is_pk === true
+    })
+  }
+  return out
+}
+
+async function listColumns (conn, { schema } = {}) {
+  const c = await getClient(conn)
+  const dbName = conn.dbName || conn.dbUser
+  if (!dbName) {
+    return { tables: [] }
+  }
+  // schema 过滤放在 SQL 外的参数上：这里只按库圈定，schema 由调用方在前端筛
+  // （一次取全库，切 schema 不用重新请求）
+  const res = await c.query(LIST_COLUMNS_SQL, [dbName])
+  const tables = groupColumns(res.rows)
+  return {
+    tables: schema ? tables.filter(t => t.schema === schema) : tables
+  }
+}
+
 async function executeSql (conn, { sql, readOnly }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
@@ -321,5 +379,8 @@ module.exports = {
   deleteRows,
   countRows,
   executeSql,
-  closePostgresConnection
+  listColumns,
+  closePostgresConnection,
+  // 纯函数导出仅供单测（列分组）
+  groupColumns
 }

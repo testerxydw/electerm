@@ -39,7 +39,8 @@ const OP_MAP = {
     insertRow: 'insertRow',
     deleteRows: 'deleteRows',
     countRows: 'countRows',
-    executeSql: 'executeSql'
+    executeSql: 'executeSql',
+    listColumns: 'listColumns'
   },
   postgres: {
     getMetadata: 'getMetadata',
@@ -49,7 +50,8 @@ const OP_MAP = {
     insertRow: 'insertRow',
     deleteRows: 'deleteRows',
     countRows: 'countRows',
-    executeSql: 'executeSql'
+    executeSql: 'executeSql',
+    listColumns: 'listColumns'
   },
   redis: {
     getMetadata: 'getMetadata',
@@ -80,13 +82,18 @@ const OP_TIMEOUTS = {
 }
 
 // label 用于区分超时来源（connection/metadata/db op xxx），错误消息随 label 穿透到前端
+// 结果落定时必须清掉定时器：否则每个 op 都会留下一个挂到超时点（最长 120s）的 timer，
+// 高频 op（补全列查询、分页）下会持续堆积；单测进程也会被这些 timer 拖着等满超时。
 function withTimeout (promise, ms, label = 'connection') {
-  return Promise.race([
-    promise,
-    new Promise((resolve, reject) => {
-      setTimeout(() => reject(new Error(`${label} timeout (${Math.round(ms / 1000)}s)`)), ms)
-    })
-  ])
+  let timer = null
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout (${Math.round(ms / 1000)}s)`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  })
 }
 
 const DEFAULT_PORTS = {
@@ -210,6 +217,49 @@ async function openDbTab (dbBookmark, sshBookmark) {
   return { ok: true }
 }
 
+// ---------------------------------------------------------------- 列元数据缓存
+// 补全每次输入都会问列，不缓存就是「每敲一个键 → 一次 IPC → 一次 information_schema 查询」。
+// 缓存在 per-tab 实例上，随 tab 关闭一起释放；键含 database + schema，切库天然不串。
+// getMetadata（打开 tab / 手动刷新 / 切库重建树）时整体清空——新增或删掉列之后，
+// 树已经是新的了，列缓存还留着旧列会补出已不存在的字段。
+const COLUMNS_CACHE_SEP = '\u0000'
+
+function columnsCacheKey (args) {
+  const a = args || {}
+  return String(a.database || '') + COLUMNS_CACHE_SEP + String(a.schema || '')
+}
+
+function resetColumnsCache (inst) {
+  inst.columnsCache = { values: new Map(), inflight: new Map() }
+  return inst.columnsCache
+}
+
+// 同键并发去重：补全可能在同一个键上连发几次（编辑器重建 source 时），
+// 合并成一次查询；失败不缓存，下次输入会重试
+async function listColumnsCached (inst, adapter, args, opMs) {
+  const key = columnsCacheKey(args)
+  const cache = inst.columnsCache || resetColumnsCache(inst)
+  if (cache.values.has(key)) {
+    return cache.values.get(key)
+  }
+  if (cache.inflight.has(key)) {
+    return cache.inflight.get(key)
+  }
+  const p = withTimeout(adapter.listColumns(inst.conn, args), opMs, 'db op listColumns').then(
+    res => {
+      cache.values.set(key, res)
+      cache.inflight.delete(key)
+      return res
+    },
+    err => {
+      cache.inflight.delete(key)
+      throw err
+    }
+  )
+  cache.inflight.set(key, p)
+  return p
+}
+
 async function dbClientOp (tabId, op, args) {
   const inst = instances[tabId]
   if (!inst || inst.pending) {
@@ -229,6 +279,13 @@ async function dbClientOp (tabId, op, args) {
     readOnly: inst.readOnly
   }
   const opMs = OP_TIMEOUTS[op] || OP_TIMEOUTS.default
+  if (op === 'getMetadata') {
+    // 树刷新/切库后列可能已变，列缓存必须跟着失效
+    resetColumnsCache(inst)
+  }
+  if (op === 'listColumns') {
+    return listColumnsCached(inst, adapter, safeArgs, opMs)
+  }
   return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`)
 }
 

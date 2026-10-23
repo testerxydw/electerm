@@ -375,6 +375,48 @@ function normalizeResults (rows, fields) {
   return rows.map((r, i) => toResult(r, fields[i]))
 }
 
+// ---------------------------------------------------------------- 补全列元数据
+// 阶段4 A-5 的列补全数据源（设计 §4.3）。
+// 一次查整库所有表的列，而不是「每张表一次查询」：大库上百张表时后者是上百次 RTT，
+// 而补全必须能在打字间隙内返回。整库查询结果按表分组后前端直接查表名即可。
+const LIST_COLUMNS_SQL =
+  'SELECT TABLE_NAME AS t, COLUMN_NAME AS c, COLUMN_TYPE AS ty, COLUMN_KEY AS k ' +
+  'FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? ' +
+  'ORDER BY TABLE_NAME, ORDINAL_POSITION'
+
+// 纯函数（导出仅供单测）：查询行 → [{ table, columns: [{ name, type, pk }] }]
+// 依赖 SQL 已按「表名, 列序号」排序，顺序分组；不在此处重新排序，
+// 否则列会变成字典序，与表结构里的实际顺序不一致
+function groupColumns (rows) {
+  const out = []
+  let cur = null
+  for (const r of rows || []) {
+    if (!cur || cur.table !== r.t) {
+      cur = { table: r.t, columns: [] }
+      out.push(cur)
+    }
+    cur.columns.push({
+      name: r.c,
+      // COLUMN_TYPE 带长度（varchar(64)/int unsigned），比 DATA_TYPE 更能说明取值
+      type: r.ty || '',
+      pk: r.k === 'PRI'
+    })
+  }
+  return out
+}
+
+async function listColumns (conn, { database } = {}) {
+  const db = database || conn.dbName
+  if (!db) {
+    // 连接未指定库（URI 快速连库外的场景）时无法圈定 information_schema 范围。
+    // 返回空而不是抛错：补全侧按「没有列数据」降级，不影响打字
+    return { tables: [] }
+  }
+  const pool = await getPool(conn)
+  const [rows] = await pool.query(LIST_COLUMNS_SQL, [db])
+  return { tables: groupColumns(rows) }
+}
+
 async function executeSql (conn, { sql, database, readOnly }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
@@ -421,10 +463,12 @@ module.exports = {
   deleteRows,
   countRows,
   executeSql,
+  listColumns,
   closeMysqlConnection,
-  // 纯函数导出仅供单测（安全白名单 / 结果规范化）
+  // 纯函数导出仅供单测（安全白名单 / 结果规范化 / 列分组）
   checkReadonly,
   checkWritable,
   toResult,
-  normalizeResults
+  normalizeResults,
+  groupColumns
 }
