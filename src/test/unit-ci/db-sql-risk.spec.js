@@ -380,6 +380,44 @@ describe('db-sql-risk: MySQL 版本注释（服务端会执行，不能当纯注
     // 有真实条件的仍判 write（别为了修恒真把普通条件也判危险）
     assert.equal(levelOf('/*!50000 DELETE FROM t WHERE id=1 */'), RISK_WRITE)
   })
+
+  test('掩码里不许残留 */（钉住掩码层，消费点那层不可证伪）', () => {
+    // 这条钉的是掩码层：条件文本有两道**互为等价实现**的处理——掩码层把散落的 `*/`
+    // 抹成空格，消费点在 condText 末尾再 strip 一次。实测（4 变体 × 31 输入）：
+    //   删掩码层 → 级别/语句数 0 变化，差异全部落在 mask 文本上
+    //   删消费点 → 连 mask 都是零差异（等价代码，任何黑盒断言都区分不了）
+    //   两层都删 → 7 条 dangerous 降级成 write
+    // 所以上面那条恒真断言只对"双删"敏感、对单删全盲；能独立打红"掩码层被删"的
+    // 只有掩码文本本身。消费点那层（L2）没有对应的断言，不是漏了，是**不可证伪**。
+    //
+    // 断言写成不变量（"任何输入、任何方言，掩码都不含 `*/`"）而不是精确空格数：
+    // 空格数属实现细节，将来 blank() 换个填充字符就会假红，而不变量不会。
+    const samples = [
+      ['DELETE */ FROM t', 'mysql'],
+      ['SELECT */ ; DROP TABLE t', 'mysql'],
+      ['/*!50000 DELETE FROM t WHERE 1=1 */', 'mysql'],
+      ['/*M!100100 UPDATE t SET a=1 WHERE true */', 'mysql'],
+      // 下面三条本来就由别的分支挡掉（字面量 / 美元引用 / 成对块注释），
+      // 列在这里是把不变量的覆盖面钉全：不是靠散落分支兜住的
+      ["SELECT 'a*/' FROM t", 'mysql'],
+      ['SELECT $tag$ */ $tag$', 'postgres'],
+      ['/* a /* b */ c */ SELECT 1', 'postgres']
+    ]
+    for (const [sql, dialect] of samples) {
+      assert.ok(!maskSqlLiterals(sql, dialect).includes('*/'), sql)
+    }
+    // "归一化后语句仍完整"：散落 `*/` 只该被空格替换，不能把词粘在一起
+    assert.equal(
+      maskSqlLiterals('DELETE */ FROM t', 'mysql').replace(/\s+/g, ' ').trim(),
+      'DELETE FROM t'
+    )
+    // 等长 + `;` 位置不变是 blank() 的契约（掩码与原文 offsets 互用），
+    // 防的是"替换成空串"那类变异；切分点也不能被掩码移动
+    const sql = "SELECT 'a' */ ; DROP TABLE t"
+    const masked = maskSqlLiterals(sql, 'mysql')
+    assert.equal(masked.length, sql.length)
+    assert.equal(masked.indexOf(';'), sql.indexOf(';'))
+  })
 })
 
 describe('db-sql-risk: EXPLAIN ANALYZE 会真正执行语句', () => {
@@ -426,6 +464,13 @@ describe('db-sql-risk: EXPLAIN ANALYZE 会真正执行语句', () => {
   })
 
   test('ANALYZE 包着 DDL / 认不出主语句时不许回落 read', () => {
+    // 变异定位指引：这条同时依赖两层，单独坏了都红，所以它负责"报警"、不负责"定位"。
+    //   本测试红 + 下面「裸 EXPLAIN ANALYZE」也红 → analyze 检测层坏了（target 没机会生效）
+    //   本测试红 + 下面「裸 EXPLAIN ANALYZE」仍绿 → target 识别层坏了（退回"第一个主语句词"
+    //   会跳过 CREATE 取到 AS 后面的 SELECT，实测 ddl → read）
+    // 为什么这里不写 `EXPLAIN CREATE TABLE n AS SELECT 1`（不带 ANALYZE → read）：
+    // 无 ANALYZE 时 EXPLAIN 恒为 read，与 target 取哪个词完全无关——变异实测该断言在
+    // 原版 / target 退化 / analyze 退化三种配置下全绿，是假信心断言，故不写。
     // CREATE TABLE AS 在 ANALYZE 下会真建表；旧实现会被里面的 SELECT 骗成 read
     assert.equal(levelOf('EXPLAIN ANALYZE CREATE TABLE n AS SELECT 1', 'postgres'), RISK_DDL)
     assert.equal(levelOf('EXPLAIN ANALYZE ALTER TABLE n ADD c int', 'postgres'), RISK_DDL)
@@ -438,6 +483,9 @@ describe('db-sql-risk: EXPLAIN ANALYZE 会真正执行语句', () => {
   })
 
   test('裸 EXPLAIN ANALYZE 不许静默 read（analyze 但无目标 = unknown）', () => {
+    // 这条是 analyze 检测层的**唯一症状**：target 选谁都无关（本来就没有 target），
+    // 只有 analyze 标志被读丢时才会掉成 read。所以上一组红、这条绿 = target 层坏；
+    // 这条也红 = analyze 层坏。
     const r = classifySql('EXPLAIN ANALYZE', 'postgres')
     assert.equal(r.level, RISK_UNKNOWN)
     assert.ok(r.reasons[0].includes('EXPLAIN ANALYZE'), r.reasons.join('|'))
