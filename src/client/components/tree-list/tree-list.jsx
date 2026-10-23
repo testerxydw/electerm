@@ -31,7 +31,8 @@ import { buildVisibleTreeRows, getRowKey } from './tree-list-rows'
 import { getRandomDefaultColor } from '../../common/rand-hex-color.js'
 import {
   treeEditorRowHeight,
-  treeLevelIndent,
+  treeGroupPaddingPx,
+  treeIndentPx,
   treeRowHeight
 } from './tree-list-layout'
 
@@ -1019,7 +1020,8 @@ export default class ItemListTree extends Component {
       const row = rows[rowIndex]
       return {
         top: rowIndex * treeRowHeight,
-        left: Math.max(0, (row.depth - 1) * treeLevelIndent),
+        // same capped offset as the row it edits (tree-list-layout.js)
+        left: treeGroupPaddingPx(row.depth),
         title: categoryTitle,
         color: categoryColor,
         handleTitleChange: this.handleChangeEdit,
@@ -1059,7 +1061,7 @@ export default class ItemListTree extends Component {
     const parentRow = rows[parentIndex]
     return {
       top: (parentIndex + 1) * treeRowHeight,
-      left: parentRow.depth * treeLevelIndent,
+      left: treeIndentPx(parentRow.depth),
       title: bookmarkGroupTitle,
       color: bookmarkGroupColor,
       handleTitleChange: this.handleChangeBookmarkGroupTitle,

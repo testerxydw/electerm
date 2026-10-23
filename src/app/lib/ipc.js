@@ -25,7 +25,10 @@ const {
   listWidgets,
   runWidget,
   stopWidget,
-  runWidgetFunc
+  runWidgetFunc,
+  callWidgetFunc,
+  importWidget,
+  deleteWidget
 } = require('../widgets/load-widget')
 const widgetLog = require('../widgets/instance-log')
 const {
@@ -391,6 +394,11 @@ function initIpc () {
     runWidget,
     stopWidget,
     runWidgetFunc,
+    // user widgets: main-process functions their own UI calls, install and
+    // uninstall of a widget folder
+    callWidgetFunc,
+    importWidget,
+    deleteWidget,
     registerDeepLink,
     unregisterDeepLink,
     checkProtocolRegistration,

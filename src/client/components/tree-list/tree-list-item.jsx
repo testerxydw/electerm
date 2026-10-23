@@ -21,6 +21,7 @@ function areEqual (prevProps, nextProps) {
     prevProps.parentId === nextProps.parentId &&
     prevProps.staticList === nextProps.staticList &&
     prevProps.keyword === nextProps.keyword &&
+    prevProps.indentCapped === nextProps.indentCapped &&
     prevSelected === nextSelected &&
     prevRowSelected === nextRowSelected &&
     prevMulti === nextMulti &&
@@ -30,7 +31,9 @@ function areEqual (prevProps, nextProps) {
     prevProps.itemColor === nextProps.itemColor &&
     prevProps.itemDescription === nextProps.itemDescription &&
     // T5-5b 会话树状态点: 活跃态变化必须穿透 memo, 否则绿点不亮/不灭
-    prevProps.hasActiveSession === nextProps.hasActiveSession
+    prevProps.hasActiveSession === nextProps.hasActiveSession &&
+    prevProps.itemLabel === nextProps.itemLabel &&
+    prevProps.itemPath === nextProps.itemPath
 }
 
 function TreeListItem (props) {
@@ -91,7 +94,16 @@ function TreeListItem (props) {
   const title = isGroup
     ? item.title
     : props.itemLabel
-  const titleAll = title + (item.description ? ' - ' + item.description : '')
+  // the ancestor path first: with the indent capped, the row's own position in
+  // the tree is no longer readable from the left edge alone
+  const pathPrefix = props.itemPath ? props.itemPath + ' / ' : ''
+  const titleAll = pathPrefix + title + (item.description ? ' - ' + item.description : '')
+  // depth marker for rows the indent cap has stopped moving right, otherwise a
+  // depth-6 row and a depth-9 row look like siblings. A single narrow glyph: it
+  // sits in the text line of a panel that is already short of width.
+  const depthMark = props.indentCapped
+    ? <span className='tree-item-depth-mark'>›</span>
+    : null
   const titleHighlight = isGroup
     ? item.title || 'no title'
     : highlight(
@@ -127,7 +139,7 @@ function TreeListItem (props) {
       <div
         {...titleProps}
       >
-        {!isGroup && props.hasActiveSession && <span className='tree-session-dot' />}
+        {depthMark}{!isGroup && props.hasActiveSession && <span className='tree-session-dot' />}
         {colorTag}{tag}{isDbSession(item) && <DbEngineMark dbType={item.dbType} />}{titleHighlight}
       </div>
       {isDbSession(item) && <DbEngineBadge dbType={item.dbType} />}
