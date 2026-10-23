@@ -42,7 +42,11 @@ import {
 } from '@codemirror/commands'
 import {
   HighlightStyle,
-  syntaxHighlighting
+  syntaxHighlighting,
+  bracketMatching,
+  codeFolding,
+  foldGutter,
+  foldKeymap
 } from '@codemirror/language'
 import {
   autocompletion,
@@ -52,11 +56,36 @@ import { sql, SQLDialect } from '@codemirror/lang-sql'
 import { tags } from '@lezer/highlight'
 import { getDialect } from '../../common/sql-dialects'
 import { classifyContext, buildCompletions } from '../../common/db-sql-complete'
+import { normalizeSqlEditorOpts } from '../../common/db-sql-opts'
 import { scanTextHits } from './db-search'
 
 // 4 行 ≈ 96px、12 行 ≈ 260px：与替换前的 Input.TextArea autoSize={minRows:4,maxRows:12} 对齐
 const MIN_HEIGHT = 96
 const MAX_HEIGHT = 260
+
+/**
+ * A-8 六项开关 → CM6 扩展（关掉的项返回空数组，不是"传 false 参数"——
+ * 这些扩展没有开关参数，只能装/不装）
+ */
+function buildViewOptions (o) {
+  const ext = []
+  if (o.lineNumbers) {
+    ext.push(lineNumbers(), highlightActiveLineGutter())
+  }
+  if (o.activeLine) {
+    ext.push(highlightActiveLine())
+  }
+  if (o.lineWrap) {
+    ext.push(EditorView.lineWrapping)
+  }
+  if (o.bracketMatch) {
+    ext.push(bracketMatching())
+  }
+  if (o.fold) {
+    ext.push(codeFolding(), foldGutter())
+  }
+  return ext
+}
 
 // SQLDialect 实例按方言 id 缓存：define 有解析开销，切 tab 不该重复付
 const dialectCache = {}
@@ -248,6 +277,8 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     // A-4 / A-5 的数据来源（本轮为空，接元数据后由父组件喂）
     tables = [],
     columns = {},
+    // A-8：六项可选能力，只传改了的那几项也行（内部按默认值补齐）
+    opts = null,
     className = ''
   } = props
 
@@ -271,7 +302,11 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
   const langCompartment = useRef(new Compartment())
   const roCompartment = useRef(new Compartment())
   const phCompartment = useRef(new Compartment())
-  // A-8 要在这里切"自动补全"开关，先留好 compartment
+  // A-8：六项外壳能力共用一个 compartment —— 任一项变化都整块 reconfig，
+  // 拆成六个反而要六次 dispatch，且它们之间没有独立重配的必要
+  const optCompartment = useRef(new Compartment())
+  // 自动补全单独一个：关掉时要真的卸掉扩展（含 Ctrl-Space 的 startCompletion），
+  // 和"外壳"那五项不是一类
   const compCompartment = useRef(new Compartment())
 
   useImperativeHandle(ref, () => ({
@@ -315,12 +350,11 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
   // 建 view：只在挂载时执行一次
   useEffect(() => {
     const d = cmDialect(dbType)
+    const o = normalizeSqlEditorOpts(opts)
     const state = EditorState.create({
       doc: value,
       extensions: [
-        lineNumbers(),
-        highlightActiveLine(),
-        highlightActiveLineGutter(),
+        optCompartment.current.of(buildViewOptions(o)),
         highlightSpecialChars(),
         history(),
         drawSelection(),
@@ -334,11 +368,13 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
         // 补全：用 override 装自己的 source，不用默认 completeFromList
         // （默认那个只管单词列表，拿不到场景判定与元数据）
         compCompartment.current.of(
-          autocompletion({
-            override: [createCompletionSource(cfgRef)],
-            activateOnTyping: true,
-            maxRenderedOptions: MAX_OPTIONS
-          })
+          o.autoComplete
+            ? autocompletion({
+              override: [createCompletionSource(cfgRef)],
+              activateOnTyping: true,
+              maxRenderedOptions: MAX_OPTIONS
+            })
+            : []
         ),
         roCompartment.current.of([
           EditorState.readOnly.of(readOnly),
@@ -371,6 +407,9 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
           },
           ...defaultKeymap,
           ...historyKeymap,
+          // 折叠键位常驻：扩展关着时这些命令是空操作，不会抢键；
+          // 放进条件分支反而会让"运行中打开折叠"没有快捷键可用
+          ...foldKeymap,
           indentWithTab
         ]),
         EditorView.updateListener.of(update => {
@@ -444,6 +483,32 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
       effects: phCompartment.current.reconfigure(cmPlaceholder(placeholder))
     })
   }, [placeholder])
+
+  // A-8：六项开关变化 → 整块 reconfig，不重建 view（保住文本、光标、滚动与撤销栈）
+  const optSig = JSON.stringify(normalizeSqlEditorOpts(opts))
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) {
+      return
+    }
+    const o = normalizeSqlEditorOpts(opts)
+    view.dispatch({
+      effects: [
+        optCompartment.current.reconfigure(buildViewOptions(o)),
+        compCompartment.current.reconfigure(
+          o.autoComplete
+            ? autocompletion({
+              override: [createCompletionSource(cfgRef)],
+              activateOnTyping: true,
+              maxRenderedOptions: MAX_OPTIONS
+            })
+            : []
+        )
+      ]
+    })
+    // 依赖用签名而不是 opts 对象：父组件每次渲染都可能给新对象，
+    // 直接依赖对象会把"值没变"也当成变化，每个渲染周期都 dispatch 一次
+  }, [optSig])
 
   return (
     <div

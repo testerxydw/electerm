@@ -778,3 +778,41 @@
   border-top 1px solid var(--border)
   color var(--text-dark)
   font-size 11px
+
+// A-8：编辑器选项弹层
+.db-sql-opts-pop
+  width 220px
+
+.db-sql-opts-head
+  padding 0 4px 6px
+  margin-bottom 4px
+  border-bottom 1px solid var(--border)
+  font-weight 500
+
+.db-sql-opt-row
+  display flex
+  align-items center
+  gap 8px
+  padding 5px 4px
+  border-radius var(--radius-sm)
+  cursor pointer
+  &:hover
+    background var(--hover-bg)
+  // popover 里 Switch 自带 4px 左右内距，行高统一靠这里压住
+  .ant-switch
+    flex 0 0 auto
+
+.db-sql-opt-label
+  flex 1 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-size 12px
+
+.db-sql-opts-note
+  margin-top 6px
+  padding 6px 4px 0
+  border-top 1px solid var(--border)
+  color var(--text-dark)
+  font-size 11px

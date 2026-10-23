@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined, DiffOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -25,6 +25,7 @@ import { formatSql } from '../../common/db-sql-format'
 // 只取元数据整形函数：引擎主体仍只被懒加载的编辑器引用，
 // 这里不会把任何编辑器代码拖进主 chunk
 import { flattenTables, indexColumns } from '../../common/db-sql-complete'
+import { SQL_EDITOR_OPTIONS, readSqlEditorOpts, toggleSqlEditorOpt } from '../../common/db-sql-opts'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -388,6 +389,10 @@ export default auto(function DbSession (props) {
   // A-7：补全关键字大小写。照 dbPageSize 的先例走客户端 config，
   // 不进主进程默认表（那边没有数据库分区，加键要连带改设置面板结构）
   const [sqlKeywordCase, setSqlKeywordCase] = useState(getSqlKeywordCase)
+  // A-8：编辑器六项开关（行号/换行/补全/括号/当前行/折叠），持久化在 config
+  const [sqlEditorOpts, setSqlEditorOpts] = useState(
+    () => readSqlEditorOpts(window.store._config)
+  )
   const [sqlResult, setSqlResult] = useState({
     loading: false,
     // 多结果集：每项 { rows, fields, affected }（单条语句时只有 1 项）
@@ -2120,6 +2125,33 @@ export default auto(function DbSession (props) {
     window.store.setConfig({ dbSqlKeywordCase: v })
   }
 
+  // A-8：翻转一项。写补丁而不是整份配置（setConfig 是浅合并，整份写回会盖掉并发改的其他键）
+  const toggleSqlOpt = key => {
+    const r = toggleSqlEditorOpt(sqlEditorOpts, key)
+    if (!r) {
+      return
+    }
+    setSqlEditorOpts(prev => ({ ...prev, [key]: r.value }))
+    window.store.setConfig(r.patch)
+  }
+
+  const sqlOptsPop = (
+    <div className='db-sql-opts-pop'>
+      <div className='db-sql-opts-head'>{e('dbSqlOpts')}</div>
+      {SQL_EDITOR_OPTIONS.map(o => (
+        <label key={o.key} className='db-sql-opt-row'>
+          <Switch
+            size='small'
+            checked={sqlEditorOpts[o.key] === true}
+            onChange={() => toggleSqlOpt(o.key)}
+          />
+          <span className='db-sql-opt-label'>{e(o.label)}</span>
+        </label>
+      ))}
+      <div className='db-sql-opts-note'>{e('dbSqlOptsNote')}</div>
+    </div>
+  )
+
   const sqlArea = (
     <div className='db-sql-area'>
       <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
@@ -2135,6 +2167,7 @@ export default auto(function DbSession (props) {
           keywordCase={sqlKeywordCase}
           tables={sqlTables}
           columns={sqlColumns}
+          opts={sqlEditorOpts}
         />
       </Suspense>
       <div className='db-sql-bar'>
@@ -2244,6 +2277,24 @@ export default auto(function DbSession (props) {
               >
                 {sqlKeywordCase === 'upper' ? 'AA' : 'Aa'}
               </Button>
+              )
+            : null
+        }
+        {
+          // A-8：六项编辑器能力开关。Redis 没有 SQL 编辑器入口，不显示
+          !isRedis
+            ? (
+              <Popover
+                placement='bottomRight'
+                trigger='click'
+                content={sqlOptsPop}
+              >
+                <Button
+                  size='small'
+                  icon={<SettingOutlined />}
+                  title={e('dbSqlOpts')}
+                />
+              </Popover>
               )
             : null
         }

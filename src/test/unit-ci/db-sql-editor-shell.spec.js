@@ -292,8 +292,8 @@ describe('A-4 表名补全接线', () => {
   const editor = read(EDITOR)
 
   test('表名来自已加载的 metadata，零请求', () => {
-    assert.match(session, /import \{ flattenTables \} from '\.\.\/\.\.\/common\/db-sql-complete'/)
-    assert.match(session, /flattenTables\(metadata, \(sel && sel\.database\) \|\| currentDbName\)/)
+    assert.match(session, /import \{ flattenTables(, indexColumns)? \} from '\.\.\/\.\.\/common\/db-sql-complete'/)
+    assert.match(session, /flattenTables\(metadata, sqlDbName\)/)
     // 不允许为了补全额外发 IPC
     const block = session.slice(session.indexOf('const sqlTables = useMemo'))
     const head = block.slice(0, block.indexOf('}, [isRedis'))
@@ -326,5 +326,68 @@ describe('A-3 引擎文件本身', () => {
     const src = read(COMPLETE)
     assert.match(src, /if \(!items\.length\) \{/)
     assert.match(src, /exclusive = false/)
+  })
+})
+
+describe('A-8 六项开关装配', () => {
+  const editor = read(EDITOR)
+  const session = read(SESSION)
+
+  test('六项走同一个 compartment reconfigure，不重建 view', () => {
+    assert.match(editor, /optCompartment = useRef\(new Compartment\(\)\)/)
+    assert.match(editor, /optCompartment\.current\.reconfigure\(buildViewOptions\(/)
+    assert.match(editor, /function buildViewOptions/)
+  })
+
+  test('六项各自对应到 CM6 扩展（关掉即不装）', () => {
+    const fn = editor.slice(
+      editor.indexOf('function buildViewOptions'),
+      editor.indexOf('const dialectCache')
+    )
+    assert.match(fn, /o\.lineNumbers[\s\S]{0,80}lineNumbers\(\)/)
+    assert.match(fn, /o\.activeLine[\s\S]{0,80}highlightActiveLine\(\)/)
+    assert.match(fn, /o\.lineWrap[\s\S]{0,80}EditorView\.lineWrapping/)
+    assert.match(fn, /o\.bracketMatch[\s\S]{0,80}bracketMatching\(\)/)
+    assert.match(fn, /o\.fold[\s\S]{0,120}codeFolding\(\)[\s\S]{0,40}foldGutter\(\)/)
+  })
+
+  test('自动补全关闭时真的卸掉扩展（不是留着只是不弹）', () => {
+    assert.match(editor, /o\.autoComplete\s*\n?\s*\?\s*autocompletion\(/)
+    assert.match(editor, /:\s*\[\]\s*\n\s*\)/)
+  })
+
+  test('开关变化用签名做依赖，避免父组件每次渲染都 dispatch', () => {
+    assert.match(editor, /const optSig = JSON\.stringify\(normalizeSqlEditorOpts\(opts\)\)/)
+    assert.match(editor, /\}, \[optSig\]\)/)
+  })
+
+  test('工具条有选项入口，且六项由同一份定义驱动（两边各写一份必然漂移）', () => {
+    assert.match(session, /SQL_EDITOR_OPTIONS\.map\(/)
+    assert.match(session, /toggleSqlEditorOpt\(sqlEditorOpts, key\)/)
+    assert.match(session, /window\.store\.setConfig\(r\.patch\)/)
+    assert.match(session, /opts=\{sqlEditorOpts\}/)
+  })
+
+  test('Redis 不显示 SQL 编辑器选项入口（没有 SQL 编辑器）', () => {
+    const pop = session.slice(
+      session.indexOf('const sqlOptsPop'),
+      session.indexOf('const sqlOptsPop') + 1200
+    )
+    assert.ok(pop.includes('SQL_EDITOR_OPTIONS.map'), '找不到选项弹层内容')
+    assert.match(session, /!isRedis[\s\S]{0,240}content=\{sqlOptsPop\}/, '选项入口必须按 isRedis 门控')
+  })
+})
+
+describe('hooks 顺序守卫（早退之后不许再有 hooks）', () => {
+  const session = read(SESSION)
+
+  test('db-session 的所有 hooks 都在 if (!ready) 之前', () => {
+    // A-4 曾把 useMemo 放到提前返回之后：开发态直接抛
+    // "Rendered more hooks than during the previous render"，生产态每帧重挂
+    const gate = session.indexOf('if (!ready) {')
+    assert.ok(gate > 0, '找不到 ready 门控')
+    const tail = session.slice(gate)
+    const found = tail.match(/\b(useState|useEffect|useMemo|useCallback|useRef|useImperativeHandle)\s*\(/g) || []
+    assert.deepEqual(found, [], `早退之后仍有 hooks：${found.join(',')}`)
   })
 })
