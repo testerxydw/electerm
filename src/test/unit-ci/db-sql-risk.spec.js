@@ -25,7 +25,8 @@ const RISK_EXPORTS = '({ RISK_READ, RISK_WRITE, RISK_TRANSACTION, RISK_DDL, ' +
 
 const GUARD_EXPORTS = '({ BYPASS_TTL_MS, ASKED_LIMIT, createGuardState, dbConnKey, ' +
   'shouldConfirm, grantBypass, clearBypass, isBypassed, bypassLeftMs, ' +
-  'bypassLeftMinutes, markAsked, muteLowWrite, unmuteLowWrite, resetGuardState })'
+  'bypassLeftMinutes, markAsked, muteLowWrite, unmuteLowWrite, resetGuardState, ' +
+  'cancelPendingGate })'
 
 // 源码里的 `export ` 前缀去掉即可在同一段脚本里访问内部声明
 function loadFrom (file, exportsExpr) {
@@ -63,8 +64,56 @@ const {
   isBypassed,
   bypassLeftMinutes,
   markAsked,
-  muteLowWrite
+  muteLowWrite,
+  cancelPendingGate
 } = guard
+
+// 组件接线（db-session.jsx / db-danger-confirm.jsx）只能读源码断言 —— 那两个文件是 JSX，
+// CJS 测试进程里既不能 require 也不能用 vm 跑。这与仓库里 db-cell-update / db-grid-scroll
+// 等 spec 的做法一致：断言的是"接线存在且形状正确"，DOM 行为由 QA 的渲染断言覆盖。
+const SESSION_JSX = fs.readFileSync(
+  path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
+)
+const CONFIRM_JSX = fs.readFileSync(
+  path.join(ROOT, 'src/client/components/database/db-danger-confirm.jsx'), 'utf8'
+)
+const STYL = fs.readFileSync(
+  path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'
+)
+const EXTRA_LOCALES = require(path.join(ROOT, 'src/app/common/locales-extra.js'))
+
+/**
+ * 从源码里切出每一次 `askRiskConfirm({...})` 的实参对象（按括号配平）。
+ * 为什么不用正则：实参里有嵌套对象与函数字面量（`reasons: [payload.note]`），
+ * 正则切不准；这里只需要配平圆括号。
+ * @param {string} src 源码
+ * @param {string} marker 形如 `askRiskConfirm(` 的起始标记（必须止于左圆括号，
+ *   配平从那个括号起算；若把 `{` 也算进标记，起始位置会偏一位，
+ *   实参里第一个括号一闭合就被误判成结束）
+ * @returns {string[]} 每处调用的实参片段（含外层括号）
+ */
+function callBlocks (src, marker) {
+  const out = []
+  let i = src.indexOf(marker)
+  while (i !== -1) {
+    const start = i + marker.length - 1
+    let depth = 0
+    let j = start
+    for (; j < src.length; j++) {
+      if (src[j] === '(') {
+        depth++
+      } else if (src[j] === ')') {
+        depth--
+        if (depth === 0) {
+          break
+        }
+      }
+    }
+    out.push(src.slice(start, j + 1))
+    i = src.indexOf(marker, j)
+  }
+  return out
+}
 
 const levelOf = (sql, dialect) => classifySql(sql, dialect || 'mysql').level
 
@@ -687,5 +736,176 @@ describe('db-safe-guard: asked 记忆与连接身份', () => {
     assert.equal(shouldConfirm({
       level: 'dangerous', production: true, state, connKey: 'c2', scope: 's', now: 1000
     }).need, true)
+  })
+})
+
+// ------------------------------------------------------------------ P2 清理（5 项）
+// 每一项都要能被断言打红，而不是"看起来改了"。
+
+describe('db-sql-risk: L1/L2 不是纵深防御（注释口径）', () => {
+  const RISK_SRC = fs.readFileSync(RISK, 'utf8')
+
+  test('源码不再自称"第二道防线"', () => {
+    // 2×2 变异矩阵（设计 §6.6）证明两层是同一不变量的等价实现：
+    // 任删一层行为不变，只有同时删两层才复发。写成"第二道防线"会让下一个人
+    // 以为还有一层独立兜着 —— 正是那次变异测试要防的误解。
+    assert.equal(
+      RISK_SRC.includes('第二道防线'), false,
+      'db-sql-risk.js 仍然把 L2 描述成"第二道防线"'
+    )
+    assert.equal(RISK_SRC.includes('纵深防御'), true, '应显式说明"不是纵深防御"')
+  })
+
+  test('注释指明"等价实现 / 任删一层不变 / 双删才复发"', () => {
+    assert.equal(RISK_SRC.includes('等价实现'), true)
+    assert.match(RISK_SRC, /任删一层行为都不变/)
+    assert.match(RISK_SRC, /只有同时删两层才复发/)
+    assert.match(RISK_SRC, /§6\.6/, '要指向设计里的变异矩阵出处')
+  })
+})
+
+describe('db-safe-guard: 关 tab 时闸门必须 settle（cancelPendingGate）', () => {
+  test('解析为 false（取消），并把持有者清空', async () => {
+    let seen = 'pending'
+    let resolveFn = null
+    const holder = { current: () => {} }
+    const p = new Promise(resolve => {
+      resolveFn = resolve
+      holder.current = v => {
+        seen = v
+        resolve(v)
+      }
+    })
+    const cancelled = cancelPendingGate(holder)
+    assert.equal(cancelled, true, '应报告"确实取消了一个挂起的闸门"')
+    assert.equal(holder.current, null, '持有者必须被清空，否则下次会拿到已 settle 的旧 resolve')
+    assert.equal(await p, false, '卸载绝不能放行未确认的执行')
+    assert.equal(seen, false)
+    assert.equal(typeof resolveFn, 'function')
+  })
+
+  test('没有挂起闸门时是安全空操作（返回 false，不清别人的状态）', () => {
+    assert.equal(cancelPendingGate({ current: null }), false)
+    assert.equal(cancelPendingGate(null), false)
+    assert.equal(cancelPendingGate(undefined), false)
+    // current 不是函数（脏值）时不能抛：卸载路径抛错会盖掉真正的报错
+    assert.equal(cancelPendingGate({ current: 'nope' }), false)
+  })
+
+  test('绝不解析成 true（这是这条清理唯一危险的方向）', async () => {
+    let got = null
+    const holder = {
+      current: v => {
+        got = v
+      }
+    }
+    cancelPendingGate(holder)
+    assert.equal(got, false)
+    assert.notEqual(got, true)
+  })
+
+  test('db-session.jsx 在卸载 effect 里调用它', () => {
+    assert.match(SESSION_JSX, /useEffect\(\(\) => \(\) => cancelPendingGate\(riskResolveRef\), \[\]\)/)
+    assert.match(SESSION_JSX, /\n {2}cancelPendingGate,\n/, '必须从 db-safe-guard 导入')
+  })
+})
+
+describe('db-safe-guard: verdict.reason 必须进弹窗（现在算完就丢）', () => {
+  const run = (opts) => shouldConfirm(Object.assign({
+    state: createGuardState(),
+    connKey: 'c1',
+    scope: 's1',
+    now: 1000
+  }, opts))
+
+  test('五种拦截情形给出五句不同的理由（否则用户不知道自己为什么被拦）', () => {
+    const reasons = [
+      run({ level: 'write', production: true }).reason,
+      run({ level: 'write', production: false }).reason,
+      run({ level: 'ddl', production: false }).reason,
+      run({ level: 'dangerous', production: false }).reason,
+      run({ level: 'nonsense', production: false }).reason
+    ]
+    assert.equal(new Set(reasons).size, 5, '理由去重后必须有 5 种：' + JSON.stringify(reasons))
+    for (const r of reasons) {
+      assert.equal(typeof r, 'string')
+      assert.ok(r.length > 0)
+    }
+  })
+
+  test('两处 askRiskConfirm 调用都把 reason 传下去', () => {
+    const blocks = callBlocks(SESSION_JSX, 'askRiskConfirm(')
+    assert.equal(blocks.length, 2, 'SQL 执行与行级写各一条路径，实际 ' + blocks.length)
+    for (const b of blocks) {
+      assert.match(b, /reason: verdict\.reason/, 'payload 缺少 reason: ' + b.slice(0, 120))
+    }
+  })
+
+  test('reason 从 gate 透传给 DbDangerConfirm', () => {
+    assert.match(SESSION_JSX, /reason=\{riskGate \? \(riskGate\.reason \|\| ''\) : ''\}/)
+  })
+
+  test('弹窗把 reason 渲染在「判定理由」上方（先说为什么问，再说凭什么判）', () => {
+    assert.match(CONFIRM_JSX, /reason = '',/, 'reason 需要有默认值（不传时不留空行）')
+    assert.match(CONFIRM_JSX, /<div className='db-risk-gate-reason'>\{reason\}<\/div>/)
+    const atReason = CONFIRM_JSX.indexOf('db-risk-gate-reason')
+    const atReasons = CONFIRM_JSX.indexOf("e('dbRiskReasons')")
+    assert.ok(atReason !== -1 && atReasons !== -1)
+    assert.ok(atReason < atReasons, 'gate reason 必须排在判定理由小节之前')
+  })
+
+  test('样式用已有变量、与 sec-title 同字号（不新增设计 token）', () => {
+    assert.match(STYL, /\.db-risk-gate-reason\n {2}color var\(--text\)\n {2}font-size 12px\n/)
+  })
+})
+
+describe('db-safe-guard: 只读模式下不许"临时解除"', () => {
+  test('按钮带 disabled={isReadonly}', () => {
+    const at = SESSION_JSX.indexOf("className='db-prod-bypass-wrap'")
+    assert.ok(at !== -1, '找不到 Tooltip 的 span 挂载点')
+    const block = SESSION_JSX.slice(at, SESSION_JSX.indexOf('</span>', at))
+    assert.match(block, /disabled=\{isReadonly\}/, '只读时仍可点 = 纯误导')
+    assert.match(block, /db-prod-bypass/, 'disabled 要加在临时解除按钮上')
+  })
+
+  test('Tooltip 挂在 span 上（disabled 的 Button 收不到鼠标事件）', () => {
+    const atWrap = SESSION_JSX.indexOf("className='db-prod-bypass-wrap'")
+    const atTip = SESSION_JSX.lastIndexOf('<Tooltip', atWrap)
+    const tipBlock = SESSION_JSX.slice(atTip, SESSION_JSX.indexOf('</Tooltip>', atWrap))
+    assert.ok(atTip !== -1 && atTip < atWrap, 'span 必须在 Tooltip 内部')
+    assert.match(tipBlock, /isReadonly \? e\('dbRiskBypassReadonly'\) : ''/, '只读时要说明原因')
+  })
+
+  test('新词条中英各一', () => {
+    assert.equal(
+      EXTRA_LOCALES.en.dbRiskBypassReadonly,
+      'Read-only mode: writes are blocked by the main process'
+    )
+    assert.equal(EXTRA_LOCALES.zh_cn.dbRiskBypassReadonly, '只读模式：写操作由主进程拦截')
+  })
+
+  test('span 挂载点是 inline-flex（否则 flex item 会拉成整行热区）', () => {
+    assert.match(STYL, /\.db-prod-bypass-wrap\n {2}display inline-flex\n/)
+  })
+})
+
+describe('locales-extra: dbRiskTitle 是死键，已删', () => {
+  test('en / zh_cn 都不再有 dbRiskTitle', () => {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(EXTRA_LOCALES.en, 'dbRiskTitle'), false
+    )
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(EXTRA_LOCALES.zh_cn, 'dbRiskTitle'), false
+    )
+  })
+
+  test('删的是死键而不是顺手删掉在用的键', () => {
+    // 弹窗标题用的是自绘节点（级别徽标 + 生产徽标 + 语句数），不需要一行重复标题
+    assert.match(CONFIRM_JSX, /title=\{header\}/)
+    // 相邻的在用键必须还在
+    for (const k of ['dbRiskStatements', 'dbRiskReasons', 'dbRiskRunAnyway']) {
+      assert.equal(Object.prototype.hasOwnProperty.call(EXTRA_LOCALES.en, k), true, k)
+      assert.equal(Object.prototype.hasOwnProperty.call(EXTRA_LOCALES.zh_cn, k), true, k)
+    }
   })
 })

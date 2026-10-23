@@ -278,3 +278,31 @@ export function resetGuardState (state) {
   state.asked.clear()
   return state
 }
+
+/**
+ * 取消一个挂起的确认闸门（关 tab / 组件卸载时用）。
+ *
+ * 为什么要单独抽出来：`askRiskConfirm` 返回的 promise 只能由 `settleRiskGate` 解决，
+ * 而它只在用户点按钮时被调用。弹窗还开着的时候用户切走或关掉这个 tab，
+ * 那次 `runSql` 的 `await` 就永远挂着 —— 闭包里握着 `sql` 与 `risk` 对象，
+ * 在标签页多的会话里是可累积的泄漏，DevTools 里也会留一堆永不 resolve 的 promise。
+ *
+ * **一律解析为 `false`（取消），不要 `true`**：卸载时绝不能让"未确认的执行"继续跑。
+ * 这正是"取消"的语义 —— 没得到人确认就走零执行分支，与用户点"取消"完全一致。
+ *
+ * 入参是 ref 风格的持有者（`{ current }`）而不是裸 promise resolver：
+ * 调用点必须能把它清空，否则下一次 `askRiskConfirm` 会拿到一个已经 settle 的旧 resolve。
+ *
+ * @param {{current: (null|function(boolean): void)}} holder 形如 React useRef 的持有者
+ * @returns {boolean} 是否真的取消了一个挂起的闸门（便于调用方/测试断言）
+ */
+export function cancelPendingGate (holder) {
+  const h = holder && typeof holder === 'object' ? holder : { current: null }
+  const resolve = h.current
+  h.current = null
+  if (typeof resolve !== 'function') {
+    return false
+  }
+  resolve(false)
+  return true
+}

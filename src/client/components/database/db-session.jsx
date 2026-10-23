@@ -43,6 +43,7 @@ import { classifySql } from '../../common/db-sql-risk'
 import {
   BYPASS_TTL_MS,
   bypassLeftMinutes,
+  cancelPendingGate,
   clearBypass,
   createGuardState,
   dbConnKey,
@@ -511,6 +512,12 @@ export default auto(function DbSession (props) {
   // 危险确认弹窗的受控状态：null = 不显示；非 null 时 riskResolveRef 里挂着等待中的 promise
   const [riskGate, setRiskGate] = useState(null)
   const riskResolveRef = useRef(null)
+  // 卸载（关 tab / 切连接）时把挂起的闸门解析为 false。
+  // 不清理的后果很具体：弹窗还开着的时候用户关掉这个 tab，`runSql` 里那次 `await`
+  // 永远不 settle —— 闭包握着 sql 与 risk 对象，DevTools 里留一堆永不 resolve 的 promise，
+  // 标签页多的会话里会累积。解析成 false（取消）而不是 true：卸载绝不能让
+  // "用户还没确认的执行"继续跑，这与用户点"取消"是同一条零执行分支。
+  useEffect(() => () => cancelPendingGate(riskResolveRef), [])
   // 生产标记来自书签（tab 由书签展开），只认严格 true：
   // 旧书签没有该字段时为 undefined，必须视为非生产
   const isProduction = tab.production === true
@@ -1555,6 +1562,11 @@ export default auto(function DbSession (props) {
       dbName: database,
       statements: risk.statements,
       reasons: risk.reasons,
+      // shouldConfirm 已经算好"为什么拦"（生产 / 首次写 / ddl 每次 / 高危每次 / 认不出），
+      // 不传下去它就只是白算：用户看到的弹窗在五种情形下长得一模一样，只会无脑点
+      // "仍要执行" —— 安全带退化成确认噪音。reason 与 reasons 是两件事：
+      // reason = 「为什么要问你」，reasons = 「这条 SQL 凭什么被判成这个级别」
+      reason: verdict.reason,
       // 静音只对"非生产的低风险写"开放：生产连接正是安全带要覆盖的场景
       allowMute: !isProduction && risk.level === 'write'
     })
@@ -1589,6 +1601,8 @@ export default auto(function DbSession (props) {
       dbName: (sel && sel.database) || tab.dbName || '',
       statements: [{ text: payload.text, level: payload.level, firstKeyword: '' }],
       reasons: [payload.note],
+      // 行级写同样要说清"为什么问你"：production 首次写 vs ddl 每次，用户的反应不一样
+      reason: verdict.reason,
       allowMute: false
     })
     if (ok) {
@@ -3744,17 +3758,27 @@ export default auto(function DbSession (props) {
         {
           isProduction
             ? (
-              <Button
-                className={'db-prod-bypass' + (bypassMinutes > 0 ? ' is-on' : '')}
-                size='small'
-                onClick={toggleProductionBypass}
-              >
-                {
-                  bypassMinutes > 0
-                    ? e('dbRiskBypassLeft').replace('{n}', String(bypassMinutes))
-                    : e('dbRiskBypass')
-                }
-              </Button>
+              // 只读模式下这个按钮必须禁用：写操作本来就由主进程截断，
+              // 允许"临时解除 5 分钟"是纯误导 —— 用户点完以为放开了，实际什么都没变，
+              // 下次仍然被拦，于是连这个开关也不再被相信。
+              // Tooltip 挂在 span 上而不是 Button 上：disabled 的按钮不派发鼠标事件，
+              // 挂在按钮自己的 Tooltip 永远不触发（antd 的已知行为）。
+              <Tooltip title={isReadonly ? e('dbRiskBypassReadonly') : ''}>
+                <span className='db-prod-bypass-wrap'>
+                  <Button
+                    className={'db-prod-bypass' + (bypassMinutes > 0 ? ' is-on' : '')}
+                    size='small'
+                    disabled={isReadonly}
+                    onClick={toggleProductionBypass}
+                  >
+                    {
+                      bypassMinutes > 0
+                        ? e('dbRiskBypassLeft').replace('{n}', String(bypassMinutes))
+                        : e('dbRiskBypass')
+                    }
+                  </Button>
+                </span>
+              </Tooltip>
               )
             : null
         }
@@ -3929,6 +3953,7 @@ export default auto(function DbSession (props) {
         production={isProduction}
         statements={riskGate ? riskGate.statements : []}
         reasons={riskGate ? riskGate.reasons : []}
+        reason={riskGate ? (riskGate.reason || '') : ''}
         dbName={riskGate ? riskGate.dbName : ''}
         requireDbName={!!(riskGate && riskGate.requireDbName)}
         allowMute={!!(riskGate && riskGate.allowMute)}

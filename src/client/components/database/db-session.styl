@@ -1029,6 +1029,11 @@ body.db-hist-resizing
     color var(--error)
     border-color var(--error)
 
+// Tooltip 的挂载点。`.db-head-right` 是 flex 容器，span 作为 flex item 会被拉成
+// 块级宽度，点击/悬停热区跟着变成整行；inline-flex 让它贴合按钮实际尺寸。
+.db-prod-bypass-wrap
+  display inline-flex
+
 .db-risk-title
   display flex
   align-items center
@@ -1095,6 +1100,14 @@ body.db-hist-resizing
   display flex
   flex-direction column
   gap 6px
+
+// 「为什么要问你」那一行：回答的是"这次为什么拦"，不是"这条 SQL 哪里危险"。
+// 刻意用灰度正文色 + 12px（与 .db-risk-sec-title 同字号但不加粗），
+// 让它在视觉上从属于下方的"判定理由"小节，而不是抢成一等标题。
+.db-risk-gate-reason
+  color var(--text)
+  font-size 12px
+  line-height 1.5
 
 .db-risk-sec-title
   color var(--text-dark)

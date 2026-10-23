@@ -59,6 +59,7 @@ export default function DbDangerConfirm (props) {
     production = false,
     statements = [],
     reasons = [],
+    reason = '',
     dbName = '',
     requireDbName = false,
     allowMute = false,
@@ -139,6 +140,14 @@ export default function DbDangerConfirm (props) {
       onCancel={onCancel}
     >
       <div className='db-risk-body'>
+        {
+          // 「为什么要问你」与「凭什么判成这个级别」是两件事，分两行说。
+          // 少了这一行，五种拦截情形（生产 / 本会话首次写 / ddl 每次 / 高危每次 / 认不出）
+          // 在界面上完全一样，用户只能无脑点"仍要执行"。
+          reason
+            ? <div className='db-risk-gate-reason'>{reason}</div>
+            : null
+        }
         {
           // 判定理由是弹窗的核心：只给"确定/取消"等于让人闭眼点确认
           reasons.length
