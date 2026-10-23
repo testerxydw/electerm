@@ -122,4 +122,16 @@ describe('db-sql-history (main-process file store)', () => {
     assert.ok(ipc.includes('dbSqlHistoryOp'), 'asyncGlobals must export dbSqlHistoryOp')
     assert.ok(ipc.includes("join(app.getPath('userData'), 'db-sql-history.json')"), 'store file must be under userData')
   })
+
+  test('历史列表不得用 flex 1 1 0 + 不定高容器（塌陷为 0，test.247 实测）', () => {
+    const styl = fs.readFileSync(
+      path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'
+    )
+    const block = styl.match(/\.db-history-list\n([\s\S]*?)\n\./)
+    assert.ok(block, 'db-history-list style block missing')
+    // 容器仅 max-height 无固定高：basis 0 会死锁塌陷，必须内容撑高（flex-basis auto）
+    // 反向断言按属性行匹配（注释里的说明文字含禁用写法本身，不能裸词匹配）
+    assert.ok(!/^ {2}flex 1 1 0$/m.test(block[1]), 'flex 1 1 0 collapses list to 0 height')
+    assert.ok(/^ {2}flex 0 1 auto$/m.test(block[1]), 'list must size from content (flex 0 1 auto)')
+  })
 })

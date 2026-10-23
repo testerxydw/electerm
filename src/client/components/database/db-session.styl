@@ -715,7 +715,10 @@
 
 .db-history-list
   overflow-y auto
-  flex 1 1 0
+  // flex 0 1 auto：高度由内容撑起；容器 max-height 380 限高时收缩出滚动。
+  // 不能用 flex 1 1 0 + min-height 0——父容器高度不定（仅 max-height）时
+  // basis 0 会让列表高度死锁塌陷为 0（数据在但列表不可见，test.247 实测）
+  flex 0 1 auto
   min-height 0
 
 .db-history-item
