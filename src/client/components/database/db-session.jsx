@@ -2139,14 +2139,20 @@ export default auto(function DbSession (props) {
     <div className='db-sql-opts-pop'>
       <div className='db-sql-opts-head'>{e('dbSqlOpts')}</div>
       {SQL_EDITOR_OPTIONS.map(o => (
-        <label key={o.key} className='db-sql-opt-row'>
+        // 整行可点：Switch 自己 stopPropagation，否则"行点击 + 开关点击"会翻转两次
+        <div
+          key={o.key}
+          className='db-sql-opt-row'
+          onClick={() => toggleSqlOpt(o.key)}
+        >
           <Switch
             size='small'
             checked={sqlEditorOpts[o.key] === true}
             onChange={() => toggleSqlOpt(o.key)}
+            onClick={ev => ev.stopPropagation()}
           />
           <span className='db-sql-opt-label'>{e(o.label)}</span>
-        </label>
+        </div>
       ))}
       <div className='db-sql-opts-note'>{e('dbSqlOptsNote')}</div>
     </div>
