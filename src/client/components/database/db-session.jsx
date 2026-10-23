@@ -53,6 +53,24 @@ import {
   shouldConfirm
 } from '../../common/db-safe-guard'
 import DbDangerConfirm from './db-danger-confirm'
+import DbViewBar from './db-view-bar'
+// E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
+// 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
+import {
+  normalizeView,
+  buildWhere,
+  parseClause,
+  findClauseProblem,
+  nextSortOrder,
+  viewKey as gridViewKey
+} from '../../common/db-grid-view'
+// 视角持久化走主进程文件（userData/db-grid-views.json）：localStorage 会因
+// UI server 动态端口导致 origin 漂移，跨启动读空
+import {
+  getGridView,
+  saveGridView,
+  removeGridView
+} from '../../common/db-grid-views'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -363,7 +381,8 @@ export default auto(function DbSession (props) {
   const [expandedKeys, setExpandedKeys] = useState([])
   // 当前选中表 {database, table}
   const [sel, setSel] = useState(null)
-  // 数据网格状态
+  // 数据网格状态。注意这里**没有** orderBy：排序的唯一数据源是 view.order
+  // （视角条 chips 与列头箭头都从它渲染，再存一份一定会打架）
   const [grid, setGrid] = useState({
     loading: false,
     rows: [],
@@ -372,9 +391,7 @@ export default auto(function DbSession (props) {
     totalRows: undefined,
     // 实测末页：估算总行数偏大时经二分探测得出（见 loadPage 空页回退）
     lastPage: undefined,
-    error: '',
-    orderBy: '',
-    order: 'ascend'
+    error: ''
   })
   // T11 精确总行数：默认只显示服务端估算值，用户点击后才执行 COUNT(*)
   const [exactRows, setExactRows] = useState({ loading: false, value: null })
@@ -414,6 +431,35 @@ export default auto(function DbSession (props) {
 
   // 表结构（describetable）
   const [structure, setStructure] = useState({ loading: false, rows: [] })
+
+  // ---- E2 结果集视角（设计 §7.2 / §7.4）----
+  // 方言：只有 pg 与 mysql 两套词法（tidb/oceanbase 走 mysql 协议，词法同 mysql）
+  const dialect = tab.dbType === 'postgres' ? 'postgres' : 'mysql'
+  // 列清单 v2：**必须**来自 getTableStructure —— 主进程 assertPageBoundary 的列白名单
+  // 判据就是它（structureCached）。用 describeTable 会出现"渲染层认为列合法、
+  // 主进程判未知列"的错位（那份还是 DESC 两引擎字段名不同的原始行，且没有注释）。
+  // 与现有 structure 并列而不是替换：行定位、插入表单、表结构 tab 仍在用 describeTable。
+  const [structureV2, setStructureV2] = useState({ loading: false, columns: [] })
+  // 查询路径（loadPage/onTableChange 里的异步回调）要读到最新列清单，state 在闭包里会过期
+  const structureV2Ref = useRef({ columns: [] })
+  // 当前视角：只有六个字段（normalizeView 裁过），排序/条件/页大小的**唯一**数据源
+  const [view, setView] = useState(() => normalizeView(null))
+  const viewRef = useRef(view)
+  // 视角条模式与 SQL 草稿（构建器 ⇄ SQL 共用同一份草稿）
+  const [viewMode, setViewMode] = useState('builder')
+  const [whereDraft, setWhereDraft] = useState('')
+  // 被丢弃（完全没生效）/被截断（生效了但取值被裁）的条件清单，两条文案必须分开
+  const [viewRejected, setViewRejected] = useState([])
+  const [viewTruncated, setViewTruncated] = useState([])
+  // 视角条重挂载令牌：换表与"重置"都要把编辑中的行复位。
+  // 本地行刻意不从 props 回灌（空值行不生效，回灌会让用户正在输入的行凭空消失）
+  const [viewBarSeq, setViewBarSeq] = useState(0)
+  // 当前视角的持久化键 / 上一次做过 count 的条件指纹（同条件不重复 count）
+  const viewKeyRef = useRef('')
+  const countKeyRef = useRef('')
+  const viewSaveTimer = useRef(null)
+  // 选表竞态序号：连点两张表时只允许最后一次恢复视角的结果生效
+  const viewSeqRef = useRef(0)
   // 单元格编辑态：{ rowKey, col } + 输入框值（回车提交 / 失焦取消）
   const [editing, setEditing] = useState(null)
   const [editValue, setEditValue] = useState('')
@@ -619,10 +665,22 @@ export default auto(function DbSession (props) {
       loading: false,
       rows: [],
       page: 1,
-      hasMore: false,
-      orderBy: '',
-      order: 'ascend'
+      hasMore: false
     })
+    // 换 tab 等于换了一张"表都没选"的空白页：视角、草稿、列清单必须一起复位，
+    // 否则新 tab 的第一帧会带着上一个 tab 的条件去取数
+    const fresh = normalizeView(null)
+    viewRef.current = fresh
+    viewKeyRef.current = ''
+    countKeyRef.current = ''
+    setView(fresh)
+    setStructureV2({ loading: false, columns: [] })
+    structureV2Ref.current = { columns: [] }
+    setViewMode('builder')
+    setWhereDraft('')
+    setViewRejected([])
+    setViewTruncated([])
+    setViewBarSeq(n => n + 1)
     // tab/sshBookmark 来自 store（mobx proxy），IPC 结构化克隆前需转普通对象
     window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark()))
       .then(() => {
@@ -645,6 +703,12 @@ export default auto(function DbSession (props) {
       })
     return () => {
       cancelled = true
+      // 卸载时把待写盘的视角保存取消：定时器里引用的是旧 tab 的键，
+      // 留到之后触发只会把"已经关掉的表"的视角再写一遍
+      if (viewSaveTimer.current) {
+        clearTimeout(viewSaveTimer.current)
+        viewSaveTimer.current = null
+      }
       window.pre.runGlobalAsync('closeDbTab', tabId).catch(() => {})
     }
   }, [tabId])
@@ -711,9 +775,22 @@ export default auto(function DbSession (props) {
     const next = { database, schema: schema || '', table, nodeType: node.nodeType || 'table' }
     resetPageFilter()
     resetExactRows()
-    setSel(next)
-    loadPage(next, 1, '', 'ascend')
+    // 竞态令牌在**点击时**就取：结构查询是异步的，两次点击的完成顺序可能颠倒，
+    // 用"恢复时"的序号会出现"后点的表被先点的结果覆盖"
+    viewSeqRef.current += 1
+    const seq = viewSeqRef.current
+    // 顺序很关键：列清单 → 视角 → 第一次取页。
+    // 先取页会先闪一页全量数据（条件还没恢复），而列清单晚到会让条件全被判"未知列"
     loadStructure(next)
+      .then(() => restoreView(next, seq))
+      .then(ok => {
+        if (!ok) {
+          // 恢复期间用户又点了别的表：这一次的结果整体作废
+          return null
+        }
+        setSel(next)
+        return loadQuery(next, 1)
+      })
   }
 
   // 表结构（列定义）：MySQL 返回 Field/Type/Null/Key/Default/Extra，PG 返回 information_schema 列
@@ -729,6 +806,28 @@ export default auto(function DbSession (props) {
       setStructure({ loading: false, rows: [] })
       onOpError(err)
     })
+    // 视角条的列清单：与主进程校验同源（getTableStructure → structureCached），
+    // 主进程侧有 60s TTL，这里几乎是免费的一次调用。
+    // 失败静默置空：列拿不到时视角条只能退化（条件会被记为"未知列"），
+    // 但结果集本身仍要能打开 —— 不能因为注释查不到就让人看不了数据
+    setStructureV2(s => ({ ...s, loading: true }))
+    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getTableStructure', {
+      database: target.database,
+      schema: target.schema || '',
+      table: target.table
+    }).then(res => {
+      const columns = (res && Array.isArray(res.columns)) ? res.columns : []
+      structureV2Ref.current = { columns }
+      setStructureV2({ loading: false, columns })
+      // 列清单晚到：重算"哪些条件引用了不存在的列"（列被删后旧视角要静默降级）
+      refreshViewParts()
+      return columns
+    }).catch(() => {
+      structureV2Ref.current = { columns: [] }
+      setStructureV2({ loading: false, columns: [] })
+      refreshViewParts()
+      return []
+    })
   }
 
   // 选中态：叶子=当前表，redis=当前 db 节点
@@ -736,21 +835,134 @@ export default auto(function DbSession (props) {
     ? (redisDb >= 0 ? [String(redisDb)] : [])
     : (sel ? [nodeKey(sel.database, sel.schema, sel.table)] : [])
 
+  /* ---------------- E2 视角：键 / 片段 / 持久化 / 恢复 ---------------- */
+
+  // 视角键：connectionId 用连接身份（dbConnKey，与连接级安全带同一口径）。
+  // 不用 tabId：tabId 每次开 tab 都会变，重启后视角就再也对不上了
+  const viewIdOf = target => gridViewKey({
+    connectionId: connKey,
+    dbName: target && target.database,
+    schema: target && target.schema,
+    table: target && target.table
+  })
+
+  // 视角 → 请求片段。三件事都在这里做，调用方不再各拼一份：
+  // 1) 条件体与绑定参数由 buildWhere 生成（值永远走占位符，列名走白名单+引用符）；
+  // 2) 排序先按列白名单过一遍 —— 主进程会为"排序引用了不存在的列"直接抛错，
+  //    那会让整页取不出来（列被删掉后旧视角就变成一张打不开的表）；
+  // 3) 被丢弃/被截断的条件原样带出来给状态行用。
+  const viewParts = (v) => {
+    const cols = structureV2Ref.current.columns
+    const built = buildWhere(v, cols, dialect)
+    const known = new Set(cols.map(c => String(c.name).toLowerCase()))
+    const orderClauses = ((v && Array.isArray(v.order)) ? v.order : [])
+      .filter(o => o && o.column && known.has(String(o.column).toLowerCase()))
+      .map(o => ({ column: o.column, desc: o.desc === true }))
+    return {
+      where: built.clause,
+      whereParams: built.params,
+      orderClauses,
+      rejected: built.rejected,
+      truncated: built.truncated
+    }
+  }
+
+  const refreshViewParts = () => {
+    const parts = buildWhere(viewRef.current, structureV2Ref.current.columns, dialect)
+    setViewRejected(parts.rejected)
+    setViewTruncated(parts.truncated)
+  }
+
+  // 视角落盘：400ms 防抖（连点排序 chips 时不该每点一次写一次文件）
+  const scheduleViewSave = (v) => {
+    const key = viewKeyRef.current
+    if (!key) {
+      return
+    }
+    if (viewSaveTimer.current) {
+      clearTimeout(viewSaveTimer.current)
+    }
+    viewSaveTimer.current = setTimeout(() => {
+      viewSaveTimer.current = null
+      const empty = !v.conditions.length && !v.order.length && v.pageSize === undefined
+      // 空视角不写盘而是删键：否则"重置"刚删掉的键会被下一次自动保存在 400ms 后复活
+      if (empty) {
+        removeGridView(key)
+        return
+      }
+      saveGridView(key, v)
+    }, 400)
+  }
+
+  const applyView = (next, opts = {}) => {
+    viewRef.current = next
+    setView(next)
+    refreshViewParts()
+    if (opts.persist !== false) {
+      scheduleViewSave(next)
+    }
+  }
+
+  /**
+   * 选表时恢复视角。**必须在第一次取页之前完成**，否则会先闪一页全量。
+   * @param {Object} target 目标表
+   * @param {number} seq 点击序号（与 onSelectTree 的令牌一致）
+   * @returns {Promise<boolean>} 是否仍然是"最新一次点击"（false 表示结果作废）
+   */
+  const restoreView = (target, seq) => {
+    const key = viewIdOf(target)
+    viewKeyRef.current = key
+    countKeyRef.current = ''
+    if (seq !== viewSeqRef.current) {
+      return Promise.resolve(false)
+    }
+    return getGridView(key).then(saved => {
+      if (seq !== viewSeqRef.current) {
+        return false
+      }
+      const v = normalizeView(saved)
+      viewRef.current = v
+      setView(v)
+      setViewMode('builder')
+      setWhereDraft('')
+      setViewBarSeq(n => n + 1)
+      refreshViewParts()
+      return true
+    })
+  }
+
+  // 有效页大小：视角里存过就用它（换机器/重启后仍按上次的粒度看），
+  // 否则回落全局配置。下限 10 与 getDbPageSize 一致，防脏数据把页大小写成 1
+  const pageSizeOf = (v) => {
+    const n = v && v.pageSize
+    return Number.isInteger(n) && n >= 10 ? Math.min(n, 1000) : getDbPageSize()
+  }
+
   // 空页回退：totalRows 来自 information_schema 估算，常偏大 → 尾部页可能无数据。
-  // 用 pageSize=1 探测二分查找真实末页（log2(页数) 次轻量查询）
-  const findLastPage = (target, page, orderBy, order) => {
-    const size = getDbPageSize()
+  // 用 pageSize=1 探测二分查找真实末页（log2(页数) 次轻量查询）。
+  // 探测必须带上与取页**完全相同**的条件与排序，否则"有没有数据"和用户看到的不是一回事
+  const findLastPage = (target, page, q) => {
+    const size = pageSizeOf(viewRef.current)
     // 探测第 p 页是否有数据 = 查「行偏移 (p-1)*size」处 1 行
     // （probe 的 page 单位是行：page=(p-1)*size+1 → OFFSET (p-1)*size）
-    const probe = p => window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
-      database: target.database,
-      schema: target.schema || '',
-      table: target.table,
-      page: (p - 1) * size + 1,
-      pageSize: 1,
-      orderBy,
-      order
-    }).then(res => ((res && res.rows) || []).length > 0)
+    const probe = (p) => {
+      const args = {
+        database: target.database,
+        schema: target.schema || '',
+        table: target.table,
+        page: (p - 1) * size + 1,
+        pageSize: 1
+      }
+      if (q && q.where) {
+        args.where = q.where
+        args.whereParams = q.whereParams
+      }
+      if (q && q.orderClauses && q.orderClauses.length) {
+        args.orderClauses = q.orderClauses
+      }
+      return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', args)
+        .then(res => ((res && res.rows) || []).length > 0)
+    }
     let lo = 1
     let hi = page - 1
     let ans = 1
@@ -772,43 +984,70 @@ export default auto(function DbSession (props) {
     return step()
   }
 
+  /**
+   * 取一页数据。**签名刻意保持原样**（target, page, orderBy, order, opts）：
+   * 调用点统一走下面的 loadQuery，orderBy/order 两个参数只为兼容保留，**已不再使用**
+   * —— 排序的唯一数据源是视角（view.order），再存一份 grid.orderBy 迟早会与 chips 打架。
+   * @param {Object} target 目标表
+   * @param {number} page 页码
+   * @param {*} orderBy 兼容参数，忽略
+   * @param {*} order 兼容参数，忽略
+   * @param {Object} opts { query, view, skipEmptyCheck, keepLastPage }
+   * @returns {Promise} 取数 promise
+   */
   const loadPage = (target, page, orderBy, order, opts = {}) => {
     // 行选择挂在当前页索引上，重新取数后索引必然重排 → 先清空
     setSelectedRowKeys([])
     setGrid(g => ({ ...g, loading: true, error: '' }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
+    const v = opts.view || viewRef.current
+    const q = opts.query || viewParts(v)
+    const args = {
       database: target.database,
       schema: target.schema || '',
       table: target.table,
       page,
-      pageSize: getDbPageSize(),
-      orderBy,
-      order
-    }).then(res => {
+      pageSize: pageSizeOf(v)
+    }
+    // where 只发给 getPageData，不进 SQL tab 的手写执行路径（那条有自己的分级与确认）
+    if (q.where) {
+      args.where = q.where
+      args.whereParams = q.whereParams
+    }
+    if (q.orderClauses && q.orderClauses.length) {
+      args.orderClauses = q.orderClauses
+    }
+    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', args).then(res => {
       const rows = (res && res.rows) || []
       // 跳到的页无数据且非首页：二分回退到真实末页（估算总行数偏大场景）
       if (!rows.length && page > 1 && !opts.skipEmptyCheck) {
-        findLastPage(target, page, orderBy, order).then(last => {
+        return findLastPage(target, page, q).then(last => {
           setGrid(g => ({ ...g, loading: true, lastPage: last }))
-          loadPage(target, last, orderBy, order, { skipEmptyCheck: true, keepLastPage: true })
+          return loadPage(target, last, null, null, {
+            ...opts,
+            query: q,
+            skipEmptyCheck: true,
+            keepLastPage: true
+          })
         })
-        return
       }
       setGrid(g => ({
         loading: false,
         rows,
         page,
         hasMore: !!(res && res.hasMore),
-        // 服务端只在首页返回近似行数；翻页沿用上一页的值，切换表/排序回第 1 页会重取
-        totalRows: res && res.totalRows !== undefined
-          ? res.totalRows
-          : (page > 1 ? g.totalRows : undefined),
+        // 服务端只在首页返回近似行数（information_schema 估算，**不带条件**）。
+        // 带条件时那个数字与屏幕上的结果集无关，必须用 count 的精确值，
+        // 否则"筛出 3 行"的表会显示"约 12 万行"
+        totalRows: q.where
+          ? (typeof g.totalRows === 'number' ? g.totalRows : undefined)
+          : (res && res.totalRows !== undefined
+              ? res.totalRows
+              : (page > 1 ? g.totalRows : undefined)),
         // 换表/换排序/换页大小会重置；二分回退与常规翻页保留
         lastPage: opts.keepLastPage ? g.lastPage : undefined,
-        error: '',
-        orderBy,
-        order
+        error: ''
       }))
+      return rows
     }).catch(err => {
       // 失败必须落到表格区（而非仅 toast）：否则界面看起来像「表没有数据」
       setGrid(g => ({
@@ -819,6 +1058,56 @@ export default auto(function DbSession (props) {
       }))
       onOpError(err)
     })
+  }
+
+  // 取页的统一入口：条件与排序都来自当前视角
+  const loadQuery = (target, page, opts = {}) =>
+    loadPage(target, page, null, null, opts)
+
+  /**
+   * 条件变更后的取数：先 count 再取页（验收 6：不闪烁空表）。
+   * 为什么不能直接取页：条件一变就要知道"结果集多大"才能算页数、才能把页码钳住；
+   * 先取页再补 count，中途表格会因为 totalRows 还是旧值而闪一下空表。
+   * 为什么 count 期间不清 rows：表格保留上一批行 + loading 遮罩，视觉上是"在算"，
+   * 而不是"没了"。
+   * 条件没变（只是翻页/换排序）时不重复 count —— COUNT(*) 在大表上不便宜。
+   * @param {Object} target 目标表
+   * @param {number} page 页码
+   * @param {Object} opts 透传给 loadPage（可带 query 覆盖条件体）
+   * @returns {Promise} 取数 promise
+   */
+  const loadWithCount = (target, page, opts = {}) => {
+    const q = opts.query || viewParts(viewRef.current)
+    const key = JSON.stringify([q.where, q.whereParams])
+    if (!q.where || key === countKeyRef.current) {
+      return loadPage(target, page, null, null, { ...opts, query: q })
+    }
+    countKeyRef.current = key
+    setGrid(g => ({ ...g, loading: true, error: '' }))
+    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
+      database: target.database,
+      schema: target.schema || '',
+      table: target.table,
+      page: 1,
+      pageSize: 1,
+      where: q.where,
+      whereParams: q.whereParams,
+      count: true
+    }).then(res => {
+      const total = Number(res && res.total) || 0
+      // 带条件的总数是**精确**的（COUNT(*) 走了同一套条件），复用 exactRows 那套文案，
+      // 让"精确"与"估算"在界面上始终是两种不同的标签
+      setExactRows({ loading: false, value: total })
+      setGrid(g => ({ ...g, totalRows: total, lastPage: undefined }))
+      return null
+    }).catch(err => {
+      // 计数失败不阻断取页：清掉指纹，下次还能重试
+      countKeyRef.current = ''
+      if (isConnError(err)) {
+        onOpError(err)
+      }
+      return null
+    }).then(() => loadPage(target, page, null, null, { ...opts, query: q }))
   }
 
   // T11：按需精确计数；失败只提示，不影响已加载的页面数据
@@ -843,19 +1132,127 @@ export default auto(function DbSession (props) {
     if (!sel) {
       return
     }
-    loadPage(sel, page, grid.orderBy, grid.order, { keepLastPage: true })
+    loadQuery(sel, page, { keepLastPage: true })
   }
 
-  // 列排序：antd sorter 回调 → 服务端 ORDER BY
+  // 列头点击：**只负责把这次点击写进 view.order**，方向与 3 列上限由 nextSortOrder 决定。
+  // 视角条的 chips 走同一个函数，两处显示因此永远一致（各写一份必然打架）
   const onTableChange = (pagination, filters, sorter) => {
     if (!sel) {
       return
     }
-    const orderBy = sorter && sorter.field ? sorter.field : ''
-    const order = sorter && sorter.order ? sorter.order : 'ascend'
+    const field = sorter && sorter.field ? String(sorter.field) : ''
+    if (!field) {
+      return
+    }
+    applyView(normalizeView({
+      ...viewRef.current,
+      order: nextSortOrder(viewRef.current.order, field, 3)
+    }))
+    resetPageFilter()
+    // 换排序/换页大小都不改结果集大小：有生效条件时那个"精确行数"仍然成立，
+    // 清掉它只会让表头退回"近似"（而近似值在带条件时根本不适用）
+    if (!viewParts(viewRef.current).where) {
+      resetExactRows()
+    }
+    loadQuery(sel, 1)
+  }
+
+  /**
+   * 视角条的统一入口：只接受"补丁"，不接整份 view。
+   * 分成两条通道是因为其中两条**不改查询**：
+   * - mode / draft：纯 UI 状态；
+   * - conditions / order / pageSize：改查询，由 onViewApply 决定何时取数。
+   * @param {Object} patch 补丁
+   */
+  const onViewChange = (patch) => {
+    if (!patch || typeof patch !== 'object') {
+      return
+    }
+    if (patch.mode !== undefined) {
+      setViewMode(patch.mode === 'sql' ? 'sql' : 'builder')
+    }
+    if (patch.draft !== undefined) {
+      setWhereDraft(String(patch.draft === null || patch.draft === undefined ? '' : patch.draft))
+    }
+    const touchesQuery = patch.conditions !== undefined ||
+      patch.order !== undefined ||
+      patch.pageSize !== undefined
+    if (!touchesQuery) {
+      return
+    }
+    const cur = viewRef.current
+    applyView(normalizeView({
+      conditions: patch.conditions !== undefined ? patch.conditions : cur.conditions,
+      order: patch.order !== undefined ? patch.order : cur.order,
+      pageSize: patch.pageSize !== undefined ? patch.pageSize : cur.pageSize,
+      hiddenColumns: cur.hiddenColumns,
+      columnWidths: cur.columnWidths,
+      columnOrder: cur.columnOrder
+    }))
+  }
+
+  /**
+   * 应用视角：回第 1 页并重新取数（先 count 再取页）。
+   * SQL 模式下手写条件体**不经过 buildWhere**（字面量已内联），
+   * 但一样要好主进程那一道闸门 —— findClauseProblem 只是提前禁用按钮，
+   * 真正的拒绝在 assertSafeClause。
+   */
+  const onViewApply = () => {
+    if (!sel) {
+      return
+    }
     resetPageFilter()
     resetExactRows()
-    loadPage(sel, grid.page, orderBy, order)
+    if (viewMode === 'sql') {
+      const text = String(whereDraft || '').trim()
+      const problem = findClauseProblem(text, dialect)
+      if (problem) {
+        message.error(e('dbViewBlocked'))
+        return
+      }
+      const q = {
+        where: text,
+        whereParams: [],
+        orderClauses: viewParts(viewRef.current).orderClauses
+      }
+      // 能结构化的顺手同步回 conditions：这样持久化的是**等价条件**，
+      // 重启后还能恢复；结构化不了的就只在本次会话生效（不写盘）
+      const parsed = text
+        ? parseClause(text, structureV2Ref.current.columns, dialect)
+        : { conditions: [] }
+      if (parsed) {
+        applyView(normalizeView({ ...viewRef.current, conditions: parsed.conditions }))
+      }
+      loadWithCount(sel, 1, { query: q })
+      return
+    }
+    loadWithCount(sel, 1)
+  }
+
+  // 重置：清条件与排序、删持久化键（页大小是显示偏好，不属于"筛选"，不动）
+  const onViewReset = () => {
+    if (viewSaveTimer.current) {
+      clearTimeout(viewSaveTimer.current)
+      viewSaveTimer.current = null
+    }
+    if (viewKeyRef.current) {
+      removeGridView(viewKeyRef.current)
+    }
+    countKeyRef.current = ''
+    resetPageFilter()
+    resetExactRows()
+    const fresh = normalizeView({ pageSize: viewRef.current.pageSize })
+    viewRef.current = fresh
+    setView(fresh)
+    setViewMode('builder')
+    setWhereDraft('')
+    setViewRejected([])
+    setViewTruncated([])
+    setViewBarSeq(n => n + 1)
+    if (sel) {
+      loadQuery(sel, 1)
+    }
   }
 
   // 只读模式（默认开，书签 readOnly !== false）。
@@ -931,7 +1328,7 @@ export default auto(function DbSession (props) {
       column: col,
       value
     })
-      .then(() => loadPage(sel, grid.page, grid.orderBy, grid.order))
+      .then(() => loadQuery(sel, grid.page))
       .catch(err => {
         setGrid(g => ({ ...g, loading: false }))
         onOpError(err)
@@ -1039,7 +1436,9 @@ export default auto(function DbSession (props) {
       .then(res => {
         setInsertOpen(false)
         message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
-        loadPage(sel, grid.page, grid.orderBy, grid.order)
+        // 行数变了 → 总数必须重算，否则"精确行数"会停在上一次的值上
+        countKeyRef.current = ''
+        loadWithCount(sel, grid.page)
       })
       .catch(err => {
         setGrid(g => ({ ...g, loading: false }))
@@ -1081,7 +1480,8 @@ export default auto(function DbSession (props) {
     })
       .then(res => {
         message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
-        loadPage(sel, grid.page, grid.orderBy, grid.order)
+        countKeyRef.current = ''
+        loadWithCount(sel, grid.page)
       })
       .catch(onOpError)
   }
@@ -1678,6 +2078,14 @@ export default auto(function DbSession (props) {
     return widths
   }, [grid.rows])
 
+  // 列头排序箭头跟随 view.order（受控）：不写 sortOrder 的话，antd 会自己维护一份
+  // 排序状态，chips 一改（比如重置）箭头就停在旧方向上
+  const sortOrderOf = (k) => {
+    const key = String(k).toLowerCase()
+    const hit = (view.order || []).find(o => String(o.column).toLowerCase() === key)
+    return hit ? (hit.desc === true ? 'descend' : 'ascend') : null
+  }
+
   const columns = grid.rows.length
     ? Object.keys(grid.rows[0]).map(k => {
       const width = columnWidths[k] || 90
@@ -1688,6 +2096,7 @@ export default auto(function DbSession (props) {
         width,
         ellipsis: true,
         sorter: true,
+        sortOrder: sortOrderOf(k),
         // 单击选中 → 下方预览面板；双击命中区放在整个单元格（td）上：
         // 值短时后面的空白也能双击进编辑态，之前挂在文字 span 上，
         // 只有精确双击到字符才生效
@@ -2024,15 +2433,19 @@ export default auto(function DbSession (props) {
       }
     } else if (sel) {
       resetPageFilter()
-      resetExactRows()
-      loadPage(sel, 1, grid.orderBy, grid.order)
+      if (!viewParts(viewRef.current).where) {
+        resetExactRows()
+      }
+      applyView(normalizeView({ ...viewRef.current, pageSize: v }))
+      loadQuery(sel, 1)
     }
   }
   const renderPageSizeSelect = () => (
     <Select
       size='small'
       className='db-grid-pagesize'
-      value={getDbPageSize()}
+      // 显示的是**生效**的页大小（视角里存过就用它），与实际取数同源
+      value={pageSizeOf(viewRef.current)}
       options={pageSizeOptions}
       onChange={changePageSize}
       // 弹层宽度随内容自适应：默认与触发框同宽会把 "1000 / page" 截断
@@ -2043,7 +2456,8 @@ export default auto(function DbSession (props) {
 
   // 页码快速跳转：totalRows 为服务端估算值，totalPages 同为近似
   // （redis 为 SCAN 游标模式，无总页数概念，不渲染页码标签/跳页）
-  const dbPageSize = getDbPageSize()
+  // 页大小同样以视角为准（视角里存过就用它），否则页码估算会与实际页大小脱节
+  const dbPageSize = pageSizeOf(view)
   const estimatePages = sel && typeof grid.totalRows === 'number'
     ? Math.max(1, Math.ceil(grid.totalRows / dbPageSize))
     : null
@@ -2266,7 +2680,9 @@ export default auto(function DbSession (props) {
                 onClick={() => {
                   resetPageFilter()
                   resetExactRows()
-                  loadPage(sel, grid.page, grid.orderBy, grid.order)
+                  // 刷新按当前条件与页码重取；表数据可能变了，总数也要重算
+                  countKeyRef.current = ''
+                  loadWithCount(sel, grid.page)
                 }}
               />
               )
@@ -2378,6 +2794,32 @@ export default auto(function DbSession (props) {
         }
       </div>
       {
+        // 视角条单独一行（不塞进 .db-grid-head）：那一行已经有标题/总数/本页过滤/
+        // 翻页/页大小/刷新/导出，再塞进来会把控件挤成一团
+        sel && !isRedis
+          ? (
+            <DbViewBar
+              // 换表与"重置"都要复位编辑中的行：本地行不回灌 props（见组件注释）。
+              // 键跟着**当前展示的表**（sel）走，不跟"正在恢复的键"走 ——
+              // 否则切换表的过程中视角条会先按新表重挂、却拿到旧表的条件
+              key={(sel ? viewIdOf(sel) : '') + '#' + viewBarSeq}
+              columns={structureV2.columns}
+              dialect={dialect}
+              view={view}
+              mode={viewMode}
+              draft={whereDraft}
+              rejected={viewRejected}
+              truncated={viewTruncated}
+              loading={grid.loading || structureV2.loading}
+              disabled={!structureV2.columns.length}
+              onChange={onViewChange}
+              onApply={onViewApply}
+              onReset={onViewReset}
+            />
+            )
+          : null
+      }
+      {
         grid.error
           ? (
             <Alert
@@ -2416,11 +2858,19 @@ export default auto(function DbSession (props) {
                     )
                   : (
                     <span className='db-empty-tip'>
-                      {e('tableEmpty')}
                       {
-                        typeof grid.totalRows === 'number'
-                          ? ` (${e('approxRows')}: ${grid.totalRows})`
-                          : ''
+                        // 有生效条件时，"表是空的"和"没有命中"是两件事。
+                        // 说成"空表"会让用户去怀疑数据，而其实只是条件写窄了
+                        view.conditions.length
+                          ? e('dbViewNoMatch')
+                          : e('tableEmpty')
+                      }
+                      {
+                        view.conditions.length
+                          ? ''
+                          : (typeof grid.totalRows === 'number'
+                              ? ` (${e('approxRows')}: ${grid.totalRows})`
+                              : '')
                       }
                     </span>
                     )

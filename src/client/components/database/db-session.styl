@@ -1189,3 +1189,137 @@ body.db-hist-resizing
 
 .db-risk-dbname-input
   font-family var(--db-code-font, var(--font-mono))
+
+// ------------------------------------------------------------------ //
+// E2 结果集视角条（构建器 ⇄ SQL）。单独一行挂在 .db-grid-head 下面：
+// 那一行已经塞了标题/总数/本页过滤/翻页/页大小/刷新/导出，再加条件编辑会把控件挤成一团。
+// 只用已有 CSS 变量，主题切换跟着走。
+// ------------------------------------------------------------------ //
+.db-view-bar
+  display flex
+  flex-direction column
+  gap 6px
+  flex none
+  padding 0 4px 8px
+  min-width 0
+
+.db-view-head
+  display flex
+  align-items center
+  gap 8px
+  min-width 0
+
+.db-view-funnel
+  display inline-flex
+  align-items center
+  gap 4px
+  color var(--text)
+  font-size 12px
+  white-space nowrap
+
+// 被丢弃的条件：这是"完全没生效"，语气要比截断重一档
+.db-view-reject
+  color var(--warn)
+  font-size 12px
+  white-space nowrap
+  overflow hidden
+  text-overflow ellipsis
+
+// 被截断的条件：**生效了**，只是取值被裁过 —— 不能用警告色，否则会和"未生效"混成一类
+.db-view-truncated
+  color var(--text-dark)
+  font-size 12px
+  white-space nowrap
+  cursor help
+
+.db-view-spacer
+  flex 1 1 auto
+
+.db-view-modes
+  display inline-flex
+  gap 0
+  // 两个按钮贴在一起当分段控件用：右侧圆角去掉，中间不留缝
+  .ant-btn:first-child
+    border-top-right-radius 0
+    border-bottom-right-radius 0
+  .ant-btn:last-child
+    margin-left -1px
+    border-top-left-radius 0
+    border-bottom-left-radius 0
+
+.db-view-rows
+  display flex
+  flex-direction column
+  gap 4px
+  max-height 132px
+  overflow auto
+
+.db-view-row
+  display flex
+  align-items center
+  gap 6px
+  min-width 0
+
+.db-view-col
+  width 180px
+  flex 0 1 180px
+  min-width 120px
+
+.db-view-op
+  width 108px
+  flex 0 0 108px
+
+.db-view-value
+  flex 1 1 auto
+  min-width 120px
+  font-family var(--db-code-font, var(--font-mono))
+
+.db-view-del
+  flex none
+
+.db-view-row-add
+  // 添加条件按钮不占满整行，避免看起来像"一整条空条件"
+  justify-content flex-start
+
+.db-view-foot
+  display flex
+  align-items center
+  gap 6px
+  flex-wrap wrap
+  min-width 0
+
+.db-view-sort-label
+  color var(--text-dark)
+  font-size 12px
+
+.db-view-sort-empty
+  color var(--text-dark)
+  font-size 12px
+
+.db-view-chip
+  margin 0
+  cursor pointer
+  border-radius var(--radius-xs)
+  font-size 12px
+  user-select none
+
+.db-view-chip.is-desc
+  border-color var(--info)
+  color var(--info)
+
+.db-view-sql
+  display flex
+  flex-direction column
+  gap 4px
+
+.db-view-sql-input
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+
+.db-view-problem
+  color var(--warn)
+  font-size 12px
+
+.db-view-hint
+  color var(--text-dark)
+  font-size 12px

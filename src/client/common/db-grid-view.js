@@ -532,3 +532,738 @@ export function viewKey (target) {
     .map(p => (p === null || p === undefined ? '' : String(p)))
     .join('|')
 }
+
+/* ------------------------------------------------------------------ *
+ * 双模式（构建器 ⇄ SQL）：参数具体化 / 文本回解析
+ *
+ * 为什么需要这一对函数：buildWhere 产出的是**参数化**子句（`a` = ? / `a` = $1），
+ * 那是发给驱动的形态，人看不懂也用不了 —— SQL 模式下用户要看到、要能改的是
+ * 一条带字面量的文本。反过来，用户在 SQL 模式里改完想切回构建器，
+ * 就得把文本还原成 conditions。
+ *
+ * 三条设计红线（都是为了"宁可不动，也不能悄悄改意思"）：
+ *
+ * 1) **具体化失败就原样返回子句。** 参数个数对不上、值不是标量、$n 越界 ——
+ *    任何一种都说明这段文本与这组参数不是一对。这时生成一条"看起来能用"的 SQL
+ *    是最坏的结果：用户会以为屏幕上那条就是自己的条件。
+ *
+ * 2) **解析只认自己产出的规范形态。** 这里不是 SQL 解析器，是"materializeClause 的逆函数"。
+ *    遇到 OR / 函数调用 / 子查询 / BETWEEN / 未加引用符的列名 / 带通配符的中间 LIKE ——
+ *    一律返回 null，让调用方留在 SQL 模式并提示"条件含手写表达式，无法结构化"。
+ *    尽力猜的代价是用户的条件悄悄变意思（`a BETWEEN 1 AND 2` 猜成 `a >= 1`），
+ *    这种错用户永远发现不了。
+ *
+ * 3) **引号区域内外必须分开看。** 列名 `` `a?b` `` 里的 `?` 不是占位符，
+ *    字符串字面量里的 `;` 不是多语句。渲染层是 ESM、主进程那份 safe-clause.js 是 CJS，
+ *    不能 require 过来，所以这里自带一份几十行的引号扫描（口径与 safe-clause 一致：
+ *    mysql 单/双引号都认反斜杠转义，pg 只认 '' 双写，反引号/双引号标识符不掩码）。
+ * ------------------------------------------------------------------ */
+
+const PROBLEM_MAX_LEN = 4000
+// 与 safe-clause.js 的 KEYWORD_BLACKLIST 保同：前端只用于"禁用应用按钮 + 提示"，
+// 真正的闸门仍在主进程（那里会用列白名单再判一遍）
+const CLAUSE_KEYWORD_RE = /(^|[^A-Za-z0-9_$])(select|insert|update|delete|drop|alter|create|truncate|union|exec|execute|call|grant|revoke|merge|replace|into|set|attach|detach|pragma|load|copy|vacuum)(?![A-Za-z0-9_$])/i
+
+function isDigit (ch) {
+  return ch >= '0' && ch <= '9'
+}
+
+function isWordChar (ch) {
+  return typeof ch === 'string' && ch !== '' && /[A-Za-z0-9_$]/.test(ch)
+}
+
+/**
+ * 从起始引号扫到闭合引号之后（未闭合时返回串尾）。
+ * @param {string} src 原文
+ * @param {number} start 起始引号下标
+ * @param {string} quote 引号字符
+ * @param {boolean} backslash 是否启用反斜杠转义（mysql 的单/双引号串、pg 的 E''）
+ * @returns {number} 闭合引号之后的下标
+ */
+function scanQuoted (src, start, quote, backslash) {
+  const n = src.length
+  let j = start + 1
+  while (j < n) {
+    const c = src[j]
+    if (backslash && c === '\\') {
+      j += 2
+      continue
+    }
+    if (c === quote) {
+      if (src[j + 1] === quote) {
+        j += 2
+        continue
+      }
+      return j + 1
+    }
+    j++
+  }
+  return n
+}
+
+/**
+ * pg 的 E'...'：E 必须是独立词（`name'x'` 里的 e 不算）
+ * @param {string} src 原文
+ * @param {number} i 单引号下标
+ * @returns {boolean} 是否是 E 字符串
+ */
+function isEStringAt (src, i) {
+  const prev = src[i - 1]
+  if (prev !== 'E' && prev !== 'e') {
+    return false
+  }
+  const before = i - 2 >= 0 ? src[i - 2] : ''
+  return before === '' || !isWordChar(before)
+}
+
+/**
+ * 扫出所有引号区域 [start, end)。
+ * 占位符替换与危险字符判定都只做在区域之外 —— 否则 `LIKE '%?%'` 这种值会被当成占位符。
+ * 括号/引号都按"区域"处理，不做语义判断。
+ * @param {string} src 原文
+ * @param {string} dialect 方言
+ * @returns {Array<number[]>} 区域列表（按起点升序，互不重叠）
+ */
+function quotedRanges (src, dialect) {
+  const d = normalizeDialect(dialect)
+  const list = []
+  const n = src.length
+  let i = 0
+  while (i < n) {
+    const c = src[i]
+    if (c === "'") {
+      const eStr = d === 'postgres' && isEStringAt(src, i)
+      const end = scanQuoted(src, i, "'", d === 'mysql' || eStr)
+      list.push([eStr ? i - 1 : i, end])
+      i = end
+      continue
+    }
+    if (c === '"') {
+      // mysql 的 "..." 是字符串字面量（认反斜杠）；pg 是标识符（只认 "" 双写）。
+      // 两种都不替换占位符，所以差异只体现在扫描口径上
+      const end = scanQuoted(src, i, '"', d === 'mysql')
+      list.push([i, end])
+      i = end
+      continue
+    }
+    if (c === '`') {
+      const end = scanQuoted(src, i, '`', false)
+      list.push([i, end])
+      i = end
+      continue
+    }
+    i++
+  }
+  return list
+}
+
+/**
+ * 标量 → SQL 字面量文本。
+ * mysql 的字符串字面量里反斜杠是转义符，所以 `\` 必须再加倍一次 ——
+ * 否则值 `a\b` 会被 mysql 读成 `a<退格>b`（这行注释就是这条规则存在的原因）。
+ * pg 在 standard_conforming_strings=on（默认）下反斜杠是普通字符，不做处理，
+ * 也不需要 E'' 前缀（多一层前缀只会多一处方言差异）。
+ * @param {*} value 绑定值
+ * @param {string} dialect 方言
+ * @returns {string|null} 字面量文本；无法具体化时 null
+ */
+function literalText (value, dialect) {
+  if (value === null || value === undefined) {
+    return 'NULL'
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'TRUE' : 'FALSE'
+  }
+  if (typeof value === 'bigint') {
+    return String(value)
+  }
+  if (typeof value !== 'string') {
+    // 对象/数组/Date：不是 buildWhere 会产出的绑定值，硬转成字符串等于造一个新值
+    return null
+  }
+  const escaped = dialect === 'mysql'
+    ? value.replace(/\\/g, '\\\\').replace(/'/g, "''")
+    : value.replace(/'/g, "''")
+  return "'" + escaped + "'"
+}
+
+/**
+ * 参数化子句 → 可读可编辑的字面量文本。
+ * 占位符按方言消费：mysql 顺序吃 `?`；pg 按 `$n` 的编号取 params[n-1]
+ * （`$2` 写在 `$1` 前面时也不会错位 —— 编号是驱动认的，顺序无关）。
+ * 任一占位符越界、值无法具体化、或用完/用不尽参数 → **原样返回子句**。
+ * @param {string} clause 参数化子句
+ * @param {Array} params 绑定值（与占位符一一对应）
+ * @param {string} dialect 方言
+ * @returns {string} 字面量化后的文本
+ */
+export function materializeClause (clause, params, dialect) {
+  const text = typeof clause === 'string' ? clause : ''
+  if (!text) {
+    return text
+  }
+  const d = normalizeDialect(dialect)
+  const list = Array.isArray(params) ? params : []
+  const ranges = quotedRanges(text, d)
+  const out = []
+  const used = new Set()
+  let seq = 0
+  let ri = 0
+  let i = 0
+  while (i < text.length) {
+    while (ri < ranges.length && ranges[ri][1] <= i) {
+      ri++
+    }
+    if (ri < ranges.length && ranges[ri][0] <= i && i < ranges[ri][1]) {
+      out.push(text.slice(i, ranges[ri][1]))
+      i = ranges[ri][1]
+      continue
+    }
+    const ch = text[i]
+    if (ch === '?' && d === 'mysql') {
+      if (seq >= list.length) {
+        return text
+      }
+      const lit = literalText(list[seq], d)
+      if (lit === null) {
+        return text
+      }
+      out.push(lit)
+      used.add(seq)
+      seq++
+      i++
+      continue
+    }
+    if (ch === '$' && d === 'postgres' && isDigit(text[i + 1])) {
+      let j = i + 1
+      let num = ''
+      while (j < text.length && isDigit(text[j])) {
+        num += text[j]
+        j++
+      }
+      const n = Number(num)
+      if (!Number.isInteger(n) || n < 1 || n > list.length) {
+        return text
+      }
+      const lit = literalText(list[n - 1], d)
+      if (lit === null) {
+        return text
+      }
+      out.push(lit)
+      used.add(n - 1)
+      i = j
+      continue
+    }
+    out.push(ch)
+    i++
+  }
+  // 参数必须被占位符"用完"：用不尽说明这组参数里有的值根本不在子句里，
+  // 具体化出来的文本会悄悄少一个条件
+  if (used.size !== list.length) {
+    return text
+  }
+  return out.join('')
+}
+
+/**
+ * 读一个带引用符的标识符（mysql `` `x` `` / pg `"x"`），引用符双写还原成自身。
+ * @param {string} src 文本
+ * @param {number} start 起点（必须是引用符）
+ * @param {string} dialect 方言
+ * @returns {{name: string, end: number}|null} 解析结果
+ */
+function readIdent (src, start, dialect) {
+  const q = normalizeDialect(dialect) === 'postgres' ? '"' : '`'
+  if (src[start] !== q) {
+    return null
+  }
+  let i = start + 1
+  let name = ''
+  while (i < src.length) {
+    const c = src[i]
+    if (c === q) {
+      if (src[i + 1] === q) {
+        name += q
+        i += 2
+        continue
+      }
+      return { name, end: i + 1 }
+    }
+    name += c
+    i++
+  }
+  return null
+}
+
+/**
+ * 读一个字符串字面量，**必须占满整段文本**（后面还有内容就不是一个字面量）。
+ * mysql：`''` 与 `\\` 是唯一的两种转义（别的 `\x` 直接判非规范形态）；
+ * pg：只有 `''`（反斜杠是普通字符）。
+ * @param {string} src 文本
+ * @param {string} dialect 方言
+ * @returns {string|null} 字面量内容；非规范形态返回 null
+ */
+function readStringLiteral (src, dialect) {
+  const d = normalizeDialect(dialect)
+  if (typeof src !== 'string' || src[0] !== "'") {
+    return null
+  }
+  const n = src.length
+  let out = ''
+  let i = 1
+  while (i < n) {
+    const c = src[i]
+    if (d === 'mysql' && c === '\\') {
+      const next = src[i + 1]
+      // 只认 materializeClause 会产出的两种转义；其余（\n、\% …）是手写表达式
+      if (next !== '\\' && next !== "'") {
+        return null
+      }
+      out += next
+      i += 2
+      continue
+    }
+    if (c === "'") {
+      if (src[i + 1] === "'") {
+        out += "'"
+        i += 2
+        continue
+      }
+      if (i !== n - 1) {
+        return null
+      }
+      return out
+    }
+    out += c
+    i++
+  }
+  return null
+}
+
+/**
+ * 读一个字面量：NULL / TRUE / FALSE / 数字 / 字符串。
+ * 数字保留**原文**（'007' 不会被规范化成 '7'），否则往返会悄悄改值。
+ * @param {string} src 文本
+ * @param {string} dialect 方言
+ * @returns {{kind: string, value: *}|null} 字面量
+ */
+function readLiteral (src, dialect) {
+  const t = typeof src === 'string' ? src.trim() : ''
+  if (!t) {
+    return null
+  }
+  if (/^NULL$/i.test(t)) {
+    return { kind: 'null', value: null }
+  }
+  if (/^TRUE$/i.test(t)) {
+    return { kind: 'bool', value: true }
+  }
+  if (/^FALSE$/i.test(t)) {
+    return { kind: 'bool', value: false }
+  }
+  if (/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(t)) {
+    return { kind: 'number', value: t }
+  }
+  const s = readStringLiteral(t, dialect)
+  if (s !== null) {
+    return { kind: 'string', value: s }
+  }
+  return null
+}
+
+/**
+ * LIKE 模式串 → 算子 + 原值（escapeLike 的逆）。
+ * 只认三种规范形态：`%x%` / `x%` / `%x`。中间还留着未转义 `%`/`_`
+ * （如 `%a%b%`、`a_b`）→ null：那不是构建器能表达的形态。
+ * @param {string} pattern 模式串
+ * @returns {{op: string, value: string}|null} 算子与原值
+ */
+function parseLikePattern (pattern) {
+  if (typeof pattern !== 'string' || !pattern) {
+    return null
+  }
+  const head = pattern[0] === '%'
+  let tail = false
+  if (pattern.length > 1 && pattern[pattern.length - 1] === '%') {
+    // 末尾的 % 必须未被反斜杠转义（数前面连续反斜杠的奇偶）
+    let k = pattern.length - 2
+    let slashes = 0
+    while (k >= 0 && pattern[k] === '\\') {
+      slashes++
+      k--
+    }
+    tail = slashes % 2 === 0
+  }
+  const start = head ? 1 : 0
+  const end = tail ? pattern.length - 1 : pattern.length
+  if (start >= end) {
+    return null
+  }
+  const core = pattern.slice(start, end)
+  let value = ''
+  for (let i = 0; i < core.length; i++) {
+    const c = core[i]
+    if (c === '\\') {
+      const next = core[i + 1]
+      if (next === '\\' || next === '%' || next === '_') {
+        value += next
+        i++
+        continue
+      }
+      return null
+    }
+    if (c === '%' || c === '_') {
+      return null
+    }
+    value += c
+  }
+  if (head && tail) {
+    return { op: 'contains', value }
+  }
+  if (tail) {
+    return { op: 'startsWith', value }
+  }
+  if (head) {
+    return { op: 'endsWith', value }
+  }
+  return null
+}
+
+/**
+ * 去掉包裹整段的最外层括号（可以多层）。
+ * @param {string} text 文本
+ * @param {string} dialect 方言
+ * @returns {string} 去括号后的文本
+ */
+function stripOuterParens (text, dialect) {
+  let t = text.trim()
+  for (let guard = 0; guard < 32; guard++) {
+    if (t[0] !== '(' || t[t.length - 1] !== ')') {
+      return t
+    }
+    const ranges = quotedRanges(t, dialect)
+    let depth = 0
+    let ri = 0
+    let close = -1
+    for (let i = 0; i < t.length; i++) {
+      while (ri < ranges.length && ranges[ri][1] <= i) {
+        ri++
+      }
+      if (ri < ranges.length && ranges[ri][0] <= i && i < ranges[ri][1]) {
+        i = ranges[ri][1] - 1
+        continue
+      }
+      if (t[i] === '(') {
+        depth++
+      } else if (t[i] === ')') {
+        depth--
+        if (depth === 0) {
+          close = i
+          break
+        }
+      }
+    }
+    // 首字符的 '(' 没有在末尾闭合 → 括号不是"包着整段"，不再剥
+    if (close !== t.length - 1) {
+      return t
+    }
+    t = t.slice(1, close).trim()
+  }
+  return t
+}
+
+/**
+ * 顶层 AND 切分（引号内、括号内的 AND 不算）。
+ * 出现顶层 OR → null（构建器没有 OR 概念，硬拆会让条件变意思）。
+ * @param {string} text 文本
+ * @param {string} dialect 方言
+ * @returns {string[]|null} 片段列表
+ */
+function splitTopLevelAnd (text, dialect) {
+  const ranges = quotedRanges(text, dialect)
+  const parts = []
+  let depth = 0
+  let ri = 0
+  let start = 0
+  let i = 0
+  while (i < text.length) {
+    while (ri < ranges.length && ranges[ri][1] <= i) {
+      ri++
+    }
+    if (ri < ranges.length && ranges[ri][0] <= i && i < ranges[ri][1]) {
+      i = ranges[ri][1]
+      continue
+    }
+    const c = text[i]
+    if (c === '(') {
+      depth++
+      i++
+      continue
+    }
+    if (c === ')') {
+      depth--
+      if (depth < 0) {
+        return null
+      }
+      i++
+      continue
+    }
+    if (depth === 0 && (c === 'A' || c === 'a' || c === 'O' || c === 'o')) {
+      const prev = i > 0 ? text[i - 1] : ''
+      if (!isWordChar(prev)) {
+        let j = i
+        let word = ''
+        while (j < text.length && isWordChar(text[j])) {
+          word += text[j]
+          j++
+        }
+        const up = word.toUpperCase()
+        if (up === 'OR') {
+          return null
+        }
+        if (up === 'AND') {
+          const seg = text.slice(start, i).trim()
+          if (!seg) {
+            return null
+          }
+          parts.push(seg)
+          start = j
+          i = j
+          continue
+        }
+        i = j
+        continue
+      }
+    }
+    i++
+  }
+  if (depth !== 0) {
+    return null
+  }
+  const tail = text.slice(start).trim()
+  if (!tail) {
+    return null
+  }
+  parts.push(tail)
+  return parts
+}
+
+/**
+ * 单个条件片段 → condition 对象。
+ * @param {string} part 片段（已切分，未剥括号）
+ * @param {Map<string,string>} lookup 列白名单
+ * @param {string} dialect 方言
+ * @returns {Object|null} condition；非规范形态返回 null
+ */
+function parseCondition (part, lookup, dialect) {
+  const t = stripOuterParens(part, dialect)
+  const head = readIdent(t, 0, dialect)
+  if (!head) {
+    return null
+  }
+  const canonical = lookup.get(head.name.toLowerCase())
+  if (!canonical) {
+    return null
+  }
+  const rest = t.slice(head.end).trim()
+  if (!rest) {
+    return null
+  }
+  if (/^IS\s+NULL$/i.test(rest)) {
+    return { column: canonical, op: 'isNull' }
+  }
+  if (/^IS\s+NOT\s+NULL$/i.test(rest)) {
+    return { column: canonical, op: 'notNull' }
+  }
+  const like = /^LIKE\s+([\s\S]+)$/i.exec(rest)
+  if (like) {
+    const raw = readStringLiteral(like[1].trim(), dialect)
+    if (raw === null) {
+      return null
+    }
+    const pattern = parseLikePattern(raw)
+    if (!pattern) {
+      return null
+    }
+    return { column: canonical, op: pattern.op, value: pattern.value }
+  }
+  const inMatch = /^IN\s*\(([\s\S]*)\)$/i.exec(rest)
+  if (inMatch) {
+    const inner = inMatch[1]
+    const ranges = quotedRanges(inner, dialect)
+    const items = []
+    let start = 0
+    let ri = 0
+    for (let i = 0; i <= inner.length; i++) {
+      while (ri < ranges.length && ranges[ri][1] <= i) {
+        ri++
+      }
+      const inRange = ri < ranges.length && ranges[ri][0] <= i && i < ranges[ri][1]
+      if (inRange) {
+        i = ranges[ri][1] - 1
+        continue
+      }
+      if (i === inner.length || inner[i] === ',') {
+        items.push(inner.slice(start, i).trim())
+        start = i + 1
+      }
+    }
+    if (!items.length || items.some(x => x === '')) {
+      return null
+    }
+    const values = []
+    for (const item of items) {
+      const lit = readLiteral(item, dialect)
+      // IN 里只收数字与字符串：布尔/NULL 在 IN 里是另一套语义（NULL 永不命中），
+      // 转成构建器的 IN 值数组后意思会变
+      if (!lit || (lit.kind !== 'number' && lit.kind !== 'string')) {
+        return null
+      }
+      values.push(lit.value)
+    }
+    return { column: canonical, op: 'in', value: values }
+  }
+  const cmp = /^(<>|!=|>=|<=|=|>|<)\s*([\s\S]+)$/.exec(rest)
+  if (cmp) {
+    const lit = readLiteral(cmp[2].trim(), dialect)
+    if (!lit || lit.kind === 'null') {
+      return null
+    }
+    const opMap = {
+      '=': 'eq',
+      '<>': 'ne',
+      '!=': 'ne',
+      '>': 'gt',
+      '>=': 'gte',
+      '<': 'lt',
+      '<=': 'lte'
+    }
+    return { column: canonical, op: opMap[cmp[1]], value: lit.value }
+  }
+  return null
+}
+
+/**
+ * 字面量文本 → conditions（materializeClause 的逆）。
+ * 只认本模块产出的规范形态：`col` = 'v' / `col` <> 5 / `col` LIKE 'x%' /
+ * `col` IN (1, 2) / `col` IS NULL / `col` IS NOT NULL，多条件 ` AND ` 连接，
+ * 允许每条外层多裹几层括号。其余一切形态（OR / 函数 / 子查询 / BETWEEN / 未加引号列名）
+ * 返回 null —— 调用方据此"留在 SQL 模式并提示"，绝不静默丢条件。
+ * 空文本 → `{ conditions: [] }`（等价于"无筛选"，这是合法的退化形态）。
+ * 数字字面量回填成**字符串**（'7'）：materialize 只保留了文本，
+ * 与 normalizeView 归一后的 IN 值同一口径。
+ * @param {string} text 条件体文本
+ * @param {Array<string|{name:string}>} columns 列白名单
+ * @param {string} dialect 方言
+ * @returns {{conditions: Array}|null} 条件体；无法结构化时 null
+ */
+export function parseClause (text, columns, dialect) {
+  const src = typeof text === 'string' ? text.trim() : ''
+  if (!src) {
+    return { conditions: [] }
+  }
+  const d = normalizeDialect(dialect)
+  const lookup = columnLookup(columns)
+  if (!lookup.size) {
+    // 没有列白名单时任何列名都无法确认，一律不可结构化
+    return null
+  }
+  const parts = splitTopLevelAnd(src, d)
+  if (!parts) {
+    return null
+  }
+  const conditions = []
+  for (const part of parts) {
+    const cond = parseCondition(part, lookup, d)
+    if (!cond) {
+      return null
+    }
+    conditions.push(cond)
+  }
+  return { conditions }
+}
+
+/**
+ * 条件体文本的"前端预检"：只回答"这条文本看起来能不能发给主进程"。
+ * 返回空串表示没发现问题；否则返回原因码：
+ * - tooLong：超过 4000 字符
+ * - semicolon / comment：多语句 / 注释（**引号内的不算**）
+ * - keyword：出现 SELECT/INSERT/DROP 等语句关键字（引号内的不算）
+ * - unbalanced：括号不配平
+ * 注意：这不是安全闸门（渲染层永远不是），主进程 assertSafeClause 会再判一遍，
+ * 而且判据更严（列白名单、占位符编号连续性）。这里只为了让"应用"按钮能提前禁用，
+ * 省掉一次必然失败的往返与一个弹窗。
+ * @param {string} text 条件体文本
+ * @param {string} dialect 方言
+ * @returns {string} 原因码，'' 表示通过
+ */
+export function findClauseProblem (text, dialect) {
+  const src = typeof text === 'string' ? text : ''
+  if (!src.trim()) {
+    return ''
+  }
+  if (src.length > PROBLEM_MAX_LEN) {
+    return 'tooLong'
+  }
+  const ranges = quotedRanges(src, normalizeDialect(dialect))
+  let skeleton = ''
+  let last = 0
+  for (const [from, to] of ranges) {
+    skeleton += src.slice(last, from) + ' '
+    last = to
+  }
+  skeleton += src.slice(last)
+  if (skeleton.indexOf(';') !== -1) {
+    return 'semicolon'
+  }
+  if (skeleton.indexOf('--') !== -1 || skeleton.indexOf('/*') !== -1 ||
+    skeleton.indexOf('#') !== -1) {
+    return 'comment'
+  }
+  if (CLAUSE_KEYWORD_RE.test(skeleton)) {
+    return 'keyword'
+  }
+  let depth = 0
+  for (const ch of skeleton) {
+    if (ch === '(') {
+      depth++
+    } else if (ch === ')') {
+      depth--
+      if (depth < 0) {
+        return 'unbalanced'
+      }
+    }
+  }
+  return depth === 0 ? '' : 'unbalanced'
+}
+
+/**
+ * 排序 chips / 列头点击的**唯一**推进规则：升序 → 降序 → 移除（第三次点击），
+ * 超过 3 列时丢掉最旧的一列（数组头部）。
+ * 放在这里而不是组件里，是因为列头点击（db-session）与 chips 点击（db-view-bar）
+ * 必须完全一致 —— 两处各写一份，一定会有一处忘了 3 列上限。
+ * @param {Array<{column:string, desc:boolean}>} order 当前排序
+ * @param {string} column 被点击的列
+ * @param {number} max 最大列数
+ * @returns {Array<{column:string, desc:boolean}>} 新的排序
+ */
+export function nextSortOrder (order, column, max) {
+  const cur = Array.isArray(order) ? order : []
+  const key = String(column === null || column === undefined ? '' : column).toLowerCase()
+  if (!key) {
+    return normalizeOrder(cur)
+  }
+  const rest = normalizeOrder(cur).filter(o => o.column.toLowerCase() !== key)
+  const existing = normalizeOrder(cur).find(o => o.column.toLowerCase() === key)
+  let next = rest
+  if (!existing) {
+    next = rest.concat([{ column, desc: false }])
+  } else if (existing.desc === false) {
+    next = rest.concat([{ column, desc: true }])
+  }
+  const cap = Number.isInteger(max) && max > 0 ? Math.min(max, MAX_ORDER_COLUMNS) : MAX_ORDER_COLUMNS
+  return next.length > cap ? next.slice(next.length - cap) : next
+}

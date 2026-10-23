@@ -21,7 +21,8 @@ const ROOT = path.join(__dirname, '../../..')
 const VIEW = path.join(ROOT, 'src/client/common/db-grid-view.js')
 
 const VIEW_EXPORTS = '({ FILTER_OPS, normalizeView, buildWhere, buildOrderBy, ' +
-  'viewKey, quoteIdent })'
+  'viewKey, quoteIdent, materializeClause, parseClause, findClauseProblem, ' +
+  'nextSortOrder })'
 
 function loadFrom (file, exportsExpr) {
   const src = fs.readFileSync(file, 'utf8').replace(/^export /gm, '')
@@ -36,7 +37,11 @@ const {
   buildWhere,
   buildOrderBy,
   viewKey,
-  quoteIdent
+  quoteIdent,
+  materializeClause,
+  parseClause,
+  findClauseProblem,
+  nextSortOrder
 } = loadFrom(VIEW, VIEW_EXPORTS)
 
 // 值搬回宿主 realm，便于 strict deepEqual
@@ -433,5 +438,256 @@ describe('db-grid-view: normalizeView', () => {
   test('isNull/notNull 不带 value 字段', () => {
     const v = plain(normalizeView({ conditions: [{ column: 'a', op: 'isNull', value: 'x' }] }))
     assert.deepEqual(v.conditions, [{ column: 'a', op: 'isNull' }])
+  })
+})
+
+// ---------------------------------------------------------------- 双模式（构建器 ⇄ SQL）
+// materializeClause 与 parseClause 是一对互逆函数，测试分三层：
+// 1) 具体化：字面量的每一种标量形态、方言差异、失败时原样返回；
+// 2) 解析：只认规范形态，其余一律 null（绝不"尽力猜"）；
+// 3) 往返：buildWhere → materialize → parse 必须回到 normalizeView 的等价条件。
+// 第 3 层是双向契约里最值钱的一条：它同时钉住了两边的实现，谁单方面改口径都会红。
+describe('db-grid-view: materializeClause（参数 → 字面量）', () => {
+  test('字符串里的单引号成对加倍', () => {
+    const built = buildWhere(viewOf([{ column: 'name', op: 'eq', value: "o'b" }]), COLS, 'mysql')
+    assert.equal(built.clause, '`name` = ?')
+    assert.equal(
+      materializeClause(built.clause, built.params, 'mysql'),
+      "`name` = 'o''b'"
+    )
+  })
+
+  test('null → NULL / 布尔 → TRUE|FALSE / 数字不加引号', () => {
+    assert.equal(materializeClause('`a` = ?', [null], 'mysql'), '`a` = NULL')
+    assert.equal(materializeClause('`a` = ?', [true], 'mysql'), '`a` = TRUE')
+    assert.equal(materializeClause('`a` = ?', [false], 'mysql'), '`a` = FALSE')
+    assert.equal(materializeClause('`a` <> ?', [42], 'mysql'), '`a` <> 42')
+    // 字符串 '42' 必须与数字 42 在文本上就分得清，否则回解析会把类型改掉
+    assert.equal(materializeClause('`a` <> ?', ['42'], 'mysql'), "`a` <> '42'")
+  })
+
+  test('mysql 字符串里的反斜杠再加倍一次（反斜杠是 mysql 的转义符）', () => {
+    assert.equal(materializeClause('`a` = ?', ['a\\b'], 'mysql'), '`a` = \'a\\\\b\'')
+    // pg 的 standard_conforming_strings 默认开，反斜杠就是普通字符，不加倍、也不加 E 前缀
+    assert.equal(materializeClause('"a" = $1', ['a\\b'], 'postgres'), '"a" = \'a\\b\'')
+  })
+
+  test('参数数量不符 → 原样返回子句（宁可难看，不生成一条错 SQL 让人以为是自己的条件）', () => {
+    assert.equal(
+      materializeClause('`a` = ? AND `b` = ?', ['1'], 'mysql'),
+      '`a` = ? AND `b` = ?'
+    )
+    assert.equal(materializeClause('`a` = ?', ['1', '2'], 'mysql'), '`a` = ?')
+    // 非标量值无法具体化 → 原样返回
+    assert.equal(materializeClause('`a` = ?', [{ x: 1 }], 'mysql'), '`a` = ?')
+    assert.equal(materializeClause('`a` = ?', [NaN], 'mysql'), '`a` = ?')
+  })
+
+  test('pg 按 $n 编号取值：乱序不吃错，越界/用不尽都原样返回', () => {
+    assert.equal(
+      materializeClause('"a" = $2 AND "b" = $1', ['x', 'y'], 'postgres'),
+      '"a" = \'y\' AND "b" = \'x\''
+    )
+    // $3 越界
+    assert.equal(materializeClause('"a" = $3', ['x'], 'postgres'), '"a" = $3')
+    // 参数多了一个（$1 根本没被引用）→ 具体化出来的文本会少一个值
+    assert.equal(materializeClause('"a" = $2', ['x', 'y'], 'postgres'), '"a" = $2')
+    // pg 不收裸 ?（那是 mysql 的写法）
+    assert.equal(materializeClause('"a" = ?', ['x'], 'postgres'), '"a" = ?')
+  })
+
+  test('引号区域里的 ? 不当占位符（列名 a?b / 值里的 ?）', () => {
+    assert.equal(materializeClause('`a?b` = ?', ['v'], 'mysql'), "`a?b` = 'v'")
+    assert.equal(materializeClause('`a` = ?', ['x?y'], 'mysql'), "`a` = 'x?y'")
+  })
+})
+
+describe('db-grid-view: parseClause（字面量 → 条件体）', () => {
+  test('等值 / 不等 / 比较算子', () => {
+    assert.deepEqual(plain(parseClause("`name` = 'v'", COLS, 'mysql').conditions), [
+      { column: 'name', op: 'eq', value: 'v' }
+    ])
+    assert.deepEqual(plain(parseClause('`age` <> 5', COLS, 'mysql').conditions), [
+      { column: 'age', op: 'ne', value: '5' }
+    ])
+    assert.deepEqual(plain(parseClause('`age` >= 5', COLS, 'mysql').conditions), [
+      { column: 'age', op: 'gte', value: '5' }
+    ])
+  })
+
+  test('LIKE 三种通配位置反推回 contains / startsWith / endsWith', () => {
+    const cases = [
+      ["`name` LIKE '%v%'", 'contains'],
+      ["`name` LIKE 'v%'", 'startsWith'],
+      ["`name` LIKE '%v'", 'endsWith']
+    ]
+    for (const [text, op] of cases) {
+      assert.deepEqual(
+        plain(parseClause(text, COLS, 'mysql').conditions),
+        [{ column: 'name', op, value: 'v' }],
+        text
+      )
+    }
+  })
+
+  test('LIKE 模式里 % _ \\ 的转义被解开（与 escapeLike 互逆）', () => {
+    // contains 'a%b' → escapeLike → %a\%b% ；mysql 具体化再把 \ 加倍
+    const built = buildWhere(viewOf([{ column: 'name', op: 'contains', value: 'a%b' }]), COLS, 'mysql')
+    const text = materializeClause(built.clause, built.params, 'mysql')
+    assert.equal(text, "`name` LIKE '%a\\\\%b%'")
+    assert.deepEqual(plain(parseClause(text, COLS, 'mysql').conditions), [
+      { column: 'name', op: 'contains', value: 'a%b' }
+    ])
+  })
+
+  test('IN 三项（数字回填成字符串，与 normalizeView 同口径）', () => {
+    assert.deepEqual(plain(parseClause('`id` IN (1, 2, 3)', COLS, 'mysql').conditions), [
+      { column: 'id', op: 'in', value: ['1', '2', '3'] }
+    ])
+    // 字符串元素里的逗号不参与切分
+    assert.deepEqual(
+      plain(parseClause("`name` IN ('a,b', 'c')", COLS, 'mysql').conditions),
+      [{ column: 'name', op: 'in', value: ['a,b', 'c'] }]
+    )
+  })
+
+  test('IS NULL / IS NOT NULL 不带 value 字段', () => {
+    assert.deepEqual(plain(parseClause('`name` IS NULL', COLS, 'mysql').conditions), [
+      { column: 'name', op: 'isNull' }
+    ])
+    assert.deepEqual(plain(parseClause('`name` IS NOT NULL', COLS, 'mysql').conditions), [
+      { column: 'name', op: 'notNull' }
+    ])
+  })
+
+  test('多条用 AND 连接，允许每条外层多裹括号', () => {
+    const text = '(`age` >= 18) AND ((`name` LIKE \'%bo%\'))'
+    assert.deepEqual(plain(parseClause(text, COLS, 'mysql').conditions), [
+      { column: 'age', op: 'gte', value: '18' },
+      { column: 'name', op: 'contains', value: 'bo' }
+    ])
+  })
+
+  test('OR / 函数调用 / BETWEEN / 子查询 → null（绝不尽力猜）', () => {
+    const bad = [
+      '`age` = 1 OR 1 = 1',
+      "`name` = lower('x')",
+      '`age` BETWEEN 1 AND 2',
+      '`id` IN (SELECT id FROM t)',
+      "`name` LIKE '%a%b%'",
+      '`name` = `other`',
+      '1 = 1',
+      '`age` = NULL',
+      "`age` = '1' '2'"
+    ]
+    for (const text of bad) {
+      assert.equal(parseClause(text, COLS, 'mysql'), null, text)
+    }
+  })
+
+  test('列名必须命中白名单；未加引用符的裸列名不认', () => {
+    assert.equal(parseClause("`nope` = 'v'", COLS, 'mysql'), null)
+    assert.equal(parseClause("name = 'v'", COLS, 'mysql'), null)
+    // 大小写不敏感，但回填白名单里的规范名
+    assert.deepEqual(plain(parseClause("`NAME` = 'v'", COLS, 'mysql').conditions), [
+      { column: 'name', op: 'eq', value: 'v' }
+    ])
+    // 没有列白名单 → 什么都不能确认
+    assert.equal(parseClause("`name` = 'v'", [], 'mysql'), null)
+  })
+
+  test('空文本 → 空条件体（等价"无筛选"）；空白串同理', () => {
+    assert.deepEqual(plain(parseClause('', COLS, 'mysql')), { conditions: [] })
+    assert.deepEqual(plain(parseClause('   ', COLS, 'mysql')), { conditions: [] })
+  })
+
+  test('pg：双引号标识符 + $n 形态（具体化后已无占位符）', () => {
+    assert.deepEqual(plain(parseClause('"name" = \'v\' AND "age" > 3', COLS, 'postgres').conditions), [
+      { column: 'name', op: 'eq', value: 'v' },
+      { column: 'age', op: 'gt', value: '3' }
+    ])
+    // 方言不匹配（mysql 的引用符喂给 pg）→ null
+    assert.equal(parseClause("`name` = 'v'", COLS, 'postgres'), null)
+  })
+
+  test('往返契约：parseClause(materializeClause(buildWhere(v))) 与 normalizeView(v) 等价', () => {
+    const v = {
+      conditions: [
+        { column: 'age', op: 'gte', value: '18' },
+        { column: 'name', op: 'contains', value: "o'x" },
+        { column: 'id', op: 'in', value: ['1', '2', '3'] },
+        { column: 'created_at', op: 'notNull' }
+      ]
+    }
+    const want = plain(normalizeView(v).conditions)
+    for (const dialect of ['mysql', 'postgres']) {
+      const built = buildWhere(v, COLS, dialect)
+      const text = materializeClause(built.clause, built.params, dialect)
+      const back = parseClause(text, COLS, dialect)
+      assert.ok(back, dialect + ' 应能回解析: ' + text)
+      assert.deepEqual(plain(back.conditions), want, dialect)
+    }
+  })
+})
+
+describe('db-grid-view: findClauseProblem（前端预检，非安全闸门）', () => {
+  test('分号 / 注释 / 语句关键字被拒', () => {
+    assert.equal(findClauseProblem('`a` = 1; DROP TABLE t', 'mysql'), 'semicolon')
+    assert.equal(findClauseProblem('`a` = 1 -- x', 'mysql'), 'comment')
+    assert.equal(findClauseProblem('`a` = 1 /* x */', 'mysql'), 'comment')
+    assert.equal(findClauseProblem('1 = 1 # x', 'mysql'), 'comment')
+    assert.equal(findClauseProblem('`a` = 1 AND DROP TABLE t', 'mysql'), 'keyword')
+  })
+
+  test('引号内的 ; -- # 与关键字不算（值匹配是合法的）', () => {
+    assert.equal(findClauseProblem("`name` = 'a;--b#c'", 'mysql'), '')
+    assert.equal(findClauseProblem("`name` = 'DROP TABLE t'", 'mysql'), '')
+  })
+
+  test('正常条件 / OR / 括号不配平 / 超长', () => {
+    assert.equal(findClauseProblem("`a` = 'v' AND `b` IS NOT NULL", 'mysql'), '')
+    assert.equal(findClauseProblem('`a` = 1 OR 1 = 1', 'mysql'), '')
+    assert.equal(findClauseProblem('`a` = (1', 'mysql'), 'unbalanced')
+    assert.equal(findClauseProblem('`a` = 1)', 'mysql'), 'unbalanced')
+    assert.equal(findClauseProblem('`a` = ' + '1'.repeat(4200), 'mysql'), 'tooLong')
+    assert.equal(findClauseProblem('', 'mysql'), '')
+  })
+})
+
+describe('db-grid-view: nextSortOrder（chips 与列头共用同一条推进规则）', () => {
+  test('升 → 降 → 移除', () => {
+    let o = nextSortOrder([], 'id')
+    assert.deepEqual(plain(o), [{ column: 'id', desc: false }])
+    o = nextSortOrder(o, 'id')
+    assert.deepEqual(plain(o), [{ column: 'id', desc: true }])
+    o = nextSortOrder(o, 'id')
+    assert.deepEqual(plain(o), [])
+  })
+
+  test('超过 3 列时丢掉最旧的一列', () => {
+    const cur = [
+      { column: 'a', desc: false },
+      { column: 'b', desc: false },
+      { column: 'c', desc: false }
+    ]
+    assert.deepEqual(plain(nextSortOrder(cur, 'id')), [
+      { column: 'b', desc: false },
+      { column: 'c', desc: false },
+      { column: 'id', desc: false }
+    ])
+  })
+
+  test('同一列大小写不敏感，重复点击不会插出两行', () => {
+    assert.deepEqual(plain(nextSortOrder([{ column: 'ID', desc: false }], 'id')), [
+      { column: 'id', desc: true }
+    ])
+    assert.deepEqual(plain(nextSortOrder([{ column: 'id', desc: true }], 'ID')), [])
+  })
+
+  test('空列名 / 脏输入不抛错', () => {
+    assert.deepEqual(plain(nextSortOrder(null, '')), [])
+    assert.deepEqual(plain(nextSortOrder([{ column: 'id', desc: true }], '')), [
+      { column: 'id', desc: true }
+    ])
   })
 })
