@@ -299,6 +299,27 @@ function initIpc () {
       }
       throw new Error('unknown dbSqlHistoryOp action: ' + action)
     },
+    // 结果集视角配置走同一套主进程固定文件策略（userData/db-grid-views.json）：
+    // 同因——UI server 动态端口导致 origin 漂移，localStorage 跨启动互相隔离
+    dbGridViewOp: async (action, arg) => {
+      const file = join(app.getPath('userData'), 'db-grid-views.json')
+      const g = require('./db-grid-views')
+      // 通道可被直接调用（arg 缺省），解构前先兜住；键缺失按"没有这个视角"处理
+      const a = arg || {}
+      if (action === 'list') {
+        return g.listGridViews(file)
+      }
+      if (action === 'get') {
+        return g.getGridView(a.key, file)
+      }
+      if (action === 'save') {
+        return g.saveGridView(a.key, a.view, file)
+      }
+      if (action === 'remove') {
+        return g.removeGridView(a.key, file)
+      }
+      throw new Error('unknown dbGridViewOp action: ' + action)
+    },
     setPassword,
     checkPassword,
     lookup,
