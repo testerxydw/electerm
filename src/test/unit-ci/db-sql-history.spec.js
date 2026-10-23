@@ -51,14 +51,26 @@ describe('db-sql-history (main-process file store)', () => {
     assert.equal(list[199].sql, 'SELECT 5')
   })
 
-  test('相邻重复不叠加，非相邻重复保留', () => {
-    h.appendSqlHistory(entry('SELECT 1'), file)
-    h.appendSqlHistory(entry('SELECT 1'), file)
-    h.appendSqlHistory(entry('SELECT 2'), file)
-    h.appendSqlHistory(entry('SELECT 1'), file)
+  test('全局去重 + MRU：任意位置命中即提升最前并刷新时间', () => {
+    h.appendSqlHistory(entry('SELECT 1', { ts: 100 }), file)
+    h.appendSqlHistory(entry('SELECT 2', { ts: 200 }), file)
+    h.appendSqlHistory(entry('SELECT 3', { ts: 300 }), file)
+    // 重跑最老的 SELECT 1：旧条目移除，新条目（新 ts）置顶
+    h.appendSqlHistory(entry('SELECT 1', { ts: 400 }), file)
     const list = h.listSqlHistory(file)
-    assert.equal(list.length, 3)
-    assert.deepEqual(list.map(x => x.sql), ['SELECT 1', 'SELECT 2', 'SELECT 1'])
+    assert.deepEqual(list.map(x => x.sql), ['SELECT 1', 'SELECT 3', 'SELECT 2'])
+    assert.equal(list[0].ts, 400)
+  })
+
+  test('格式化前后视为同一语句：空白差异归一化后去重', () => {
+    h.appendSqlHistory(entry('SELECT * FROM t;', { ts: 100 }), file)
+    // 格式化后的形态（换行/多空格缩进）归一化等价 → 合并不新增
+    h.appendSqlHistory(entry('SELECT *\n  FROM t;', { ts: 200 }), file)
+    const list = h.listSqlHistory(file)
+    assert.equal(list.length, 1)
+    assert.equal(list[0].ts, 200)
+    // 存储保留最新原文（格式化后的形态），回填即最新写法
+    assert.equal(list[0].sql, 'SELECT *\n  FROM t;')
   })
 
   test('失败语句也记录（ok:false）', () => {

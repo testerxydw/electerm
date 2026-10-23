@@ -46,15 +46,24 @@ function listSqlHistory (filePath) {
   return readFile(filePath)
 }
 
-// 相邻重复不叠加（连续重跑同一语句只保留一条）
+// 归一化 SQL 作去重键：连续空白（含换行/缩进）压成单空格。
+// 格式化只改空白布局，归一化后同一语句等价——格式化前后不产生两条历史
+function normSql (sql) {
+  return String(sql).replace(/\s+/g, ' ').trim()
+}
+
+// 全局去重 + MRU：归一化后命中的旧条目移除，新条目置顶（ts=最后执行时间）；
+// 同语句换库重跑也按同一条合并（历史是"语句"维度，非"语句×库"维度）
 function appendSqlHistory (entry, filePath) {
   if (!entry || !entry.sql) {
     return
   }
   const list = readFile(filePath)
   const item = pickEntry(entry)
-  if (list.length && list[0].sql === item.sql) {
-    return
+  const key = normSql(item.sql)
+  const idx = list.findIndex(x => normSql(x.sql) === key)
+  if (idx > -1) {
+    list.splice(idx, 1)
   }
   list.unshift(item)
   try {
