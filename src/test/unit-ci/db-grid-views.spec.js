@@ -190,13 +190,13 @@ describe('db-grid-views (main-process file store)', () => {
   })
 
   test('读取缺失文件返回 {}，get 返回 null', () => {
-    assert.deepEqual(g.listGridViews(file), {})
+    assert.deepEqual({ ...g.listGridViews(file) }, {})
     assert.equal(g.getGridView(viewKey('c', 'd', 's', 't'), file), null)
   })
 
   test('文件内容损坏（半截 JSON）时 list 返回 {}、get 返回 null', () => {
     fs.writeFileSync(file, '{')
-    assert.deepEqual(g.listGridViews(file), {})
+    assert.deepEqual({ ...g.listGridViews(file) }, {})
     assert.equal(g.getGridView(viewKey('c', 'd', 's', 't'), file), null)
     // 损坏后仍可正常写入（不被坏文件锁死）
     withClock(() => assert.ok(g.saveGridView(viewKey('c', 'd', 's', 't'), seedView(), file)))
@@ -205,9 +205,9 @@ describe('db-grid-views (main-process file store)', () => {
 
   test('顶层非对象 / views 非对象的容错', () => {
     fs.writeFileSync(file, '[]')
-    assert.deepEqual(g.listGridViews(file), {})
+    assert.deepEqual({ ...g.listGridViews(file) }, {})
     fs.writeFileSync(file, '{"version":1,"views":[1,2]}')
-    assert.deepEqual(g.listGridViews(file), {})
+    assert.deepEqual({ ...g.listGridViews(file) }, {})
   })
 
   test('原子写：落盘不残留 .tmp', () => {
@@ -273,7 +273,8 @@ describe('db-grid-views (main-process file store)', () => {
 
     assert.deepEqual(
       Object.keys(readJson().views[key]).sort(),
-      ['columnOrder', 'columnWidths', 'conditions', 'hiddenColumns', 'order', 'pageSize', 'updatedAt']
+      ['columnOrder', 'columnWidths', 'conditions', 'hiddenColumns', 'order',
+        'pageSize', 'seq', 'updatedAt']
     )
     assert.deepEqual(
       Object.keys(readJson().views[key].conditions[0]).sort(),
@@ -400,7 +401,7 @@ describe('db-grid-views (main-process file store)', () => {
       g.saveGridView(key, seedView(), file)
       assert.equal(g.removeGridView(key, file), true)
       assert.equal(g.getGridView(key, file), null)
-      assert.deepEqual(g.listGridViews(file), {}, '删除必须落盘，不能只改内存')
+      assert.deepEqual({ ...g.listGridViews(file) }, {}, '删除必须落盘，不能只改内存')
 
       // 再删一次：幂等成功语义，返回 false 表示"没删掉（本来就没有）"
       assert.equal(g.removeGridView(key, file), false)
@@ -540,5 +541,172 @@ describe('db-grid-views (renderer wrapper over dbGridViewOp IPC)', () => {
       '未知 action 须显式抛错（与兄弟通道同措辞）'
     )
     assert.ok(block.includes('arg || {}'), 'arg 缺省须兜住，避免直接调用时崩')
+  })
+})
+
+// ---------------------------------------------------------------- 复审修复（QA 实测缺陷）
+// 这三组对应 QA 独立验证挑出的问题：LRU 依据墙钟导致"保存成功但数据被立刻淘汰"、
+// `{}` 当字符串映射让 __proto__ 穿透、以及 version 从未被读。
+// 每条都必须能杀掉对应变异：把 LRU 改回按 updatedAt 排序 → 前两条必红；
+// 把 views 换回 `{}` → 第三条必红；去掉 version 判断 → 第四条必红。
+describe('db-grid-views: LRU 依据是单调 seq，不是墙钟', () => {
+  let dir
+  let file
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-db-grid-views-'))
+    file = path.join(dir, 'db-grid-views.json')
+  })
+
+  // 把 200 条写满：键名按序号排，写入顺序与序号一致
+  const fill = (store, n = 200) => {
+    withClock(() => {
+      for (let i = 0; i < n; i++) {
+        store.saveGridView('k' + String(i).padStart(4, '0'), { pageSize: 10 + i }, file)
+      }
+    })
+  }
+
+  test('时钟回拨 1 小时后保存：新键必须还在（按墙钟排会被立刻淘汰）', () => {
+    const real = Date.now
+    try {
+      Date.now = () => 1700000000000
+      fill(g, 200)
+      // NTP 步进 / VM 快照恢复 / 手改系统时间都会让墙钟倒退
+      Date.now = () => 1700000000000 - 3600 * 1000
+      const saved = g.saveGridView('newest|a|b|c', { pageSize: 42 }, file)
+      assert.equal(saved && saved.pageSize, 42, 'save 必须报成功')
+      const after = g.listGridViews(file)
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(after, 'newest|a|b|c'),
+        '时钟回拨后刚保存的视角被立刻淘汰了 —— save 返回成功但什么都没记住'
+      )
+      assert.equal(Object.keys(after).length, 200, '条数仍在上限内')
+    } finally {
+      Date.now = real
+    }
+  })
+
+  test('同一毫秒内更新已存在的键，再写入触发淘汰：刚更新的必须存活', () => {
+    const real = Date.now
+    try {
+      // 冻结时钟：所有 updatedAt 相同，此时排序只能靠 seq
+      Date.now = () => 1700000000000
+      fill(g, 200)
+      // 更新最早写入的那条（它的 updatedAt 与其它全部相同）
+      g.saveGridView('k0000', { pageSize: 999 }, file)
+      // 再写一条触发淘汰
+      g.saveGridView('overflow|a|b|c', { pageSize: 7 }, file)
+      const after = g.listGridViews(file)
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(after, 'k0000'),
+        '刚被更新过的视角被当成最旧淘汰了（墙钟同毫秒不可区分）'
+      )
+      assert.ok(Object.prototype.hasOwnProperty.call(after, 'overflow|a|b|c'), '刚写入的必须存活')
+      assert.equal(Object.keys(after).length, 200)
+    } finally {
+      Date.now = real
+    }
+  })
+
+  test('淘汰仍按最旧优先：seq 最小的先走，seq 最大的保留', () => {
+    const real = Date.now
+    try {
+      Date.now = () => 1700000000000
+      fill(g, 200)
+      // k0000 最旧、k0199 最新
+      g.saveGridView('k0000', { pageSize: 1 }, file)
+      g.saveGridView('trigger|a|b|c', { pageSize: 2 }, file)
+      const after = g.listGridViews(file)
+      const seqs = Object.keys(after).map(k => Number(after[k].seq) || 0)
+      // 200 条填满（seq 1..200）→ 重存 k0000（seq 201，但键数不变）
+      // → 再写 trigger（seq 202）→ 共 201 键，淘汰 1 条 = seq 最小的 k0001
+      assert.equal(Math.min(...seqs), 3, 'seq 最小的那条（k0001）应被淘汰')
+      assert.ok(Math.max(...seqs) >= 201, '最新写入的 seq 最大')
+      assert.equal(after.k0000.seq, 201, '刚被重存过的键 seq 最大之一，不得被淘汰')
+    } finally {
+      Date.now = real
+    }
+  })
+
+  test('老文件（条目没有 seq）读入后 save 不报错，新条目 seq 从 1 开始', () => {
+    fs.writeFileSync(file, JSON.stringify({
+      version: 1,
+      views: { 'legacy|a|b|c': { pageSize: 20, updatedAt: 1700000000000 } }
+    }))
+    const saved = g.saveGridView('fresh|a|b|c', { pageSize: 30 }, file)
+    assert.equal(saved && saved.seq, 1, '无 seq 的旧条目按 0 计，新条目从 1 开始')
+    assert.equal(g.getGridView('legacy|a|b|c', file).pageSize, 20, '旧视角仍可读')
+  })
+})
+
+describe('db-grid-views: views 表必须是无原型对象（__proto__ 不许穿透）', () => {
+  let dir
+  let file
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-db-grid-views-'))
+    file = path.join(dir, 'db-grid-views.json')
+  })
+
+  test('返回对象的原型是 null，不是 Object.prototype', () => {
+    g.saveGridView('a|b|c|d', { pageSize: 20 }, file)
+    const out = g.listGridViews(file)
+    assert.equal(Object.getPrototypeOf(out), null, '用 {} 当映射会让手改文件换掉返回对象的原型')
+    assert.equal(out['a|b|c|d'].pageSize, 20)
+  })
+
+  test('全新文件上 getGridView(\'__proto__\') 返回 null，而不是 Object.prototype', () => {
+    // 契约是"未命中/键非法返回 null"；`{}` 映射下这里会拿到 Object.prototype 本体
+    assert.equal(g.getGridView('__proto__', file), null)
+  })
+
+  test('手改文件里的 __proto__ 不会变成可见的继承属性', () => {
+    fs.writeFileSync(file, JSON.stringify({
+      version: 1,
+      views: {
+        __proto__: { injected: 'YES' },
+        'polluted|a|b|c': { pageSize: 999 }
+      }
+    }))
+    const out = g.listGridViews(file)
+    assert.equal(out.injected, undefined, '注入的继承属性不应可见')
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(out, 'polluted|a|b|c'),
+      '磁盘上真实存在的键仍要能读到'
+    )
+    assert.equal(Object.getPrototypeOf(out), null, '原型不得被换掉')
+    // 再 save 一次后落盘仍然干净（自愈，且不把 __proto__ 写成可继承属性）
+    g.saveGridView('new|a|b|c', { pageSize: 5 }, file)
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+    assert.equal(Object.getPrototypeOf(raw.views), Object.prototype, '落盘 JSON 本身正常')
+    assert.equal(raw.views['new|a|b|c'].pageSize, 5)
+  })
+})
+
+describe('db-grid-views: version 不认识的整表视作空（注释与行为一致）', () => {
+  let dir
+  let file
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-db-grid-views-'))
+    file = path.join(dir, 'db-grid-views.json')
+  })
+
+  test('version: 99 → 空表', () => {
+    fs.writeFileSync(file, JSON.stringify({ version: 99, views: { 'a|b|c|d': { pageSize: 20 } } }))
+    assert.deepEqual({ ...g.listGridViews(file) }, {})
+    assert.equal(g.getGridView('a|b|c|d', file), null)
+  })
+
+  test('version 缺失 → 照常读（手改文件没有这个字段，不能因此清掉用户视角）', () => {
+    fs.writeFileSync(file, JSON.stringify({ views: { 'a|b|c|d': { pageSize: 20 } } }))
+    assert.equal(g.getGridView('a|b|c|d', file).pageSize, 20)
+  })
+
+  test('自己写出来的文件 version 恒为 1', () => {
+    g.saveGridView('a|b|c|d', { pageSize: 20 }, file)
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+    assert.equal(raw.version, 1)
   })
 })

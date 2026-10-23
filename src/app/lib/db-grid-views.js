@@ -7,9 +7,12 @@
  *    端口每次启动都变，origin 随之漂移，localStorage 按 origin 隔离——
  *    视角配置跨启动直接读空（同一条教训记在 db-sql-history.js 头部注释里）。
  *    改存 userData 下固定 JSON 文件，与 origin 无关。
- * 2) 为何 updatedAt 只能由主进程写：该字段是 LRU 淘汰排序的唯一依据。
+ * 2) 为何 updatedAt 与 seq 只能由主进程写：这两个字段决定 LRU 淘汰顺序。
  *    若容许调用方传入，一次 `updatedAt: 0` 就能伪造出"永不淘汰"或
  *    "立刻淘汰别人"的顺序，缓存上限失守但表面无异常，排障极难。
+ *    其中 **seq 才是淘汰排序的唯一依据**（取文件内最大值 + 1，与系统时钟解耦）；
+ *    updatedAt 只用于展示与老文件兼容 —— Date.now() 是墙钟，回拨会让
+ *    "刚保存成功"的条目被立刻当成最旧淘汰掉。
  * 3) 为何存的是条件而不是查询结果：结果集无界（十万行 JSON 撑爆文件）、
  *    会过期（重开标签页时数据早已变化）、且可能含敏感行数据；
  *    视角的本质是"怎么查"（条件/排序/列布局），不是"查到了什么"。
@@ -43,8 +46,17 @@ function isPositiveNumber (v) {
   return typeof v === 'number' && Number.isFinite(v) && v > 0
 }
 
+// 视角表必须用**无原型对象**当字符串映射。用 `{}` 的话，手改文件里塞一个
+// `{"views": {"__proto__": {...}}}` 会走到 Object.prototype 的 __proto__ setter：
+// 返回对象的原型被换掉、继承属性可见、`getGridView` 能返回磁盘上根本不存在的
+// "幽灵视角"，甚至 `getGridView('__proto__')` 返回 Object.prototype 本体而不是
+// 契约里的 null。全局 Object.prototype 没被污染，但"未命中返回 null"这条契约破了。
+function newViews () {
+  return Object.create(null)
+}
+
 function emptyStore () {
-  return { version: VERSION, views: {} }
+  return { version: VERSION, views: newViews() }
 }
 
 function readStore (filePath) {
@@ -56,7 +68,13 @@ function readStore (filePath) {
     if (!isPlainObject(data) || !isPlainObject(data.views)) {
       return emptyStore()
     }
-    const views = {}
+    // 版本不认识就整表丢弃：否则将来 v2 的条目被 v1 读到一半字段照用，
+    // 表现为"视角莫名其妙少了个条件"——比读空更难查。
+    // version 缺失时照常读（手改文件没有这个字段，不能因此把用户的视角全清了）。
+    if (data.version !== undefined && data.version !== VERSION) {
+      return emptyStore()
+    }
+    const views = newViews()
     for (const key of Object.keys(data.views)) {
       const item = data.views[key]
       // 手改过的文件里可能有非对象值，丢弃而不是让下游拿 NaN
@@ -208,21 +226,51 @@ function pickView (view) {
   }
 }
 
-// LRU 淘汰：条数超限时按 updatedAt 升序（最旧在前）删到上限。
-// updatedAt 由主进程保证单调可比较，此处无需再兜 NaN——但仍用 `|| 0` 兜住
-// 手改文件里缺字段的条目，避免排序退化为 NaN 比较导致的随机淘汰
-function evictOldest (views) {
-  const keys = Object.keys(views)
-  if (keys.length <= MAX_VIEWS) {
+// 主进程单调序号：取文件里现有条目的最大值 + 1。
+// 与系统时钟完全解耦 —— 这是"淘汰顺序可信"的唯一依据（见 evictOldest 的说明）。
+function maxSeqOf (views) {
+  let max = 0
+  for (const key of Object.keys(views)) {
+    const s = Number(views[key] && views[key].seq)
+    if (Number.isFinite(s) && s > max) {
+      max = s
+    }
+  }
+  return max
+}
+
+function seqOf (view) {
+  // 老文件里的条目没有 seq（写这个字段之前存的），一律按 0 参与排序；
+  // 第一次被 save 覆盖时自动补上，不需要迁移
+  const s = Number(view && view.seq)
+  return Number.isFinite(s) ? s : 0
+}
+
+// LRU 淘汰：条数超限时按 seq 升序（最旧在前）删到上限。
+//
+// 为什么不用 `Date.now()` 排序：那是**墙钟**不是单调钟。NTP 步进、VM 从快照恢复、
+// 用户手改系统时间都会让它回拨；回拨后刚写入的条目比所有旧条目"更旧"，
+// 于是 saveGridView 返回成功、落盘里却没有它 —— 调用方以为记住了，实际什么都没记住。
+// 同一毫秒内的多条写入也没有先后可分，排序会退化成交插入序的偶然
+// （"刚更新过的那条"和"刚写入的那条"谁先淘汰完全取决于 Object.keys 的顺序）。
+//
+// keepKey（刚写入的那个键）不参与淘汰：这是对上述两种退化的一层直接兜底。
+function evictOldest (views, keepKey) {
+  const all = Object.keys(views)
+  if (all.length <= MAX_VIEWS) {
     return views
   }
-  const ordered = keys.slice().sort((a, b) => {
-    const ta = Number(views[a].updatedAt) || 0
-    const tb = Number(views[b].updatedAt) || 0
-    return ta - tb
-  })
-  for (const key of ordered.slice(0, keys.length - MAX_VIEWS)) {
-    delete views[key]
+  const need = all.length - MAX_VIEWS
+  const candidates = all
+    .filter(key => key !== keepKey)
+    .sort((a, b) => {
+      const bySeq = seqOf(views[a]) - seqOf(views[b])
+      return bySeq !== 0
+        ? bySeq
+        : (Number(views[a].updatedAt) || 0) - (Number(views[b].updatedAt) || 0)
+    })
+  for (let i = 0; i < need && i < candidates.length; i++) {
+    delete views[candidates[i]]
   }
   return views
 }
@@ -242,16 +290,22 @@ function getGridView (key, filePath) {
   return isPlainObject(view) ? view : null
 }
 
-// 保存：返回落盘后的 view（含主进程写的 updatedAt）；键非法或写盘失败返回 null
+// 保存：返回落盘后的 view（含主进程写的 updatedAt 与 seq）；键非法或写盘失败返回 null
 function saveGridView (key, view, filePath) {
   if (!isValidKey(key)) {
     // 键非法直接不写盘：写进去也读不出来，只会占 LRU 名额挤掉真实视角
     return null
   }
   const store = readStore(filePath)
-  const saved = Object.assign(pickView(view), { updatedAt: Date.now() })
+  // seq 必须在写入前算（否则新键会把自己也算进 max）；updatedAt 仍写，但只用于
+  // 展示与老文件兼容，**不参与淘汰排序**（墙钟不可单调，见 evictOldest 的说明）。
+  // 两个字段都由主进程写，不接受调用方传入 —— 否则 LRU 顺序可被伪造。
+  const saved = Object.assign(pickView(view), {
+    updatedAt: Date.now(),
+    seq: maxSeqOf(store.views) + 1
+  })
   store.views[key] = saved
-  const views = evictOldest(store.views)
+  const views = evictOldest(store.views, key)
   try {
     writeStore(filePath, { version: VERSION, views })
   } catch (e) {
