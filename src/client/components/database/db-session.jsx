@@ -21,6 +21,16 @@ import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
+import {
+  clampPanelSize,
+  readHistoryPanelSize,
+  sizePatch,
+  splitMode,
+  moveHistoryIndex,
+  clampHistoryIndex,
+  previewText,
+  filterHistory
+} from '../../common/db-sql-history-panel'
 import { formatSql } from '../../common/db-sql-format'
 // 只取元数据整形函数：引擎主体仍只被懒加载的编辑器引用，
 // 这里不会把任何编辑器代码拖进主 chunk
@@ -47,6 +57,11 @@ const getSqlKeywordCase = () => {
   const v = window.store._config && window.store._config.dbSqlKeywordCase
   return v === 'upper' ? 'upper' : 'lower'
 }
+// 历史弹层的尺寸上限按视口算（弹层挂在工具条下方，超过视口下沿就够不着列表底部）
+const viewportSize = () => ({
+  width: window.innerWidth,
+  height: window.innerHeight
+})
 // 元数据树宽度约束与持久化键
 const TREE_WIDTH_KEY = 'electerm-db-tree-width'
 const TREE_MIN_W = 160
@@ -1136,13 +1151,40 @@ export default auto(function DbSession (props) {
 
   const [sqlHistoryOpen, setSqlHistoryOpen] = useState(false)
   const [sqlHistory, setSqlHistory] = useState([])
+  // 弹层尺寸：拖拽出来的，落盘在 config（dbSqlHistoryWidth/Height），跨启动稳定。
+  // 初值读 config 时就夹一次，旧配置在更小的窗口上不会溢出
+  const [histSize, setHistSize] = useState(
+    () => readHistoryPanelSize(window.store._config, viewportSize())
+  )
+  // 拖拽期间要的是"最新的"尺寸而不是本次渲染闭包里的，用 ref 兜住
+  const histSizeRef = useRef(histSize)
+  // 当前悬浮/键盘选中的条目（预览栏与高亮共用同一份状态，
+  // 否则鼠标预览和键盘走查会指向两行）
+  const [histIndex, setHistIndex] = useState(0)
+  const histListRef = useRef(null)
+  // 300 条上限里找一条旧语句全靠滚动太费劲，给个只看语句文本的筛选框
+  const [histFilter, setHistFilter] = useState('')
+  const histList = useMemo(
+    () => filterHistory(sqlHistory, histFilter),
+    [sqlHistory, histFilter]
+  )
+
   const openSqlHistory = (open) => {
     setSqlHistoryOpen(open)
     // 每次打开刷新列表，避免读陈旧快照（listSqlHistory 已异步，失败静默返回 []）
     if (open) {
+      setHistIndex(0)
+      setHistFilter('')
       listSqlHistory()
         .then(setSqlHistory)
         .catch(err => console.warn('load sql history failed:', err))
+      // 列表一出现就给焦点：否则打开后按 ↑↓ 没反应（要先用鼠标点一下）
+      setTimeout(() => {
+        const el = histListRef.current
+        if (el && el.focus) {
+          el.focus()
+        }
+      }, 60)
     }
   }
   const pickSqlHistory = (item) => {
@@ -1152,6 +1194,81 @@ export default auto(function DbSession (props) {
   const removeSqlHistory = () => {
     clearSqlHistory()
     setSqlHistory([])
+    setHistIndex(0)
+  }
+
+  // 拖拽调整尺寸：右边缘改宽、右下角改宽高。
+  // 监听挂在 window 上而不是用 pointer capture——弹层在 portal 里，
+  // 指针一移出弹层，元素上的事件就断了
+  const startHistResize = axis => ev => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    const from = histSizeRef.current
+    const x0 = ev.clientX
+    const y0 = ev.clientY
+    const both = axis === 'both'
+    const move = e => {
+      const next = clampPanelSize({
+        width: both || axis === 'width' ? from.width + (e.clientX - x0) : from.width,
+        height: both || axis === 'height' ? from.height + (e.clientY - y0) : from.height
+      }, viewportSize())
+      histSizeRef.current = next
+      setHistSize(next)
+    }
+    // 拖拽时全局禁选中，否则会把弹层里的语句文本刷成选中态
+    document.body.classList.add('db-hist-resizing')
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.classList.remove('db-hist-resizing')
+      // 松手才落盘：拖动过程中每帧刷 config 会把主进程写配置打满
+      window.store.setConfig(sizePatch(histSizeRef.current))
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  // 键盘走查：↑↓ 移动、Enter 插入编辑器、Esc 关闭
+  const moveHist = delta => {
+    const next = moveHistoryIndex(histIndex, histList.length, delta)
+    setHistIndex(next)
+    const el = histListRef.current && histListRef.current.children[next]
+    if (el && el.scrollIntoView) {
+      el.scrollIntoView({ block: 'nearest' })
+    }
+  }
+  const onHistKeyDown = ev => {
+    if (!histList.length) {
+      return
+    }
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault()
+      moveHist(ev.key === 'ArrowDown' ? 1 : -1)
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault()
+      const item = histList[clampHistoryIndex(histIndex, histList.length)]
+      if (item) {
+        pickSqlHistory(item)
+      }
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault()
+      openSqlHistory(false)
+    }
+  }
+
+  // 预览取"当前选中项"；列表刷新/筛选后下标可能越界，过一次夹取
+  const histCur = histList.length
+    ? histList[clampHistoryIndex(histIndex, histList.length)]
+    : null
+  // 筛选框里按 ↓ 把焦点交给列表（否则筛完还得再点一下才能用键盘选）
+  const onHistFilterKeyDown = ev => {
+    if (ev.key === 'ArrowDown' || ev.key === 'Enter') {
+      ev.preventDefault()
+      const el = histListRef.current
+      if (el && el.focus) {
+        el.focus()
+      }
+    }
   }
 
   // Ctrl/Cmd+Enter 执行、Ctrl/Cmd+Shift+F 格式化：键位已移进编辑器 keymap
@@ -2211,9 +2328,16 @@ export default auto(function DbSession (props) {
           open={sqlHistoryOpen}
           onOpenChange={openSqlHistory}
           content={
-            <div className='db-history-pop'>
+            <div
+              className='db-history-pop'
+              data-split={splitMode(histSize.width)}
+              style={{ width: histSize.width, height: histSize.height }}
+            >
               <div className='db-history-head'>
-                <span>{e('dbSqlHistory')}</span>
+                <span className='db-history-title'>
+                  {e('dbSqlHistory')}
+                  {sqlHistory.length ? <span className='db-history-count'>{sqlHistory.length}</span> : null}
+                </span>
                 {
                   sqlHistory.length
                     ? (
@@ -2233,43 +2357,128 @@ export default auto(function DbSession (props) {
                 }
               </div>
               {
+                // 环形上限 200 条，找旧语句靠滚动太费劲；只匹配语句文本，不匹配库名/时间
                 sqlHistory.length
                   ? (
-                    <div className='db-history-list'>
-                      {
-                        sqlHistory.map((item, i) => (
-                          <div
-                            key={i}
-                            className='db-history-item'
-                            onClick={() => pickSqlHistory(item)}
-                          >
-                            <div className='db-history-sql'>
-                              {item.sql.length > 80 ? item.sql.slice(0, 80) + '…' : item.sql}
-                            </div>
-                            <div className='db-history-meta'>
-                              <span className='db-history-time'>
-                                {new Date(item.ts).toLocaleString()}
-                              </span>
-                              <span>
-                                {dbTypeLabelMap[item.dbType] || item.dbType}
-                                {item.dbName ? ' · ' + item.dbName : ''}
-                              </span>
-                              {
-                                item.ok === false
-                                  ? <span className='db-history-fail'>{e('dbSqlHistoryFailed')}</span>
-                                  : null
+                    <Input
+                      className='db-history-filter'
+                      size='small'
+                      allowClear
+                      value={histFilter}
+                      placeholder={e('dbSqlHistoryFilter')}
+                      onChange={ev => {
+                        setHistFilter(ev.target.value)
+                        setHistIndex(0)
+                      }}
+                      onKeyDown={onHistFilterKeyDown}
+                    />
+                    )
+                  : null
+              }
+              {
+                histList.length
+                  ? (
+                    <div className='db-history-body'>
+                      <div
+                        className='db-history-list'
+                        ref={histListRef}
+                        tabIndex={0}
+                        role='listbox'
+                        aria-label={e('dbSqlHistory')}
+                        onKeyDown={onHistKeyDown}
+                      >
+                        {
+                          histList.map((item, i) => (
+                            <div
+                              key={i}
+                              role='option'
+                              aria-selected={i === histIndex}
+                              className={
+                                'db-history-item' +
+                                (i === histIndex ? ' is-active' : '')
                               }
+                              onClick={() => pickSqlHistory(item)}
+                              onMouseEnter={() => setHistIndex(i)}
+                            >
+                              <div className='db-history-sql'>{previewText(item.sql)}</div>
+                              <div className='db-history-meta'>
+                                <span className='db-history-time'>
+                                  {new Date(item.ts).toLocaleString()}
+                                </span>
+                                <span className='db-history-src'>
+                                  {dbTypeLabelMap[item.dbType] || item.dbType}
+                                  {item.dbName ? ' · ' + item.dbName : ''}
+                                </span>
+                                {
+                                  item.ok === false
+                                    ? <span className='db-history-fail'>{e('dbSqlHistoryFailed')}</span>
+                                    : null
+                                }
+                                <Button
+                                  className='db-history-copy'
+                                  type='text'
+                                  size='small'
+                                  icon={<CopyOutlined />}
+                                  title={e('dbSqlHistoryCopy')}
+                                  onClick={ev => {
+                                    // 只复制，不插回编辑器：想复用长语句又不想动当前编辑内容
+                                    ev.stopPropagation()
+                                    copy(previewText(item.sql))
+                                  }}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ))
+                          ))
+                        }
+                      </div>
+                      {
+                        // 预览栏：悬浮/键盘选中项的完整语句。列表里只给两行，
+                        // 因为一条语句可能几十行，全展开会把列表挤没
+                        histCur
+                          ? (
+                            <div className='db-history-preview'>
+                              <div className='db-history-preview-head'>
+                                <span>{e('dbSqlHistoryPreview')}</span>
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  icon={<CopyOutlined />}
+                                  title={e('dbSqlHistoryCopy')}
+                                  onClick={() => copy(previewText(histCur.sql))}
+                                />
+                              </div>
+                              <pre className='db-history-preview-code'>{previewText(histCur.sql)}</pre>
+                            </div>
+                            )
+                          : null
                       }
                     </div>
                     )
                   : (
-                    <div className='db-history-empty'>{e('dbSqlHistoryEmpty')}</div>
+                    <div className='db-history-empty'>
+                      {sqlHistory.length ? e('dbSqlHistoryNoMatch') : e('dbSqlHistoryEmpty')}
+                    </div>
                     )
               }
               <div className='db-history-note'>{e('dbSqlHistoryNote')}</div>
+              {
+                // 拖拽把手：右边缘改宽、右下角改宽高。
+                // 放在 body 之外、绝对定位贴边，列表滚动条靠 body 的 padding 让开
+                sqlHistory.length
+                  ? (
+                    <div
+                      className='db-history-rz db-history-rz-r'
+                      onPointerDown={startHistResize('width')}
+                      title={e('dbSqlHistoryResize')}
+                    />
+                    )
+                  : null
+              }
+              <div
+                className='db-history-rz db-history-rz-c'
+                onPointerDown={startHistResize('both')}
+                title={e('dbSqlHistoryResize')}
+              />
             </div>
           }
         >

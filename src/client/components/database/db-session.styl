@@ -722,11 +722,15 @@
   min-height 24px
 
 // S3-C：SQL 执行历史弹层
+// 尺寸由 JS 内联给（可拖拽 + 持久化），这里的 width/height 只是"JS 没给值"时的兜底
 .db-history-pop
-  width 380px
-  max-height 380px
+  width 720px
+  height 440px
   display flex
   flex-direction column
+  position relative
+  min-width 0
+  min-height 0
 
 .db-history-head
   display flex
@@ -736,25 +740,70 @@
   border-bottom 1px solid var(--border)
   font-weight 500
 
-.db-history-list
-  overflow-y auto
-  // flex 0 1 auto：高度由内容撑起；容器 max-height 380 限高时收缩出滚动。
-  // 不能用 flex 1 1 0 + min-height 0——父容器高度不定（仅 max-height）时
-  // basis 0 会让列表高度死锁塌陷为 0（数据在但列表不可见，test.247 实测）
-  flex 0 1 auto
+.db-history-title
+  display flex
+  align-items center
+  gap 6px
+
+.db-history-count
+  padding 0 5px
+  border-radius var(--radius-xs)
+  background var(--hover-bg)
+  color var(--text-dark)
+  font-size 11px
+  font-weight 400
+
+// 筛选框：与列表同宽，右侧同样让出 6px 给拖拽把手
+.db-history-filter
+  flex 0 0 auto
+  margin 6px 6px 0 0
+
+// 列表 + 预览两栏：够宽左右排，窄了改上下（< 600px 时两栏各自都会被折到不可读）
+.db-history-body
+  display flex
+  flex 1 1 auto
+  // 右侧让出 6px：拖拽把手贴在弹层右边缘，不能压住列表滚动条
+  padding-right 6px
   min-height 0
+  gap 8px
+
+.db-history-pop[data-split='col'] .db-history-body
+  flex-direction column
+
+.db-history-list
+  // 容器高度由内联 style 钉死（不再靠 max-height），basis 0 才不会塌——
+  // 老写法 flex 0 1 auto 是给"仅 max-height"的容器用的，现在反而会让列表
+  // 按内容撑高把预览栏挤出去
+  flex 1 1 0
+  min-height 0
+  overflow-y auto
+  outline none
+  &:focus-visible
+    outline 1px solid var(--primary)
+    outline-offset -1px
 
 .db-history-item
-  padding 6px 8px
+  position relative
+  padding 6px 8px 6px 6px
+  border-left 2px solid transparent
   border-radius var(--radius-sm)
   cursor pointer
   &:hover
     background var(--hover-bg)
+  &.is-active
+    background var(--hover-bg)
+    border-left-color var(--primary)
   &:focus-visible
     outline 2px solid var(--primary)
     outline-offset -2px
 
+// 列表里只露两行：一条语句可能几十行，全展开会把列表挤没；
+// 完整内容看右侧预览栏（悬浮即切换）
 .db-history-sql
+  display -webkit-box
+  -webkit-line-clamp 2
+  -webkit-box-orient vertical
+  overflow hidden
   font-family var(--db-code-font, var(--font-mono))
   font-size 12px
   word-break break-all
@@ -767,6 +816,20 @@
   color var(--text-dark)
   font-size 11px
 
+.db-history-src
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-history-copy
+  margin-left auto
+  opacity 0
+  // 常驻占位（只切透明度）：hover 才显形，避免出现/消失时元信息行抖动
+  .db-history-item:hover &
+    opacity 1
+  .db-history-item.is-active &
+    opacity 1
+
 .db-history-fail
   color var(--error)
 
@@ -774,12 +837,88 @@
   padding 16px 8px
   text-align center
   color var(--text-dark)
+  flex 1 1 auto
 
 .db-history-note
-  padding 6px 4px 0
+  // 右侧让出 14px：右下角的拖拽把手压在弹层角上，注释文字别钻到它底下
+  padding 6px 14px 0 4px
   border-top 1px solid var(--border)
   color var(--text-dark)
   font-size 11px
+
+// 预览栏
+.db-history-preview
+  display flex
+  flex-direction column
+  flex 1 1 0
+  min-width 0
+  min-height 0
+  padding-left 8px
+  border-left 1px solid var(--border)
+
+.db-history-pop[data-split='col'] .db-history-preview
+  // 上下布局时预览固定占 40%，列表仍有 60% 可滚
+  flex 0 0 40%
+  padding-left 0
+  padding-top 6px
+  border-left none
+  border-top 1px solid var(--border)
+
+.db-history-preview-head
+  display flex
+  align-items center
+  justify-content space-between
+  padding-bottom 4px
+  color var(--text-dark)
+  font-size 11px
+
+.db-history-preview-code
+  flex 1 1 0
+  min-height 0
+  margin 0
+  overflow auto
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  // pre-wrap 保换行与缩进（预览就是"原样长什么样"），长单词强制断行防横向滚动
+  white-space pre-wrap
+  word-break break-word
+  tab-size 2
+
+// 拖拽把手：右边缘改宽、右下角改宽高
+.db-history-rz
+  position absolute
+  z-index 2
+  -webkit-app-region no-drag
+
+.db-history-rz-r
+  top 0
+  right 0
+  width 6px
+  bottom 16px
+  cursor ew-resize
+
+.db-history-rz-c
+  right 0
+  bottom 0
+  width 14px
+  height 14px
+  cursor nwse-resize
+  // 三道斜线做视觉提示（纯 CSS，不占 DOM）
+  background linear-gradient(
+    135deg,
+    transparent 0 46%,
+    var(--text-dark) 46% 52%,
+    transparent 52% 62%,
+    var(--text-dark) 62% 68%,
+    transparent 68%
+  )
+  opacity 0.45
+  &:hover
+    opacity 0.9
+
+// 拖拽期间禁选中：否则弹层里的语句文本会被刷成蓝色选中态
+body.db-hist-resizing
+  user-select none
 
 // A-8：编辑器选项弹层
 .db-sql-opts-pop

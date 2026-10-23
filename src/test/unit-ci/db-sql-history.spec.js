@@ -141,9 +141,28 @@ describe('db-sql-history (main-process file store)', () => {
     )
     const block = styl.match(/\.db-history-list\n([\s\S]*?)\n\./)
     assert.ok(block, 'db-history-list style block missing')
-    // 容器仅 max-height 无固定高：basis 0 会死锁塌陷，必须内容撑高（flex-basis auto）
-    // 反向断言按属性行匹配（注释里的说明文字含禁用写法本身，不能裸词匹配）
-    assert.ok(!/^ {2}flex 1 1 0$/m.test(block[1]), 'flex 1 1 0 collapses list to 0 height')
-    assert.ok(/^ {2}flex 0 1 auto$/m.test(block[1]), 'list must size from content (flex 0 1 auto)')
+    // 早先弹层只有 max-height、高度不定，basis 0 会让列表塌成 0（test.247 实测）。
+    // 现在高度由内联 style 钉死（可拖拽 + 持久化），列表必须改回 flex 1 1 0 + min-height 0：
+    // 用 0 1 auto 会按内容撑高，把预览栏挤出去
+    const pop = styl.match(/\.db-history-pop\n([\s\S]*?)\n\.db-history-head/)
+    assert.ok(pop, 'db-history-pop style block missing')
+    assert.ok(!/^ {2}max-height /m.test(pop[1]), 'pop 高度由 JS 内联给，不再用 max-height 限高')
+    assert.ok(/^ {2}flex 1 1 0$/m.test(block[1]), 'list must fill remaining height (flex 1 1 0)')
+    assert.ok(/^ {2}min-height 0$/m.test(block[1]), 'min-height 0 required for scroll inside flex')
+  })
+
+  test('弹层尺寸由内联 style 给（拖拽 + 持久化），CSS 只留兜底', () => {
+    const jsx = fs.readFileSync(
+      path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
+    )
+    assert.ok(jsx.includes('style={{ width: histSize.width, height: histSize.height }}'),
+      'popover size must come from state')
+    assert.ok(jsx.includes('data-split={splitMode(histSize.width)}'),
+      'split mode must be derived from width')
+    // 一次拖拽只落一次盘：setConfig 必须在 pointerup 之后，不能在 pointermove 里
+    const drag = jsx.slice(jsx.indexOf('const startHistResize'), jsx.indexOf('const moveHist'))
+    assert.ok(drag.includes("window.addEventListener('pointermove', move)"))
+    assert.ok(/const up = \(\) => \{[\s\S]*?setConfig\(sizePatch/.test(drag),
+      'setConfig must run on pointerup, not every frame')
   })
 })
