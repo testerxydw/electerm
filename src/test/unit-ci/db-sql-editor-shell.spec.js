@@ -78,6 +78,17 @@ describe('A-1 外壳装配', () => {
     assert.ok(!/'SELECT FROM WHERE'/.test(src))
   })
 
+  test('define 参数必须来自 cmDialectSpec（词表要转小写，否则全表关键字不高亮）', () => {
+    // lang-sql 分词器查表是 d.words[word.toLowerCase()]，建表按原样存 key；
+    // 直接 keywords: d.keywords.join(' ') 一个都命中不了 → 只有数字/字符串/注释有颜色
+    assert.match(src, /SQLDialect\.define\(cmDialectSpec\(d\)\)/)
+    assert.ok(
+      !/keywords:\s*d\.keywords\.join/.test(src),
+      '不允许手拼词表：大小写转换集中在 cmDialectSpec'
+    )
+    assert.match(src, /import \{[^}]*cmDialectSpec[^}]*\} from '\.\.\/\.\.\/common\/sql-dialects'/)
+  })
+
   test('方言/只读/placeholder 都走 Compartment reconfigure，不重建 EditorView', () => {
     assert.match(src, /new Compartment\(\)/)
     assert.match(src, /langCompartment\.current\.reconfigure\(/)

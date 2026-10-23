@@ -15,7 +15,7 @@ function loadFns () {
   const sandbox = {}
   vm.createContext(sandbox)
   return vm.runInContext(
-    `(function () { ${src}; return { dialectMap, getDialect, isSqlDialect, staticCandidates } })()`,
+    `(function () { ${src}; return { dialectMap, getDialect, isSqlDialect, staticCandidates, cmDialectSpec } })()`,
     sandbox
   )
 }
@@ -178,5 +178,56 @@ describe('sql-dialects: staticCandidates 输出', () => {
   test('非 SQL 引擎返回空数组（调用方据此隐藏补全入口）', () => {
     assert.equal(staticCandidates('redis').length, 0)
     assert.equal(staticCandidates('unknown').length, 0)
+  })
+})
+
+// ---------------------------------------------------------------- CM6 方言规格
+// 回归守卫：@codemirror/lang-sql 的分词器用 `d.words[word.toLowerCase()]` 查表，
+// 而建表（keywords()）按原样存 key。曾经直接把大写的 keywords 数组 join 进
+// SQLDialect.define → 所有关键字查不到 → 表现为"语法没有高亮"（数字/字符串/
+// 注释照常有，因为它们不查词表，所以很容易被误判成"高亮整体没生效"）。
+describe('sql-dialects: cmDialectSpec（给 lang-sql 的 define 参数）', () => {
+  const { dialectMap, cmDialectSpec } = loadFns()
+
+  test('词表全部小写（lang-sql 查表用小写 key）', () => {
+    for (const id of ['mysql', 'postgres']) {
+      const spec = cmDialectSpec(dialectMap[id])
+      for (const field of ['keywords', 'builtin', 'types']) {
+        assert.equal(spec[field], spec[field].toLowerCase(), `${id}.${field} 必须小写`)
+        assert.ok(!/\b[A-Z]{2,}\b/.test(spec[field]), `${id}.${field} 混进了大写词`)
+      }
+    }
+  })
+
+  test('常用关键字/类型/函数都在（抽样式，不钉全表）', () => {
+    const spec = cmDialectSpec(dialectMap.mysql)
+    for (const kw of ['select', 'from', 'where', 'group', 'limit']) {
+      assert.ok(spec.keywords.split(' ').includes(kw), `缺关键字 ${kw}`)
+    }
+    for (const tp of ['int', 'decimal', 'varchar']) {
+      assert.ok(spec.types.split(' ').includes(tp), `缺类型 ${tp}`)
+    }
+    for (const fn of ['count', 'cast']) {
+      assert.ok(spec.builtin.split(' ').includes(fn), `缺内置函数 ${fn}`)
+    }
+  })
+
+  test('词法开关按方言透传（引号/注释/转义/$$）', () => {
+    const my = cmDialectSpec(dialectMap.mysql)
+    const pg = cmDialectSpec(dialectMap.postgres)
+    assert.equal(my.identifierQuotes, '`')
+    assert.equal(my.hashComments, true)
+    assert.equal(my.backslashEscapes, true)
+    assert.equal(my.doubleDollarQuotedStrings, false)
+    assert.equal(pg.identifierQuotes, '"')
+    assert.equal(pg.hashComments, false)
+    assert.equal(pg.backslashEscapes, false)
+    assert.equal(pg.doubleDollarQuotedStrings, true)
+  })
+
+  test('空表不抛错（自定义方言兜底）', () => {
+    const spec = cmDialectSpec({ id: 'x', keywords: [], builtin: [], types: [] })
+    assert.equal(spec.keywords, '')
+    assert.equal(spec.types, '')
   })
 })

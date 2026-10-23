@@ -193,6 +193,37 @@ export function isSqlDialect (dbType) {
 }
 
 /**
+ * 方言 → @codemirror/lang-sql 的 SQLDialect.define 参数（供 CM6 高亮与解析）。
+ *
+ * ⚠️ 词表必须**小写**：lang-sql 的分词器查表用的是 `d.words[word.toLowerCase()]`
+ * （dist/index.js 里 tokensFor 的 Identifier 分支），而它建表时按原样存 key。
+ * 表里存的是大写（SQL 惯例，补全插入按用户配置再转大小写）→ 直接 join 进去
+ * 一个都命中不了，表现为"关键字不高亮"（数字/字符串/注释仍正常，因为它们
+ * 不查词表）。
+ *
+ * @param {object} d getDialect 的返回值
+ * @returns {object} 可直接传给 SQLDialect.define
+ */
+export function cmDialectSpec (d) {
+  const lower = list => (list || []).join(' ').toLowerCase()
+  return {
+    keywords: lower(d.keywords),
+    builtin: lower(d.builtin),
+    types: lower(d.types),
+    // 反引号 / 双引号：决定 `` `us `` 这类未闭合标识符能否被识别为标识符
+    identifierQuotes: d.quote,
+    // PG 的 # 不是注释；mysql 吞到行尾
+    hashComments: d.hashComment,
+    // mysql 字符串吃反斜杠转义，PG 不吃（'C:\path' 在 PG 里是普通字符串）
+    backslashEscapes: d.backslashEscapes,
+    // mysql 的 -- 必须后跟空白才是注释
+    spaceAfterDashes: d.spaceAfterDashes,
+    // $tag$...$tag$（PG 函数体）只有 PG 需要
+    doubleDollarQuotedStrings: d.dollarQuote
+  }
+}
+
+/**
  * 关键字/内置函数/类型合并去重（补全候选的静态部分）。
  * 顺序固定：keyword → builtin → type，便于同 priority 内按稳定性排序。
  */

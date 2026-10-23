@@ -54,7 +54,7 @@ import {
 } from '@codemirror/autocomplete'
 import { sql, SQLDialect } from '@codemirror/lang-sql'
 import { tags } from '@lezer/highlight'
-import { getDialect } from '../../common/sql-dialects'
+import { getDialect, cmDialectSpec } from '../../common/sql-dialects'
 import { classifyContext, buildCompletions } from '../../common/db-sql-complete'
 import { normalizeSqlEditorOpts } from '../../common/db-sql-opts'
 import { scanTextHits } from './db-search'
@@ -96,22 +96,9 @@ function cmDialect (dbType) {
     return null
   }
   if (!dialectCache[d.id]) {
-    dialectCache[d.id] = SQLDialect.define({
-      // CM6 要空格分隔的字符串；表里存数组是为了单测与去重
-      keywords: d.keywords.join(' '),
-      builtin: d.builtin.join(' '),
-      types: d.types.join(' '),
-      // 反引号 / 双引号：决定 `` `us `` 这类未闭合标识符能否被识别为标识符
-      identifierQuotes: d.quote,
-      // PG 的 # 不是注释；mysql 吞到行尾
-      hashComments: d.hashComment,
-      // mysql 字符串吃反斜杠转义，PG 不吃（'C:\path' 在 PG 里是普通字符串）
-      backslashEscapes: d.backslashEscapes,
-      // mysql 的 -- 必须后跟空白才是注释
-      spaceAfterDashes: d.spaceAfterDashes,
-      // $tag$...$tag$（PG 函数体）只有 PG 需要
-      doubleDollarQuotedStrings: d.dollarQuote
-    })
+    // cmDialectSpec 负责把大写词表转小写（lang-sql 查表用小写 key，不做这个
+    // 转换的话关键字一个都高亮不出来），方言细节仍只有 sql-dialects.js 一份
+    dialectCache[d.id] = SQLDialect.define(cmDialectSpec(d))
   }
   return dialectCache[d.id]
 }
