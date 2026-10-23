@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>草图：数据库阶段4 增量批次 UI · 2026-10-23</title>
+<!-- 配套文档：../设计-数据库阶段4-增量批次-2026-10-23.md
+     风格：对齐 doc/已完成/草图-数据库待办增强-2026-10-21.html（暗色应用风）;
+     配色命名对齐项目 v4 token（--radius-xs 等），供实施时映射真实 token。
+     状态：方案待确认，未开工。 -->
+<style>
+  :root {
+    --bg: #1e1f24;
+    --surface: #2a2b31;
+    --surface-2: #33343b;
+    --border: #46474f;
+    --text: #e6e6e6;
+    --muted: #a9aab3;
+    --primary: #5b8def;
+    --ok: #4caf7d;
+    --warn: #d9a04a;
+    --danger: #d06a6a;
+    --purple: #9a7ee8;
+    --teal: #4fb3af;
+    --radius: 6px;
+    --radius-xs: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 24px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 14px; }
+  h2 { font-size: 15px; color: var(--primary); margin: 36px 0 4px; }
+  h2 .no { color: var(--muted); font-weight: 400; margin-right: 6px; }
+  .note { color: var(--muted); margin-bottom: 10px; }
+  .note b { color: var(--text); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .panel p { color: var(--muted); margin-bottom: 6px; }
+  .panel ul { margin: 4px 0 0 18px; color: var(--muted); }
+  .panel li { margin-bottom: 3px; }
+  .panel b { color: var(--text); }
+  .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .badge {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 16px;
+    vertical-align: 1px;
+  }
+  .badge.primary { background: rgba(91, 141, 239, .18); color: var(--primary); }
+  .badge.ok { background: rgba(76, 175, 125, .18); color: var(--ok); }
+  .badge.warn { background: rgba(217, 160, 74, .18); color: var(--warn); }
+  .badge.danger { background: rgba(208, 106, 106, .18); color: var(--danger); }
+  .badge.purple { background: rgba(154, 126, 232, .18); color: var(--purple); }
+  .badge.teal { background: rgba(79, 179, 175, .18); color: var(--teal); }
+  .frame {
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .tabstrip {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 2px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    height: 30px;
+    line-height: 30px;
+    padding: 0 10px;
+    color: var(--muted);
+    font-size: 12px;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--primary); }
+  .db-head {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .db-head .engine { font-weight: 600; }
+  .db-head .target { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .db-head .sp { flex: 1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; flex: none; }
+  .tbtn {
+    height: 20px;
+    line-height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    color: var(--muted);
+    font-size: 11px;
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  .tbtn.primary { color: var(--primary); border-color: rgba(91,141,239,.4); }
+  .tbtn.ok { color: var(--ok); }
+  .tbtn[disabled] { opacity: .45; }
+  /* SQL 编辑器 */
+  .editor {
+    display: flex;
+    background: var(--bg);
+    font: 12px/1.7 "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    min-height: 180px;
+    position: relative;
+  }
+  .gutter {
+    flex: none;
+    width: 34px;
+    padding: 8px 6px 8px 0;
+    text-align: right;
+    color: #5a5b64;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    user-select: none;
+  }
+  .code { flex: 1; padding: 8px 10px; white-space: pre; overflow: hidden; position: relative; }
+  .kw { color: var(--purple); }
+  .fn { color: var(--teal); }
+  .str { color: var(--ok); }
+  .num { color: var(--warn); }
+  .cm { color: var(--muted); }
+  .iden { color: var(--text); }
+  .caret { display: inline-block; width: 1.5px; height: 14px; background: var(--primary); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .acpop {
+    position: absolute;
+    left: 220px;
+    top: 34px;
+    width: 240px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+    font-size: 11px;
+    z-index: 5;
+    overflow: hidden;
+  }
+  .acpop .head {
+    padding: 3px 8px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between;
+  }
+  .acpop .row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; }
+  .acpop .row.sel { background: rgba(91,141,239,.14); }
+  .acpop .row .m { color: var(--muted); font-size: 10px; margin-left: auto; }
+  .acpop .row .v { color: var(--text); }
+  .acpop .row .v em { color: var(--primary); font-style: normal; }
+  /* 抽屉 */
+  .drawer {
+    position: absolute;
+    right: 0; bottom: 0; top: 0;
+    width: 300px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+  .drawer .dh { display: flex; border-bottom: 1px solid var(--border); }
+  .drawer .dh div { flex: 1; text-align: center; height: 26px; line-height: 26px; font-size: 11px; color: var(--muted); }
+  .drawer .dh div.on { color: var(--text); border-bottom: 2px solid var(--primary); }
+  .drawer .search { margin: 8px; height: 22px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-xs); display: flex; align-items: center; padding: 0 7px; color: var(--muted); font-size: 11px; }
+  .favlist { flex: 1; overflow: hidden; padding: 0 8px 8px; }
+  .fav {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 7px; border-radius: var(--radius-xs);
+    border: 1px solid transparent;
+    font-size: 11px;
+  }
+  .fav:hover { border-color: var(--border); background: var(--surface-2); }
+  .fav .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fav .sql { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fav .acts { display: flex; gap: 4px; opacity: .8; }
+  .fav .acts span { cursor: pointer; color: var(--muted); }
+  /* 菜单 */
+  .menu {
+    position: absolute;
+    width: 210px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+    font-size: 11px;
+    padding: 4px 0;
+    z-index: 6;
+  }
+  .menu .grp { padding: 3px 9px; color: var(--muted); font-size: 10px; }
+  .menu .it { display: flex; align-items: center; gap: 6px; padding: 4px 9px; }
+  .menu .it:hover { background: rgba(91,141,239,.14); }
+  .menu .it .k { margin-left: auto; color: var(--muted); font-size: 10px; }
+  .menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+  /* 对话框 */
+  .modal-mask { position: absolute; inset: 0; background: rgba(10,10,12,.55); display: flex; align-items: center; justify-content: center; z-index: 8; }
+  .modal {
+    width: 460px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+    font-size: 12px;
+  }
+  .modal .mh { display: flex; align-items: center; height: 32px; padding: 0 12px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .modal .mh .x { margin-left: auto; color: var(--muted); }
+  .modal .mb { padding: 12px; }
+  .modal .mf { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+  .frow { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  .frow label { width: 76px; color: var(--muted); flex: none; text-align: right; }
+  .frow .val { flex: 1; color: var(--text); }
+  .input {
+    flex: 1; height: 24px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-xs);
+    display: flex; align-items: center; padding: 0 8px; color: var(--text);
+  }
+  .input.focus { border-color: var(--primary); }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius-xs); overflow: hidden; }
+  .seg div { padding: 2px 10px; font-size: 11px; color: var(--muted); background: var(--bg); }
+  .seg div.on { color: var(--primary); background: rgba(91,141,239,.14); }
+  .chk { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .chk i { width: 11px; height: 11px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); display: inline-block; }
+  .chk i.on { background: var(--primary); border-color: var(--primary); }
+  .progress { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+  .progress i { display: block; height: 100%; background: var(--primary); }
+  /* 网格（导入预览 / 列映射） */
+  .grid { border: 1px solid var(--border); border-radius: var(--radius-xs); overflow: hidden; font-size: 11px; }
+  .grid .gh { display: flex; background: var(--surface-2); }
+  .grid .gh div { flex: 1; padding: 4px 8px; border-right: 1px solid var(--border); color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .grid .gr { display: flex; }
+  .grid .gr div { flex: 1; padding: 4px 8px; border-right: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid .gr:nth-child(even) { background: rgba(255,255,255,.02); }
+  .grid .gr .map { color: var(--primary); }
+  .grid .gr .skip { color: var(--muted); text-decoration: line-through; }
+  .grid .gr .pk { color: var(--warn); }
+  /* EXPLAIN 树 */
+  .etree { font-size: 11px; font-family: Consolas, monospace; }
+  .enode { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  .enode .tw { color: var(--muted); }
+  .enode .t { color: var(--text); }
+  .enode .t b { color: var(--primary); font-weight: 600; }
+  .enode .rows { margin-left: auto; color: var(--warn); }
+  .enote { color: var(--muted); font-size: 10px; margin-left: 22px; }
+  .kv { display: flex; gap: 4px; flex-wrap: wrap; margin: 2px 0 4px 22px; }
+  .kv span { background: var(--surface-2); border-radius: 3px; padding: 0 5px; font-size: 10px; color: var(--muted); }
+  .kv span b { color: var(--text); font-weight: 500; }
+  /* Redis 工具条 */
+  .rbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px; }
+  .rbar .type { color: var(--purple); font-weight: 600; }
+  /* 步骤条 */
+  .steps { display: flex; gap: 0; margin-bottom: 12px; }
+  .steps div { flex: 1; text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  .steps div.on { color: var(--primary); border-bottom-color: var(--primary); }
+  .steps div.done { color: var(--ok); border-bottom-color: var(--ok); }
+  .cols { display: flex; gap: 16px; }
+  .cols > div { flex: 1; min-width: 0; }
+  .cap { font-size: 11px; color: var(--muted); margin: 6px 0 4px; }
+  .cap b { color: var(--text); }
+  .anchor { color: var(--warn); font-size: 10px; }
+
+  /* 统计条（⑳ 服务器概览 / ㉔ 目录镜像预演共用） */
+  .stats { display: flex; gap: 1px; background: var(--border); }
+  .stats .stat { flex: 1; background: var(--surface); padding: 7px 9px; }
+  .stats .stat .k { font-size: 10px; color: var(--muted); }
+  .stats .stat .v { font-size: 15px; font-weight: 600; margin-top: 1px; }
+  .stats .stat .v small { font-size: 10px; color: var(--muted); font-weight: 400; }
+  .sect { padding: 7px 9px 3px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+
+
+  /* ===== 二/三轮追加（原为 body 内独立 style 块，已合并） ===== */
+    /* 视角条 */
+    .viewbar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px; flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--surface-2); color: var(--muted); }
+    .chip.on { color: var(--text); border-color: rgba(91,141,239,.45); background: rgba(91,141,239,.12); }
+    .chip .op { color: var(--primary); }
+    .chip .x { color: var(--muted); }
+    .funnel { width: 11px; height: 11px; display: inline-block; background: currentColor; clip-path: polygon(0 0, 100% 0, 60% 50%, 60% 100%, 40% 100%, 40% 50%); }
+    .win { height: 22px; display: flex; align-items: center; padding: 0 7px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--muted); font-family: Consolas, monospace; font-size: 11px; }
+    .win.focus { border-color: var(--primary); color: var(--text); }
+    /* 列漏斗面板 */
+    .fpop { position: absolute; width: 232px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xs); box-shadow: 0 10px 28px rgba(0,0,0,.5); font-size: 11px; z-index: 7; }
+    .fpop .fh { padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--muted); display: flex; justify-content: space-between; }
+    .fpop .fb { padding: 8px; display: flex; flex-direction: column; gap: 7px; }
+    .fpop .fb .row2 { display: flex; gap: 5px; }
+    .fpop .fb .row2 > * { flex: 1; }
+    .fpop .foot { display: flex; gap: 6px; justify-content: flex-end; padding: 7px 8px; border-top: 1px solid var(--border); }
+    /* SQL 预览抽屉 */
+    .sqlprev { flex: 1; padding: 8px 10px; font: 11px/1.75 Consolas, monospace; white-space: pre-wrap; overflow: auto; color: var(--text); }
+    .sqlprev .ln { color: #5a5b64; display: inline-block; width: 18px; }
+    /* 命令面板 */
+    .palette { position: absolute; left: 50%; top: 42px; transform: translateX(-50%); width: 420px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 18px 48px rgba(0,0,0,.55); z-index: 9; overflow: hidden; }
+    .palette .pin { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 12px; }
+    .palette .pin .cur { display: inline-block; width: 1.5px; height: 13px; background: var(--primary); animation: blink 1.1s steps(1) infinite; }
+    .palette .plist { max-height: 236px; overflow: hidden; padding-bottom: 4px; }
+    .palette .pgroup { padding: 5px 10px 2px; color: var(--muted); font-size: 10px; }
+    .pitem { display: flex; align-items: center; gap: 7px; padding: 4px 10px; font-size: 11px; color: var(--muted); }
+    .pitem .t { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pitem .t em { color: var(--primary); font-style: normal; }
+    .pitem.sel { background: rgba(91,141,239,.14); }
+    .pitem.dis { opacity: .45; }
+    .kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 9px; color: var(--muted); background: var(--bg); }
+    /* 危险确认 */
+    .riskband { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: var(--radius-xs); background: rgba(208,106,106,.12); border: 1px solid rgba(208,106,106,.35); color: var(--danger); font-size: 11px; margin-bottom: 10px; }
+    .envdot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .envdot.prod { background: var(--danger); }
+    .envdot.stage { background: var(--warn); }
+    .envdot.local { background: var(--ok); }
+    .stmt { border: 1px solid var(--border); border-radius: var(--radius-xs); overflow: hidden; margin-bottom: 7px; }
+    .stmt .sh { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--surface-2); font-size: 10px; color: var(--muted); }
+    .stmt .sh b { color: var(--text); font-weight: 500; }
+    .stmt .sc { padding: 6px 8px; font: 11px/1.7 Consolas, monospace; color: var(--text); background: var(--bg); }
+    .stmt .sc .kw { color: var(--purple); }
+    /* DDL diff */
+    .diffwrap { display: flex; font: 11px/1.85 Consolas, monospace; background: var(--bg); }
+    .diffpane { flex: 1; min-width: 0; border-right: 1px solid var(--border); }
+    .diffpane:last-child { border-right: none; }
+    .diffpane .ph { padding: 3px 8px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--muted); font-family: -apple-system, "PingFang SC", sans-serif; font-size: 10px; }
+    .dline { display: flex; gap: 6px; padding: 0 8px; white-space: pre; }
+    .dline .n { color: #5a5b64; width: 16px; flex: none; text-align: right; }
+    .dline.add { background: rgba(76,175,125,.13); }
+    .dline.del { background: rgba(208,106,106,.13); }
+    .dline.mod { background: rgba(217,160,74,.12); }
+    .dline .ch { color: var(--warn); }
+    /* 数据字典 */
+    .tblpick { border: 1px solid var(--border); border-radius: var(--radius-xs); max-height: 150px; overflow: hidden; font-size: 11px; }
+    .tblpick .row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; color: var(--muted); }
+    .tblpick .row.on { color: var(--text); }
+    .mdprev { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 8px; font: 10px/1.7 Consolas, monospace; color: var(--muted); white-space: pre-wrap; }
+    .mdprev b { color: var(--text); }
+    /* AI 助手 */
+    .aiflow { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); margin-bottom: 9px; flex-wrap: wrap; }
+    .aiflow .step { border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 2px 7px; background: var(--surface-2); }
+    .aiflow .step.on { color: var(--primary); border-color: rgba(91,141,239,.45); }
+    .aiflow .ar { color: var(--muted); }
+    /* 表结构侧栏 */
+    .side { width: 248px; flex: none; border-left: 1px solid var(--border); background: var(--surface); font-size: 11px; }
+    .side .sh { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-bottom: 1px solid var(--border); color: var(--muted); }
+    .vtree { padding: 4px 0; }
+    .vtree .vn { display: flex; align-items: center; gap: 5px; padding: 2px 8px; color: var(--muted); }
+    .vtree .vn.on { color: var(--text); background: rgba(91,141,239,.10); }
+    .vtree .vn .ic { color: var(--muted); width: 10px; }
+    .vtree .vn .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vtree .vn .cnt { color: var(--muted); font-size: 10px; }
+    .vtree .ind1 { padding-left: 20px; }
+    .vtree .ind2 { padding-left: 34px; }
+    /* 两行表头（列名 + 注释） */
+    .gh2 { display: flex; background: var(--surface-2); }
+    .gh2 > div { padding: 3px 8px; border-right: 1px solid var(--border); overflow: hidden; }
+    .gh2 .nm { color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+    .gh2 .cm { color: #7d7e88; font-size: 9px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; display: block; }
+    /* 结构分节标题 */
+    .sect { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--surface-2); color: var(--muted); font-size: 10px; border-top: 1px solid var(--border); }
+    .sect .n { margin-left: auto; color: var(--muted); }
+    /* 关联面板（外键） */
+    .reftabs { display: flex; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+    .reftab { padding: 1px 7px; border-radius: var(--radius-xs); color: var(--muted); font-size: 10px; }
+    .reftab.on { color: var(--text); background: var(--surface-2); border: 1px solid var(--border); }
+    .reftab .n { color: var(--primary); }
+    .reffk { padding: 3px 8px; color: var(--muted); font-size: 10px; background: rgba(255,255,255,.025); border-bottom: 1px solid var(--border); }
+    .reffk b { color: var(--text); font-weight: 500; }
+    /* 值呈现器页签 */
+    .valtabs { display: flex; align-items: center; gap: 2px; }
+    .vtab { padding: 1px 6px; border-radius: 3px; color: var(--muted); font-size: 10px; border: 1px solid transparent; }
+    .vtab.on { color: var(--text); background: var(--surface-2); border-color: var(--border); }
+    .binbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: rgba(217,160,74,.10); border-bottom: 1px solid rgba(217,160,74,.28); color: var(--warn); font-size: 10px; }
+    .hexview { font: 11px/1.7 Consolas, monospace; padding: 6px 8px; background: var(--bg); color: var(--text); white-space: pre; overflow: hidden; }
+    .hexview .ofs { color: #5a5b64; }
+    .hexview .asc { color: var(--muted); }
+    .imgbox { padding: 10px; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+    .imgbox .ph { width: 96px; height: 96px; border: 1px dashed var(--border); border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; }
+    /* 事务条 */
+    .txbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px; }
+    .tgl { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+    .tgl .sw { width: 24px; height: 12px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); position: relative; }
+    .tgl .sw i { position: absolute; top: 1px; left: 1px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .tgl.on { color: var(--text); }
+    .tgl.on .sw { background: rgba(76,175,125,.25); border-color: rgba(76,175,125,.5); }
+    .tgl.on .sw i { left: 13px; background: var(--ok); }
+    .pend { color: var(--warn); }
+    .idx-tag { color: var(--teal); font-size: 9px; }
+    .fk-tag { color: var(--purple); font-size: 9px; }
+    /* ER 图 */
+    .erd { position: relative; height: 250px; background: var(--bg); overflow: hidden; }
+    .erd svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .enode { position: absolute; width: 132px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xs); font-size: 10px; overflow: hidden; }
+    .enode .eh { padding: 2px 6px; background: var(--surface-2); color: var(--text); border-bottom: 1px solid var(--border); display: flex; gap: 4px; }
+    .enode .er { padding: 1px 6px; color: var(--muted); display: flex; gap: 4px; }
+    .enode .er .k { color: var(--warn); }
+    .enode .er .f { color: var(--purple); }
+    /* 概览磁贴 */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 10px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 7px 9px; }
+    .stat .k { color: var(--muted); font-size: 10px; }
+    .stat .v { color: var(--text); font-size: 17px; line-height: 1.4; }
+    .stat .v small { color: var(--muted); font-size: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>草图：阶段4 增量批次 UI</h1>
+  <div class="sub">2026-10-23 · 数据库线 <b>①~⑭</b>（A 编辑器 → B 收藏 → C 导入导出 → D EXPLAIN/Redis → E1 安全带 → E2 视角 → E3 命令面板 → F0 元数据 → F1 外键 → F3 值呈现 → F2 事务）<b>+ 非数据库线 ⑮~⑳</b>（G1 广播 → G2 回放 → G3 预览 → G4/G5 归档镜像 → G6/G7 密钥 → G8 审计）· 附录 P1~P4 为<b>本轮不实施</b>的候选 · 配套 <code>doc/设计-数据库阶段4-增量批次-2026-10-23.md</code> · 配色对齐项目 v4 token，实施时映射真实变量 · <span class="badge warn">待确认</span> 未开工</div>
+
+  <div class="legend">
+    <span class="badge primary">A 编辑器+补全</span>
+    <span class="badge ok">B 收藏+模板</span>
+    <span class="badge teal">C 导出+导入</span>
+    <span class="badge purple">D EXPLAIN+Redis 写</span>
+    <span class="badge danger">E 安全+视角+命令面板</span>
+    <span class="badge warn">F 元数据地基+事务</span>
+    <span class="badge ok">G 非数据库赛道</span>
+    <span class="badge">附 P1~P4 = 候选（本轮不实施）</span>
+    <span class="badge">灰字=说明标注，不进 UI</span>
+  </div>
+
+  <!-- ============ ① A 批：编辑器外壳 ============ -->
+  <h2><span class="no">①</span>A 批：SQL 编辑器外壳（CodeMirror 6）</h2>
+  <div class="note">替换裸 <b>textarea</b>：行号 + 引擎方言高亮 + 当前行高亮。<b>Ctrl/Cmd+Enter</b> 执行、<b>Ctrl/Cmd+Shift+F</b> 格式化保留；只读模式 <b>editable=false</b>（可选中复制）。</div>
+  <div class="frame">
+    <div class="tabstrip">
+      <span class="tab active">SQL</span><span class="tab">数据</span><span class="tab">表结构</span>
+      <span style="flex:1"></span>
+      <span class="badge primary">A-1 外壳</span><span class="badge primary">A-2 键位</span>
+    </div>
+    <div class="db-head">
+      <span class="engine">MySQL</span><span class="dot"></span>
+      <span class="target">192.168.115.67:13306 · shop · rw</span>
+      <span class="sp"></span>
+      <span class="tbtn">执行 ▸</span><span class="tbtn">格式化</span>
+      <span class="tbtn">☆ 收藏</span><span class="tbtn">模板 ▾</span>
+      <span class="badge">只读时编辑器锁定、执行禁用</span>
+    </div>
+    <div class="editor">
+      <div class="gutter">1<br>2<br>3<br>4<br>5</div>
+      <div class="code"><span class="cm">-- 上月订单汇总（方言：mysql）</span>
+<span class="kw">SELECT</span> <span class="fn">COUNT</span>(*) <span class="kw">AS</span> cnt, o.user_id
+<span class="kw">FROM</span> orders o
+<span class="kw">WHERE</span> o.created_at <span class="kw">&gt;=</span> <span class="str">'2026-09-01'</span>
+<span class="kw">GROUP BY</span> o.user_id <span class="kw">ORDER BY</span> cnt <span class="kw">DESC</span> <span class="kw">LIMIT</span> <span class="num">20</span>;<span class="caret"></span></div>
+    </div>
+  </div>
+
+  <!-- ============ ② A 批：补全 ============ -->
+  <h2><span class="no">②</span>A 批：上下文补全（三种状态）</h2>
+  <div class="note">数据源 = 元数据树已加载表（<b>不新请求</b>）+ <b>listColumns</b> op 懒加载列 + token 级源分析（FROM/JOIN 别名解析）。上下文分类规则：<b>FROM/JOIN 后只出表</b>；<b>alias. 后只出该源列</b>；已引用源的列补全为 <b>alias.column</b>。</div>
+  <div class="cols">
+    <div>
+      <div class="cap"><b>状态 1</b>：FROM 后 → 只出表 <span class="anchor">A-4/A-6</span></div>
+      <div class="frame">
+        <div class="editor" style="min-height:120px">
+          <div class="gutter">1<br>2</div>
+          <div class="code"><span class="kw">SELECT</span> * <span class="kw">FROM</span> u<span class="caret"></span></div>
+          <div class="acpop" style="left:90px; top:8px; width:200px">
+            <div class="head"><span>表 (3)</span><span>↑↓ 选择 · Tab 确认</span></div>
+            <div class="row sel"><span class="v"><em>u</em>sers</span><span class="m">table</span></div>
+            <div class="row"><span class="v">user_tags</span><span class="m">table</span></div>
+            <div class="row"><span class="v">user_levels</span><span class="m">table</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="cap"><b>状态 2</b>：alias. 后 → 只出该源列 <span class="anchor">A-5</span></div>
+      <div class="frame">
+        <div class="editor" style="min-height:120px">
+          <div class="gutter">1<br>2<br>3</div>
+          <div class="code"><span class="kw">SELECT</span> *
+<span class="kw">FROM</span> orders o
+<span class="kw">WHERE</span> o.<span class="caret"></span></div>
+          <div class="acpop" style="left:70px; top:52px; width:220px">
+            <div class="head"><span>列 · orders (6)</span><span>懒加载 listColumns</span></div>
+            <div class="row sel"><span class="v">id</span><span class="m">bigint · PK</span></div>
+            <div class="row"><span class="v">user_id</span><span class="m">bigint</span></div>
+            <div class="row"><span class="v">amount</span><span class="m">decimal</span></div>
+            <div class="row"><span class="v">created_at</span><span class="m">datetime</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="cap"><b>状态 3</b>：SELECT 后 → 关键字+表+已引用源列 <span class="anchor">A-3/A-5</span></div>
+      <div class="frame">
+        <div class="editor" style="min-height:120px">
+          <div class="gutter">1<br>2<br>3<br>4</div>
+          <div class="code"><span class="kw">SELECT</span> o.<span class="caret"></span>
+<span class="kw">FROM</span> orders o
+<span class="kw">JOIN</span> users u <span class="kw">ON</span> u.id = o.user_id</div>
+          <div class="acpop" style="left:70px; top:8px; width:230px">
+            <div class="head"><span>混合 (score 排序)</span><span>上限 200 项</span></div>
+            <div class="row sel"><span class="v">o.amount</span><span class="m">column · orders</span></div>
+            <div class="row"><span class="v">o.created_at</span><span class="m">column · orders</span></div>
+            <div class="row"><span class="v">o.user_id</span><span class="m">column · orders</span></div>
+            <div class="row"><span class="v">u.id</span><span class="m">column · users</span></div>
+            <div class="row"><span class="v">users</span><span class="m">table</span></div>
+            <div class="row"><span class="v">COUNT</span><span class="m">keyword</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ③ B 批：收藏/历史抽屉 + 模板 ============ -->
+  <h2><span class="no">③</span>B 批：收藏 / 历史抽屉 + SQL 模板</h2>
+  <div class="note">抽屉双 tab 复用执行历史存储模式（主进程文件 + IPC）；收藏上限 500 条、不含凭据。<b>插入到光标</b>：有选区替换、无选区插入并全选。模板「按当前表生成 INSERT」用 describeTable 列信息。</div>
+  <div class="frame" style="min-height:300px">
+    <div class="tabstrip">
+      <span class="tab active">SQL</span><span class="tab">数据</span><span class="tab">表结构</span>
+    </div>
+    <div class="db-head">
+      <span class="engine">PostgreSQL</span><span class="dot"></span>
+      <span class="target">pg.db.internal:5432 · public · rw</span>
+      <span class="sp"></span>
+      <span class="tbtn primary">☆ 收藏 3</span><span class="tbtn">模板 ▾</span>
+    </div>
+    <div class="editor" style="min-height:180px">
+      <div class="gutter">1<br>2<br>3</div>
+      <div class="code"><span class="kw">UPDATE</span> users <span class="kw">SET</span> level = <span class="num">3</span>
+<span class="kw">WHERE</span> id = <span class="num">1024</span>;<span class="caret"></span></div>
+      <!-- 模板菜单 -->
+      <div class="menu" style="left:330px; top:6px">
+        <div class="grp">内置骨架</div>
+        <div class="it">SELECT 分页查询 <span class="k">⌘1</span></div>
+        <div class="it">INSERT 单行 <span class="k">⌘2</span></div>
+        <div class="it">UPDATE 按主键 <span class="k">⌘3</span></div>
+        <div class="it">DELETE 按主键 <span class="k">⌘4</span></div>
+        <hr>
+        <div class="grp">按当前表生成 <span class="badge ok">B-3</span></div>
+        <div class="it">INSERT INTO users (…) <span class="m">读 describeTable</span></div>
+        <div class="it">SELECT * FROM users LIMIT <span class="m">读 listColumns</span></div>
+        <hr>
+        <div class="it" style="color:var(--muted)">无选中表时「按当前表生成」禁用</div>
+      </div>
+      <!-- 抽屉 -->
+      <div class="drawer">
+        <div class="dh"><div class="on">☆ 收藏</div><div>🕘 历史</div></div>
+        <div class="search">搜索标题 / SQL…</div>
+        <div class="favlist">
+          <div class="fav"><span style="color:var(--warn)">★</span><div style="flex:1;min-width:0"><div class="t">月度订单汇总</div><div class="sql">SELECT COUNT(*), o.user_id FROM orders o …</div></div><div class="acts"><span title="插入光标">⤵</span><span title="编辑">✎</span><span title="删除">🗑</span></div></div>
+          <div class="fav"><span style="color:var(--warn)">★</span><div style="flex:1;min-width:0"><div class="t">用户升级语句</div><div class="sql">UPDATE users SET level = 3 WHERE id = …</div></div><div class="acts"><span title="插入光标">⤵</span><span title="编辑">✎</span><span title="删除">🗑</span></div></div>
+          <div class="fav"><span style="color:var(--warn)">★</span><div style="flex:1;min-width:0"><div class="t">慢键排查</div><div class="sql">SELECT * FROM redis_keys WHERE ttl &lt; 0 …</div></div><div class="acts"><span title="插入光标">⤵</span><span title="编辑">✎</span><span title="删除">🗑</span></div></div>
+          <div style="text-align:center;color:var(--muted);font-size:10px;padding:10px 0">+ 新建收藏（默认取当前编辑器内容）· JSON 导入/导出</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ④ C 批：导出对话框 ============ -->
+  <h2><span class="no">④</span>C 批：全表流式导出对话框</h2>
+  <div class="note">入口：数据网格工具条「导出」。格式 <b>csv / tsv / json / jsonl / sql / markdown</b>；sql 带头尾 SET 语句。全表流式（块 1000，主进程写盘），<b>进度可取消</b>；无主键表提示「顺序不保证」。Redis 树导出为键列表。</div>
+  <div class="frame" style="min-height:330px; display:flex; align-items:center; justify-content:center; padding:20px">
+    <div class="modal-mask" style="position:static; background:none; padding:0">
+      <div class="modal">
+        <div class="mh">导出 orders <span class="x">✕</span></div>
+        <div class="mb">
+          <div class="frow"><label>目标表</label><div class="val">shop.orders <span class="badge">约 128,540 行</span></div></div>
+          <div class="frow"><label>格式</label>
+            <div class="seg"><div>CSV</div><div class="on">JSON Lines</div><div>SQL</div><div>Markdown</div></div>
+          </div>
+          <div class="frow"><label>列</label>
+            <div style="flex:1;display:flex;gap:10px;flex-wrap:wrap">
+              <span class="chk"><i class="on"></i>id</span><span class="chk"><i class="on"></i>user_id</span><span class="chk"><i class="on"></i>amount</span><span class="chk"><i class="on"></i>status</span><span class="chk"><i></i>remark</span>
+            </div>
+          </div>
+          <div class="frow"><label>保存到</label><div class="input">~/Downloads/orders-20261023.jsonl</div></div>
+          <div class="frow" style="margin-top:14px"><label>进度</label>
+            <div style="flex:1">
+              <div class="progress"><i style="width:64%"></i></div>
+              <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:10px;margin-top:4px">
+                <span>64,270 / 128,540 行 · 2.1 MB</span><span>剩余约 12s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mf">
+          <span class="badge" style="margin-right:auto;align-self:center">取消 = 停止后续块，文件完整到块边界</span>
+          <span class="tbtn">取消导出</span><span class="tbtn primary">后台导出</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ⑤ C 批：导入向导 ============ -->
+  <h2><span class="no">⑤</span>C 批：CSV/TSV 导入向导（流式解析 + 列映射 + 预览）</h2>
+  <div class="note">三步：<b>选文件</b>（主进程 4KB 块流式解析，支持取消）→ <b>列映射</b>（文件列→表列/忽略/常量，前 50 行预览）→ <b>执行</b>（每 500 行一个事务，错误批次记录行号不阻断）。<span class="badge danger">取消 = 止步不回滚，已提交批次保留，报告明示</span> 只读模式入口禁用。</div>
+  <div class="frame" style="padding:14px">
+    <div class="steps">
+      <div class="done">① 选择文件</div><div class="on">② 列映射与预览</div><div>③ 执行与报告</div>
+    </div>
+    <div class="grid">
+      <div class="gh">
+        <div>文件列</div><div>映射到表列</div><div>类型</div><div>预览行 1</div><div>预览行 2</div><div>预览行 3</div>
+      </div>
+      <div class="gr"><div>id</div><div class="map">→ id</div><div class="pk">bigint PK</div><div>9001</div><div>9002</div><div>9003</div></div>
+      <div class="gr"><div>user</div><div class="map">→ user_id</div><div>bigint</div><div>1024</div><div>1025</div><div>1026</div></div>
+      <div class="gr"><div>amt</div><div class="map">→ amount</div><div>decimal</div><div>59.90</div><div>12.00</div><div>0.01</div></div>
+      <div class="gr"><div>note</div><div class="skip">→ 忽略</div><div>—</div><div>含,逗号</div><div>"引号""转义"</div><div></div></div>
+      <div class="gr"><div>（常量）</div><div class="map">→ status</div><div>enum</div><div>常量: 'paid'</div><div>常量: 'paid'</div><div>常量: 'paid'</div></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
+      <span class="badge">解析 3,214 行 · UTF-8 · CRLF 已归一</span>
+      <span class="badge">批大小 500（可调）</span>
+      <span style="flex:1"></span>
+      <span class="tbtn">重新选择文件</span><span class="tbtn primary">开始导入</span>
+    </div>
+    <div class="cap" style="margin-top:10px">执行态示意：<span class="progress" style="width:220px;display:inline-block;vertical-align:middle"><i style="width:41%"></i></span> <span style="color:var(--muted)">已提交 2,000 / 3,214 行 · 批 4 失败（行 2001-2500：amount 非法）→ 已跳过并继续</span></div>
+  </div>
+
+  <!-- ============ ⑥ D 批：EXPLAIN 树 ============ -->
+  <h2><span class="no">⑥</span>D 批：EXPLAIN 可视化（mysql FORMAT=JSON / pg FORMAT JSON）</h2>
+  <div class="note">入口：SQL tab 结果区「解释」/ 编辑器右键「解释所选」。后端拒绝含 <b>ANALYZE</b> 的输入（会真实执行）。树节点字段宽松解析（缺失降级），JSON 原文可折叠（复用 db-value-pane）。</div>
+  <div class="frame" style="padding:12px">
+    <div class="cap"><b>月度订单汇总</b> · EXPLAIN FORMAT=JSON · 耗时 <b style="color:var(--warn)">312 ms</b> <span class="anchor">D-1</span></div>
+    <div class="etree">
+      <div class="enode"><span class="tw">▾</span><span class="t">QUERY_BLOCK <b>#1</b> · cost 1,240</span><span class="rows">rows 20</span></div>
+      <div class="enote">ordering: true · grouping: false</div>
+      <div class="kv"><span>table <b>orders</b></span><span>type <b>range</b></span><span>key <b>idx_created_at</b></span><span>rows <b>64,270</b></span><span>filtered <b>100%</b></span></div>
+      <div class="enode"><span class="tw">▾</span><span class="t">GROUPING <b>tmp_table</b> · cost 980</span><span class="rows">rows 20</span></div>
+      <div class="kv"><span>using <b>temporary</b></span><span>filesort <b>否</b></span></div>
+    </div>
+    <div class="cap" style="margin-top:10px">PG 形态（Plan 递归树，字段扁平化）：<span class="badge">Node Type: Index Scan</span><span class="badge">Relation: orders</span><span class="badge">Actual Rows: 20</span><span class="badge">Index Cond</span></div>
+  </div>
+
+  <!-- ============ ⑦ D 批：Redis 类型化写 ============ -->
+  <h2><span class="no">⑦</span>D 批：Redis 类型化写工具条（T12 落地）</h2>
+  <div class="note">按已设计的 T12 范围：hash/set/zset/list 行内编辑 + 增删成员 + list push/LSET/LREM + <b>RENAMENX</b> 重命名（不覆盖）。全部写操作主进程 <b>checkWritable</b> 前置；只读时工具条全禁用并提示。写后刷新详情，不本地假状态。</div>
+  <div class="frame">
+    <div class="db-head">
+      <span class="engine">Redis</span><span class="dot"></span>
+      <span class="target">cache.db:6379 · db0 · key: session:1024</span>
+      <span class="sp"></span>
+      <span class="tbtn">只读: 关</span>
+    </div>
+    <div class="rbar">
+      <span class="type">hash</span>
+      <span style="color:var(--muted)">6 fields · TTL -1</span>
+      <span style="flex:1"></span>
+      <span class="tbtn">+ field</span>
+      <span class="tbtn">rename</span>
+      <span class="tbtn">set ttl</span>
+      <span class="tbtn" style="color:var(--danger)">delete</span>
+    </div>
+    <div class="grid">
+      <div class="gh"><div style="flex:2">field</div><div style="flex:3">value</div><div style="flex:none;width:64px">操作</div></div>
+      <div class="gr"><div style="flex:2">token</div><div style="flex:3">eyJhbGciOi… <span class="badge" style="font-size:9px">双击编辑</span></div><div style="flex:none;width:64px"><span style="color:var(--danger)">✕ hdel</span></div></div>
+      <div class="gr"><div style="flex:2">role</div><div style="flex:3">admin</div><div style="flex:none;width:64px"><span style="color:var(--danger)">✕ hdel</span></div></div>
+      <div class="gr"><div style="flex:2">login_at</div><div style="flex:3">2026-10-23T09:12:04Z</div><div style="flex:none;width:64px"><span style="color:var(--danger)">✕ hdel</span></div></div>
+      <div class="gr"><div style="flex:2;color:var(--muted)">（新增行）</div><div style="flex:3;color:var(--muted)">field + value 输入后 HSET</div><div style="flex:none;width:64px"></div></div>
+    </div>
+    <div class="cap" style="padding:8px">set/zset/list 形态：<span class="badge teal">set</span> + member / ✕ srem &nbsp; <span class="badge teal">zset</span> score 双击编辑 / ✕ zrem &nbsp; <span class="badge teal">list</span> push 头/尾 / 双击 LSET / ✕ LREM 删首个匹配值</div>
+  </div>
+
+  <!-- ============ ⑧ E 批：危险 SQL 确认 ============ -->
+  <h2><span class="no">⑧</span>E 批 E1：危险 SQL 确认（分级 + 环境影响标记）</h2>
+  <div class="note">纯前端分级（<b>db-sql-risk.js</b>，去注释/字符串后判定）：read / write / ddl / dangerous / transaction / unknown。
+    <b>read、transaction 不弹</b>；write 首次弹且本会话可记住；<b>ddl、dangerous 每次都弹</b>；production 环境的 dangerous 需<b>输入库名</b>才能执行。
+    弹窗要显示<b>判定理由</b>，不是只有一个"确定"。<span class="anchor">E1</span></div>
+  <div class="frame" style="position:relative;min-height:300px">
+    <div class="db-head">
+      <span class="engine">MySQL</span><span class="dot"></span>
+      <span class="target">192.168.115.67:13306 · shop · rw</span>
+      <span class="sp"></span>
+      <span class="badge danger">production</span>
+      <span class="tbtn">执行 ▸</span><span class="tbtn">格式化</span>
+    </div>
+    <div class="editor" style="min-height:120px">
+      <div class="gutter">1<br>2</div>
+      <div class="code"><span class="kw">DELETE FROM</span> orders <span class="kw">WHERE</span> status <span class="kw">=</span> <span class="str">'failed'</span>;
+<span class="cm">-- 上面这条没问题；下面这条是弹窗的来源</span></div>
+    </div>
+    <div class="modal-mask">
+      <div class="modal" style="width:520px">
+        <div class="mh">
+          <span style="color:var(--danger)">⚠</span>&nbsp;确认执行危险操作
+          <span class="x">✕</span>
+        </div>
+        <div class="mb">
+          <div class="riskband">
+            <span>危险</span>
+            <span style="color:var(--muted)">·</span>
+            <span><span class="envdot prod"></span> production</span>
+            <span style="color:var(--muted)">·</span>
+            <span>将执行 <b style="color:var(--text)">2</b> 条语句</span>
+            <span style="margin-left:auto;color:var(--muted)">shop @ 192.168.115.67</span>
+          </div>
+          <div class="stmt">
+            <div class="sh"><b>#1</b><span class="badge ok">write</span><span>DELETE 带 WHERE</span><span style="margin-left:auto">可折叠</span></div>
+            <div class="sc"><span class="kw">DELETE FROM</span> orders <span class="kw">WHERE</span> status = 'failed';</div>
+          </div>
+          <div class="stmt">
+            <div class="sh"><b>#2</b><span class="badge danger">dangerous</span><span>DELETE 无 WHERE</span><span style="margin-left:auto">已展开</span></div>
+            <div class="sc"><span class="kw">DELETE FROM</span> orders;</div>
+          </div>
+          <div class="cap" style="margin:8px 0 8px">判定理由：<span class="badge danger">第 2 条 DELETE 没有 WHERE 条件，将清空整表</span></div>
+          <div class="frow">
+            <label>确认库名</label>
+            <span class="input"><span style="flex:1;color:var(--muted)">输入 shop 以继续</span></span>
+          </div>
+          <div class="chk" style="margin-left:84px"><i></i>本会话内该连接的低风险写不再提示（<b>危险操作永不记住</b>）</div>
+        </div>
+        <div class="mf">
+          <span class="tbtn">取消</span>
+          <span class="tbtn" style="color:var(--danger);border-color:rgba(208,106,106,.5);background:rgba(208,106,106,.12)">仍要执行</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">分级规则（去注释/字符串后判定）：<span class="badge">SELECT/EXPLAIN/SHOW → read</span><span class="badge">INSERT/带 WHERE 的 UPDATE·DELETE → write</span><span class="badge">CREATE/ALTER/RENAME → ddl</span><span class="badge danger">DROP/TRUNCATE/无 WHERE/GRANT/FLUSH → dangerous</span><span class="badge">解析失败 → unknown（也确认）</span></div>
+  <div class="cap">上面是<b>执行时</b>分级；下面这层是<b>连接级</b>安全带——挂在连接上才可持续，不会每次执行都问一遍而让人无脑点"仍要执行"。</div>
+  <div class="panel" style="display:flex;gap:18px;align-items:flex-start">
+    <div style="flex:1">
+      <div class="cap" style="margin:0 0 6px">连接编辑弹窗（新增一项）</div>
+      <div class="frow"><label>名称</label><span class="val">prod-shop</span></div>
+      <div class="frow"><label>主机</label><span class="val">10.0.3.21:3306</span></div>
+      <div class="frow"><label>安全带</label><span class="val"><span class="tgl on"><span class="sw"><i></i></span>标记为生产环境</span></span></div>
+      <div class="cap" style="margin:2px 0 0 84px">开启后：写语句需手输库名放行；单元格编辑二次确认；只读模式优先。</div>
+    </div>
+    <div style="flex:1">
+      <div class="cap" style="margin:0 0 6px">执行拦截（当前连接：prod-shop）</div>
+      <div class="stmt">
+        <div class="sh"><span class="envdot prod"></span><b>生产环境</b><span>·</span><span>DELETE 无 WHERE</span><span style="margin-left:auto">风险：高</span></div>
+        <div class="sc"><span class="kw">DELETE FROM</span> orders;</div>
+      </div>
+      <div style="color:var(--danger);font-size:11px;margin-bottom:6px">将删除 <b>1,284,902</b> 行，不可撤销。输入库名 <b>shop</b> 以继续：</div>
+      <div class="input focus" style="width:130px">sho</div>
+      <div style="display:flex;gap:8px;margin-top:9px;align-items:center">
+        <span class="tbtn">取消</span><span class="tbtn" disabled>执行</span>
+        <span style="margin-left:auto"><span class="badge danger">生产 · 解除 04:12</span></span>
+      </div>
+      <div class="cap" style="margin:6px 0 0">临时解除 5 分钟后<b>自动恢复</b>拦截；非生产连接仍走上面的两级确认。</div>
+    </div>
+  </div>
+
+  <!-- ============ ⑨ E 批：结果集视角 ============ -->
+  <h2><span class="no">⑨</span>E 批 E2：结果集"视角"（列条件 + 手写 WHERE + 排序 + SQL 预览 + 记住）</h2>
+  <div class="note"><b>默认构建器 ⇄ 一键切原始 SQL</b>，两者共用同一个 <code>whereDraft</code>（构建器只是字符串生成器）。
+    值全部<b>参数绑定</b>，手写部分由主进程 <b>assertSafeClause</b> 二次校验（禁分号/注释/语句关键字/非白名单标识符）。
+    网格里看到的条件可直接被 <b>C 批导出</b>复用（所见即所导）。条件变更时先查 <b>count</b> 再取页，避免空表闪烁。<span class="anchor">E2</span></div>
+  <div class="frame" style="min-height:330px">
+    <div class="db-head">
+      <span class="engine">MySQL</span><span class="dot"></span>
+      <span class="target">shop · orders</span>
+      <span class="sp"></span>
+      <span class="tbtn">导出…</span><span class="tbtn">刷新</span>
+    </div>
+    <div class="viewbar">
+      <span class="chip on"><span class="funnel"></span>条件 2</span>
+      <span class="chip">status <span class="op">=</span> paid <span class="x">✕</span></span>
+      <span class="chip">created_at <span class="op">≥</span> 2026-09-01 <span class="x">✕</span></span>
+      <span class="win" style="width:210px">AND amount &gt; 100 <span style="margin-left:auto;color:var(--muted)">手写</span></span>
+      <span class="chip">id <span class="op">DESC</span></span>
+      <span class="chip">每页 100</span>
+      <span style="flex:1"></span>
+      <span class="tbtn primary">SQL</span>
+      <span class="tbtn">重置</span>
+      <span class="chk"><i class="on"></i>记住</span>
+    </div>
+    <div style="display:flex;height:220px;position:relative">
+      <div style="flex:1;min-width:0">
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gh">
+            <div style="flex:.4">id <span style="color:var(--primary)">▼</span></div>
+            <div style="flex:1">user_id <span class="funnel" style="opacity:.7"></span></div>
+            <div style="flex:1">status <span class="funnel" style="color:var(--primary)"></span></div>
+            <div style="flex:1">amount</div>
+            <div style="flex:1.2">created_at</div>
+          </div>
+          <div class="gr"><div style="flex:.4">98211</div><div style="flex:1">10231</div><div style="flex:1">paid</div><div style="flex:1">238.00</div><div style="flex:1.2">2026-09-02 10:11:03</div></div>
+          <div class="gr"><div style="flex:.4">98210</div><div style="flex:1">8842</div><div style="flex:1">paid</div><div style="flex:1">1,204.50</div><div style="flex:1.2">2026-09-02 09:58:41</div></div>
+          <div class="gr"><div style="flex:.4">98209</div><div style="flex:1">10231</div><div style="flex:1">paid</div><div style="flex:1">76.00</div><div style="flex:1.2">2026-09-02 09:40:12</div></div>
+          <div class="gr"><div style="flex:.4;color:var(--muted)">…</div><div style="flex:1;color:var(--muted)">共 1,842 行</div><div style="flex:1"></div><div style="flex:1"></div><div style="flex:1.2"></div></div>
+        </div>
+      </div>
+      <div class="drawer" style="width:340px">
+        <div class="dh"><div class="on">实际执行的 SQL</div><div>历史条件</div></div>
+        <div class="sqlprev"><span class="ln">1</span><span class="kw">SELECT</span> *
+<span class="ln">2</span><span class="kw">FROM</span> `orders`
+<span class="ln">3</span><span class="kw">WHERE</span> (`status` = ? <span class="kw">AND</span> `created_at` &gt;= ?)
+<span class="ln">4</span>  <span class="kw">AND</span> (amount &gt; 100)
+<span class="ln">5</span><span class="kw">ORDER BY</span> `id` <span class="kw">DESC</span>
+<span class="ln">6</span><span class="kw">LIMIT</span> 100 <span class="kw">OFFSET</span> 0;
+</div>
+        <div class="cap" style="padding:0 10px 8px">参数：<span class="badge teal">status='paid'</span><span class="badge teal">created_at='2026-09-01'</span>（值不入 SQL 文本）</div>
+      </div>
+      <div class="fpop" style="left:120px;top:26px">
+        <div class="fh"><span>筛选 <b style="color:var(--text)">status</b></span><span>✕</span></div>
+        <div class="fb">
+          <div class="win focus" style="width:100%">= equals</div>
+          <div class="win" style="width:100%">paid</div>
+          <div class="chk"><i class="on"></i>区分大小写</div>
+        </div>
+        <div class="foot"><span class="tbtn">清除</span><span class="tbtn primary">应用</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">算子：<span class="badge">= ≠ &gt; ≥ &lt; ≤</span><span class="badge">包含 / 开头 / 结尾</span><span class="badge">in（≤200）</span><span class="badge">为空 / 非空</span>
+    &nbsp;·&nbsp; 隐藏列不影响导出的列集（导出按"当前可见列 + 当前条件"）；字段被删后旧视角静默降级。</div>
+  <div class="panel">
+    <p><b>入口双模式</b>：多数用户不会写 WHERE，所以默认给<b>构建器</b>（列/算子/值三下拉），一键切原始 SQL。构建器只产出<b>占位符 + <code>whereParams</code></b>，值永不拼进 SQL 文本。
+    切回构建器时若 <code>whereDraft</code> 无法结构化（含 <code>OR</code> 嵌套等），<b>保留 SQL 模式并提示</b>，绝不静默丢条件。</p>
+    <div class="viewbar" style="border:1px solid var(--border);border-radius:var(--radius-xs);margin-bottom:12px">
+      <span class="badge teal">构建器</span>
+      <span class="win">status ▾</span><span class="win" style="width:70px">= ▾</span><span class="win" style="width:92px">paid</span>
+      <span class="tbtn">＋ 条件</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--primary)">切换为 SQL ⇄</span>
+    </div>
+    <p><b>表头两行</b>（列名 + 注释，注释来自 F0）与 <b>locale 格式化</b>（仅渲染层，编辑仍用原值，<code>dbFormatLocale</code> 可关）：</p>
+    <div class="grid">
+      <div class="gh2">
+        <div style="flex:none;width:26px" class="nm">#</div>
+        <div style="flex:1" class="nm">status<span class="cm">订单状态（new/paid/shipped）</span></div>
+        <div style="flex:1" class="nm">amount<span class="cm">含税总额（分）</span></div>
+        <div style="flex:1.2" class="nm">created_at<span class="cm">创建时间</span></div>
+      </div>
+      <div class="gr"><div style="flex:none;width:26px">1</div><div style="flex:1">paid</div><div style="flex:1">1,280.00</div><div style="flex:1.2">2026-10-23 09:12</div></div>
+      <div class="gr"><div style="flex:none;width:26px">2</div><div style="flex:1">paid</div><div style="flex:1">2,340.50</div><div style="flex:1.2">2026-10-23 08:41</div></div>
+      <div class="gr"><div style="flex:none;width:26px">3</div><div style="flex:1">paid</div><div style="flex:1">56.00</div><div style="flex:1.2">2026-10-22 22:03</div></div>
+    </div>
+  </div>
+
+  <!-- ============ ⑩ E 批：命令面板 ============ -->
+  <h2><span class="no">⑩</span>E 批 E3：命令面板（Ctrl/Cmd+K）</h2>
+  <div class="note">四类来源：<b>动作</b> / <b>数据库对象</b> / <b>历史</b> / <b>当前表</b>。前缀命中 &gt; 子串 &gt; 子序列；只读时写动作灰显并给原因。纯前端，无新依赖。<span class="anchor">E3</span></div>
+  <div class="frame" style="min-height:300px">
+    <div class="tabstrip"><span class="tab active">SQL</span><span class="tab">数据</span><span class="tab">表结构</span></div>
+    <div class="db-head"><span class="engine">PostgreSQL</span><span class="dot"></span><span class="target">10.0.3.21:5432 · analytics · ro</span><span class="sp"></span><span class="badge">只读</span></div>
+    <div class="editor" style="min-height:90px"><div class="gutter">1</div><div class="code"><span class="cm">-- 按 Ctrl/Cmd+K 打开</span></div></div>
+    <div class="palette">
+      <div class="pin"><span style="color:var(--muted)">›</span> <span>us</span><span class="cur"></span><span style="margin-left:auto;color:var(--muted);font-size:10px">Esc 关闭</span></div>
+      <div class="plist">
+        <div class="pgroup">动作</div>
+        <div class="pitem sel"><span class="badge primary">⌘</span><span class="t">执行当前语句</span><span class="kbd">⌘↵</span></div>
+        <div class="pitem dis"><span class="badge">⌘</span><span class="t">导入 CSV…</span><span style="font-size:10px">只读连接不可用</span></div>
+        <div class="pgroup">数据库对象</div>
+        <div class="pitem"><span class="badge teal">表</span><span class="t"><em>us</em>ers</span><span class="kbd">analytics</span></div>
+        <div class="pitem"><span class="badge teal">表</span><span class="t">order_<em>us</em>age</span><span class="kbd">analytics</span></div>
+        <div class="pitem"><span class="badge">库</span><span class="t"><em>us</em>_staging</span><span class="kbd">db</span></div>
+        <div class="pgroup">历史</div>
+        <div class="pitem"><span class="badge">↺</span><span class="t">SELECT count(*) FROM <em>us</em>ers</span><span class="kbd">10:02</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">打分：前缀 100 / 子串 60 / 子序列 30，+ 类型权重（动作 20 &gt; 对象 10 &gt; 历史 5）；上限 30 项，按分组展示。</div>
+
+  <!-- ============ ⑭ F0：元数据契约 v2 ============ -->
+  <h2><span class="no">⑪</span>F 批 F0：元数据契约 v2（注释 / 索引 / 外键 / 视图）</h2>
+  <div class="note">左侧对象树增<b>视图</b>节点（只读，无编辑入口）；右侧表结构面板一次展示<b>列（含注释）/索引/外键/表注释</b>。
+    这些字段全部来自 <b>describeTable v2</b>，是 ⑮ 外键导航、⑪ 数据字典、⑫ 结构对比、⑳ ER 图的共同前置。<span class="anchor">F0 · P0 地基</span></div>
+  <div class="frame">
+    <div class="db-head"><span class="engine">MySQL</span><span class="dot"></span><span class="target">shop</span><span class="sp"></span><span class="tbtn">刷新</span><span class="tbtn">SQL</span></div>
+    <div style="display:flex;min-height:300px">
+      <div style="width:196px;flex:none;border-right:1px solid var(--border)">
+        <div class="vtree">
+          <div class="vn"><span class="ic">▾</span><span class="nm">shop</span><span class="cnt">14</span></div>
+          <div class="vn ind1"><span class="ic">▸</span><span class="nm">customers</span></div>
+          <div class="vn ind1 on"><span class="ic">▸</span><span class="nm">orders</span></div>
+          <div class="vn ind1"><span class="ic">▸</span><span class="nm">order_items</span></div>
+          <div class="vn ind1"><span class="ic">▸</span><span class="nm">products</span></div>
+          <div class="vn ind2" style="color:var(--muted)"><span class="ic">◇</span><span class="nm">v_order_summary</span><span class="badge" style="font-size:9px">view</span></div>
+          <div class="vn ind2" style="color:var(--muted)"><span class="ic">◇</span><span class="nm">v_daily_sales</span><span class="badge" style="font-size:9px">view</span></div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div class="sect">列 <span class="n">6</span></div>
+        <div class="grid" style="border:none;border-radius:0;border-bottom:1px solid var(--border)">
+          <div class="gh2">
+            <div style="flex:none;width:34px" class="nm">#</div>
+            <div style="flex:2" class="nm">列名<span class="cm">comment</span></div>
+            <div style="flex:1.4" class="nm">类型<span class="cm">type</span></div>
+            <div style="flex:none;width:52px" class="nm">空<span class="cm">null</span></div>
+          </div>
+          <div class="gr"><div style="flex:none;width:34px" class="pk">1</div><div style="flex:2">id<span class="cm" style="color:#7d7e88;font-size:9px;display:block">主键</span></div><div style="flex:1.4">bigint</div><div style="flex:none;width:52px">NO</div></div>
+          <div class="gr"><div style="flex:none;width:34px">2</div><div style="flex:2">customer_id<span class="cm" style="color:#7d7e88;font-size:9px;display:block">下单客户</span></div><div style="flex:1.4">bigint</div><div style="flex:none;width:52px">NO</div></div>
+          <div class="gr"><div style="flex:none;width:34px">3</div><div style="flex:2">status<span class="cm" style="color:#7d7e88;font-size:9px;display:block">订单状态（new/paid/shipped）</span></div><div style="flex:1.4">varchar(24)</div><div style="flex:none;width:52px">NO</div></div>
+          <div class="gr"><div style="flex:none;width:34px">4</div><div style="flex:2">amount<span class="cm" style="color:#7d7e88;font-size:9px;display:block">含税总额（分）</span></div><div style="flex:1.4">int</div><div style="flex:none;width:52px">NO</div></div>
+          <div class="gr"><div style="flex:none;width:34px">5</div><div style="flex:2">memo<span class="cm" style="color:#7d7e88;font-size:9px;display:block">（无注释）</span></div><div style="flex:1.4">text</div><div style="flex:none;width:52px">YES</div></div>
+          <div class="gr"><div style="flex:none;width:34px">6</div><div style="flex:2">created_at<span class="cm" style="color:#7d7e88;font-size:9px;display:block">创建时间</span></div><div style="flex:1.4">datetime</div><div style="flex:none;width:52px">NO</div></div>
+        </div>
+        <div class="sect">索引 <span class="n">3</span></div>
+        <div class="grid" style="border:none;border-radius:0;border-bottom:1px solid var(--border)">
+          <div class="gr"><div style="flex:2"><span class="idx-tag">PK</span> PRIMARY</div><div style="flex:2">(id)</div></div>
+          <div class="gr"><div style="flex:2"><span class="idx-tag">IDX</span> idx_customer</div><div style="flex:2">(customer_id)</div></div>
+          <div class="gr"><div style="flex:2"><span class="idx-tag">UQ</span> uq_no</div><div style="flex:2">(order_no) UNIQUE</div></div>
+        </div>
+        <div class="sect">外键 <span class="n">1</span></div>
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gr"><div style="flex:1.4"><span class="fk-tag">FK</span> fk_customer</div><div style="flex:2">customer_id → customers.id</div><div style="flex:none;width:76px">CASCADE</div></div>
+        </div>
+      </div>
+      <div class="side">
+        <div class="sh">表信息</div>
+        <div style="padding:8px;display:flex;flex-direction:column;gap:6px">
+          <div style="color:var(--muted)">注释</div>
+          <div>订单主表（含税金额以「分」存储）</div>
+          <div style="color:var(--muted);margin-top:4px">估算行数</div>
+          <div>1,284,902</div>
+          <div class="cap" style="margin-top:6px">v2 返回值：<br>columns[idx, comment, isBinary] · indexes · foreignKeys · comment · estimatedRows</div>
+        </div>
+      </div>
+    </div>
+    <div class="cap" style="padding:8px">视图节点的菜单只有「查询数据 / 复制名称 / 查看定义」，<b>没有编辑与删除</b>；主进程对 <code>type:'view'</code> 的写操作直接拒绝（双保险）。</div>
+  </div>
+
+  <!-- ============ ⑮ F1：外键引用侧栏 ============ -->
+  <h2><span class="no">⑫</span>F 批 F1：外键引用侧栏（被引用 / 引用 双向）</h2>
+  <div class="note">选中单元格后按 <span class="kbd">F2</span> 或点「关联」页签展开：<b>被引用</b>=当前列是外键，跳父行；<b>引用</b>=别的表指向本行，列出子记录。
+    走 E2 的 <code>getPageData(where, whereParams)</code>，无新查询路径。<span class="anchor">F1 · P1</span></div>
+  <div class="frame">
+    <div class="db-head"><span class="engine">PostgreSQL</span><span class="dot"></span><span class="target">shop · orders</span><span class="sp"></span><span class="tbtn">关联 F2</span><span class="tbtn">只读</span></div>
+    <div style="display:flex;min-height:250px">
+      <div style="flex:1;min-width:0">
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gh"><div style="flex:none;width:30px">#</div><div style="flex:1.2">id</div><div style="flex:1.6">customer_id</div><div style="flex:1.6">status</div><div style="flex:1.4">amount</div></div>
+          <div class="gr"><div style="flex:none;width:30px">1</div><div style="flex:1.2">9001</div><div style="flex:1.6;background:rgba(91,141,239,.14);color:var(--primary)">42</div><div style="flex:1.6">paid</div><div style="flex:1.4">128000</div></div>
+          <div class="gr"><div style="flex:none;width:30px">2</div><div style="flex:1.2">9002</div><div style="flex:1.6">43</div><div style="flex:1.6">new</div><div style="flex:1.4">5600</div></div>
+        </div>
+        <div style="border-top:1px solid var(--border);background:var(--surface)">
+          <div class="sh" style="display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;color:var(--muted);font-size:11px;border-bottom:1px solid var(--border)">
+            <span>customer_id - row 1</span><span style="color:var(--muted)">2 chars</span>
+            <span style="margin-left:auto"><span class="vtab on">原始值</span></span>
+          </div>
+          <div style="padding:6px 8px;font:11px/1.6 Consolas,monospace">42</div>
+        </div>
+      </div>
+      <div class="side" style="width:300px">
+        <div class="sh">关联<span style="margin-left:auto;color:var(--muted)">orders.customer_id</span></div>
+        <div class="reftabs">
+          <span class="reftab on">被引用（父行）<span class="n">1</span></span>
+          <span class="reftab">引用（子行）<span class="n">3</span></span>
+        </div>
+        <div class="reffk">customers.id = <b>42</b></div>
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gh"><div>id</div><div>name</div><div>level</div></div>
+          <div class="gr"><div class="pk">42</div><div>李四</div><div>gold</div></div>
+        </div>
+        <div class="cap" style="padding:6px 8px">父行只读；「在标签页打开」跳到完整表格视图，侧栏不承担编辑。</div>
+        <div class="sh" style="border-top:1px solid var(--border)">引用（子行）</div>
+        <div class="reffk">order_items.order_id → orders.id（3 行）</div>
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gh"><div>order_id</div><div>sku</div><div>qty</div></div>
+          <div class="gr"><div>9001</div><div>A-12</div><div>2</div></div>
+          <div class="gr"><div>9001</div><div>B-07</div><div>1</div></div>
+          <div class="gr"><div>9001</div><div>C-03</div><div>4</div></div>
+        </div>
+        <div class="cap" style="padding:6px 8px">复合外键仅支持「全列等值」匹配；无外键时整个「关联」页签隐藏。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ⑯ F3：值呈现器 ============ -->
+  <h2><span class="no">⑬</span>F 批 F3：值呈现器（HEX / Base64 / 图片 / BLOB 上限 / 只读）</h2>
+  <div class="note">现有 <code>DbValuePane</code> 重构为注册表：<code>{ key, label, detect(value, column), Component, readonly, maxBytes }</code>。
+    二进制列先走 HEX/图片，<b>禁用保存</b>；超过 64KB 只带前 4KB 预览，全量走独立 op 另存。<span class="anchor">F3 · P1（含导出丢数据缺陷修复）</span></div>
+  <div class="frame">
+    <div class="db-head"><span class="engine">MySQL</span><span class="dot"></span><span class="target">shop · products.thumb</span><span class="sp"></span><span class="tbtn">另存为…</span></div>
+    <div class="cols" style="padding:12px;gap:12px;align-items:flex-start">
+      <div style="flex:1.15">
+        <div style="border:1px solid var(--border);border-radius:var(--radius-xs);overflow:hidden;background:var(--surface)">
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--muted);font-size:11px">
+            <span>thumb - row 3</span>
+            <span class="valtabs" style="margin-left:auto">
+              <span class="vtab">原始</span><span class="vtab on">HEX</span><span class="vtab">Base64</span><span class="vtab">图片</span>
+            </span>
+          </div>
+          <div class="binbar"><span class="badge danger" style="font-size:9px">二进制</span><span>18,432 bytes</span><span style="margin-left:auto">只读 · 保存已禁用</span></div>
+          <div class="hexview"><span class="ofs">0000</span>  89 50 4e 47 0d 0a 1a 0a  00 00 00 0d 49 48 44 52   <span class="asc">.PNG........IHDR</span>
+<span class="ofs">0010</span>  00 00 00 40 00 00 00 40  08 06 00 00 00 6d 5c 4a   <span class="asc">...@...@....m\J</span>
+<span class="ofs">0020</span>  7b 00 00 00 09 70 48 59  73 00 00 0b 13 00 00 0b   <span class="asc">{....pHYs.......</span>
+<span class="ofs">0030</span>  13 01 00 9a 9c 18 00 00  00 07 74 49 4d 45 07 ea   <span class="asc">..........tIME...</span></div>
+          <div style="padding:5px 8px;border-top:1px solid var(--border);color:var(--muted);font-size:10px">滚动加载后续分片；「另存为」按原字节写出，不经渲染层拼字符串。</div>
+        </div>
+        <div class="cap">检测顺序：<b>column.isBinary</b> → 图片/HEX/Base64；否则走现有文本嗅探（json / python / xml / url）。</div>
+      </div>
+      <div style="flex:.85">
+        <div class="imgbox" style="border:1px solid var(--border);border-radius:var(--radius-xs)">
+          <div class="ph">image/png<br>64 × 64</div>
+        </div>
+        <div class="cap">魔数嗅探（PNG/JPEG/GIF/WebP）通过才出现「图片」页签；否则只有 HEX/Base64。</div>
+        <div style="margin-top:8px;padding:7px 8px;border:1px solid rgba(217,160,74,.32);background:rgba(217,160,74,.1);border-radius:var(--radius-xs);color:var(--warn);font-size:10px">
+          大字段：<b>≥64KB</b> 只回前 4KB + 总长；点「全量」调 <code>getCellBinary</code> 单取，避免整页卡死。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ⑰ F2：事务安全带 ============ -->
+  <h2><span class="no">⑭</span>F 批 F2：事务安全带（自动提交开关 + 待提交清单 + 提交/回滚）</h2>
+  <div class="note">每 tab 至多钉住一个连接；钉住期间该 tab 的 op 串行。关闭 tab 前若未提交，<b>强制回滚并确认</b>；空闲 10 分钟自动回滚。
+    这是本轮唯一改动连接生命周期的批次，排在最后。<span class="anchor">F2 · P1（最后实施）</span></div>
+  <div class="frame">
+    <div class="db-head"><span class="engine">PostgreSQL</span><span class="dot"></span><span class="target">shop · 手动事务</span><span class="sp"></span><span class="tbtn ok">提交</span><span class="tbtn">回滚</span></div>
+    <div class="txbar">
+      <span class="tgl on"><span class="sw"><i></i></span>手动提交</span>
+      <span class="pend">3 条待提交</span>
+      <span style="color:var(--muted)">自 10:42（已 2 分 11 秒）</span>
+      <span style="margin-left:auto;color:var(--muted)">连接已钉住 · 本 tab 串行</span>
+    </div>
+    <div class="editor" style="min-height:64px"><div class="gutter">1<br>2</div><div class="code"><span class="kw">UPDATE</span> orders <span class="kw">SET</span> status = <span class="str">'paid'</span> <span class="kw">WHERE</span> id = <span class="num">9001</span>;
+<span class="kw">DELETE FROM</span> carts <span class="kw">WHERE</span> created_at &lt; <span class="str">'2026-09-01'</span>;</div></div>
+    <div style="padding:10px 12px">
+      <div class="cap" style="margin-bottom:6px"><b>待提交清单</b>（点语句看详情，可复制）</div>
+      <div class="grid">
+        <div class="gh"><div style="flex:none;width:60px">时间</div><div style="flex:none;width:52px">耗时</div><div style="flex:none;width:60px">影响行数</div><div>语句</div></div>
+        <div class="gr"><div style="flex:none;width:60px">10:42:03</div><div style="flex:none;width:52px">12 ms</div><div style="flex:none;width:60px">1</div><div>UPDATE orders SET status='paid' WHERE id=9001</div></div>
+        <div class="gr"><div style="flex:none;width:60px">10:42:19</div><div style="flex:none;width:52px">240 ms</div><div style="flex:none;width:60px">1,204</div><div>DELETE FROM carts WHERE created_at &lt; '2026-09-01'</div></div>
+        <div class="gr"><div style="flex:none;width:60px">10:44:02</div><div style="flex:none;width:52px">8 ms</div><div style="flex:none;width:60px">1</div><div>UPDATE orders SET amount=129000 WHERE id=9001</div></div>
+      </div>
+      <div class="cap">提交/回滚后清单清空；只读模式下开关不可用；同时最多 2 个 tab 处于手动事务（pool 只有 4 条连接）。</div>
+    </div>
+    <div class="modal-mask">
+      <div class="modal" style="width:400px">
+        <div class="mh">关闭标签页？<span class="x">✕</span></div>
+        <div class="mb">
+          <div class="riskband" style="margin-bottom:8px"><span>⚠</span><span>该会话有 <b>3 条未提交</b>语句，关闭将<b>回滚</b>全部改动。</span></div>
+          <div class="cap">不允许「带事务关闭」：避免连接被静默持有到进程退出。</div>
+        </div>
+        <div class="mf"><span class="tbtn">取消</span><span class="tbtn" style="color:var(--danger)">回滚并关闭</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2><span class="no">⑮</span>G 批 G1：广播输入（Multi-exec · 输入镜像）</h2>
+  <div class="note">主控会话的键盘输入实时镜像到 N 台已连接会话。三道闸：<b>密码提示期不镜像</b>（复用录制的密码检测）、<b>生产机二次确认并列主机名</b>、<b>OSC 应答不镜像</b>。<span class="anchor">G1 · P0 · ≈230 行</span></div>
+  <div class="cols" style="align-items:flex-start">
+    <div style="flex:1.2">
+      <div class="frame" style="margin-bottom:0">
+        <div class="tabstrip">
+          <div class="tab active">web-01</div>
+          <div class="tab">web-02</div>
+          <div class="tab">web-03</div>
+          <div class="tab" style="color:var(--danger)">db-prod</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(208,106,106,.14);border-bottom:1px solid rgba(208,106,106,.38);color:var(--danger);font-size:11px">
+          <span class="badge danger">广播中</span>
+          <span>4 台 · 主控 web-01</span>
+          <span class="sp" style="flex:1"></span>
+          <span class="tbtn" style="color:var(--danger);border-color:rgba(208,106,106,.45)">退出 (Esc)</span>
+        </div>
+        <div style="display:flex;height:148px;font-family:ui-monospace,monospace;font-size:11px">
+          <div style="flex:1;border-right:1px solid var(--border);padding:5px 7px">
+            <div style="color:var(--ok)">● web-01 <span class="badge primary">主控</span></div>
+            <div style="color:var(--muted)">$ df -h</div>
+            <div>Filesystem&nbsp;&nbsp;Size Used</div>
+            <div>/dev/vda1&nbsp;&nbsp;&nbsp;40G&nbsp;&nbsp;12G</div>
+            <div style="color:var(--primary)">$ <span style="background:rgba(91,141,239,.25)">_</span></div>
+          </div>
+          <div style="flex:1;border-right:1px solid var(--border);padding:5px 7px">
+            <div style="color:var(--ok)">● web-02 <span class="badge">镜像</span></div>
+            <div style="color:var(--muted)">$ df -h</div>
+            <div>Filesystem&nbsp;&nbsp;Size Used</div>
+            <div>/dev/vda1&nbsp;&nbsp;&nbsp;40G&nbsp;&nbsp;9.8G</div>
+            <div style="color:var(--primary)">$ <span style="background:rgba(91,141,239,.25)">_</span></div>
+          </div>
+          <div style="flex:1;padding:5px 7px">
+            <div style="color:var(--warn)">● db-prod <span class="badge danger">生产</span></div>
+            <div style="color:var(--muted)">$ df -h</div>
+            <div>Filesystem&nbsp;&nbsp;Size Used</div>
+            <div>/dev/vdb1&nbsp;&nbsp;200G 187G</div>
+            <div style="color:var(--primary)">$ <span style="background:rgba(91,141,239,.25)">_</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">三台输出各自独立（不做聚合表）；红条常驻 = 广播态唯一标识，<b>点任意处或 Esc 退出</b>（照 Tabby「Broadcast mode. Click anywhere to cancel.」）。</div>
+    </div>
+    <div style="flex:.8">
+      <div class="frame" style="margin-bottom:0">
+        <div class="db-head"><span class="engine">选择广播目标</span><span class="sp"></span><span class="tbtn">全选非生产</span></div>
+        <div style="padding:8px">
+          <div class="row" style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span class="badge ok">✓</span><span style="flex:1">web-01</span><span class="badge primary">主控</span>
+          </div>
+          <div class="row" style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span class="badge ok">✓</span><span style="flex:1">web-02</span><span class="badge">10.0.1.12</span>
+          </div>
+          <div class="row" style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span class="badge ok">✓</span><span style="flex:1">web-03</span><span class="badge">10.0.1.13</span>
+          </div>
+          <div class="row" style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span class="badge danger">!</span><span style="flex:1;color:var(--danger)">db-prod</span><span class="badge danger">生产库</span>
+          </div>
+          <div class="row" style="display:flex;align-items:center;gap:6px;padding:3px 0">
+            <span class="badge">–</span><span style="flex:1;color:var(--muted)">serial-ttyUSB0</span><span class="badge">未连接</span>
+          </div>
+        </div>
+        <div style="padding:8px;border-top:1px solid var(--border);color:var(--muted);font-size:11px">
+          已选含 <b style="color:var(--danger)">1 台生产环境</b>，开启前需再次确认并手输主机名。
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding:8px">
+          <span class="tbtn">取消</span>
+          <span class="tbtn primary">开启广播（3 台）</span>
+        </div>
+      </div>
+      <div class="cap">密码提示期（<code>_passwordPromptDetected</code>）整条链路不镜像 → sudo 密码只落在主控。</div>
+    </div>
+  </div>
+
+  <h2><span class="no">⑯</span>G 批 G2：录制回放器（.cast 播放 + 列表）</h2>
+  <div class="note">录制引擎已存在（asciinema v2，含输入事件与密码避录），本轮只补<b>播放与检索</b>：虚拟时钟、可变速、可拖拽、输入事件以徽标展示。<span class="anchor">G2 · P0 · ≈380 行</span></div>
+  <div class="frame" style="margin-bottom:0">
+    <div class="db-head">
+      <span class="engine">会话录制</span><span class="dot"></span>
+      <span class="target">~/electerm/session-log · 18 个文件</span>
+      <span class="sp"></span>
+      <span class="tbtn">刷新</span><span class="tbtn">打开目录</span>
+    </div>
+    <div style="display:flex;height:210px">
+      <div style="width:300px;border-right:1px solid var(--border);display:flex;flex-direction:column">
+        <div class="search" style="margin:6px;height:22px;background:var(--bg);border:1px solid var(--border);border-radius:3px;display:flex;align-items:center;padding:0 7px;color:var(--muted);font-size:11px">搜索主机 / 文件名</div>
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gr" style="background:rgba(91,141,239,.12)"><div style="flex:2">web-01-2026-10-23.cast</div><div style="flex:1">12:04</div></div>
+          <div class="gr"><div style="flex:2">db-prod-2026-10-22.cast</div><div style="flex:1">18:22</div></div>
+          <div class="gr"><div style="flex:2">web-03-2026-10-22.cast</div><div style="flex:1">09:41</div></div>
+          <div class="gr"><div style="flex:2">jump-01-2026-10-21.cast</div><div style="flex:1">昨天</div></div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column">
+        <div class="rbar">
+          <span class="type">web-01</span>
+          <span class="badge">120×32</span>
+          <span class="badge">04:12</span>
+          <span class="badge ok">含输入</span>
+          <span class="sp" style="flex:1"></span>
+          <span class="tbtn">复制命令</span>
+        </div>
+        <div style="flex:1;padding:6px 8px;font-family:ui-monospace,monospace;font-size:11px;background:var(--bg)">
+          <div style="color:var(--muted)">Last login: Thu Oct 23 12:03:51 from 10.0.1.5</div>
+          <div>$ systemctl status nginx</div>
+          <div style="color:var(--ok)">● nginx.service - A high performance web server</div>
+          <div style="color:var(--muted)">   Active: active (running) since Thu 12:02</div>
+          <div>$ <span style="background:rgba(217,160,74,.22)">tail -f /var/log/nginx/error.log</span></div>
+          <div style="color:var(--warn)">2026/10/23 12:05:11 [warn] upstream timeout</div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding:6px 8px">
+          <div class="progress" style="margin-bottom:6px"><i style="width:46%"></i></div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:11px">
+            <span class="tbtn">▶ 播放</span>
+            <div class="seg"><div class="on">1x</div><div>2x</div><div>4x</div><div>0.5x</div></div>
+            <span style="color:var(--muted)">01:56 / 04:12</span>
+            <span class="sp" style="flex:1"></span>
+            <span class="badge warn">⌨ tail -f /var/log/nginx/error.log</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">黄底 = 输入事件（<code>i</code> 事件），不写入终端、只作徽标提示；密码期录制端已 pause，回放看不到敏感输入。窗口变化<b>不重排</b>，保持录制原貌。</div>
+
+  <h2><span class="no">⑰</span>G 批 G3：SFTP 文件预览（图片 / CSV / Markdown / HEX）</h2>
+  <div class="note">先修读文件能力（现有 <code>readRemoteFile</code> 是<b>全量读 + toString()，无上限</b>），再加按内容分派的只读预览。PDF 不内嵌，只给"下载后打开"。<span class="anchor">G3 · P0 · ≈300 行</span></div>
+  <div class="frame" style="margin-bottom:0">
+    <div class="db-head">
+      <span class="engine">SFTP</span><span class="dot"></span>
+      <span class="target">web-01 · /var/www/shop/static</span>
+      <span class="sp"></span>
+      <span class="tbtn">上传</span><span class="tbtn">新建目录</span>
+    </div>
+    <div style="display:flex;height:200px">
+      <div style="flex:1;border-right:1px solid var(--border)">
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gh"><div style="flex:2">名称</div><div style="flex:1">大小</div><div style="flex:1">修改时间</div></div>
+          <div class="gr"><div style="flex:2">../</div><div style="flex:1">—</div><div style="flex:1">—</div></div>
+          <div class="gr" style="background:rgba(91,141,239,.12)"><div style="flex:2">banner.png</div><div style="flex:1">840 KB</div><div style="flex:1">10-22 18:02</div></div>
+          <div class="gr"><div style="flex:2">users-export.csv</div><div style="flex:1">2.1 MB</div><div style="flex:1">10-23 09:15</div></div>
+          <div class="gr"><div style="flex:2">README.md</div><div style="flex:1">4 KB</div><div style="flex:1">10-20 11:30</div></div>
+          <div class="gr"><div style="flex:2">nginx.error.log</div><div style="flex:1">1.4 GB</div><div style="flex:1">10-23 12:05</div></div>
+          <div class="gr"><div style="flex:2">backup.tar.gz</div><div style="flex:1">312 MB</div><div style="flex:1">10-21 03:00</div></div>
+        </div>
+      </div>
+      <div class="drawer" style="position:static;width:392px;border-left:1px solid var(--border)">
+        <div class="dh">
+          <div class="on">图片</div><div>CSV</div><div>Markdown</div><div>HEX</div>
+        </div>
+        <div style="flex:1;padding:10px;display:flex;flex-direction:column;gap:8px">
+          <div style="height:96px;border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);background:repeating-conic-gradient(rgba(255,255,255,.03) 0% 25%, transparent 0% 50%) 50%/12px 12px">
+            banner.png · 1280×320
+          </div>
+          <div class="kv" style="margin:0">
+            <span>已读 <b>840 KB</b></span><span>上限 <b>2 MB</b></span><span>完整</span>
+          </div>
+          <div class="grid">
+            <div class="gr"><div style="flex:1.2" class="pk">id</div><div style="flex:1.6">email</div><div style="flex:1">level</div></div>
+            <div class="gr"><div style="flex:1.2">1</div><div style="flex:1.6">a***@ex.com</div><div style="flex:1">vip</div></div>
+            <div class="gr"><div style="flex:1.2">2</div><div style="flex:1.6">b***@ex.com</div><div style="flex:1">normal</div></div>
+          </div>
+          <div style="color:var(--muted);font-size:10px">CSV 仅前 200 行 × 20 列（2.1 MB 共 38,412 行）</div>
+          <div style="font-family:ui-monospace,monospace;font-size:10px;color:var(--muted);line-height:1.5">
+            00000000&nbsp;89 50 4e 47 0d 0a 1a 0a&nbsp;&nbsp;.PNG....<br/>
+            00000008&nbsp;00 00 00 0d 49 48 44 52&nbsp;&nbsp;....IHDR
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--border)">
+          <span class="tbtn">下载</span><span class="tbtn">用编辑器打开</span><span class="tbtn">复制路径</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cap"><b>1.4 GB 的 nginx.error.log 也能秒开</b>——只读前 2 MB 并标注截断；二进制只看前 4 KB HEX，不刷屏。分派顺序：魔数/扩展名 → NUL 字节判定文本 → 兜底 HEX。</div>
+
+  <h2><span class="no">⑱</span>G 批 G4 + G5：远程归档 与 目录镜像（预演后执行）</h2>
+  <div class="note">归档走远端命令（<code>tar</code>/<code>unzip</code>），路径全部 <code>shellQuote</code> + 拒绝换行；镜像只做<b>单向一次性</b>对齐，删除项默认不勾。<span class="anchor">G4 ≈250 行 · G5 ≈350 行</span></div>
+  <div class="cols" style="align-items:flex-start">
+    <div style="flex:1">
+      <div class="frame" style="margin-bottom:0">
+        <div class="db-head"><span class="engine">压缩</span><span class="sp"></span><span class="tbtn">×</span></div>
+        <div style="padding:10px">
+          <div class="frow"><label>源</label><div class="val" style="font-family:ui-monospace,monospace;font-size:11px">/var/www/shop <span class="badge">3 项已选</span></div></div>
+          <div class="frow"><label>格式</label>
+            <div class="seg"><div class="on">tar.gz</div><div>zip</div></div>
+          </div>
+          <div class="frow"><label>输出到</label><div class="input focus" style="font-family:ui-monospace,monospace;font-size:11px">/var/www/shop-20261023.tar.gz</div></div>
+          <div class="kv" style="margin-left:78px">
+            <span>远端 <b>有</b> tar</span><span>远端 <b>无</b> zip</span><span>预计 <b>240 MB</b></span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding:8px;border-top:1px solid var(--border)">
+          <span class="tbtn">取消</span><span class="tbtn primary">开始压缩</span>
+        </div>
+      </div>
+      <div class="cap">无 <code>zip</code> 时降级为 <code>tar.gz</code> 并明示；解压前先 <code>tar -tzf</code> 列清单确认。</div>
+    </div>
+    <div style="flex:1.1">
+      <div class="frame" style="margin-bottom:0">
+        <div class="db-head">
+          <span class="engine">目录镜像</span><span class="sp"></span>
+          <span class="target">本地 → 远端 · 单向</span>
+        </div>
+        <div class="rbar" style="border-bottom:1px solid var(--border)">
+          <span class="badge">本地</span><span style="font-family:ui-monospace,monospace">~/proj/shop</span>
+          <span style="color:var(--muted)">→</span>
+          <span class="badge">远端</span><span style="font-family:ui-monospace,monospace">/var/www/shop</span>
+        </div>
+        <div class="stats" style="display:flex;gap:1px;background:var(--border)">
+          <div class="stat" style="flex:1;background:var(--surface);padding:6px 8px"><div class="k" style="font-size:10px;color:var(--muted)">新增</div><div class="v" style="color:var(--ok);font-size:14px">128</div></div>
+          <div class="stat" style="flex:1;background:var(--surface);padding:6px 8px"><div class="k" style="font-size:10px;color:var(--muted)">覆盖</div><div class="v" style="color:var(--warn);font-size:14px">37</div></div>
+          <div class="stat" style="flex:1;background:var(--surface);padding:6px 8px"><div class="k" style="font-size:10px;color:var(--muted)">跳过</div><div class="v" style="font-size:14px">2,140</div></div>
+          <div class="stat" style="flex:1;background:var(--surface);padding:6px 8px"><div class="k" style="font-size:10px;color:var(--muted)">待删</div><div class="v" style="color:var(--danger);font-size:14px">0</div></div>
+        </div>
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gr"><div style="flex:2"><span class="map">+</span> static/app.css</div><div style="flex:1">18 KB</div></div>
+          <div class="gr"><div style="flex:2"><span class="map">+</span> static/app.js</div><div style="flex:1">96 KB</div></div>
+          <div class="gr"><div style="flex:2"><span class="pk">~</span> index.html</div><div style="flex:1">4 KB</div></div>
+          <div class="gr"><div style="flex:2"><span class="skip">−</span> <span class="skip">vendor/lib.js</span></div><div style="flex:1">跳过</div></div>
+        </div>
+        <div style="padding:6px 8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)">
+          <span class="badge">☐</span> 同时删除远端多余文件（默认不勾，删除不可回滚）
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding:8px">
+          <span class="tbtn">重新预演</span><span class="tbtn primary">执行（165 项）</span>
+        </div>
+      </div>
+      <div class="cap">判定按 <b>size + mtime</b>（容差 2s）；同大小同时间但内容不同会被判为跳过 —— 文案写明"需要严格校验请勾逐字节"。</div>
+    </div>
+  </div>
+
+  <h2><span class="no">⑲</span>G 批 G6 + G7：主密码密钥库 / 密钥生成 / known_hosts</h2>
+  <div class="note">保留现有 AES-256-<b>GCM</b>（不降级到 Tabby 的 CBC），只把密钥来源换成主密码：<code>主密码 → KEK → 包裹随机 DEK</code>。忘记主密码=丢凭据，故启用时强制展示恢复码。<span class="anchor">G6 ≈600 行（分两阶段）· G7 ≈320 行</span></div>
+  <div class="cols" style="align-items:flex-start">
+    <div style="flex:.95">
+      <div class="modal" style="width:auto;position:relative">
+        <div class="mh">解锁密钥库<span class="x">×</span></div>
+        <div class="mb">
+          <div class="frow"><label>主密码</label><div class="input focus">••••••••••</div></div>
+          <div class="frow"><label>自动锁定</label><div class="seg"><div>关</div><div class="on">15 分钟</div><div>30 分钟</div></div></div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px;color:var(--muted);font-size:11px">
+            <span class="badge ok">✓</span> 恢复码已保存（用于忘记主密码时解出 DEK）
+          </div>
+        </div>
+        <div class="mf"><span class="tbtn">用恢复码解锁</span><span class="tbtn primary">解锁</span></div>
+      </div>
+      <div class="cap">主密码不落盘；KEK/DEK 只在主进程内存，渲染进程只调 <code>vault.encrypt/decrypt</code>。已打开会话不受锁定影响。</div>
+    </div>
+    <div style="flex:1.05">
+      <div class="frame" style="margin-bottom:0">
+        <div class="db-head"><span class="engine">新建 SSH 密钥</span><span class="sp"></span><span class="tbtn">×</span></div>
+        <div style="padding:9px">
+          <div class="steps"><div class="done">1 类型</div><div class="on">2 口令</div><div>3 安装</div></div>
+          <div class="frow"><label>类型</label><div class="seg"><div class="on">ed25519</div><div>rsa-4096</div><div>ecdsa-384</div></div></div>
+          <div class="frow"><label>口令</label><div class="input">（可留空）</div></div>
+          <div class="frow"><label>落盘</label><div class="val" style="font-family:ui-monospace,monospace;font-size:11px">~/.ssh/electerm_ed25519_20261023 <span class="badge warn">600</span></div></div>
+        </div>
+        <div class="grid" style="border-left:none;border-right:none;border-radius:0">
+          <div class="gh"><div style="flex:2">known_hosts</div><div style="flex:1.4">算法</div><div style="flex:1">指纹</div></div>
+          <div class="gr"><div style="flex:2">web-01:22</div><div style="flex:1.4">ssh-ed25519</div><div style="flex:1">SHA256:9x…</div></div>
+          <div class="gr"><div style="flex:2">10.0.1.12:22</div><div style="flex:1.4">ssh-ed25519</div><div style="flex:1">SHA256:Kp…</div></div>
+          <div class="gr"><div style="flex:2;color:var(--muted)">|1|aBc…= (哈希)</div><div style="flex:1.4">rsa-sha2</div><div style="flex:1">SHA256:q7…</div></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding:8px;border-top:1px solid var(--border)">
+          <span class="tbtn">删除条目</span><span class="tbtn ok">安装到服务器</span><span class="tbtn primary">生成</span>
+        </div>
+      </div>
+      <div class="cap">生成后三步引导：复制公钥 → 写入 <code>authorized_keys</code>（带确认）→ 写回书签。同名文件<b>拒绝覆盖</b>。</div>
+    </div>
+  </div>
+
+  <h2><span class="no">⑳</span>G 批 G8：审计中心（本机只读时间线）</h2>
+  <div class="note">把散落的 <code>.log</code> / <code>.cast</code> / 连接历史汇成一条时间线；点开即回放或看日志尾部。<b>纯本机</b>，不做服务端集中采集，也不做命令级解析。<span class="anchor">G8 · P2 · ≈300 行 · 依赖 G2</span></div>
+  <div class="frame" style="margin-bottom:0">
+    <div class="db-head">
+      <span class="engine">活动时间线</span><span class="dot"></span>
+      <span class="target">近 7 天 · 342 次会话</span>
+      <span class="sp"></span>
+      <span class="target">类型</span>
+      <div class="seg"><div class="on">全部</div><div>SSH</div><div>SFTP</div><div>DB</div></div>
+      <span class="tbtn">导出 CSV</span>
+    </div>
+    <div class="grid" style="border:none;border-radius:0">
+      <div class="gh"><div style="flex:1.1">时间</div><div style="flex:1.4">主机</div><div style="flex:1">用户</div><div style="flex:.6">时长</div><div style="flex:.7">类型</div><div style="flex:1.2">产物</div></div>
+      <div class="gr"><div style="flex:1.1">10-23 12:04</div><div style="flex:1.4">web-01</div><div style="flex:1">deploy</div><div style="flex:.6">04:12</div><div style="flex:.7">SSH</div><div style="flex:1.2"><span class="badge ok">录制</span> <span class="badge">日志</span></div></div>
+      <div class="gr"><div style="flex:1.1">10-23 11:38</div><div style="flex:1.4">db-prod</div><div style="flex:1">dba</div><div style="flex:.6">22:05</div><div style="flex:.7">DB</div><div style="flex:1.2"><span class="badge">SQL 历史</span></div></div>
+      <div class="gr"><div style="flex:1.1">10-23 09:15</div><div style="flex:1.4">web-01</div><div style="flex:1">deploy</div><div style="flex:.6">01:20</div><div style="flex:.7">SFTP</div><div style="flex:1.2"><span class="badge">传输 41 项</span></div></div>
+      <div class="gr"><div style="flex:1.1">10-22 18:22</div><div style="flex:1.4">db-prod</div><div style="flex:1">dba</div><div style="flex:.6">09:04</div><div style="flex:.7">SSH</div><div style="flex:1.2"><span class="badge ok">录制</span></div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)">
+      <span class="badge">提示</span> 日志是原始字节流，不做逐条命令解析；"产物"列即证据入口。
+      <span class="sp" style="flex:1"></span>
+      <span class="tbtn">回放选中</span><span class="tbtn">查看日志尾部 500 行</span>
+    </div>
+  </div>
+  <div class="cap">导出的 CSV 用于交接与合规留档；<b>不上传任何内容</b>——保持 electerm 无服务端依赖的定位。</div>
+
+  <!-- ============ 附录：P2 候选（本轮不实施） ============ -->
+  <h2><span class="no">附</span>附录：P2 候选（本轮不实施，仅留形态参考）</h2>
+  <div class="panel"><p>以下为已评估但<b>不进入阶段4</b>的项。保留草图是为了将来评估时不必重新设计；地基（F0）补齐后其成本会显著下降。</p><ul><li><b>P1 数据字典导出</b> · <b>P2 单表属性级结构对比</b> · <b>P3 AI SQL 助手</b> · <b>P4 只读 ER 图 / 服务器概览</b></li></ul></div>
+
+  <!-- ============ ⑪ P2：数据字典导出 ============ -->
+  <h2><span class="no">P1</span>数据字典导出（Markdown / HTML）</h2>
+  <div class="note">只读功能：选对象 → 生成"表注释 + 列类型/可空/默认 + 索引 + 外键"的文档。<b>不写入执行</b>，纯前端拼装，复用 <b>describeTable / listColumns</b>。<span class="anchor">N4 · P2</span></div>
+  <div class="frame" style="min-height:250px;position:relative">
+    <div class="db-head"><span class="engine">MySQL</span><span class="dot"></span><span class="target">shop</span><span class="sp"></span><span class="tbtn">数据字典…</span></div>
+    <div class="modal-mask" style="align-items:flex-start;padding-top:14px">
+      <div class="modal" style="width:560px">
+        <div class="mh">导出数据字典<span class="x">✕</span></div>
+        <div class="mb">
+          <div class="cols">
+            <div>
+              <div class="cap"><b>对象</b>（3/18 选中）</div>
+              <div class="tblpick">
+                <div class="row on"><span class="chk"><i class="on"></i></span>orders</div>
+                <div class="row on"><span class="chk"><i class="on"></i></span>users</div>
+                <div class="row on"><span class="chk"><i class="on"></i></span>order_items</div>
+                <div class="row"><span class="chk"><i></i></span>payments</div>
+                <div class="row"><span class="chk"><i></i></span>sessions</div>
+              </div>
+            </div>
+            <div>
+              <div class="cap"><b>内容</b></div>
+              <div class="chk" style="margin-bottom:5px"><i class="on"></i>表/列注释（缺失标"—"）</div>
+              <div class="chk" style="margin-bottom:5px"><i class="on"></i>类型 / 可空 / 默认值</div>
+              <div class="chk" style="margin-bottom:5px"><i class="on"></i>索引与唯一约束</div>
+              <div class="chk" style="margin-bottom:5px"><i class="on"></i>外键关系</div>
+              <div class="chk" style="margin-bottom:8px"><i></i>包含样例数据（各表 3 行）</div>
+              <div class="cap"><b>格式</b></div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="seg"><div class="on">Markdown</div><div>HTML</div></span>
+                <span class="tbtn">选择路径…</span>
+              </div>
+            </div>
+          </div>
+          <div class="cap" style="margin-top:10px"><b>预览</b>（orders）</div>
+          <div class="mdprev"><b>## orders</b> — 订单主表
+| 列 | 类型 | 可空 | 默认 | 注释 |
+|---|---|---|---|---|
+| id | bigint | 否 | — | 主键 |
+| status | varchar(24) | 否 | 'new' | 支付状态 |
+| created_at | datetime | 否 | CURRENT_TIMESTAMP | — |
+
+<b>索引</b> idx_created_at (created_at) · <b>外键</b> user_id → users.id</div>
+        </div>
+        <div class="mf"><span class="tbtn">取消</span><span class="tbtn primary">导出 3 张表</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ⑫ P2：单表 DDL 对比 ============ -->
+  <h2><span class="no">P2</span>单表 DDL 并排对比（只读 + 复制，不执行）</h2>
+  <div class="note">边界刻意收窄：只做"两个表的 <b>SHOW CREATE TABLE</b> 归一化后按行 diff"，<b>不生成 ALTER、不提供执行</b>。
+    完整结构同步（双向脚本/依赖图/回滚对比）明确不做。<span class="anchor">N5 · P2</span></div>
+  <div class="frame" style="min-height:290px">
+    <div class="db-head">
+      <span class="engine">MySQL</span>
+      <span class="target">dev.shop.orders</span><span style="color:var(--muted)">⟷</span><span class="target">prod.shop.orders</span>
+      <span class="sp"></span>
+      <span class="seg"><div class="on">并排</div><div>统一</div></span>
+      <span class="tbtn">复制 diff</span>
+    </div>
+    <div class="cap" style="padding:6px 8px;margin:0"><span class="badge ok">+2</span><span class="badge danger">-1</span><span class="badge warn">~2</span> 差异 5 处 · 归一化：去掉 AUTO_INCREMENT / 表空间 / 字符集大小写</div>
+    <div class="diffwrap">
+      <div class="diffpane">
+        <div class="ph">dev.shop.orders</div>
+        <div class="dline"><span class="n">1</span>CREATE TABLE `orders` (</div>
+        <div class="dline"><span class="n">2</span>  `id` bigint NOT NULL AUTO_INCREMENT,</div>
+        <div class="dline mod"><span class="n">3</span>  `status` varchar(<span class="ch">32</span>) NOT NULL DEFAULT 'new',</div>
+        <div class="dline add"><span class="n">4</span>  `channel` varchar(16) DEFAULT NULL,</div>
+        <div class="dline"><span class="n">5</span>  `created_at` datetime NOT NULL,</div>
+        <div class="dline add"><span class="n">6</span>  `paid_at` datetime DEFAULT NULL,</div>
+        <div class="dline"><span class="n">7</span>  PRIMARY KEY (`id`),</div>
+        <div class="dline"><span class="n">8</span>  KEY `idx_channel` (`channel`)</div>
+        <div class="dline"><span class="n">9</span>) ENGINE=InnoDB;</div>
+      </div>
+      <div class="diffpane">
+        <div class="ph">prod.shop.orders</div>
+        <div class="dline"><span class="n">1</span>CREATE TABLE `orders` (</div>
+        <div class="dline"><span class="n">2</span>  `id` bigint NOT NULL AUTO_INCREMENT,</div>
+        <div class="dline mod"><span class="n">3</span>  `status` varchar(<span class="ch">24</span>) NOT NULL DEFAULT 'new',</div>
+        <div class="dline"><span class="n">4</span>  `created_at` datetime NOT NULL,</div>
+        <div class="dline del"><span class="n">5</span>  `legacy_flag` tinyint(1) DEFAULT '0',</div>
+        <div class="dline"><span class="n">6</span>  PRIMARY KEY (`id`)</div>
+        <div class="dline"><span class="n">7</span>) ENGINE=InnoDB;</div>
+      </div>
+    </div>
+    <div class="cap" style="padding:8px">说明文案固定为"<b>仅供对比</b>：本页不生成 ALTER，也不执行任何语句"——避免被误当成结构同步入口。</div>
+  </div>
+
+  <!-- ============ ⑬ P2：AI SQL 助手 ============ -->
+  <h2><span class="no">P3</span>AI SQL 助手（只生成，不自动执行）</h2>
+  <div class="note">复用 electerm 既有 <b>ai.js</b>；提示词注入"库/表/列 + 方言"；产出<b>只进编辑器</b>，执行仍走 ⑧ 的分级确认。
+    高风险语句（无 WHERE 的写/DDL）在助手内就标红并<b>禁止"直接执行"按钮</b>。<span class="anchor">N8 · P2</span></div>
+  <div class="frame" style="min-height:280px;position:relative">
+    <div class="db-head"><span class="engine">PostgreSQL</span><span class="dot"></span><span class="target">analytics · users, orders</span><span class="sp"></span><span class="tbtn">AI 助手</span></div>
+    <div class="editor" style="min-height:90px"><div class="gutter">1<br>2</div><div class="code"><span class="kw">SELECT</span> * <span class="kw">FROM</span> users <span class="kw">LIMIT</span> <span class="num">50</span>;</div></div>
+    <div class="modal-mask" style="align-items:flex-start;padding-top:12px">
+      <div class="modal" style="width:520px">
+        <div class="mh">AI SQL 助手<span class="x">✕</span></div>
+        <div class="mb">
+          <div class="aiflow">
+            <span class="step on">1 选择范围</span><span class="ar">→</span>
+            <span class="step on">2 描述需求</span><span class="ar">→</span>
+            <span class="step on">3 审阅 SQL</span><span class="ar">→</span>
+            <span class="step">4 插入编辑器</span>
+          </div>
+          <div class="frow"><label>范围</label><span class="val"><span class="badge">analytics.users</span> <span class="badge">analytics.orders</span> <span style="color:var(--muted)">（列信息随请求带入）</span></span></div>
+          <div class="frow"><label>需求</label><span class="input" style="height:44px;align-items:flex-start;padding-top:4px">近 7 天每个渠道的订单数与 GMV，按 GMV 倒序，只取前 10</span></div>
+          <div class="cap" style="margin:4px 0 6px"><b>生成结果</b> <span class="badge ok">read</span> <span class="badge">未执行</span></div>
+          <div class="mdprev" style="color:var(--text);font-size:11px"><span class="kw">SELECT</span> o.channel,
+       count(*) <span class="kw">AS</span> orders,
+       sum(o.amount) <span class="kw">AS</span> gmv
+<span class="kw">FROM</span> orders o
+<span class="kw">WHERE</span> o.created_at &gt;= now() - interval '7 day'
+<span class="kw">GROUP BY</span> o.channel
+<span class="kw">ORDER BY</span> gmv <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> 10;</div>
+          <div class="cap" style="margin-top:8px;color:var(--danger)">若生成结果为无 WHERE 的 UPDATE/DELETE 或 DDL：此处显示红色风险条，且<b>不提供</b>"执行"按钮，只能"插入编辑器"。</div>
+        </div>
+        <div class="mf"><span class="tbtn">重新生成</span><span class="tbtn">复制</span><span class="tbtn primary">插入编辑器</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ⑳ P2：ER 图 + 服务器概览 ============ -->
+  <h2><span class="no">P4</span>只读 ER 图（自写分层布局）与服务器概览（最小切片）</h2>
+  <div class="note">两者都<b>只读</b>且都建在 F0 元数据上。ER 图不做正向工程、不引 dagre（自写「入度分层 + 层内按度数排序」约 80 行）；概览只做四组数。<span class="anchor">F6 / F7 · P2</span></div>
+  <div class="cols" style="align-items:flex-start">
+    <div style="flex:1.25">
+      <div class="frame" style="margin-bottom:0">
+        <div class="db-head"><span class="engine">PostgreSQL</span><span class="dot"></span><span class="target">shop · 6 表</span><span class="sp"></span><span class="tbtn">重新布局</span><span class="tbtn">导出 SVG</span></div>
+        <div class="erd">
+          <svg>
+            <line x1="132" y1="70" x2="182" y2="70" stroke="#5b8def" stroke-width="1.2" opacity=".75"/>
+            <line x1="132" y1="112" x2="182" y2="112" stroke="#5b8def" stroke-width="1.2" opacity=".75"/>
+            <line x1="314" y1="92" x2="364" y2="150" stroke="#9a7ee8" stroke-width="1.2" opacity=".75"/>
+            <line x1="314" y1="60" x2="364" y2="60" stroke="#9a7ee8" stroke-width="1.2" opacity=".75"/>
+          </svg>
+          <div class="enode" style="left:6px;top:40px">
+            <div class="eh">customers</div>
+            <div class="er"><span class="k">PK</span> id</div>
+            <div class="er">name</div>
+            <div class="er">level</div>
+          </div>
+          <div class="enode" style="left:182px;top:30px">
+            <div class="eh">orders</div>
+            <div class="er"><span class="k">PK</span> id</div>
+            <div class="er"><span class="f">FK</span> customer_id</div>
+            <div class="er">status</div>
+            <div class="er">amount</div>
+          </div>
+          <div class="enode" style="left:364px;top:28px">
+            <div class="eh">order_items</div>
+            <div class="er"><span class="k">PK</span> id</div>
+            <div class="er"><span class="f">FK</span> order_id</div>
+            <div class="er"><span class="f">FK</span> sku</div>
+          </div>
+          <div class="enode" style="left:364px;top:132px">
+            <div class="eh">products</div>
+            <div class="er"><span class="k">PK</span> id</div>
+            <div class="er">sku</div>
+            <div class="er">price</div>
+          </div>
+          <div style="position:absolute;right:8px;bottom:6px;color:var(--muted);font-size:10px">分层布局 · 仅外键连线 · 无手工编辑</div>
+        </div>
+      </div>
+      <div class="cap">点击节点高亮相邻表；连线标签显示 <code>orders.customer_id → customers.id</code>。</div>
+    </div>
+    <div style="flex:.9">
+      <div class="frame" style="margin-bottom:0">
+        <div class="db-head"><span class="engine">MySQL</span><span class="dot"></span><span class="target">prod-shop</span><span class="sp"></span><span class="tbtn">刷新</span></div>
+        <div class="stats">
+          <div class="stat"><div class="k">连接</div><div class="v">12<small>/151</small></div></div>
+          <div class="stat"><div class="k">活动查询</div><div class="v">3</div></div>
+          <div class="stat"><div class="k">锁等待</div><div class="v" style="color:var(--warn)">1</div></div>
+          <div class="stat"><div class="k">库大小</div><div class="v">2.4<small>GB</small></div></div>
+        </div>
+        <div class="sect">表大小 Top 4</div>
+        <div class="grid" style="border:none;border-radius:0">
+          <div class="gr"><div style="flex:2">orders</div><div style="flex:1">1.2 GB</div></div>
+          <div class="gr"><div style="flex:2">order_items</div><div style="flex:1">780 MB</div></div>
+          <div class="gr"><div style="flex:2">products</div><div style="flex:1">240 MB</div></div>
+          <div class="gr"><div style="flex:2">customers</div><div style="flex:1">96 MB</div></div>
+        </div>
+        <div class="cap" style="padding:8px">只读快照，不提供 kill / 优化入口（避免误操作）；锁等待仅显示数量与语句摘要。</div>
+      </div>
+    </div>
+  </div>
+
+  <h2><span class="no">§</span>实施约束（与设计文档对应）</h2>
+  <div class="panel">
+    <ul>
+      <li><b>不引入重依赖</b>：补全/导入解析/导出生成均零依赖自写（对齐 db-sql-format.js / db-csv.js 先例）；编辑器引入 CodeMirror 6（ESM，vite 手动 chunk，dist 增量 ≤150KB）。</li>
+      <li><b>不改现有度量</b>：网格行高/工具条高度/圆角全部沿用 token；新控件只用既有 token 与 :focus-visible 规范。</li>
+      <li><b>IPC 纪律</b>：新增通道仅 dbSqlFavoriteOp；导出/导入走 dbClientOp 扩 OP_MAP + 轮询状态 op；入参一律 clone。</li>
+      <li><b>只读权威仍在主进程</b>：导入/Redis 写/表设计器类操作全部 checkWritable 前置；渲染层传 readOnly:false 无效。</li>
+      <li><b>代码借鉴纪律</b>：dbgate（GPL-3.0）仅参考架构；antares / ARDM（MIT）、DBeaver / DBX（Apache-2.0）可改编代码，头部保留 attribution 与 NOTICE；Navicat 闭源，仅参考交互流程，不复制其资源与文案。</li>
+      <li><b>补全不做网络请求</b>：列信息在切库时一次拉取并缓存；三层解析（词法/源解析/场景）任何一层失败都降级为"全量候选"，<b>不允许静默不弹</b>。</li>
+      <li><b>CM6 引号前缀坑</b>（DBX #12008）：补全替换区间含起始引号时，候选需 <b>filter:false</b> 并自带 match，否则菜单会被 CM6 自身 matcher 清空。</li>
+      <li><b>写操作两道闸</b>：前端分级（read/write/ddl/dangerous/transaction/unknown）→ 危险确认；手写 WHERE / 转换器表达式 → 主进程 <b>assertSafeClause</b> 二次校验（禁分号/注释/语句关键字/非白名单标识符）。</li>
+      <li><b>E2 契约变更</b>：<b>getPageData</b> 扩参 <b>where / whereParams / orderBy / count</b>；C 批导出复用同一条件（所见即所导），因此 E2 必须先于 C。构建器只产出<b>占位符 + whereParams</b>，值永不拼进 SQL。</li>
+      <li><b>F0 向后兼容</b>：<b>describeTable</b> 只增字段不改语义（<code>column_name / is_primary_key</code> 等沿用），老前端不改也能跑；视图节点 <code>type:'view'</code> 在主进程与渲染层双重禁写。</li>
+      <li><b>F3 二进制</b>：<code>safeCell</code> 输出 <code>{ __bin: { size, b64, truncated } }</code> 信封；<b>禁止</b>再把二进制转成 <code>&lt;binary N bytes&gt;</code> 字符串（当前导出即丢数据）；全量取用独立 op <code>getCellBinary</code>。</li>
+      <li><b>F2 连接纪律</b>：手动事务最多 2 个 tab（pool 4 条连接），空闲 10 分钟自动回滚，关 tab / 关窗强制回滚；pinned 期间该 tab op 串行。</li>
+      <li><b>G1 广播三闸</b>：密码提示期（复用 <code>_passwordPromptDetected</code>）不镜像、OSC 应答不镜像、目标含 <code>production</code> 书签须手输主机名确认；扇出只在 <code>sendToServer</code> 单一入口，用 <code>_broadcastDepth</code> 防环。</li>
+      <li><b>G3 读文件上限</b>：新增 <code>readRemoteFileChunk</code>（默认 2MB），<b>不允许</b>用现有 <code>readRemoteFile</code> 全量读做预览；PDF 不内嵌，只给下载入口。</li>
+      <li><b>G4/G5 路径安全</b>：归档与镜像所有远端路径走 <code>shellQuote</code> + 拒绝换行 + <code>--</code> 终止选项；镜像"删除远端多余文件"默认不勾。</li>
+      <li><b>G6 密钥层次</b>：保留 AES-256-<b>GCM</b>（不降级 CBC），主密码 → KEK → 包裹随机 DEK；主密码不落盘、密钥只在主进程内存；迁移中断必须可回滚。</li>
+      <li><b>G 批与 A~F 解耦</b>：G 批只改 <code>terminal/ sftp/ file-transfer/ server/</code>，与数据库线唯一交叉点是 <code>production</code> 语义（E1 定义、G1/G5/G6 复用）。</li>
+      <li><b>每批独立提交</b>：feat(db): xxx (阶段4-X) / feat(core): xxx (阶段4-GX)，附单测数量；不混批。</li>
+    </ul>
+  </div>
+
+  <div style="color:var(--muted);font-size:11px;margin-top:24px">草图完 · 数据库线 ①→⑭（A→F0→E1→E2→F1+F3→C→B→D→F2）／ 非数据库线 ⑮→⑳（G1→G2→G3→G4→G5→G7→G8→G6）· 附录 P1~P4 本轮不实施 · 2026-10-23</div>
+</div>
+</body>
+</html>
