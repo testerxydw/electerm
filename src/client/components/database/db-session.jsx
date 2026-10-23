@@ -22,6 +22,9 @@ import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
 import { formatSql } from '../../common/db-sql-format'
+// 只取元数据整形函数：引擎主体仍只被懒加载的编辑器引用，
+// 这里不会把任何编辑器代码拖进主 chunk
+import { flattenTables } from '../../common/db-sql-complete'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -2069,6 +2072,15 @@ export default auto(function DbSession (props) {
     </div>
   )
 
+  // A-4：补全用的表名。数据来自已加载的 metadata（**零请求**），
+  // 优先跟随树里选中的库，没选中时用连接配置里的库；Redis 无表概念
+  const sqlTables = useMemo(() => {
+    if (isRedis) {
+      return []
+    }
+    return flattenTables(metadata, (sel && sel.database) || currentDbName)
+  }, [isRedis, metadata, sel, currentDbName])
+
   // A-7：切换补全关键字大小写。只影响候选插入，不改编辑器里已有文本
   const toggleSqlKeywordCase = () => {
     const v = sqlKeywordCase === 'upper' ? 'lower' : 'upper'
@@ -2089,6 +2101,7 @@ export default auto(function DbSession (props) {
           dbType={tab.dbType}
           placeholder={e('dbSqlPlaceholder')}
           keywordCase={sqlKeywordCase}
+          tables={sqlTables}
         />
       </Suspense>
       <div className='db-sql-bar'>

@@ -23,7 +23,7 @@ function load () {
       return {
         dialectMap, getDialect,
         maskSqlLiterals, literalAt, statementSpanAt, parseTrailingIdentifier,
-        scanCtes, extractSources, classifyContext, buildCompletions, KIND_PRIORITY
+        scanCtes, extractSources, classifyContext, buildCompletions, flattenTables, KIND_PRIORITY
       }
     })()`,
     sandbox
@@ -421,5 +421,56 @@ describe('L3 候选生成', () => {
 
   test('无方言（redis）返回 null', () => {
     assert.equal(api.buildCompletions(ctxOf('sel|'), { dialect: null }), null)
+  })
+})
+
+// ------------------------------------------------------------ A-4 元数据整形
+
+describe('A-4 元数据拍平成候选表', () => {
+  const MYSQL_META = [
+    { name: 'shop', type: 'database', children: [{ name: 'users', type: 'table' }, { name: 'orders', type: 'table' }] },
+    { name: 'log', type: 'database', children: [{ name: 'events', type: 'table' }] }
+  ]
+  const PG_META = [
+    { name: 'app', type: 'database', children: [] },
+    {
+      name: 'shop',
+      type: 'database',
+      children: [
+        { name: 'public', type: 'schema', children: [{ name: 'users', type: 'table' }] },
+        { name: 'audit', type: 'schema', children: [{ name: 'trail', type: 'table' }] }
+      ]
+    }
+  ]
+
+  test('MySQL 两层结构：库 → 表', () => {
+    assert.deepEqual(arr(api.flattenTables(MYSQL_META, 'shop')), ['orders', 'users'])
+  })
+
+  test('PG 三层结构：库 → schema → 表（递归穿透）', () => {
+    assert.deepEqual(arr(api.flattenTables(PG_META, 'shop')), ['trail', 'users'])
+  })
+
+  test('不传库名时跨库合并（跨库查询常见）', () => {
+    assert.deepEqual(arr(api.flattenTables(MYSQL_META)), ['events', 'orders', 'users'])
+  })
+
+  test('库名比较宽松大小写（避免"选了库却补不出表"）', () => {
+    assert.deepEqual(arr(api.flattenTables(MYSQL_META, 'SHOP')), ['orders', 'users'])
+  })
+
+  test('库不存在 / 空元数据 → 空数组，不抛错', () => {
+    assert.equal(api.flattenTables(MYSQL_META, 'nope').length, 0)
+    assert.equal(api.flattenTables([], 'shop').length, 0)
+    assert.equal(api.flattenTables(null, 'shop').length, 0)
+  })
+
+  test('拍平结果直接喂给 table 场景即可用（端到端）', () => {
+    const tables = api.flattenTables(MYSQL_META, 'shop')
+    const res = api.buildCompletions(ctxOf('SELECT * FROM us|'), {
+      dialect: mysql, keywordCase: 'lower', tables
+    })
+    assert.equal(res.exclusive, true)
+    assert.deepEqual(arr(labels(res)), ['users'])
   })
 })

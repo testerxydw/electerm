@@ -53,6 +53,13 @@ describe('A-1 懒加载边界', () => {
     assert.ok(fs.existsSync(CHECK), 'check-cm6-chunk.js 不存在')
   })
 
+  test('断言脚本按逻辑名取最新 chunk（emptyOutDir:false 会留下旧产物，直接求和会翻倍）', () => {
+    const src = read(CHECK)
+    assert.match(src, /emptyOutDir:false|emptyOutDir\b/)
+    assert.match(src, /replace\(\/-\[A-Za-z0-9_-\]\{8\}\\.js\$\//)
+    assert.match(src, /mtimeMs/)
+  })
+
   test('断言脚本同时检查"主入口干净"和"异步 chunk 确实存在"', () => {
     const src = read(CHECK)
     assert.match(src, /cm-editor/)
@@ -277,6 +284,32 @@ describe('A-7 关键字大小写配置', () => {
     assert.ok(extra.includes('dbSqlKeywordCase:'), '缺少 dbSqlKeywordCase 词条')
     const count = (extra.match(/dbSqlKeywordCase:/g) || []).length
     assert.equal(count, 2, 'en 与 zh_cn 都要有')
+  })
+})
+
+describe('A-4 表名补全接线', () => {
+  const session = read(SESSION)
+  const editor = read(EDITOR)
+
+  test('表名来自已加载的 metadata，零请求', () => {
+    assert.match(session, /import \{ flattenTables \} from '\.\.\/\.\.\/common\/db-sql-complete'/)
+    assert.match(session, /flattenTables\(metadata, \(sel && sel\.database\) \|\| currentDbName\)/)
+    // 不允许为了补全额外发 IPC
+    const block = session.slice(session.indexOf('const sqlTables = useMemo'))
+    const head = block.slice(0, block.indexOf('}, [isRedis'))
+    assert.ok(!head.includes('runGlobalAsync'), '补全取表名不允许再发请求')
+  })
+
+  test('跟随树里选中的库；Redis 直接空数组（无表概念）', () => {
+    const block = session.slice(session.indexOf('const sqlTables = useMemo'))
+    const head = block.slice(0, block.indexOf('}, [isRedis'))
+    assert.match(head, /if \(isRedis\) \{\n\s+return \[\]/)
+  })
+
+  test('表名透传给编辑器', () => {
+    assert.match(session, /tables=\{sqlTables\}/)
+    assert.match(editor, /tables = \[\]/)
+    assert.match(editor, /tables: cfg\.tables \|\| \[\]/)
   })
 })
 

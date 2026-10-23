@@ -362,6 +362,48 @@ export function extractSources (maskedStatement, ctes) {
   return sources
 }
 
+// ---------------------------------------------------------------- 元数据整形
+
+/**
+ * 把 `getMetadata` 的树拍平成"补全用的表名数组"（A-4）。
+ *
+ * 树形（驱动原样返回，前端不重排）：
+ *   MySQL: [{name:'db', type:'database', children:[{name:'t', type:'table'}]}]
+ *   PG:    [{name:'db', type:'database', children:[{name:'public', type:'schema',
+ *             children:[{name:'t', type:'table'}]}]}]
+ *
+ * @param {Array} metadata
+ * @param {string} [database] 只取这个库；缺省取全部库（跨库查询很常见）
+ * @returns {string[]} 去重排序后的表名
+ */
+export function flattenTables (metadata, database) {
+  const out = new Set()
+  const pick = nodes => {
+    for (const node of nodes || []) {
+      if (!node || !node.name) {
+        continue
+      }
+      if (node.type === 'table') {
+        out.add(node.name)
+      } else if (Array.isArray(node.children)) {
+        pick(node.children)
+      }
+    }
+  }
+  for (const db of metadata || []) {
+    if (!db || !db.name) {
+      continue
+    }
+    // 库名大小写：MySQL 在部分平台上大小写敏感，这里宽松比较，
+    // 避免"选了库却补不出表"这种看起来像 bug 的空菜单
+    if (database && String(db.name).toLowerCase() !== String(database).toLowerCase()) {
+      continue
+    }
+    pick(db.children)
+  }
+  return Array.from(out).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
 // ---------------------------------------------------------------- L3 场景
 
 // 光标前以这些词结尾 → 期待表名（`DELETE FROM` 因 FROM 尾部命中而被覆盖）

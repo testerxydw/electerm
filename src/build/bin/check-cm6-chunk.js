@@ -58,7 +58,21 @@ for (const entry of entries) {
 }
 
 const chunks = listFiles(CHUNK_DIR, name => name.endsWith('.js'))
-const editorChunks = chunks
+
+// vite 配置是 emptyOutDir:false（assets 目录含图标等共享资源，不能整目录清空），
+// 于是每次构建都会在 chunk/ 里**堆着上一次的旧文件**——旧的和新的都带 CM6 特征串，
+// 直接求和会把体积算成两倍、还会误判"重复打包"。
+// 解法：按"逻辑名"（去掉内容 hash）分组，每组只取 mtime 最新的那个。
+const current = new Map()
+for (const file of chunks) {
+  const base = path.basename(file).replace(/-[A-Za-z0-9_-]{8}\.js$/, '')
+  const prev = current.get(base)
+  if (!prev || fs.statSync(file).mtimeMs > fs.statSync(prev).mtimeMs) {
+    current.set(base, file)
+  }
+}
+
+const editorChunks = [...current.values()]
   .map(file => ({ file, hit: hasMarker(file) }))
   .filter(x => x.hit.length)
 
