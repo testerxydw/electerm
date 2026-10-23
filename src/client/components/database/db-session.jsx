@@ -24,7 +24,7 @@ import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/
 import { formatSql } from '../../common/db-sql-format'
 // 只取元数据整形函数：引擎主体仍只被懒加载的编辑器引用，
 // 这里不会把任何编辑器代码拖进主 chunk
-import { flattenTables } from '../../common/db-sql-complete'
+import { flattenTables, indexColumns } from '../../common/db-sql-complete'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
 
@@ -363,6 +363,8 @@ export default auto(function DbSession (props) {
   const [editValue, setEditValue] = useState('')
   // 单元格预览面板（点击选中；完整值 + 复制/编辑/保存）
   const [selectedCell, setSelectedCell] = useState(null)
+  // A-5：列补全用的列索引（由 listColumns 整成 {表名: 列[]}）
+  const [sqlColumns, setSqlColumns] = useState({})
   // 面板值 = 选中单元格的原始值（编辑草稿在 DbValuePane 内部）
   const panelValue = selectedCell && grid.rows[selectedCell.rowKey]
     ? String(grid.rows[selectedCell.rowKey][selectedCell.col] ?? '')
@@ -567,6 +569,45 @@ export default auto(function DbSession (props) {
       window.pre.runGlobalAsync('closeDbTab', tabId).catch(() => {})
     }
   }, [tabId])
+
+  // A-5：列补全的数据源。listColumns 一次拿全库列（MySQL 按库、PG 按整库），
+  // 切表/切结果零请求；主进程侧 columnsCache 再做一层，切库来回也不打库。
+  // 失败静默：补全退化为关键字，绝不能因为查不到列而打断打字。
+  // metadata 变了说明刷新过（主进程缓存在 getMetadata 时已失效），跟着重取。
+  const sqlDbName = (sel && sel.database) || currentDbName
+  useEffect(() => {
+    if (isRedis || !ready) {
+      return undefined
+    }
+    let alive = true
+    window.pre.runGlobalAsync(
+      'dbClientOp', tabId, 'listColumns', sqlDbName ? { database: sqlDbName } : {}
+    )
+      .then(res => {
+        if (alive) {
+          setSqlColumns(indexColumns(res))
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setSqlColumns({})
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [isRedis, ready, sqlDbName, metadata, tabId])
+
+  // A-4：补全用的表名。数据来自已加载的 metadata（**零请求**），
+  // 优先跟随树里选中的库，没选中时用连接配置里的库；Redis 无表概念。
+  // 注意必须留在 `if (!ready) return` 之前：hooks 顺序一旦与首帧不同，
+  // 开发态直接抛 "Rendered more hooks"，生产态则静默重挂（状态/副作用全丢）
+  const sqlTables = useMemo(() => {
+    if (isRedis) {
+      return []
+    }
+    return flattenTables(metadata, sqlDbName)
+  }, [isRedis, metadata, sqlDbName])
 
   const onSelectTree = (keys, info) => {
     const node = info.node
@@ -2072,15 +2113,6 @@ export default auto(function DbSession (props) {
     </div>
   )
 
-  // A-4：补全用的表名。数据来自已加载的 metadata（**零请求**），
-  // 优先跟随树里选中的库，没选中时用连接配置里的库；Redis 无表概念
-  const sqlTables = useMemo(() => {
-    if (isRedis) {
-      return []
-    }
-    return flattenTables(metadata, (sel && sel.database) || currentDbName)
-  }, [isRedis, metadata, sel, currentDbName])
-
   // A-7：切换补全关键字大小写。只影响候选插入，不改编辑器里已有文本
   const toggleSqlKeywordCase = () => {
     const v = sqlKeywordCase === 'upper' ? 'lower' : 'upper'
@@ -2102,6 +2134,7 @@ export default auto(function DbSession (props) {
           placeholder={e('dbSqlPlaceholder')}
           keywordCase={sqlKeywordCase}
           tables={sqlTables}
+          columns={sqlColumns}
         />
       </Suspense>
       <div className='db-sql-bar'>

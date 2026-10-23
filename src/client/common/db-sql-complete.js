@@ -404,6 +404,96 @@ export function flattenTables (metadata, database) {
   return Array.from(out).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
+// ---------------------------------------------------------------- 列元数据索引（A-5）
+
+function baseName (name) {
+  return String(name || '').split('.').pop()
+}
+
+/**
+ * 把 `listColumns` 的返回整成"补全用的列索引"（A-5）。
+ *
+ * 契约（§4.3）：`{ tables: [{ table, schema?, columns: [{name,type,pk}] }] }`，
+ * MySQL 只有 table，PG 带 schema（同库下可能有同名表）。
+ *
+ * 一张表挂多个键：`users` / `public.users` / `shop.users` —— 用户可能写
+ * `SELECT * FROM shop.users`，也可能只写 `users`。键统一小写，SQL 里标识符
+ * 大小写不敏感，不该因为大小写对不上就补不出列。
+ */
+export function indexColumns (res) {
+  const out = {}
+  for (const t of (res && res.tables) || []) {
+    if (!t || !t.table) {
+      continue
+    }
+    const cols = Array.isArray(t.columns) ? t.columns : []
+    if (!cols.length) {
+      continue
+    }
+    const name = String(t.table).toLowerCase()
+    out[name] = cols
+    for (const scope of [t.schema, t.database]) {
+      if (scope) {
+        out[String(scope).toLowerCase() + '.' + name] = cols
+      }
+    }
+  }
+  return out
+}
+
+// 键查表：容忍前端把带引号的标识符（`users` / "users"）当键传进来
+function columnBucket (columns, key) {
+  if (!key) {
+    return null
+  }
+  const k = String(key).toLowerCase()
+  if (columns[k]) {
+    return columns[k]
+  }
+  const bare = k.replace(/^[`"]/, '').replace(/[`"]$/, '')
+  return columns[bare] || null
+}
+
+/**
+ * 解析限定链对应的列桶。顺序即优先级：
+ * 1. 直接当别名/表名（老调用方按 alias 建索引，也命中 `users.` 这种纯表名）
+ * 2. 别名 → L2 源解析出的表名（`FROM users u WHERE u.`）
+ * 3. 整条链（`shop.users` / `schema.table.`）
+ *
+ * 返回空数组**不是错误**：调用方据此退化为"全库列 + 标注"或关键字（§4.4 降级原则）。
+ *
+ * @returns {Array<Array<{name:string,type?:string,pk?:boolean}>>}
+ */
+export function resolveColumnBuckets (qualifier, columns, sources) {
+  const cols = columns || {}
+  const keys = (qualifier || []).map(s => String(s).toLowerCase())
+  const out = []
+  const push = b => {
+    if (b && out.indexOf(b) < 0) {
+      out.push(b)
+    }
+  }
+  if (!keys.length) {
+    for (const k of Object.keys(cols)) {
+      push(cols[k])
+    }
+    return out
+  }
+  const last = keys[keys.length - 1]
+  push(columnBucket(cols, last))
+  for (const src of sources || []) {
+    if (String(src.alias || '').toLowerCase() !== last) {
+      continue
+    }
+    push(columnBucket(cols, baseName(src.name)))
+    push(columnBucket(cols, src.name))
+  }
+  if (keys.length > 1) {
+    push(columnBucket(cols, keys.join('.')))
+  }
+  return out
+}
+
 // ---------------------------------------------------------------- L3 场景
 
 // 光标前以这些词结尾 → 期待表名（`DELETE FROM` 因 FROM 尾部命中而被覆盖）
@@ -466,6 +556,51 @@ function createTableSlot (before) {
 }
 
 /**
+ * `INSERT INTO t (` 里取目标表名（含 `db.t` / `schema.t`）。
+ * 只在括号未闭合时命中——括号闭合后光标已不在列位。
+ * @returns {string|null}
+ */
+function detectInsertTarget (before) {
+  const m = /\binsert\s+into\s+((?:[A-Za-z_`"][\w$`"]*\s*\.\s*)*[A-Za-z_`"][\w$`"]*)\s*\([^()]*$/i.exec(before)
+  if (!m) {
+    return null
+  }
+  return m[1].replace(/[`"]/g, '')
+}
+
+// ON 之后一旦出现这些词，说明光标已离开连接条件（`ON a.x = b.y WHERE ...`）
+const JOIN_BREAK = /\b(where|having|group|order|limit|offset|union|set|returning)\b/i
+
+/**
+ * `ON o.user_id = ` → 建议另一侧源的列（§4.5 "成对建议"）。
+ *
+ * 只认 `qualifier.column =` 形态：不带限定的 `WHERE status = ` 属于值位，
+ * 不该弹列名。要求已引用 ≥2 个源，单表 ON 没有"另一侧"。
+ *
+ * @returns {{alias:string, column:string}|null}
+ */
+function detectJoinCondition (before, sources) {
+  if (!sources || sources.length < 2) {
+    return null
+  }
+  const re = /\bON\b/gi
+  let m
+  let tail = -1
+  while ((m = re.exec(before))) {
+    tail = m.index + m[0].length
+  }
+  if (tail < 0) {
+    return null
+  }
+  const seg = before.slice(tail)
+  if (JOIN_BREAK.test(seg) || !/=\s*$/.test(seg)) {
+    return null
+  }
+  const left = /([A-Za-z_][\w$]*)\s*\.\s*([A-Za-z_][\w$]*)\s*=\s*$/.exec(seg)
+  return left ? { alias: left[1], column: left[2] } : null
+}
+
+/**
  * 判定光标处的补全场景（§4.5 判定表）。
  *
  * @param {string} text 全文
@@ -503,6 +638,10 @@ export function classifyContext (text, cursor, opts) {
   const from = token ? token.from : cursor
   // before 用 masked：注释/字符串已抹平，不会出现"-- from us"误导判定
   const before = masked.slice(span.from, token ? token.tokenFrom : cursor)
+  // L2 源解析：只在当前语句里解析（多语句时"只按第二条解析"，验收第 8 条）。
+  // 解析失败不抛错——正则匹配不到就是空数组，下游退化为关键字
+  const statement = masked.slice(span.from, span.to)
+  const sources = extractSources(statement, scanCtes(statement))
   const ctx = {
     ...base,
     prefix: token ? token.prefix : '',
@@ -513,7 +652,8 @@ export function classifyContext (text, cursor, opts) {
     statementFrom: span.from,
     statementTo: span.to,
     masked,
-    before
+    before,
+    sources
   }
 
   // `alias.` / `schema.table.` → 列；但 `FROM db.` 补的是表，所以先判定子句尾巴。
@@ -539,9 +679,21 @@ export function classifyContext (text, cursor, opts) {
     return { ...ctx, kind: 'alias', exclusive: false }
   }
 
-  // INSERT INTO t ( → 该表列（列元数据到位前退化为 general）
-  if (/\binsert\s+into\s+[A-Za-z_`"][\w$`"]*\s*\([^()]*$/i.test(before)) {
-    return { ...ctx, kind: 'column', exclusive: true, insertTarget: true }
+  // INSERT INTO t ( → 该表列（列元数据没到位时由 buildCompletions 降级）
+  const insertTable = detectInsertTarget(before)
+  if (insertTable) {
+    return { ...ctx, kind: 'column', exclusive: true, insertTarget: true, insertTable }
+  }
+
+  // `ON a.x = ` → 另一侧源的列，且同名列排最前
+  const joinCondition = detectJoinCondition(before, sources)
+  if (joinCondition) {
+    return { ...ctx, kind: 'joinCondition', exclusive: true, joinCondition }
+  }
+
+  // CALL / EXEC 之后：本期没有过程元数据，按表名兜底（§4.5 最后一行）
+  if (/\b(?:call|exec(?:ute)?)\s*$/i.test(before)) {
+    return { ...ctx, kind: 'table', exclusive: true, callTarget: true }
   }
 
   return ctx
@@ -674,37 +826,44 @@ export function buildCompletions (ctx, opts) {
       add(t, 'table', 'class')
     }
   }
-  const addColumns = (qualifier) => {
-    const keys = (qualifier || []).map(s => String(s).toLowerCase())
-    const buckets = []
-    if (keys.length) {
-      // 优先精确匹配最后一段（表名/别名），再看整条链
-      const last = keys[keys.length - 1]
-      if (columns[last]) {
-        buckets.push(columns[last])
-      }
-      const joined = keys.join('.')
-      if (columns[joined]) {
-        buckets.push(columns[joined])
-      }
-    } else {
-      for (const k of Object.keys(columns)) {
-        buckets.push(columns[k])
-      }
-    }
-    for (const bucket of buckets) {
+  const colDetail = col => typeof col === 'string'
+    ? ''
+    : [col.type, col.pk ? 'PK' : ''].filter(Boolean).join(' · ')
+
+  // prefix 给了就产出 `alias.column`：多表 JOIN 时只给裸列名，用户分不清来自哪张表
+  const addColumnBuckets = (buckets, prefix) => {
+    for (const bucket of buckets || []) {
       for (const col of bucket || []) {
         const name = typeof col === 'string' ? col : col.name
         if (!name) {
           continue
         }
-        const detail = typeof col === 'string'
-          ? ''
-          : [col.type, col.pk ? 'PK' : ''].filter(Boolean).join(' · ')
-        add(name, 'column', 'property', detail)
+        add(prefix ? prefix + '.' + name : name, 'column', 'property', colDetail(col))
       }
     }
-    return buckets.length > 0
+    return (buckets || []).length > 0
+  }
+
+  const addColumns = (qualifier) => addColumnBuckets(
+    resolveColumnBuckets(qualifier, columns, ctx.sources)
+  )
+
+  // 源没命中（表名拼错 / 元数据未到）时的兜底：全库列 + detail 标出来源表，
+  // 比直接掉到关键字有用得多，也不会出现空菜单（§4.4 降级原则）
+  const addAllColumns = () => {
+    let any = false
+    for (const key of Object.keys(columns)) {
+      for (const col of columns[key] || []) {
+        const name = typeof col === 'string' ? col : col.name
+        if (!name) {
+          continue
+        }
+        const detail = [colDetail(col), key].filter(Boolean).join(' · ')
+        add(name, 'column', 'property', detail)
+        any = true
+      }
+    }
+    return any
   }
 
   let exclusive = !!ctx.exclusive
@@ -715,21 +874,75 @@ export function buildCompletions (ctx, opts) {
     case 'table':
       addTables()
       break
-    case 'column':
-      if (!addColumns(ctx.qualifier)) {
-        // 元数据没到位：先把已加载的表当"可能的列来源"提示出来是不对的，
-        // 直接退化为关键字（§4.4 降级原则），并取消排他
+    case 'column': {
+      // INSERT INTO t ( 只要 t 的列；其余按限定链解析（别名经 L2 源解析映射到表名）
+      const q = (ctx.insertTarget && !ctx.qualifier.length)
+        ? [ctx.insertTable].filter(Boolean)
+        : ctx.qualifier
+      if (addColumnBuckets(resolveColumnBuckets(q, columns, ctx.sources))) {
+        break
+      }
+      if (addAllColumns()) {
+        break
+      }
+      // 连列元数据都没有：退化为关键字，并取消排他
+      addStatic()
+      exclusive = false
+      break
+    }
+    case 'joinCondition': {
+      const j = ctx.joinCondition || {}
+      const left = String(j.alias || '').toLowerCase()
+      const others = (ctx.sources || []).filter(
+        s => String(s.alias || '').toLowerCase() !== left
+      )
+      let any = false
+      for (const src of others) {
+        const alias = String(src.alias || '')
+        if (!alias) {
+          continue
+        }
+        for (const bucket of resolveColumnBuckets([alias], columns, ctx.sources)) {
+          for (const col of bucket || []) {
+            const name = typeof col === 'string' ? col : col.name
+            if (!name) {
+              continue
+            }
+            // 同名列（典型的 user_id = user_id）排最前：joinCondition priority 0
+            const same = name.toLowerCase() === String(j.column || '').toLowerCase()
+            add(alias + '.' + name, same ? 'joinCondition' : 'column',
+              'property', colDetail(col))
+            any = true
+          }
+        }
+      }
+      if (!any) {
+        // 没有列元数据：退到表名 + 关键字，`= ` 后面绝不弹空菜单
+        addTables()
         addStatic()
         exclusive = false
       }
       break
+    }
     case 'alias':
       addColumns([])
       addStatic()
       break
-    default:
+    default: {
       addStatic()
       addTables()
+      // A-5 默认态：把已引用源的列以 `alias.column` 形式摆出来
+      const done = new Set()
+      for (const src of ctx.sources || []) {
+        const alias = String(src.alias || '')
+        const key = alias.toLowerCase()
+        if (!alias || done.has(key)) {
+          continue
+        }
+        done.add(key)
+        addColumnBuckets(resolveColumnBuckets([alias], columns, ctx.sources), alias)
+      }
+    }
   }
 
   // 排他类目为空 → 退化为全量静态候选，绝不返回空菜单

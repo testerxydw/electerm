@@ -23,7 +23,8 @@ function load () {
       return {
         dialectMap, getDialect,
         maskSqlLiterals, literalAt, statementSpanAt, parseTrailingIdentifier,
-        scanCtes, extractSources, classifyContext, buildCompletions, flattenTables, KIND_PRIORITY
+        scanCtes, extractSources, classifyContext, buildCompletions, flattenTables, KIND_PRIORITY,
+        indexColumns, resolveColumnBuckets
       }
     })()`,
     sandbox
@@ -472,5 +473,193 @@ describe('A-4 元数据拍平成候选表', () => {
     })
     assert.equal(res.exclusive, true)
     assert.deepEqual(arr(labels(res)), ['users'])
+  })
+})
+
+// ------------------------------------------------------------ A-5 / A-6 列补全
+
+describe('A-5 列元数据索引', () => {
+  const COL_RES = {
+    tables: [
+      { table: 'users', columns: [{ name: 'id' }, { name: 'name' }] },
+      { schema: 'audit', table: 'trail', columns: [{ name: 'at' }] }
+    ]
+  }
+
+  test('表名键统一小写（SQL 标识符大小写不敏感）', () => {
+    const idx = api.indexColumns({ tables: [{ table: 'Users', columns: [{ name: 'id' }] }] })
+    assert.deepEqual(Object.keys(idx), ['users'])
+  })
+
+  test('带 schema 的表挂两个键：table / schema.table', () => {
+    const idx = api.indexColumns(COL_RES)
+    assert.deepEqual(arr(Object.keys(idx)).sort(), ['audit.trail', 'trail', 'users'])
+  })
+
+  test('空返回 / 空列都不抛错，也不产生无用的空桶', () => {
+    assert.deepEqual(Object.keys(api.indexColumns(null)), [])
+    assert.deepEqual(Object.keys(api.indexColumns({ tables: [{ table: 't', columns: [] }] })), [])
+  })
+
+  test('限定链解析：别名经 L2 源解析映射到表名', () => {
+    const idx = api.indexColumns(COL_RES)
+    const sources = api.extractSources('SELECT * FROM users u WHERE u.x', [])
+    const buckets = api.resolveColumnBuckets(['u'], idx, sources)
+    assert.equal(buckets.length, 1)
+    assert.deepEqual(arr(buckets[0]).map(c => c.name), ['id', 'name'])
+  })
+
+  test('限定链解析：schema.table 整条链也能命中', () => {
+    const idx = api.indexColumns(COL_RES)
+    const sources = api.extractSources('SELECT * FROM audit.trail t WHERE t.x', [])
+    const buckets = api.resolveColumnBuckets(['t'], idx, sources)
+    assert.deepEqual(arr(buckets[0]).map(c => c.name), ['at'])
+  })
+
+  test('别名解析不到 → 空桶（交给调用方降级，不抛错）', () => {
+    const idx = api.indexColumns(COL_RES)
+    assert.equal(api.resolveColumnBuckets(['nope'], idx, []).length, 0)
+  })
+})
+
+describe('A-5 / A-6 列候选', () => {
+  const COL_IDX = api.indexColumns({
+    tables: [
+      {
+        table: 'users',
+        columns: [
+          { name: 'id', type: 'int', pk: true },
+          { name: 'user_id', type: 'bigint' },
+          { name: 'name', type: 'varchar(64)' }
+        ]
+      },
+      {
+        table: 'orders',
+        columns: [
+          { name: 'id', type: 'int', pk: true },
+          { name: 'user_id', type: 'bigint' },
+          { name: 'amount', type: 'decimal(10,2)' }
+        ]
+      },
+      { schema: 'shop', table: 'items', columns: [{ name: 'sku', type: 'varchar(32)' }] }
+    ]
+  })
+  const base = extra => ({
+    dialect: mysql,
+    keywordCase: 'lower',
+    tables: ['users', 'orders', 'items'],
+    columns: COL_IDX,
+    ...extra
+  })
+
+  test('`u.` → 该源列（别名经源解析），排他', () => {
+    const c = ctxOf('SELECT * FROM users u WHERE u.|')
+    assert.equal(c.kind, 'column')
+    const res = api.buildCompletions(c, base())
+    assert.equal(res.exclusive, true)
+    const ls = labels(res)
+    assert.ok(ls.includes('user_id'), ls.join(','))
+    assert.ok(!ls.includes('amount'), '不该出现别的表的列')
+  })
+
+  test('`o.` → orders 的列（同一个库多表不串味）', () => {
+    const res = api.buildCompletions(ctxOf('SELECT * FROM orders o WHERE o.|'), base())
+    const ls = labels(res)
+    assert.ok(ls.includes('amount'), ls.join(','))
+    assert.ok(!ls.includes('name'))
+  })
+
+  test('`schema.table.` 限定链也能出列', () => {
+    const res = api.buildCompletions(ctxOf('SELECT * FROM shop.items i WHERE i.|'), base())
+    assert.deepEqual(arr(labels(res)), ['sku'])
+  })
+
+  test('别名解不出表 → 退化为全库列，detail 标出来源，菜单不空', () => {
+    const res = api.buildCompletions(ctxOf('SELECT * FROM nope x WHERE x.|'), base())
+    assert.ok(res.options.length > 0)
+    const uid = res.options.find(o => o.label === 'user_id')
+    assert.ok(uid, '退化后仍应给出全库列')
+    assert.match(uid.detail, /users|orders/, 'detail 要标出来源表，否则不知道这列哪来的')
+  })
+
+  test('一条列都没有 → 退化关键字（绝不空菜单）', () => {
+    const res = api.buildCompletions(ctxOf('SELECT * FROM users u WHERE u.|'), {
+      dialect: mysql, keywordCase: 'lower'
+    })
+    assert.ok(res.options.length > 0)
+    assert.equal(res.exclusive, false)
+  })
+
+  test('INSERT INTO t ( → 只出 t 的列（A-5 第四行）', () => {
+    const c = ctxOf('INSERT INTO orders (|')
+    assert.equal(c.kind, 'column')
+    assert.equal(c.insertTarget, true)
+    assert.equal(c.insertTable, 'orders')
+    const res = api.buildCompletions(c, base())
+    assert.equal(res.exclusive, true)
+    const ls = labels(res)
+    assert.ok(ls.includes('amount'), ls.join(','))
+    assert.ok(!ls.includes('name'), 'users 的列不能出现在 orders 的 INSERT 里')
+  })
+
+  test('INSERT 目标带库前缀（db.t）也能定位', () => {
+    const c = ctxOf('INSERT INTO shop.items (|')
+    assert.equal(c.insertTable, 'shop.items')
+    assert.deepEqual(arr(labels(api.buildCompletions(c, base()))), ['sku'])
+  })
+
+  test('INSERT 括号闭合后不再当列位（避免整段 SQL 都在弹列名）', () => {
+    const c = ctxOf('INSERT INTO orders (id, user_id) VALUES (1, 2) |')
+    assert.notEqual(c.kind, 'column')
+  })
+
+  test('默认态补 `alias.column`（多表时裸列名分不清来源）', () => {
+    const res = api.buildCompletions(
+      ctxOf('SELECT * FROM users u JOIN orders o ON u.id = o.user_id WHERE |'),
+      base()
+    )
+    const ls = labels(res)
+    assert.ok(ls.includes('u.name'), ls.join(','))
+    assert.ok(ls.includes('o.amount'))
+  })
+
+  test('ON a.x = 之后 → 只建议另一侧，且同名列排最前（成对建议）', () => {
+    const c = ctxOf('SELECT * FROM orders o JOIN users u ON o.user_id = |')
+    assert.equal(c.kind, 'joinCondition')
+    const res = api.buildCompletions(c, base())
+    assert.equal(res.exclusive, true)
+    const ls = labels(res)
+    assert.ok(ls.every(l => l.startsWith('u.')), ls.join(','))
+    assert.equal(res.options[0].label, 'u.user_id', '同名列必须排第一')
+    assert.equal(res.options[0].kind, 'joinCondition')
+  })
+
+  test('ON 之后没有列元数据 → 退化为表 + 关键字，取消排他', () => {
+    const res = api.buildCompletions(
+      ctxOf('SELECT * FROM orders o JOIN users u ON o.user_id = |'),
+      { dialect: mysql, keywordCase: 'lower' }
+    )
+    assert.ok(res.options.length > 0)
+    assert.equal(res.exclusive, false)
+  })
+
+  test('单表 ON 不做成对建议（没有"另一侧"）', () => {
+    const c = ctxOf('SELECT * FROM users u JOIN orders o ON |')
+    assert.notEqual(c.kind, 'joinCondition')
+  })
+
+  test('ON 之后出现 WHERE 就不再是连接条件', () => {
+    const c = ctxOf('SELECT * FROM orders o JOIN users u ON o.user_id = u.id WHERE u.name = |')
+    assert.notEqual(c.kind, 'joinCondition')
+  })
+
+  test('不带限定的 `WHERE x = ` 不判成连接条件（那是值位）', () => {
+    const c = ctxOf('SELECT * FROM users u WHERE name = |')
+    assert.notEqual(c.kind, 'joinCondition')
+  })
+
+  test('CALL 之后按表名兜底（本期无过程元数据）', () => {
+    const c = ctxOf('CALL |')
+    assert.equal(c.kind, 'table')
   })
 })
