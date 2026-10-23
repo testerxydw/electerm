@@ -73,6 +73,38 @@ function appendSqlHistory (entry, filePath) {
   }
 }
 
+// 单条删除：按 (ts + 归一化 sql) 定位，返回删除后的完整列表。
+//
+// 为什么不用下标：渲染层拿到的可能是"筛选后"的子集，下标对不上存储文件里的位置
+// （筛选状态删第 2 条，存储里该删的可能是第 37 条）。ts 是"最后执行时间"，
+// 经去重合并后天然唯一，可当主键；sql 归一化再比一次，防止 ts 被改成字符串/
+// 丢精度后删掉隔壁那条。
+function removeSqlHistory (entry, filePath) {
+  const list = readFile(filePath)
+  if (!entry || !entry.sql) {
+    return list
+  }
+  const key = normSql(entry.sql)
+  const ts = Number(entry.ts)
+  let idx = list.findIndex(x => Number(x.ts) === ts && normSql(x.sql) === key)
+  if (idx < 0) {
+    // ts 对不上（旧文件被手改 / 精度丢失）：退化为只按语句删。
+    // 宁可删到一条同语句的旧记录，也好过用户点了 X 毫无反应
+    idx = list.findIndex(x => normSql(x.sql) === key)
+  }
+  if (idx < 0) {
+    return list
+  }
+  list.splice(idx, 1)
+  try {
+    writeFile(filePath, list)
+  } catch (e) {
+    // 磁盘满等：静默降级。返回内存里的结果，UI 至少不会"点了没反应"；
+    // 下次启动可能又读到这条（写失败的已知代价，不为它加补丁逻辑）
+  }
+  return list
+}
+
 function clearSqlHistory (filePath) {
   try {
     fs.rmSync(filePath, { force: true })
@@ -84,5 +116,6 @@ function clearSqlHistory (filePath) {
 module.exports = {
   listSqlHistory,
   appendSqlHistory,
+  removeSqlHistory,
   clearSqlHistory
 }

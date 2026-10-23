@@ -291,6 +291,9 @@ function initIpc () {
       if (action === 'append') {
         return h.appendSqlHistory(arg, file)
       }
+      if (action === 'remove') {
+        return h.removeSqlHistory(arg, file)
+      }
       if (action === 'clear') {
         return h.clearSqlHistory(file)
       }

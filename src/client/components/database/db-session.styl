@@ -815,20 +815,46 @@
   margin-top 2px
   color var(--text-dark)
   font-size 11px
+  // 勾选框式的操作区占位后，时间/来源可能被压到折行（"失/败"竖排两个字）；
+  // 只让来源那一项收缩省略，其余保持单行
+  white-space nowrap
+  min-width 0
+
+.db-history-time
+.db-history-fail
+  flex 0 0 auto
 
 .db-history-src
+  min-width 0
   overflow hidden
   text-overflow ellipsis
   white-space nowrap
 
-.db-history-copy
+// 条目右下角的操作组（复制 / 删除）：常驻占位、只切透明度——
+// 显隐若用 display 切换，元信息行会跟着抖动，悬浮时正文跟着跳
+.db-history-ops
+  display flex
+  align-items center
+  gap 2px
   margin-left auto
   opacity 0
-  // 常驻占位（只切透明度）：hover 才显形，避免出现/消失时元信息行抖动
   .db-history-item:hover &
     opacity 1
   .db-history-item.is-active &
     opacity 1
+
+.db-history-copy
+  // 去掉 antd 文本按钮的横向内边距：两个 20px 的图标挤在一起才不撑宽元信息行
+  padding 0 2px
+  height 18px
+
+// 删除：鼠标悬浮才露出的 X。
+// 危险色交给 antd 的 danger 语义（hover 自带红字 + 淡红底），不在这一层写 :hover color——
+// antd 的 text-button hover 规则是 `:where(...).ant-btn:not(:disabled):not(.ant-btn-disabled):hover`
+// （0,4,0），类选择器压不住，写了也不生效（test.259 实测 hover 后变成近黑色，深色主题下看不见）
+.db-history-del
+  padding 0 2px
+  height 18px
 
 .db-history-fail
   color var(--error)

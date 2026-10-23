@@ -26,6 +26,25 @@ export function appendSqlHistory (entry) {
     .catch(() => {})
 }
 
+// 单条删除：只传定位用的 (sql, ts)，不让渲染层传下标——
+// 列表可能处于筛选状态，下标与存储文件里的位置对不上。
+// 返回主进程删除后的完整列表（失败返回 null，调用方保留乐观结果）
+export async function removeSqlHistory (item) {
+  if (!item || !item.sql) {
+    return null
+  }
+  try {
+    const r = await window.pre.runGlobalAsync('dbSqlHistoryOp', 'remove', {
+      sql: item.sql,
+      ts: item.ts
+    })
+    return Array.isArray(r) ? r : null
+  } catch (e) {
+    console.warn('remove sql history failed:', e)
+    return null
+  }
+}
+
 // 清空
 export function clearSqlHistory () {
   return window.pre.runGlobalAsync('dbSqlHistoryOp', 'clear')

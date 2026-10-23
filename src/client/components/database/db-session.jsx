@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -20,7 +20,7 @@ import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
-import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/db-sql-history'
+import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory } from '../../common/db-sql-history'
 import {
   clampPanelSize,
   readHistoryPanelSize,
@@ -1191,10 +1191,35 @@ export default auto(function DbSession (props) {
     setSqlText(item.sql)
     openSqlHistory(false)
   }
-  const removeSqlHistory = () => {
+  const clearAllSqlHistory = () => {
     clearSqlHistory()
     setSqlHistory([])
     setHistIndex(0)
+  }
+  // 单条删除（悬浮 X / Delete 键）：先本地移除，点击即刻消失不等 IPC 回包；
+  // 同一 (sql, ts) 再交给主进程落盘，失败不回滚——下次打开会重新出现，
+  // 但比"点了没反应"好。不按下标删：列表可能处于筛选状态，下标对不上存储位置
+  const removeOneSqlHistory = (item) => {
+    if (!item) {
+      return
+    }
+    const next = sqlHistory.filter(
+      x => !(x.ts === item.ts && x.sql === item.sql)
+    )
+    if (next.length === sqlHistory.length) {
+      return
+    }
+    setSqlHistory(next)
+    // 删最后一条时原下标越界，夹一次；删中间的停在原下标（正好是原位置的下一项）
+    setHistIndex(clampHistoryIndex(histIndex, filterHistory(next, histFilter).length))
+    removeSqlHistory(item).catch(() => {})
+    // 按钮随条目一起被移除，焦点会掉回 body，键盘走查就断了——还回列表
+    setTimeout(() => {
+      const el = histListRef.current
+      if (el && el.focus) {
+        el.focus()
+      }
+    }, 0)
   }
 
   // 拖拽调整尺寸：右边缘改宽、右下角改宽高。
@@ -1228,7 +1253,7 @@ export default auto(function DbSession (props) {
     window.addEventListener('pointerup', up)
   }
 
-  // 键盘走查：↑↓ 移动、Enter 插入编辑器、Esc 关闭
+  // 键盘走查：↑↓ 移动、Enter 插入编辑器、Delete 删除该条、Esc 关闭
   const moveHist = delta => {
     const next = moveHistoryIndex(histIndex, histList.length, delta)
     setHistIndex(next)
@@ -1253,6 +1278,11 @@ export default auto(function DbSession (props) {
     } else if (ev.key === 'Escape') {
       ev.preventDefault()
       openSqlHistory(false)
+    } else if (ev.key === 'Delete') {
+      // 键盘删除当前选中项（与悬浮 X 同一路径）。不回退成 Backspace：
+      // 那个键在 macOS 上是删除字符的肌肉记忆，放这里容易误删
+      ev.preventDefault()
+      removeOneSqlHistory(histList[clampHistoryIndex(histIndex, histList.length)])
     }
   }
 
@@ -2343,7 +2373,7 @@ export default auto(function DbSession (props) {
                     ? (
                       <Popconfirm
                         title={e('dbSqlHistoryClearConfirm')}
-                        onConfirm={removeSqlHistory}
+                        onConfirm={clearAllSqlHistory}
                       >
                         <Button
                           type='text'
@@ -2414,18 +2444,34 @@ export default auto(function DbSession (props) {
                                     ? <span className='db-history-fail'>{e('dbSqlHistoryFailed')}</span>
                                     : null
                                 }
-                                <Button
-                                  className='db-history-copy'
-                                  type='text'
-                                  size='small'
-                                  icon={<CopyOutlined />}
-                                  title={e('dbSqlHistoryCopy')}
-                                  onClick={ev => {
-                                    // 只复制，不插回编辑器：想复用长语句又不想动当前编辑内容
-                                    ev.stopPropagation()
-                                    copy(previewText(item.sql))
-                                  }}
-                                />
+                                <span className='db-history-ops'>
+                                  <Button
+                                    className='db-history-copy'
+                                    type='text'
+                                    size='small'
+                                    icon={<CopyOutlined />}
+                                    title={e('dbSqlHistoryCopy')}
+                                    onClick={ev => {
+                                      // 只复制，不插回编辑器：想复用长语句又不想动当前编辑内容
+                                      ev.stopPropagation()
+                                      copy(previewText(item.sql))
+                                    }}
+                                  />
+                                  <Button
+                                    className='db-history-del'
+                                    type='text'
+                                    danger
+                                    size='small'
+                                    icon={<CloseOutlined />}
+                                    title={e('dbSqlHistoryDelete')}
+                                    aria-label={e('dbSqlHistoryDelete')}
+                                    onClick={ev => {
+                                      // 必须挡住冒泡：不挡住会同时把这条语句插回编辑器
+                                      ev.stopPropagation()
+                                      removeOneSqlHistory(item)
+                                    }}
+                                  />
+                                </span>
                               </div>
                             </div>
                           ))
