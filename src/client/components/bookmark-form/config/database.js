@@ -24,7 +24,9 @@ const databaseConfig = {
       dbName: '',
       sshTunnelBookmarkId: '',
       // 默认只读：主进程按此开关执行 SELECT/SHOW/DESC/EXPLAIN 白名单（见 db-client）
-      readOnly: true
+      readOnly: true,
+      // E1 连接级安全带：默认非生产，非生产走两级确认（write 首次 / ddl、dangerous 每次）
+      production: false
     })
   },
   layout: formItemLayout,
@@ -57,6 +59,24 @@ const databaseConfig = {
           name: 'readOnly',
           label: () => e('readOnly'),
           valuePropName: 'checked'
+        },
+        {
+          // E1 连接级安全带：danger 检查挂在连接上才能持续（每次弹窗会被点麻）。
+          // 默认关闭；开启后所有非查询语句都要二次确认并输入库名
+          type: 'switch',
+          name: 'production',
+          label: () => e('dbProductionFlag'),
+          valuePropName: 'checked'
+        },
+        {
+          // 说明文案单独一行（Alert）：Switch 的 label 只有一行空间，
+          // 而"要输库名"这个后果必须写清楚，否则用户不知道勾了什么
+          type: 'info',
+          name: 'productionHint',
+          props: {
+            message: e('dbProductionHint'),
+            showIcon: true
+          }
         },
         commonFields.description,
         commonFields.type

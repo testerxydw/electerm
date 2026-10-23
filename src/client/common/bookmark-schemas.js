@@ -174,6 +174,7 @@ export const databaseBookmarkSchema = {
   dbName: z.string().optional().describe('Default database/schema name to connect'),
   sshTunnelBookmarkId: z.string().optional().describe('Id of an existing ssh bookmark to tunnel the database connection through'),
   readOnly: z.boolean().optional().describe('Read only mode: only SELECT/SHOW/DESC/EXPLAIN statements are executed, default is true'),
+  production: z.boolean().optional().describe('Production connection: every non-query statement needs a second confirmation with the database name typed in, default is false'),
   color: z.string().optional().describe('Tag color, like #000000'),
   description: z.string().optional().describe('Bookmark description')
 }

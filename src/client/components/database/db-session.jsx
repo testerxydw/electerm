@@ -37,6 +37,22 @@ import { formatSql } from '../../common/db-sql-format'
 import { flattenTables, indexColumns } from '../../common/db-sql-complete'
 import { SQL_EDITOR_OPTIONS, readSqlEditorOpts, toggleSqlEditorOpt } from '../../common/db-sql-opts'
 import { dbTypeLabelMap } from '../../common/constants'
+// E1：危险 SQL 分级 + 连接级安全带。两个模块都是零依赖纯函数（时间经 now 注入），
+// 判定逻辑与 UI 解耦，单测可直接跑源码
+import { classifySql } from '../../common/db-sql-risk'
+import {
+  BYPASS_TTL_MS,
+  bypassLeftMinutes,
+  clearBypass,
+  createGuardState,
+  dbConnKey,
+  grantBypass,
+  isBypassed,
+  markAsked,
+  muteLowWrite,
+  shouldConfirm
+} from '../../common/db-safe-guard'
+import DbDangerConfirm from './db-danger-confirm'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -104,6 +120,23 @@ const buildInsertFormColumns = (structureRows, dbType) => {
     const isNumeric = /(int|decimal|numeric|float|double|real|number|serial)/.test(type)
     return { name, type, isPk, isAutoInc, isNumeric }
   }).filter(c => c.name)
+}
+// 展示用的字面量预览。**只用于确认弹窗的文案，永远不参与拼 SQL**：
+// 主进程按参数化构造语句（前端只传值），这里拼字符串仅为让用户看清"要改成什么"。
+// 超长值截断，避免一整段长文本/二进制把弹窗撑爆
+const previewLiteral = (v) => {
+  if (v === null || v === undefined) {
+    return 'NULL'
+  }
+  const s = String(v)
+  return "'" + (s.length > 60 ? s.slice(0, 60) + '…' : s) + "'"
+}
+// 网格写操作的语句预览：库名可缺省（连接无默认库时只显示表名）
+const writeTargetLabel = (sel) => {
+  if (!sel) {
+    return ''
+  }
+  return (sel.database ? sel.database + '.' : '') + sel.table
 }
 // 数据库网格统一包装（doc/已完成/数据库功能设计归档-2026-10-21.md）：
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
@@ -421,6 +454,25 @@ export default auto(function DbSession (props) {
     results: [],
     error: ''
   })
+
+  // ---- E1 危险 SQL 分级 + 连接级安全带 ----
+  // guard 状态放 ref：lowRiskMuted / bypass / asked 都是内存开关，只在事件回调里读写，
+  // 不需要参与渲染（倒计时另用 tick 触发重渲染）
+  const guardRef = useRef(null)
+  if (guardRef.current === null) {
+    guardRef.current = createGuardState()
+  }
+  // 危险确认弹窗的受控状态：null = 不显示；非 null 时 riskResolveRef 里挂着等待中的 promise
+  const [riskGate, setRiskGate] = useState(null)
+  const riskResolveRef = useRef(null)
+  // 生产标记来自书签（tab 由书签展开），只认严格 true：
+  // 旧书签没有该字段时为 undefined，必须视为非生产
+  const isProduction = tab.production === true
+  // 连接身份：mute 与"临时解除"都按它记账（见 db-safe-guard 注释）
+  const connKey = useMemo(
+    () => dbConnKey(tab),
+    [tab.dbType, tab.dbHost, tab.dbPort, tab.dbUser, tab.dbName]
+  )
 
   // Redis 键空间状态（db 节点 → SCAN 键列表 → 类型化键详情）
   const [redisDb, setRedisDb] = useState(-1)
@@ -853,9 +905,20 @@ export default auto(function DbSession (props) {
 
   // 单元格 UPDATE（行内双击编辑与预览面板共用）：主进程按引擎参数化构造 UPDATE，
   // 前端只传主键值定位，不拼接 SQL
-  const runCellUpdate = (rowKey, col, value) => {
+  const runCellUpdate = async (rowKey, col, value) => {
     const row = grid.rows[rowKey]
     if (!row || !sel) {
+      return
+    }
+    // E1：production 连接上改数据要二次确认（带表名/列名/主键定位与影响行数）
+    const ok = await confirmRowWrite({
+      level: 'write',
+      text: 'UPDATE ' + writeTargetLabel(sel) +
+        ' SET ' + col + ' = ' + previewLiteral(value) +
+        ' WHERE ' + pkColumn + ' = ' + previewLiteral(row[pkColumn]),
+      note: e('dbAffectedRows').replace('{n}', '1')
+    })
+    if (!ok) {
       return
     }
     setGrid(g => ({ ...g, loading: true }))
@@ -936,20 +999,36 @@ export default auto(function DbSession (props) {
     return !Number.isNaN(Number(st.text))
   })
 
-  const submitInsert = () => {
+  const submitInsert = async () => {
     if (!sel || !canSubmitInsert) {
       return
     }
     const values = {}
+    const colList = []
+    const valList = []
     insertCols.forEach(c => {
       const st = insertValues[c.name] || {}
       if (st.isNull) {
         values[c.name] = null
+        colList.push(c.name)
+        valList.push('NULL')
       } else if (st.text !== '') {
         // 数值列转数字传参，其余按文本；留空列不传（交给数据库默认值/自增）
         values[c.name] = c.isNumeric ? Number(st.text) : st.text
+        colList.push(c.name)
+        valList.push(previewLiteral(values[c.name]))
       }
     })
+    // E1：production 连接上插行要二次确认（取消则插入弹窗保持打开，值不丢）
+    const ok = await confirmRowWrite({
+      level: 'write',
+      text: 'INSERT INTO ' + writeTargetLabel(sel) +
+        ' (' + colList.join(', ') + ') VALUES (' + valList.join(', ') + ')',
+      note: e('dbAffectedRows').replace('{n}', '1')
+    })
+    if (!ok) {
+      return
+    }
     setGrid(g => ({ ...g, loading: true }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'insertRow', {
       database: sel.database,
@@ -968,8 +1047,10 @@ export default auto(function DbSession (props) {
       })
   }
 
-  // 批量删除选中行：仅主键 IN 定位（无主键表不显示入口），二次确认后执行
-  const runDeleteRows = () => {
+  // 批量删除选中行：仅主键 IN 定位（无主键表不显示入口），二次确认后执行。
+  // 原有 Popconfirm 保留（轻量、就地确认），production 连接再叠一层库名确认 ——
+  // 前者是"点了会不会误触"，后者是"确认这是生产库"，两道语义不同
+  const runDeleteRows = async () => {
     if (!sel || !pkColumn) {
       return
     }
@@ -977,6 +1058,18 @@ export default auto(function DbSession (props) {
       .filter((_, i) => selectedRowKeys.includes(i))
       .map(r => r[pkColumn])
     if (!pkValues.length) {
+      return
+    }
+    const shownPk = pkValues.slice(0, 10).map(previewLiteral).join(', ') +
+      (pkValues.length > 10 ? ', …' : '')
+    // 删行定为 dangerous：批量删除不可撤销，按钮应以危险色呈现
+    const ok = await confirmRowWrite({
+      level: 'dangerous',
+      text: 'DELETE FROM ' + writeTargetLabel(sel) +
+        ' WHERE ' + pkColumn + ' IN (' + shownPk + ')',
+      note: e('dbAffected').replace('{n}', String(pkValues.length))
+    })
+    if (!ok) {
       return
     }
     window.pre.runGlobalAsync('dbClientOp', tabId, 'deleteRows', {
@@ -1007,15 +1100,147 @@ export default auto(function DbSession (props) {
   const selectCell = (row, col) => {
     setSelectedCell({ rowKey: row.__rowKey, col })
   }
-  const runSql = () => {
+
+  // ---- E1 执行闸门（设计 §6.2 / §6.3 / §6.4）----
+
+  // 每次执行都是一个新批次：scope 带自增序号，避免上一批的"已问过"吞掉本批弹窗
+  const scopeSeqRef = useRef(0)
+  const nextScope = kind => kind + ':' + (++scopeSeqRef.current)
+
+  // 弹一次确认并等用户决定；取消/关闭都解析为 false（零执行）
+  const askRiskConfirm = payload => {
+    // 上一个闸门还没结束（用户连点两次"运行"）：先把旧的按取消处理，
+    // 否则那次 runSql 的 promise 永远不 settle，一次执行挂在半路
+    const prev = riskResolveRef.current
+    if (prev) {
+      riskResolveRef.current = null
+      prev(false)
+    }
+    return new Promise(resolve => {
+      riskResolveRef.current = resolve
+      setRiskGate(payload)
+    })
+  }
+
+  const settleRiskGate = ok => {
+    const resolve = riskResolveRef.current
+    riskResolveRef.current = null
+    setRiskGate(null)
+    if (resolve) {
+      resolve(ok)
+    }
+  }
+
+  // SQL 执行闸门：返回 true 才继续。
+  // redis 不经过本闸门（Redis 写操作不在 E1 范围）；只读模式下执行入口本就被编辑器禁用、
+  // 主进程白名单还会二次拦，这里不弹（验收 §6.5 第 5 条）
+  const confirmSqlRisk = async (sql, database) => {
+    const risk = classifySql(sql, tab.dbType)
+    const state = guardRef.current
+    const scope = nextScope('sql')
+    const verdict = shouldConfirm({
+      level: risk.level,
+      production: isProduction,
+      state,
+      connKey,
+      scope,
+      now: Date.now()
+    })
+    if (!verdict.need || !risk.statements.length) {
+      return true
+    }
+    const ok = await askRiskConfirm({
+      level: risk.level,
+      requireDbName: verdict.requireDbName,
+      dbName: database,
+      statements: risk.statements,
+      reasons: risk.reasons,
+      // 静音只对"非生产的低风险写"开放：生产连接正是安全带要覆盖的场景
+      allowMute: !isProduction && risk.level === 'write'
+    })
+    if (ok) {
+      markAsked(state, scope)
+    }
+    return ok
+  }
+
+  // 行级写（单元格保存 / 插行 / 删行）在 production 连接上再过一道确认。
+  // 复用同一个弹窗：它表达的是"执行前给人看"，不是 SQL 编辑器专属 UI
+  const confirmRowWrite = async payload => {
+    if (!isProduction) {
+      return true
+    }
+    const state = guardRef.current
+    const scope = nextScope('row')
+    const verdict = shouldConfirm({
+      level: payload.level,
+      production: true,
+      state,
+      connKey,
+      scope,
+      now: Date.now()
+    })
+    if (!verdict.need) {
+      return true
+    }
+    const ok = await askRiskConfirm({
+      level: payload.level,
+      requireDbName: verdict.requireDbName,
+      dbName: (sel && sel.database) || tab.dbName || '',
+      statements: [{ text: payload.text, level: payload.level, firstKeyword: '' }],
+      reasons: [payload.note],
+      allowMute: false
+    })
+    if (ok) {
+      markAsked(state, scope)
+    }
+    return ok
+  }
+
+  // 生产标记 + 临时解除倒计时。bumpBypass 只是"到点重渲染"的触发器（值本身不用，
+  // 故解构丢弃）；只有生效期才起定时器，常态不空转
+  const [, bumpBypass] = useState(0)
+  const bypassMinutes = isProduction
+    ? bypassLeftMinutes(guardRef.current, connKey, Date.now())
+    : 0
+  useEffect(() => {
+    if (!isProduction || bypassMinutes <= 0) {
+      return undefined
+    }
+    const timer = setInterval(() => bumpBypass(v => v + 1), 30000)
+    return () => clearInterval(timer)
+  }, [isProduction, bypassMinutes])
+
+  const toggleProductionBypass = () => {
+    const state = guardRef.current
+    const now = Date.now()
+    if (isBypassed(state, connKey, now)) {
+      clearBypass(state, connKey)
+    } else {
+      grantBypass(state, connKey, now)
+      message.warning(
+        e('dbRiskBypassOn').replace('{n}', String(Math.round(BYPASS_TTL_MS / 60000)))
+      )
+    }
+    bumpBypass(v => v + 1)
+  }
+
+  const runSql = async () => {
     const sql = sqlText.trim()
     if (!sql) {
       return
     }
-    setSqlResult(s => ({ ...s, loading: true, error: '' }))
     // 当前库随语句下传（连接无默认库时后端先 USE 再执行，避免 No database selected）：
     // 优先树选中表所在库，无选中回退连接库名
     const database = (sel && sel.database) || tab.dbName || ''
+    // 闸门必须在 executeSql 之前：取消 = 零执行（连 loading 都不该亮）
+    if (!isRedis && !isReadonly) {
+      const ok = await confirmSqlRisk(sql, database)
+      if (!ok) {
+        return
+      }
+    }
+    setSqlResult(s => ({ ...s, loading: true, error: '' }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', database ? { sql, database } : { sql })
       .then(res => {
         setSqlResult({
@@ -3055,6 +3280,34 @@ export default auto(function DbSession (props) {
           : null
       }
       <span className='db-head-right'>
+        {
+          // E1 生产连接常驻标记：顶部工具条是唯一跨 tab（数据/SQL/结构）都可见的位置，
+          // 徽标放这里才算"常驻提醒"；临时解除生效期间按钮显示剩余分钟
+          isProduction
+            ? (
+              <Tooltip title={e('dbProductionHint')}>
+                <span className='db-prod-flag'>{e('dbRiskProduction')}</span>
+              </Tooltip>
+              )
+            : null
+        }
+        {
+          isProduction
+            ? (
+              <Button
+                className={'db-prod-bypass' + (bypassMinutes > 0 ? ' is-on' : '')}
+                size='small'
+                onClick={toggleProductionBypass}
+              >
+                {
+                  bypassMinutes > 0
+                    ? e('dbRiskBypassLeft').replace('{n}', String(bypassMinutes))
+                    : e('dbRiskBypass')
+                }
+              </Button>
+              )
+            : null
+        }
         {/* 系统库显示开关：默认显示，关闭即隐藏 information_schema 等（偏好持久化 config） */}
         <Tooltip title={`${e('systemSchemas')} — ${e('systemSchemasHint')}`}>
           <span className='db-sys-toggle'>
@@ -3219,6 +3472,25 @@ export default auto(function DbSession (props) {
           description={e('dbConnectOtherHint')}
         />
       </Modal>
+      {/* E1 危险语句确认：受控 Modal（production 下要带库名输入框，Modal.confirm 拿不到状态） */}
+      <DbDangerConfirm
+        open={!!riskGate}
+        level={riskGate ? riskGate.level : 'unknown'}
+        production={isProduction}
+        statements={riskGate ? riskGate.statements : []}
+        reasons={riskGate ? riskGate.reasons : []}
+        dbName={riskGate ? riskGate.dbName : ''}
+        requireDbName={!!(riskGate && riskGate.requireDbName)}
+        allowMute={!!(riskGate && riskGate.allowMute)}
+        onCancel={() => settleRiskGate(false)}
+        onConfirm={result => {
+          // 静音只在用户点"仍要执行"时生效：取消不该被理解成"以后别再问"
+          if (result && result.mute) {
+            muteLowWrite(guardRef.current, connKey)
+          }
+          settleRiskGate(true)
+        }}
+      />
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>

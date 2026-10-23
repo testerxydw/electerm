@@ -1002,3 +1002,190 @@ body.db-hist-resizing
   border-top 1px solid var(--border)
   color var(--text-dark)
   font-size 11px
+
+// ---- E1 危险 SQL 分级 / 连接级安全带（设计 §6.4）----
+// 颜色一律走主题 token（--error / --warn / --info 及对应的 *-bg 混色）。
+// 硬编码色值会在换主题后变成脏点，且与终端配色脱节
+
+// 生产连接常驻标记：放顶部工具条（唯一跨 tab 常驻的位置）
+.db-prod-flag
+  flex none
+  padding 0 6px
+  border 1px solid var(--error)
+  border-radius var(--radius-pill)
+  background var(--error-bg)
+  color var(--error)
+  font-size 11px
+  font-weight 600
+  line-height 16px
+  letter-spacing 0.5px
+  cursor default
+
+// 临时解除按钮：生效期用危险色描边提示"现在没有保护"
+.db-prod-bypass
+  flex none
+  font-size 12px
+  &.is-on
+    color var(--error)
+    border-color var(--error)
+
+.db-risk-title
+  display flex
+  align-items center
+  gap 8px
+  flex-wrap wrap
+  // antd 的关闭按钮是绝对定位（宽 32px）贴在标题右边的，标题本身必须让出这块宽度，
+  // 否则 `2 statement(s) will…` 会被 X 压掉尾部。36 = 32 按钮 + 4 呼吸位，
+  // 实测（Electron 760x720）计数右边缘比关闭按钮左边缘早 4px
+  padding-right 36px
+
+.db-risk-badge
+  display inline-flex
+  align-items center
+  height 20px
+  padding 0 8px
+  border-radius var(--radius-pill)
+  border 1px solid var(--border)
+  font-size 12px
+  font-weight 600
+  line-height 20px
+
+.db-risk-badge-dangerous
+  border-color var(--error)
+  background var(--error-bg)
+  color var(--error)
+
+.db-risk-badge-ddl
+  border-color var(--warn)
+  background var(--warn-bg)
+  color var(--warn)
+
+.db-risk-badge-write
+  border-color var(--info)
+  background var(--info-bg)
+  color var(--info)
+
+.db-risk-badge-unknown
+.db-risk-badge-transaction
+.db-risk-badge-read
+  color var(--text-dark)
+
+.db-risk-env
+  padding 0 6px
+  border-radius var(--radius-pill)
+  background var(--error)
+  color var(--text-light)
+  font-size 11px
+  line-height 16px
+  font-weight 600
+
+.db-risk-count
+  margin-left auto
+  color var(--text-dark)
+  font-size 12px
+
+.db-risk-body
+  display flex
+  flex-direction column
+  gap 12px
+  max-height 60vh
+  overflow auto
+
+.db-risk-sec
+  display flex
+  flex-direction column
+  gap 6px
+
+.db-risk-sec-title
+  color var(--text-dark)
+  font-size 12px
+  font-weight 600
+
+.db-risk-reason-list
+  margin 0
+  padding-left 18px
+  color var(--text)
+  font-size 13px
+
+.db-risk-reason
+  line-height 1.6
+
+.db-risk-stmts
+  display flex
+  flex-direction column
+  gap 8px
+
+.db-risk-stmt
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  overflow hidden
+
+.db-risk-stmt-head
+  display flex
+  align-items center
+  gap 8px
+  padding 2px 6px
+  background var(--hover-bg)
+
+.db-risk-stmt-no
+  min-width 14px
+  color var(--text-dark)
+  font-size 11px
+
+.db-risk-stmt-lv
+  color var(--text-dark)
+  font-size 11px
+  &.db-risk-lv-dangerous
+    color var(--error)
+  &.db-risk-lv-ddl
+    color var(--warn)
+  &.db-risk-lv-write
+    color var(--info)
+
+.db-risk-stmt-toggle
+  margin-left auto
+
+// 默认只露两行：一条几十行的语句会把弹窗撑到屏幕外，
+// 用户反而够不着"仍要执行"，只能盲点。
+// ⚠️ 纵向留白只能用 margin 不能用 padding：line-clamp 只裁内容行盒，
+// 一旦有纵向 padding，被裁掉的第 3 行上半截会从 padding 区露出来（实测出现"半行"）
+.db-risk-stmt-text
+  display -webkit-box
+  -webkit-box-orient vertical
+  -webkit-line-clamp 2
+  margin 6px 0
+  padding 0 8px
+  overflow hidden
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  // 行高给整数：小数行高会让 2 行高度落在非整数像素上，clamp 边缘出现毛边
+  line-height 18px
+  white-space pre-wrap
+  word-break break-word
+  &.is-open
+    display block
+    -webkit-line-clamp none
+    max-height 40vh
+    overflow auto
+
+.db-risk-mute
+  color var(--text-dark)
+  font-size 12px
+
+// 库名输入区：用 warn 语气的框把它和普通正文分开，
+// 否则用户容易把它当成说明文字直接点确认
+.db-risk-dbname
+  display flex
+  flex-direction column
+  gap 6px
+  padding 8px
+  border 1px solid var(--warn)
+  border-radius var(--radius-xs)
+  background var(--warn-bg)
+
+.db-risk-dbname-label
+  color var(--warn)
+  font-size 12px
+
+.db-risk-dbname-input
+  font-family var(--db-code-font, var(--font-mono))
