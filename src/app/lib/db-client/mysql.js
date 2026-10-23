@@ -162,15 +162,19 @@ async function getMetadata (conn, args) {
   // 降级为「库名在 + children 空 + error 标记」，前端提示后可点刷新重试
   return mapLimit(dbNames, METADATA_CONCURRENCY, async dbName => {
     try {
-      const safe = String(dbName).replace(/[`]/g, '')
-      const [tables] = await pool.query('SHOW TABLES FROM `' + safe + '`')
-      const tableKey = Object.keys(tables[0] || {})[0]
+      // F0：SHOW TABLES 改成 information_schema.TABLES —— 只有它给 TABLE_TYPE，
+      // 视图必须与表并列出现在树里（且带 type:'view'，UI 侧据此只读）
+      const [tables] = await pool.query(
+        'SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES ' +
+        'WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
+        [String(dbName)]
+      )
       return {
         name: dbName,
         type: 'database',
         children: (tables || []).map(t => ({
-          name: t[tableKey],
-          type: 'table'
+          name: t.TABLE_NAME,
+          type: t.TABLE_TYPE === 'VIEW' ? 'view' : 'table'
         }))
       }
     } catch (e) {
@@ -242,6 +246,70 @@ async function describeTable (conn, { table, database }) {
     : quoteIdent(table)
   const [cols] = await pool.query('DESC ' + full)
   return rowToPlain(cols)
+}
+
+// ---- F0 元数据契约 v2（列 + 注释 + 索引 + 外键 + 表注释 + 估算行数） ----
+// 四条 information_schema 查询并行发。information_schema 在 MySQL 8 走数据字典缓存，
+// 四类查询各自单表过滤，比一条大 JOIN 更稳（大 JOIN 在 5.7 上容易被优化成坏计划）。
+const MY_STRUCT_COLUMNS = `
+SELECT ORDINAL_POSITION, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE,
+       IS_NULLABLE, COLUMN_DEFAULT, CHARACTER_MAXIMUM_LENGTH, CHARACTER_OCTET_LENGTH,
+       COLUMN_COMMENT, COLUMN_KEY
+  FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+ ORDER BY ORDINAL_POSITION`
+
+// STATISTICS 是一列一行：复合索引必须靠 SEQ_IN_INDEX 排序后聚合（顺序错就是错的索引定义）
+const MY_STRUCT_INDEXES = `
+SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, INDEX_TYPE
+  FROM information_schema.STATISTICS
+ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+ ORDER BY INDEX_NAME, SEQ_IN_INDEX`
+
+const MY_STRUCT_FKS = `
+SELECT k.CONSTRAINT_NAME, k.COLUMN_NAME, k.ORDINAL_POSITION,
+       k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME,
+       rc.UPDATE_RULE, rc.DELETE_RULE
+  FROM information_schema.KEY_COLUMN_USAGE k
+  JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+    ON rc.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+   AND rc.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+ WHERE k.TABLE_SCHEMA = ? AND k.TABLE_NAME = ?
+   AND k.REFERENCED_TABLE_NAME IS NOT NULL
+ ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION`
+
+const MY_STRUCT_TABLE = `
+SELECT TABLE_TYPE, TABLE_COMMENT, TABLE_ROWS, ENGINE
+  FROM information_schema.TABLES
+ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`
+
+async function getTableStructure (conn, { table, database }) {
+  // 惰性 require（与驱动一致）：适配器顶层不留模块依赖，
+  // 否则所有用 vm + require 白名单加载本文件的单测都得跟着加桩
+  const structureV2 = require('./structure-v2')
+  const pool = await getPool(conn)
+  const dbName = database || conn.dbName
+  if (!dbName) {
+    throw new Error('getTableStructure requires database')
+  }
+  const tbl = String(table)
+  const [cols, idx, fks, tbls] = await Promise.all([
+    pool.query(MY_STRUCT_COLUMNS, [dbName, tbl]),
+    pool.query(MY_STRUCT_INDEXES, [dbName, tbl]),
+    pool.query(MY_STRUCT_FKS, [dbName, tbl]),
+    pool.query(MY_STRUCT_TABLE, [dbName, tbl])
+  ])
+  // pool.query 返回 [rows, fields]；这里只要 rows
+  const tableRow = (tbls[0] || [])[0]
+  if (!tableRow) {
+    throw new Error(`table not found: ${dbName}.${tbl}`)
+  }
+  return structureV2.fromMysql({
+    columns: cols[0] || [],
+    indexes: idx[0] || [],
+    foreignKeys: fks[0] || [],
+    table: tableRow
+  })
 }
 
 // 精确总行数（按需触发；大表会全扫描，故不默认执行）
@@ -458,6 +526,7 @@ module.exports = {
   getMetadata,
   getPageData,
   describeTable,
+  getTableStructure,
   updateCell,
   insertRow,
   deleteRows,

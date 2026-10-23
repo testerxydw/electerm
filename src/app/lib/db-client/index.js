@@ -35,6 +35,7 @@ const OP_MAP = {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
     describeTable: 'describeTable',
+    getTableStructure: 'getTableStructure',
     updateCell: 'updateCell',
     insertRow: 'insertRow',
     deleteRows: 'deleteRows',
@@ -46,6 +47,7 @@ const OP_MAP = {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
     describeTable: 'describeTable',
+    getTableStructure: 'getTableStructure',
     updateCell: 'updateCell',
     insertRow: 'insertRow',
     deleteRows: 'deleteRows',
@@ -260,6 +262,64 @@ async function listColumnsCached (inst, adapter, args, opMs) {
   return p
 }
 
+// ---------------------------------------------------------------- 表结构缓存
+// F0 表结构（列/索引/外键/注释）比列缓存重得多：四条 catalog 查询 + 每列注释。
+// 点一次表就全量查一遍，表头悬浮提示和列宽计算会反复触发，必须缓存。
+// 与列缓存分开而不是复用：列缓存是"整库列清单"给补全用、键只有 database+schema；
+// 这里是"单表结构"、键到表，且带 TTL —— 结构会因 ALTER 变化，
+// 60s 是"刷新一次树就该看到新结构"与"别每点一次都打 catalog"之间的折中。
+const STRUCTURE_TTL = 60000
+
+function structureKey (args) {
+  const a = args || {}
+  return [a.database || '', a.schema || '', a.table || ''].join(COLUMNS_CACHE_SEP)
+}
+
+function resetStructureCache (inst) {
+  inst.structureCache = { values: new Map(), inflight: new Map(), ts: new Map() }
+  return inst.structureCache
+}
+
+// 同键并发去重：结构面板 + 表头提示可能同时问同一张表，合并成一次四条查询
+async function structureCached (inst, adapter, args, opMs) {
+  const key = structureKey(args)
+  const cache = inst.structureCache || resetStructureCache(inst)
+  if (cache.values.has(key)) {
+    const at = cache.ts.get(key) || 0
+    if (Date.now() - at < STRUCTURE_TTL) {
+      return cache.values.get(key)
+    }
+    // 过期不先删：查失败时旧值还能兜住上一次的成功结果（见下面的 catch）
+    // 这里只是不再直接返回，继续走下面的查询
+  }
+  if (cache.inflight.has(key)) {
+    return cache.inflight.get(key)
+  }
+  const p = withTimeout(
+    adapter.getTableStructure(inst.conn, args),
+    opMs,
+    'db op getTableStructure'
+  ).then(
+    res => {
+      cache.values.set(key, res)
+      cache.ts.set(key, Date.now())
+      cache.inflight.delete(key)
+      return res
+    },
+    err => {
+      cache.inflight.delete(key)
+      // 过期后重查失败（网络抖动/权限临时变化）：有旧值就继续用旧的，
+      // 总比让表头整块变空好；TTL 会在下次请求时再试
+      if (cache.values.has(key)) {
+        return cache.values.get(key)
+      }
+      throw err
+    }
+  )
+  cache.inflight.set(key, p)
+  return p
+}
+
 async function dbClientOp (tabId, op, args) {
   const inst = instances[tabId]
   if (!inst || inst.pending) {
@@ -280,11 +340,21 @@ async function dbClientOp (tabId, op, args) {
   }
   const opMs = OP_TIMEOUTS[op] || OP_TIMEOUTS.default
   if (op === 'getMetadata') {
-    // 树刷新/切库后列可能已变，列缓存必须跟着失效
+    // 树刷新/切库后列与结构都可能已变，两套缓存必须跟着失效
     resetColumnsCache(inst)
+    resetStructureCache(inst)
   }
   if (op === 'listColumns') {
     return listColumnsCached(inst, adapter, safeArgs, opMs)
+  }
+  if (op === 'getTableStructure') {
+    return structureCached(inst, adapter, safeArgs, opMs)
+  }
+  if (op === 'executeSql') {
+    // 执行完就丢结构缓存：用户可能刚跑过 ALTER/DDL，
+    // 60s TTL 内还拿旧列会让表头与真实表对不上（DDL 不是高频操作，清空的代价可忽略）
+    return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`)
+      .finally(() => resetStructureCache(inst))
   }
   return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`)
 }

@@ -180,16 +180,19 @@ describe('T3 postgres schema hierarchy', () => {
       if (/pg_database/.test(sql)) {
         return { rows: [{ datname: 'd' }, { datname: 'other' }] }
       }
-      if (/pg_namespace/.test(sql)) {
-        return { rows: [{ nspname: 'analytics' }, { nspname: 'public' }] }
-      }
-      if (/pg_tables/.test(sql)) {
+      // F0：表清单改查 pg_class（pg_tables 没有视图），字段是 relname/relkind；
+      // 那条 SQL 里也含 "JOIN pg_namespace"，必须先判 relkind 再判 schema
+      if (/relkind/.test(sql)) {
         return {
           rows: [
-            { schemaname: 'public', tablename: 'users' },
-            { schemaname: 'analytics', tablename: 'events' }
+            { schemaname: 'public', relname: 'users', relkind: 'r' },
+            { schemaname: 'analytics', relname: 'events', relkind: 'r' },
+            { schemaname: 'analytics', relname: 'events_view', relkind: 'v' }
           ]
         }
+      }
+      if (/pg_namespace/.test(sql)) {
+        return { rows: [{ nspname: 'analytics' }, { nspname: 'public' }] }
       }
       return { rows: [] }
     })
@@ -197,7 +200,10 @@ describe('T3 postgres schema hierarchy', () => {
     assert.deepEqual([...meta].map(d => d.name), ['d', 'other'])
     assert.deepEqual([...meta[0].children].map(s => s.name), ['analytics', 'public'])
     assert.equal(meta[0].children[0].type, 'schema')
-    assert.deepEqual([...meta[0].children[0].children].map(t => t.name), ['events'])
+    assert.deepEqual(
+      [...meta[0].children[0].children].map(t => [t.name, t.type]),
+      [['events', 'table'], ['events_view', 'view']]
+    )
     assert.deepEqual([...meta[0].children[1].children].map(t => t.name), ['users'])
     assert.deepEqual([...meta[1].children], [], '非当前库不展开')
   })
@@ -207,11 +213,11 @@ describe('T3 postgres schema hierarchy', () => {
       if (/pg_database/.test(sql)) {
         return { rows: [{ datname: 'd' }] }
       }
+      if (/relkind/.test(sql)) {
+        return { rows: [{ schemaname: 'public', relname: 't', relkind: 'r' }] }
+      }
       if (/pg_namespace/.test(sql)) {
         return { rows: [{ nspname: 'empty_schema' }, { nspname: 'public' }] }
-      }
-      if (/pg_tables/.test(sql)) {
-        return { rows: [{ schemaname: 'public', tablename: 't' }] }
       }
       return { rows: [] }
     })

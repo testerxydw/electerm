@@ -29,8 +29,12 @@ const loadVisibleMetadata = () => {
     /const visibleMetadata = useMemo\(\(\) => \{([\s\S]*?)\n\s{2}\}, \[metadata, isRedis, treeFilterKw\]\)/
   )
   assert.ok(m, 'visibleMetadata derivation not found in db-session.jsx')
+  // F0：叶子判定提成了模块级 isLeafNode（table + view），
+  // 抠函数体执行时要把它一起带上，否则 vm 里 ReferenceError
+  const leaf = src.match(/^const isLeafNode = .+$/m)
+  assert.ok(leaf, 'isLeafNode not found in db-session.jsx')
   return vm.runInNewContext(
-    '(function (metadata, isRedis, treeFilterKw) {' + m[1] + '})',
+    '(() => {' + leaf[0] + '; return function (metadata, isRedis, treeFilterKw) {' + m[1] + '}; })()',
     {}
   )
 }

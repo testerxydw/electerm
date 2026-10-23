@@ -12,6 +12,9 @@ const MYSQL_JS = path.join(ROOT, 'src/app/lib/db-client/mysql.js')
 const POSTGRES_JS = path.join(ROOT, 'src/app/lib/db-client/postgres.js')
 
 const LOG_STUB = { debug () {}, info () {}, warn () {}, error () {} }
+// F0 起适配器顶部会 require('./structure-v2')：vm 里的 require 是白名单式，
+// 必须把真实模块塞进 stubs，否则跑不到被测函数就 "unexpected require"
+const STRUCTURE_V2 = require(path.join(ROOT, 'src/app/lib/db-client/structure-v2.js'))
 
 function runInVm (src, stubs, filename) {
   const mod = { exports: {} }
@@ -196,6 +199,7 @@ function makeMysql () {
     fs.readFileSync(MYSQL_JS, 'utf8'),
     {
       '../../common/log': LOG_STUB,
+      './structure-v2': STRUCTURE_V2,
       'mysql2/promise': { createPool () { return pool } }
     },
     'mysql.js'
@@ -221,7 +225,7 @@ function makePostgres (rowFn) {
   }
   const mod = runInVm(
     fs.readFileSync(POSTGRES_JS, 'utf8'),
-    { pg: { Client } },
+    { pg: { Client }, './structure-v2': STRUCTURE_V2 },
     'postgres.js'
   )
   return { mod, calls }

@@ -1,7 +1,9 @@
 // P1-7 MySQL 元数据修复回归：限并发 + 系统库过滤 + per-db 降级
 // 真实源码 + vm 跑（require 打桩），不依赖 electron/真实驱动：
 //  - 系统库（information_schema/mysql/performance_schema/sys）不入树
-//  - SHOW TABLES 并发受限（峰值 ≤ 4）且 > 1（并发化生效）
+//  - 单库表清单查询并发受限（峰值 ≤ 4）且 > 1（并发化生效）
+// F0 起表清单不再用 SHOW TABLES（它没有 TABLE_TYPE，视图无法与表并列）：
+// 改查 information_schema.TABLES，库名走占位符——顺带彻底消除反引号破语法的可能
 //  - 单库失败整体不抛：降级节点 { name, children: [], error }
 //  - 结果保序（与 SHOW DATABASES 一致）
 const { describe, test } = require('node:test')
@@ -19,29 +21,31 @@ function makePool (opts) {
   let maxConcurrent = 0
   return {
     stats: { maxConcurrent, queries: [] },
-    async query (sql) {
-      this.stats.queries.push(sql)
+    async query (sql, params) {
+      this.stats.queries.push({ sql, params })
       running++
       maxConcurrent = Math.max(maxConcurrent, running)
-      if (maxConcurrent > 999) { /* guard */ }
-      // 把峰值回写（闭包对象共享）
       this.stats.maxConcurrent = maxConcurrent
       try {
         if (/^SHOW DATABASES/.test(sql)) {
           await sleep(opts.dbListDelay || 1)
           return [opts.databases.map(d => ({ Database: d }))]
         }
-        const m = sql.match(/^SHOW TABLES FROM `([^`]+)`/)
-        if (m) {
-          const conf = opts.tables[m[1]]
+        if (/information_schema\.TABLES/.test(sql)) {
+          // 库名从占位符取，不再从 SQL 文本里正则抠——这正是被测的改动点
+          const db = params && params[0]
+          const conf = opts.tables[db]
           if (!conf) {
-            throw new Error('mock: no tables config for ' + m[1])
+            throw new Error('mock: no tables config for ' + db)
           }
           if (conf.fail) {
             throw new Error(conf.err || 'mock table load fail')
           }
           await sleep(conf.delay || 1)
-          return [conf.list.map(n => ({ Tables_in_x: n }))]
+          return [conf.list.map(n => ({
+            TABLE_NAME: n,
+            TABLE_TYPE: conf.views && conf.views.includes(n) ? 'VIEW' : 'BASE TABLE'
+          }))]
         }
         throw new Error('mock: unexpected sql ' + sql)
       } finally {
@@ -123,7 +127,7 @@ describe('mysql getMetadata: 系统库过滤参数化 + 限并发 + per-db 降�
     assert.equal(meta[1].children[0].type, 'table')
   })
 
-  test('SHOW TABLES 并发受限：峰值 >1 且 ≤4（并发化生效且不打满池）', async () => {
+  test('单库表清单查询并发受限：峰值 >1 且 ≤4（并发化生效且不打满池）', async () => {
     const dbs = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10']
     const tables = {}
     dbs.forEach(d => { tables[d] = { list: ['t'], delay: 20 } })
@@ -154,15 +158,30 @@ describe('mysql getMetadata: 系统库过滤参数化 + 限并发 + per-db 降�
     assert.deepEqual([...meta.find(d => d.name === 'ok2').children].map(c => c.name), ['t2'])
   })
 
-  test('库名含反引号时 SHOW TABLES 不破语法', async () => {
+  test('库名含反引号：走参数绑定，SQL 文本里不出现库名', async () => {
     const pool = makePool({
       databases: ['we`ird'],
-      tables: { weird: { list: ['t'] } }
+      tables: { 'we`ird': { list: ['t'] } }
     })
     const mod = loadMysql(pool)
     const meta = await mod.getMetadata(buildConn())
-    const shown = pool.stats.queries.find(s => s.startsWith('SHOW TABLES'))
-    assert.ok(!shown.includes('``'), '反引号应被剥离，不产生空反引号')
+    const q = pool.stats.queries.find(x => /information_schema\.TABLES/.test(x.sql))
+    assert.ok(q, 'must query information_schema.TABLES')
+    assert.deepEqual([...q.params], ['we`ird'], '库名以占位符参数传入')
+    assert.ok(!q.sql.includes('we`ird'), 'SQL 文本里不得拼库名（反引号破语法从根上消失）')
     assert.equal(meta[0].name, 'we`ird', '树展示保留原名')
+  })
+
+  test('视图节点带 type:view，与表并列', async () => {
+    const pool = makePool({
+      databases: ['d'],
+      tables: { d: { list: ['t', 'v'], views: ['v'] } }
+    })
+    const mod = loadMysql(pool)
+    const meta = await mod.getMetadata(buildConn())
+    assert.deepEqual(
+      [...meta[0].children].map(c => [c.name, c.type]),
+      [['t', 'table'], ['v', 'view']]
+    )
   })
 })

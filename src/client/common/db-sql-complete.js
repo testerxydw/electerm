@@ -383,7 +383,8 @@ export function flattenTables (metadata, database) {
       if (!node || !node.name) {
         continue
       }
-      if (node.type === 'table') {
+      // F0：视图同样能出现在 FROM 里，补全表名时要一起收
+      if (node.type === 'table' || node.type === 'view') {
         out.add(node.name)
       } else if (Array.isArray(node.children)) {
         pick(node.children)

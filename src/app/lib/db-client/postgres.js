@@ -94,10 +94,15 @@ async function getMetadata (conn) {
     'WHERE nspname NOT LIKE \'pg\\_%\' AND nspname <> \'information_schema\' ' +
     'ORDER BY nspname'
   )
+  // F0：pg_tables 只有表，视图要单独查（或改用 pg_class）——这里一次查 pg_class，
+  // 表和视图同列，靠 relkind 区分，省掉两次往返
   const tblRes = await c.query(
-    'SELECT schemaname, tablename FROM pg_tables ' +
-    "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') " +
-    'ORDER BY schemaname, tablename'
+    'SELECT n.nspname AS schemaname, c.relname AS relname, c.relkind ' +
+    'FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+    "WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f') " +
+    "AND n.nspname NOT IN ('pg_catalog', 'information_schema') " +
+    "AND n.nspname NOT LIKE 'pg\\_%' " +
+    'ORDER BY n.nspname, c.relname'
   )
   const bySchema = new Map()
   for (const r of schRes.rows) {
@@ -107,7 +112,12 @@ async function getMetadata (conn) {
     if (!bySchema.has(r.schemaname)) {
       bySchema.set(r.schemaname, [])
     }
-    bySchema.get(r.schemaname).push({ name: r.tablename, type: 'table' })
+    // 'v' 普通视图 / 'm' 物化视图：都按只读视图展示（物化视图能 REFRESH 但不能改数据）
+    const isView = r.relkind === 'v' || r.relkind === 'm'
+    bySchema.get(r.schemaname).push({
+      name: r.relname,
+      type: isView ? 'view' : 'table'
+    })
   }
   const current = c.database
   return dbRes.rows.map(row => ({
@@ -170,6 +180,104 @@ async function describeTable (conn, { table, schema }) {
     ...r,
     is_primary_key: pkSet.has(r.column_name)
   }))
+}
+
+// ---- F0 元数据契约 v2（列 + 注释 + 索引 + 外键 + 表注释 + 估算行数） ----
+// 四条 catalog 查询**并行**发：远端库上串行就是 4 个 RTT，点一次表能等上半秒。
+// 列一级的主键标记不单独查：索引查询里的 indisprimary 已经涵盖，
+// finalizeStructure 会从 indexes 反推回列，少一条查询少一次 catalog 扫描。
+const PG_STRUCT_COLUMNS = `
+SELECT c.ordinal_position,
+       c.column_name,
+       c.data_type,
+       c.udt_name,
+       c.is_nullable,
+       c.column_default,
+       c.character_maximum_length,
+       format_type(a.atttypid, a.atttypmod) AS column_type,
+       col_description(t.oid, a.attnum) AS comment
+  FROM information_schema.columns c
+  JOIN pg_namespace n ON n.nspname = c.table_schema
+  JOIN pg_class t ON t.relname = c.table_name AND t.relnamespace = n.oid
+  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name AND a.attnum > 0
+ WHERE c.table_schema = $1 AND c.table_name = $2
+ ORDER BY c.ordinal_position`
+
+// LEFT JOIN LATERAL + FILTER：表达式索引的列在 pg_attribute 里没有对应项，
+// 用 LEFT 保留索引本身（columns 为空数组，前端仍能列出来），否则整个索引会凭空消失
+const PG_STRUCT_INDEXES = `
+SELECT i.relname AS index_name,
+       ix.indisprimary AS is_primary,
+       ix.indisunique AS is_unique,
+       am.amname AS method,
+       array_agg(a.attname ORDER BY k.ord) FILTER (WHERE a.attname IS NOT NULL) AS columns
+  FROM pg_index ix
+  JOIN pg_class t ON t.oid = ix.indrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN pg_class i ON i.oid = ix.indexrelid
+  JOIN pg_am am ON am.oid = i.relam
+  LEFT JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+  LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+ WHERE n.nspname = $1 AND t.relname = $2
+ GROUP BY i.relname, ix.indisprimary, ix.indisunique, am.amname
+ ORDER BY ix.indisprimary DESC, i.relname`
+
+// confupdtype/confdeltype 是单字符（a/r/c/n/d），映射在 structure-v2.js 统一做
+const PG_STRUCT_FKS = `
+SELECT con.conname AS name,
+       con.confupdtype AS on_update_code,
+       con.confdeltype AS on_delete_code,
+       rn.nspname AS ref_schema,
+       rc.relname AS ref_table,
+       (SELECT array_agg(a.attname ORDER BY k.ord)
+          FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+          JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum) AS columns,
+       (SELECT array_agg(a.attname ORDER BY k.ord)
+          FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord)
+          JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum) AS ref_columns
+  FROM pg_constraint con
+  JOIN pg_class t ON t.oid = con.conrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN pg_class rc ON rc.oid = con.confrelid
+  JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+ WHERE con.contype = 'f' AND n.nspname = $1 AND t.relname = $2
+ ORDER BY con.conname`
+
+// reltuples 未 analyze 时是 -1（structure-v2 会转成 null）；
+// 'p' 是分区表父表，按表处理；'v'/'m' 是视图/物化视图
+const PG_STRUCT_TABLE = `
+SELECT c.relkind,
+       obj_description(c.oid, 'pg_class') AS comment,
+       c.reltuples AS estimated_rows
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = $1 AND c.relname = $2
+   AND c.relkind IN ('r', 'p', 'v', 'm', 'f')`
+
+async function getTableStructure (conn, { table, schema }) {
+  // 惰性 require（与驱动一致）：顶层不引模块，vm + require 白名单的单测无需改桩
+  const structureV2 = require('./structure-v2')
+  const c = await getClient(conn)
+  const sch = schema || 'public'
+  const tbl = String(table)
+  const [colRes, idxRes, fkRes, tblRes] = await Promise.all([
+    c.query(PG_STRUCT_COLUMNS, [sch, tbl]),
+    c.query(PG_STRUCT_INDEXES, [sch, tbl]),
+    c.query(PG_STRUCT_FKS, [sch, tbl]),
+    c.query(PG_STRUCT_TABLE, [sch, tbl])
+  ])
+  const tableRow = tblRes.rows[0]
+  // 表不存在时四条查询都返回空行，直接给空结构会让前端把表画成"零列的空表"，
+  // 看起来像权限问题；这里明确报错，与 getPageData 的失败路径一致
+  if (!tableRow) {
+    throw new Error(`table not found: ${sch}.${tbl}`)
+  }
+  return structureV2.fromPg({
+    columns: colRes.rows,
+    indexes: idxRes.rows,
+    foreignKeys: fkRes.rows,
+    table: tableRow
+  })
 }
 
 // 精确总行数（按需触发；大表会全扫描，故不默认执行）
@@ -374,6 +482,7 @@ module.exports = {
   getMetadata,
   getPageData,
   describeTable,
+  getTableStructure,
   updateCell,
   insertRow,
   deleteRows,

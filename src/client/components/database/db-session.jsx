@@ -76,6 +76,9 @@ const REDIS_DETAIL_PAGE = 200
 // 只给 CSS 时表头那套 table 在列宽超容器后会把该列压成 1px
 const SEL_COL_W = 36
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
+// F0：元数据契约 v2 起叶子多了 type:'view'。树的三处分支（过滤/展开/渲染）
+// 原来只认 'table'，视图会被当成 schema 画成一个带 S 标记的空节点、点不开
+const isLeafNode = node => node.type === 'table' || node.type === 'view'
 const nodeKey = (database, schema, table) => JSON.stringify([
   database,
   schema || '',
@@ -1605,7 +1608,7 @@ export default auto(function DbSession (props) {
     const hit = name => String(name || '').toLowerCase().includes(treeFilterKw)
     const filterNode = node => {
       const nodeHit = hit(node.name)
-      if (node.type === 'table') {
+      if (isLeafNode(node)) {
         return nodeHit ? node : null
       }
       const children = (node.children || []).map(filterNode).filter(Boolean)
@@ -1642,7 +1645,7 @@ export default auto(function DbSession (props) {
     const keys = []
     const walk = (db, nodes) => {
       (nodes || []).forEach(node => {
-        if (node.type === 'table') {
+        if (isLeafNode(node)) {
           return
         }
         keys.push(nodeKey(db.name, node.name))
@@ -1670,7 +1673,7 @@ export default auto(function DbSession (props) {
   const treeData = useMemo(() => {
     // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
     const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
-      if (node.type === 'table') {
+      if (isLeafNode(node)) {
         return {
           title: treeTitle(node.name),
           key: nodeKey(dbName, schema, node.name),
