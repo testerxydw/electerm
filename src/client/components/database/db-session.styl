@@ -461,9 +461,19 @@
   overflow hidden
   gap 8px
 
+// A-1：CM6 外壳容器。边框/圆角/尺寸由编辑器主题（db-sql-editor.jsx）给出，
+// 这里只管它在 flex 列里的行为，以及懒加载骨架屏的占位尺寸。
 .db-sql-editor
   flex none
   font-family var(--db-code-font, var(--font-mono))
+  overflow hidden
+
+// 骨架屏：与编辑器同尺寸同边框，chunk 到位后替换不产生跳动
+.db-sql-editor-skeleton
+  min-height 96px
+  max-height 260px
+  border 1px solid var(--main-light)
+  border-radius var(--radius-xs)
 
 .db-sql-bar
   display flex

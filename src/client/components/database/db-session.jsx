@@ -4,7 +4,7 @@
  * S5 将在此目录扩展 Redis 键空间形态，S4 增加 SQL 编辑器
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, FormatPainterOutlined, DiffOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
@@ -24,6 +24,11 @@ import { appendSqlHistory, listSqlHistory, clearSqlHistory } from '../../common/
 import { formatSql } from '../../common/db-sql-format'
 import { dbTypeLabelMap } from '../../common/constants'
 import './db-session.styl'
+
+// A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
+// 主 chunk 因此不含编辑器代码（构建断言见 src/build/bin/check-cm6-chunk.js）。
+// 骨架屏沿用原 textarea 的尺寸与边框，避免首帧跳动。
+const SqlCodeEditor = lazy(() => import('./db-sql-editor'))
 
 const e = window.translate
 // 每页行数：可经 config.dbPageSize 配置（10/20/50/100/500），默认 20；
@@ -152,8 +157,11 @@ export default auto(function DbSession (props) {
   // ref 镜像供 recount（rAF 回调）与 goHit 读取最新值，避开 setState 闭包过期
   const [searchIndex, setSearchIndex] = useState(0)
   const searchIndexRef = useRef(0)
-  // 命中清单 ref：DOM 标记数组 + textarea 文本命中（导航时读取，见 recount）
-  const hitsRef = useRef({ marks: [], taHits: [] })
+  // 命中清单 ref：DOM 标记数组 + textarea 文本命中 + SQL 编辑器命中数
+  // （编辑器是 CM6，只有可视行在 DOM 里，命中数由编辑器自己按全文算，见 A-1）
+  const hitsRef = useRef({ marks: [], taHits: [], sqlHits: 0 })
+  // SQL 编辑器句柄（A-1 CM6）：page 查找与"清空/回填"都通过它操作编辑器
+  const sqlEditorRef = useRef(null)
 
   const setIdx = (v) => {
     searchIndexRef.current = v
@@ -166,11 +174,11 @@ export default auto(function DbSession (props) {
     marks.forEach((el, i) => el.classList.toggle('db-kw-cur', i === index))
   }
 
-  // 导航定位（仅 goHit 调用）：DOM 命中滚动到可视区；
-  // textarea 命中 focus + setSelectionRange（选区即"当前命中"高亮；
-  // 浏览器不允许 textarea 内插 <mark>，其余编辑器内命中轮到时才可见）
+  // 导航定位（仅 goHit 调用）：DOM 命中滚动到可视区；textarea 命中 focus +
+  // setSelectionRange；SQL 编辑器命中交给编辑器自己 dispatch 选区（CM6 只渲染可视行，
+  // 它是唯一能按全文偏移定位的人）
   const locateHit = (index) => {
-    const { marks, taHits } = hitsRef.current
+    const { marks, taHits, sqlHits } = hitsRef.current
     applyMarks(index)
     if (index < marks.length) {
       const cur = marks[index]
@@ -179,18 +187,27 @@ export default auto(function DbSession (props) {
       }
       return
     }
-    const hit = taHits[index - marks.length]
-    if (hit && hit.el.isConnected) {
-      hit.el.focus()
-      hit.el.setSelectionRange(hit.start, hit.end)
-      hit.el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const taIndex = index - marks.length
+    if (taIndex < taHits.length) {
+      const hit = taHits[taIndex]
+      if (hit && hit.el.isConnected) {
+        hit.el.focus()
+        hit.el.setSelectionRange(hit.start, hit.end)
+        hit.el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
+      return
+    }
+    const editor = sqlEditorRef.current
+    if (editor && sqlHits && taIndex - taHits.length < sqlHits) {
+      editor.setSearchKeyword(kw)
+      editor.selectSearchHit(taIndex - taHits.length)
     }
   }
   const bodyRef = useRef(null)
   const kw = searchText.trim().toLowerCase()
 
-  // 命中清单 = 页面 .db-kw-hit 标记 + textarea 内文本命中（SQL 编辑器/值面板编辑态；
-  // 浏览器不允许在 textarea 内插 <mark>，轮到它时用 focus+setSelectionRange 定位）。
+  // 命中清单 = 页面 .db-kw-hit 标记 + textarea 内文本命中（值面板编辑态）+
+  // SQL 编辑器命中（CM6 自己算全文，DOM 里只有可视行）。
   // 用 MutationObserver + input 事件委托跟随内容变化重算，计数与可定位位置永远一致。
   useEffect(() => {
     const root = bodyRef.current
@@ -203,15 +220,20 @@ export default auto(function DbSession (props) {
       raf = window.requestAnimationFrame(() => {
         const marks = Array.from(root.querySelectorAll('.db-kw-hit'))
         const taHits = []
+        let sqlHits = 0
         if (kw) {
           root.querySelectorAll('textarea').forEach(ta => {
             scanTextHits(ta.value, kw).forEach(h => {
               taHits.push({ el: ta, start: h.start, end: h.end })
             })
           })
+          // CM6 只把可视行渲染进 DOM，命中必须问编辑器要全文结果
+          if (sqlEditorRef.current) {
+            sqlHits = sqlEditorRef.current.getSearchHits(kw).length
+          }
         }
-        hitsRef.current = { marks, taHits }
-        const total = marks.length + taHits.length
+        hitsRef.current = { marks, taHits, sqlHits }
+        const total = marks.length + taHits.length + sqlHits
         setSearchHits(total)
         // 内容变化导致命中减少时收敛当前序号，避免越界；同步刷新当前命中标记
         const cur = total ? Math.min(searchIndexRef.current, total - 1) : 0
@@ -252,10 +274,10 @@ export default auto(function DbSession (props) {
     }
   }, [searchIndex, searchHits, kw])
 
-  // 上一个/下一个：循环导航（与终端查找同交互；命中含 textarea 内文本）
+  // 上一个/下一个：循环导航（与终端查找同交互；命中含 textarea 与编辑器内文本）
   const goHit = (delta) => {
-    const { marks, taHits } = hitsRef.current
-    const n = marks.length + taHits.length
+    const { marks, taHits, sqlHits } = hitsRef.current
+    const n = marks.length + taHits.length + sqlHits
     if (!n) {
       return
     }
@@ -1068,16 +1090,8 @@ export default auto(function DbSession (props) {
     setSqlHistory([])
   }
 
-  // Ctrl/Cmd+Enter 执行；Ctrl/Cmd+Shift+F 格式化
-  const onSqlKeyDown = (ev) => {
-    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
-      ev.preventDefault()
-      runSql()
-    } else if (ev.key.toLowerCase() === 'f' && (ev.ctrlKey || ev.metaKey) && ev.shiftKey) {
-      ev.preventDefault()
-      formatSqlEditor()
-    }
-  }
+  // Ctrl/Cmd+Enter 执行、Ctrl/Cmd+Shift+F 格式化：键位已移进编辑器 keymap
+  // （CM6 里必须用 keymap 扩展，不能再挂 DOM onKeyDown）
 
   // A3 SQL 格式化：格式化后回填编辑器
   const formatSqlEditor = () => {
@@ -2049,14 +2063,18 @@ export default auto(function DbSession (props) {
 
   const sqlArea = (
     <div className='db-sql-area'>
-      <Input.TextArea
-        value={sqlText}
-        onChange={ev => setSqlText(ev.target.value)}
-        onKeyDown={onSqlKeyDown}
-        placeholder={e('dbSqlPlaceholder')}
-        autoSize={{ minRows: 4, maxRows: 12 }}
-        className='db-sql-editor'
-      />
+      <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
+        <SqlCodeEditor
+          ref={sqlEditorRef}
+          value={sqlText}
+          onChange={setSqlText}
+          onRun={runSql}
+          onFormat={formatSqlEditor}
+          readOnly={isReadonly}
+          dbType={tab.dbType}
+          placeholder={e('dbSqlPlaceholder')}
+        />
+      </Suspense>
       <div className='db-sql-bar'>
         <Button
           type='primary'
