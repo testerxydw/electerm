@@ -133,23 +133,64 @@ async function getMetadata (conn) {
   }))
 }
 
-async function getPageData (conn, { database, schema, table, page, pageSize, orderBy, order }) {
+// ORDER BY 片段：orderClauses（多列）优先，为空时退回旧的单列 orderBy/order。
+// 列名必须在这里加引用符：orderClauses 来自渲染层且**不绑参数**，是裸着的 SQL 片段。
+function buildOrderSql (orderClauses, orderBy, order) {
+  if (Array.isArray(orderClauses) && orderClauses.length) {
+    const parts = []
+    for (const item of orderClauses) {
+      if (!item || typeof item.column !== 'string' || !item.column.trim()) {
+        continue
+      }
+      parts.push(quoteIdent(item.column.trim()) + (item.desc === true ? ' DESC' : ' ASC'))
+    }
+    if (parts.length) {
+      return parts.join(', ')
+    }
+  }
+  if (orderBy) {
+    const dir = order === 'descend' ? 'DESC' : 'ASC'
+    return quoteIdent(orderBy) + ' ' + dir
+  }
+  return ''
+}
+
+// E2：条件体（where，不含前导 WHERE）+ 多列排序 + 只取总数。
+// pg 的占位符是 $n，参数数组顺序仍必须与编号一致；LIMIT/OFFSET 同样是拼进去的数字。
+async function getPageData (
+  conn,
+  { database, schema, table, page, pageSize, orderBy, order, where, whereParams, orderClauses, count }
+) {
   const c = await getClient(conn)
   // pg 连接绑定单一库，跨库查询不支持
   if (database && database !== c.database) {
     throw new Error('cross-database query not supported for postgres, connect with that database')
   }
+  const whereSql = typeof where === 'string' ? where.trim() : ''
+  const params = Array.isArray(whereParams) ? whereParams : []
+  // 显式 schema 限定，避免依赖 search_path；默认 public 兼容旧书签
+  const fullTable = quoteIdent(schema || 'public') + '.' + quoteIdent(table)
+  // count：只回 total，不回 rows（列信息归 F0 结构缓存，这里不重复查）
+  if (count === true) {
+    const countSql = 'SELECT COUNT(*) AS c FROM ' + fullTable +
+      (whereSql ? ' WHERE ' + whereSql : '')
+    const res = whereSql ? await c.query(countSql, params) : await c.query(countSql)
+    const cell = res.rows && res.rows[0] ? res.rows[0].c : 0
+    return { total: Number(cell) || 0 }
+  }
   pageSize = Math.min(Number(pageSize) || 100, 1000)
   const offset = ((Number(page) || 1) - 1) * pageSize
-  // 显式 schema 限定，避免依赖 search_path；默认 public 兼容旧书签
-  let sql = 'SELECT * FROM ' + quoteIdent(schema || 'public') + '.' + quoteIdent(table)
-  if (orderBy) {
-    const dir = order === 'descend' ? 'DESC' : 'ASC'
-    sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir
+  let sql = 'SELECT * FROM ' + fullTable
+  if (whereSql) {
+    sql += ' WHERE ' + whereSql
+  }
+  const orderSql = buildOrderSql(orderClauses, orderBy, order)
+  if (orderSql) {
+    sql += ' ORDER BY ' + orderSql
   }
   // 多取 1 行判定是否还有下一页：末页恰好整页时 hasMore 不再误报 true
   sql += ' LIMIT ' + (pageSize + 1) + ' OFFSET ' + offset
-  const res = await c.query(sql)
+  const res = whereSql ? await c.query(sql, params) : await c.query(sql)
   return {
     rows: res.rows.slice(0, pageSize),
     hasMore: res.rows.length > pageSize

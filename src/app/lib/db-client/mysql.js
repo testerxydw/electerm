@@ -209,22 +209,65 @@ async function getApproxRows (pool, database, table) {
   }
 }
 
-async function getPageData (conn, { database, table, page, pageSize, orderBy, order }) {
+// ORDER BY 片段：orderClauses（多列）优先，为空时退回旧的单列 orderBy/order。
+// 列名必须在这里加引用符：orderClauses 来自渲染层且**不绑参数**，是裸着的 SQL 片段。
+function buildOrderSql (orderClauses, orderBy, order) {
+  if (Array.isArray(orderClauses) && orderClauses.length) {
+    const parts = []
+    for (const item of orderClauses) {
+      if (!item || typeof item.column !== 'string' || !item.column.trim()) {
+        continue
+      }
+      parts.push(quoteIdent(item.column.trim()) + (item.desc === true ? ' DESC' : ' ASC'))
+    }
+    if (parts.length) {
+      return parts.join(', ')
+    }
+  }
+  if (orderBy) {
+    const dir = order === 'descend' ? 'DESC' : 'ASC'
+    return quoteIdent(orderBy) + ' ' + dir
+  }
+  return ''
+}
+
+// E2：条件体（where，不含前导 WHERE）+ 多列排序 + 只取总数。
+// 参数顺序必须与 where 里的占位符严格一致，因此 LIMIT/OFFSET 仍然拼字符串：
+// 把数字塞进 params 会让"第几个 ? 对应哪个值"取决于拼接顺序，极易错位。
+async function getPageData (
+  conn,
+  { database, table, page, pageSize, orderBy, order, where, whereParams, orderClauses, count }
+) {
   const pool = await getPool(conn)
-  pageSize = Math.min(Number(pageSize) || 100, 1000)
-  const offset = ((Number(page) || 1) - 1) * pageSize
+  const whereSql = typeof where === 'string' ? where.trim() : ''
+  const params = Array.isArray(whereParams) ? whereParams : []
   const fullTable = database
     ? quoteIdent(database) + '.' + quoteIdent(table)
     : quoteIdent(table)
+  // count：条件变更后先问总数（结果集大小）再取页，避免"条件一改表格先闪成空"。
+  // 只回 total，不回 rows —— 调用方拿到 total 后照常发分页查询。
+  if (count === true) {
+    const countSql = 'SELECT COUNT(*) AS c FROM ' + fullTable +
+      (whereSql ? ' WHERE ' + whereSql : '')
+    log.debug('getPageData count sql:', countSql)
+    const [rows] = whereSql ? await pool.query(countSql, params) : await pool.query(countSql)
+    const cell = rows && rows[0] ? rows[0].c : 0
+    return { total: Number(cell) || 0 }
+  }
+  pageSize = Math.min(Number(pageSize) || 100, 1000)
+  const offset = ((Number(page) || 1) - 1) * pageSize
   let sql = 'SELECT * FROM ' + fullTable
-  if (orderBy) {
-    const dir = order === 'descend' ? 'DESC' : 'ASC'
-    sql += ' ORDER BY ' + quoteIdent(orderBy) + ' ' + dir
+  if (whereSql) {
+    sql += ' WHERE ' + whereSql
+  }
+  const orderSql = buildOrderSql(orderClauses, orderBy, order)
+  if (orderSql) {
+    sql += ' ORDER BY ' + orderSql
   }
   // 多取 1 行判定是否还有下一页：末页恰好整页时 hasMore 不再误报 true
   sql += ' LIMIT ' + (pageSize + 1) + ' OFFSET ' + offset
   log.debug('getPageData sql:', sql)
-  const [rows] = await pool.query(sql)
+  const [rows] = whereSql ? await pool.query(sql, params) : await pool.query(sql)
   // 近似行数只随表变化，翻页时沿用首页结果，避免每页都查 information_schema
   const totalRows = (Number(page) || 1) === 1 && database
     ? await getApproxRows(pool, database, table)

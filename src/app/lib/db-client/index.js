@@ -320,6 +320,85 @@ async function structureCached (inst, adapter, args, opMs) {
   return p
 }
 
+// -------------------------------------------------- E2 条件体/排序的主进程校验
+// 为什么在这里拦：db-grid-view.js 生成的 where 是渲染层的产出，DevTools 里改一行
+// 就能换成任意字符串。真正的闸门必须在主进程，而且判据必须是**列白名单**
+// （来自表结构），不是"把可疑字符删掉"。
+// 为什么复用 structureCached 而不是自己查：同一个 60s TTL 正好覆盖"改条件连点几次"，
+// 且结构面板/表头已经把它查热了，这里几乎不会多一次远端查询。
+
+function dialectOf (inst) {
+  // tidb/oceanbase 走 mysql 协议，词法与占位符都同 mysql
+  return DB_ADAPTER[inst.dbType] === 'postgres' ? 'postgres' : 'mysql'
+}
+
+// 是否需要走校验：**同步**判定。
+// 为什么必须同步：dbClientOp 里任何一次 await 都会把 withTimeout 的计时器挂到下一个
+// 微任务里，而操作级超时的语义是"发起即计时"。不带条件/排序的分页（绝大多数翻页）
+// 在这里直接短路返回 false，路径与加特性之前完全一致。
+function needsPageBoundary (args) {
+  const where = args.where
+  // 类型不对也走校验：由 assertPageBoundary 报"条件体必须是字符串"，
+  // 而不是让 [object Object] 一路拼进 SQL
+  if (where !== undefined && where !== null && typeof where !== 'string') {
+    return true
+  }
+  if (typeof where === 'string' && where.trim()) {
+    return true
+  }
+  return Array.isArray(args.orderClauses) && args.orderClauses.length > 0
+}
+
+async function assertPageBoundary (inst, adapter, args, opMs) {
+  const where = typeof args.where === 'string' ? args.where.trim() : ''
+  if (args.where !== undefined && args.where !== null && typeof args.where !== 'string') {
+    throw new Error('条件体必须是字符串')
+  }
+  const orderClauses = Array.isArray(args.orderClauses) ? args.orderClauses : null
+  if (!where && !orderClauses) {
+    return
+  }
+  // 按需加载：不带条件/排序的分页（绝大多数翻页）连这个模块都不需要进内存。
+  // 与本文件其他依赖一致（适配器、驱动都是 lazy require），也避免给只读 op 增加启动成本。
+  const { assertSafeClause, assertSafeOrderClauses } = require('./safe-clause')
+  const dialect = dialectOf(inst)
+  let structure = null
+  try {
+    structure = await structureCached(inst, adapter, {
+      database: args.database,
+      schema: args.schema || '',
+      table: args.table
+    }, opMs)
+  } catch (e) {
+    if (where) {
+      // 有 where 就必须有列白名单：空白名单会把每条条件都判成未知列，
+      // 报出来的"列不存在"对用户毫无意义，不如直说拿不到列信息
+      throw new Error('无法获取列信息，条件查询已拒绝: ' + e.message)
+    }
+    // 只排序时取不到结构：放行 —— 排序片段由适配器加引用符，没有注入面，
+    // 而让"读不到结构"连带着把数据也看不了是本轮之前没有的退步
+    log.warn('[db-client] orderClauses skipped: no structure', args.table, e.message)
+    return
+  }
+  const columns = ((structure && structure.columns) || [])
+    .map(col => (col && col.name) || '')
+    .filter(name => typeof name === 'string' && name)
+  if (!columns.length) {
+    if (where) {
+      throw new Error('无法获取列信息，条件查询已拒绝')
+    }
+    return
+  }
+  if (where) {
+    const { placeholders } = assertSafeClause(where, columns, dialect)
+    const argCount = Array.isArray(args.whereParams) ? args.whereParams.length : 0
+    if (placeholders !== argCount) {
+      throw new Error(`占位符数量(${placeholders})与参数数量(${argCount})不一致`)
+    }
+  }
+  assertSafeOrderClauses(orderClauses, columns, dialect)
+}
+
 async function dbClientOp (tabId, op, args) {
   const inst = instances[tabId]
   if (!inst || inst.pending) {
@@ -349,6 +428,12 @@ async function dbClientOp (tabId, op, args) {
   }
   if (op === 'getTableStructure') {
     return structureCached(inst, adapter, safeArgs, opMs)
+  }
+  if (op === 'getPageData' && DB_ADAPTER[inst.dbType] !== 'redis' &&
+    needsPageBoundary(safeArgs)) {
+    // redis 的 getPageData 是 SCAN 语义：没有 where、也没有 getTableStructure，
+    // 误走校验会抛 unsupported op（而不是"条件不合法"），故整类跳过
+    await assertPageBoundary(inst, adapter, safeArgs, opMs)
   }
   if (op === 'executeSql') {
     // 执行完就丢结构缓存：用户可能刚跑过 ALTER/DDL，
