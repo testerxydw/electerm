@@ -1054,7 +1054,9 @@ export default auto(function DbSession (props) {
     setSqlHistoryOpen(open)
     // 每次打开刷新列表，避免读陈旧快照（listSqlHistory 已异步，失败静默返回 []）
     if (open) {
-      listSqlHistory().then(setSqlHistory)
+      listSqlHistory()
+        .then(setSqlHistory)
+        .catch(err => console.warn('load sql history failed:', err))
     }
   }
   const pickSqlHistory = (item) => {

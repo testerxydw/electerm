@@ -6,12 +6,13 @@
  * 全接口异步；失败静默降级（历史属辅助功能，不干扰主流程）。
  */
 
-// 列表：失败/空时返回 []
+// 列表：失败/空时返回 []（失败时 console 留痕，便于现场排查）
 export async function listSqlHistory () {
   try {
     const r = await window.pre.runGlobalAsync('dbSqlHistoryOp', 'list')
     return Array.isArray(r) ? r : []
   } catch (e) {
+    console.warn('load sql history failed:', e)
     return []
   }
 }
