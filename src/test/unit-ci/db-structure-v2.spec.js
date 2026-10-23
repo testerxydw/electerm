@@ -280,6 +280,23 @@ describe('F0 契约映射：边界与降级（验收 2）', () => {
     assert.equal(v2.fromPg({ table: { relkind: 'p' } }).type, 'table')
   })
 
+  test('视图的 TABLE_COMMENT 是字面量 "VIEW"，不能当表注释透传', () => {
+    // 真库实测（MariaDB 10.3 / MySQL 8 同）：information_schema.TABLES 对视图
+    // 的 TABLE_COMMENT 恒为字符串 'VIEW'。直接透传 → 表头/结构面板显示注释 "VIEW"
+    const v = v2.fromMysql({
+      table: { TABLE_TYPE: 'VIEW', TABLE_COMMENT: 'VIEW', TABLE_ROWS: null }
+    })
+    assert.equal(v.comment, null, 'view comment must not be the literal VIEW')
+    // 视图没有真实行数统计，保持 null（不显示"约 0 行"这种假数据）
+    assert.equal(v.estimatedRows, null)
+    // 普通表的真实注释必须保留
+    const t = v2.fromMysql({
+      table: { TABLE_TYPE: 'BASE TABLE', TABLE_COMMENT: '任务表', TABLE_ROWS: 12 }
+    })
+    assert.equal(t.comment, '任务表')
+    assert.equal(t.estimatedRows, 12)
+  })
+
   test('isBinary 覆盖 blob/bytea/geometry，不误伤 varchar/text/json', () => {
     for (const t of ['blob', 'longblob', 'bytea', 'geometry', 'varbinary', 'bit']) {
       assert.equal(v2.isBinaryType(t), true, t + ' should be binary')
@@ -516,5 +533,46 @@ describe('F0 接线：op 注册与缓存', () => {
     // executeSql 可能刚跑过 ALTER，必须丢结构缓存
     const execBlock = indexSrc.slice(indexSrc.indexOf("if (op === 'executeSql')"))
     assert.ok(/finally\(\(\) => resetStructureCache\(inst\)\)/.test(execBlock.slice(0, 400)))
+  })
+})
+
+// ---- 前端消费侧：treeData 是 JSX，vm 跑不了，用源码守卫钉契约 ----
+// 这几条对应真机验证时暴露的两个缺口：视图在树里认不出来、视图上还能点"添加行"
+describe('视图在树里的呈现（源码守卫）', () => {
+  const jsx = fs.readFileSync(
+    path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
+  )
+  const styl = fs.readFileSync(
+    path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'
+  )
+
+  // 注意不能直接抓第一个 `if (isLeafNode(node)) {`：过滤用的 filterNode 也是这个形状。
+  // treeData 里的叶子是唯一带 isLeaf: true 的那个对象，以它为锚点取窗口
+  const leafWin = () => {
+    const i = jsx.indexOf('isLeaf: true')
+    assert.ok(i > 0, 'leaf DataNode not found')
+    return jsx.slice(Math.max(0, i - 500), i + 200)
+  }
+
+  test('叶子节点把 type 带成 nodeType，供按钮门控消费', () => {
+    assert.ok(leafWin().includes('nodeType: node.type'), 'leaf must expose nodeType')
+  })
+
+  test('视图叶子有 V 标记，表没有', () => {
+    assert.ok(leafWin().includes("node.type === 'view'"), 'view must be distinguished')
+    assert.ok(leafWin().includes('db-tree-view-mark'), 'view must render a marker')
+    // 样式必须真的存在（否则只是个没样式的 span，和表名连在一起更难读）
+    assert.ok(/\.db-tree-view-mark/.test(styl), 'marker style missing')
+    assert.ok(/\.db-tree-view\b/.test(styl), 'view wrapper style missing')
+  })
+
+  test('选中视图时 sel 带 nodeType:view，缺省按 table', () => {
+    assert.ok(jsx.includes("nodeType: node.nodeType || 'table'"), 'sel must carry nodeType with table fallback')
+  })
+
+  test('视图不出现「添加行」入口（INSERT INTO 视图两引擎都可能拒绝）', () => {
+    const m = jsx.match(/B1 添加行：([\s\S]{0,600}?)onClick=\{openInsertModal\}/)
+    assert.ok(m, 'add-row button not found')
+    assert.ok(m[1].includes("sel.nodeType !== 'view'"), 'view must not offer insert')
   })
 })

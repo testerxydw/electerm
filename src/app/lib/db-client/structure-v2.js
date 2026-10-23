@@ -289,6 +289,7 @@ function fromMysql (raw) {
   const idxRows = Array.isArray(r.indexes) ? r.indexes : []
   const fkRows = Array.isArray(r.foreignKeys) ? r.foreignKeys : []
   const table = r.table || {}
+  const isView = table.TABLE_TYPE === 'VIEW'
 
   const idxMap = new Map()
   for (const row of idxRows) {
@@ -348,7 +349,7 @@ function fromMysql (raw) {
   }
 
   return finalizeStructure({
-    type: table.TABLE_TYPE === 'VIEW' ? 'view' : 'table',
+    type: isView ? 'view' : 'table',
     columns: colRows.map(c => ({
       name: c.COLUMN_NAME,
       dataType: c.DATA_TYPE,
@@ -368,7 +369,10 @@ function fromMysql (raw) {
     })),
     indexes: Array.from(idxMap.values()),
     foreignKeys: Array.from(fkMap.values()),
-    comment: table.TABLE_COMMENT,
+    // 视图的 TABLE_COMMENT 是字面量 'VIEW'（MySQL 5.7/8 与 MariaDB 都如此），
+    // 不是用户注释：直接透传会让表头/结构面板显示一个叫 "VIEW" 的注释。
+    // 视图的真实注释 MySQL 侧本就无处可取（information_schema.VIEWS 没有注释列）→ null
+    comment: isView ? null : table.TABLE_COMMENT,
     estimatedRows: table.TABLE_ROWS
   })
 }

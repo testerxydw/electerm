@@ -655,7 +655,8 @@ export default auto(function DbSession (props) {
     }
     // key 编码 [database, schema, table]；MySQL schema 为空串
     const [database, schema, table] = JSON.parse(node.key)
-    const next = { database, schema: schema || '', table }
+    // nodeType: 'table' | 'view'。缺省按 table 处理（旧 metadata 无 type 时是表）
+    const next = { database, schema: schema || '', table, nodeType: node.nodeType || 'table' }
     resetPageFilter()
     resetExactRows()
     setSel(next)
@@ -1674,10 +1675,21 @@ export default auto(function DbSession (props) {
     // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
     const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
       if (isLeafNode(node)) {
+        // F0：视图与表在树里同名同形，不给标记就分不出哪个是视图（点开也看不出）。
+        // 与 PG schema 的 S 标记共用一套视觉语言（小方块 + 单字母）
         return {
-          title: treeTitle(node.name),
+          title: node.type === 'view'
+            ? (
+              <span className='db-tree-view'>
+                <span className='db-tree-view-mark'>V</span>
+                {treeTitle(node.name)}
+              </span>
+              )
+            : treeTitle(node.name),
           key: nodeKey(dbName, schema, node.name),
-          isLeaf: true
+          isLeaf: true,
+          // 类型随节点走：后续按钮门控（视图不可插入行）要它
+          nodeType: node.type
         }
       }
       // PG schema 节点：S 标记便于与库 / 表区分；空 schema 也保留
@@ -2090,8 +2102,9 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // B1 添加行：只读隐藏；无主键表仍可添加（INSERT 不依赖主键）
-          sel && !isReadonly && grid.rows.length
+          // B1 添加行：只读隐藏；无主键表仍可添加（INSERT 不依赖主键）；
+          // 视图除外——INSERT INTO 视图 两引擎都可能直接拒绝（PG 要 INSTEAD OF 触发器）
+          sel && !isReadonly && sel.nodeType !== 'view' && grid.rows.length
             ? (
               <Tooltip title={e('dbAddRow')}>
                 <Button

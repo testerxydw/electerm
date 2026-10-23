@@ -339,6 +339,25 @@
   font-size 10px
   line-height 14px
 
+// F0：视图叶子节点的 V 标记（与 .db-tree-schema-mark 同一套视觉语言：
+// 小方块 + 单字母）。视图在树里与表同名同形，没有标记就分不出来
+// 关键：不能用 inline-flex 包文字。实测 inline-flex 会把树行从 24px 撑到 25px
+// （baseline 对齐留 descent），加 vertical-align:middle 更是到 26px——
+// 整棵树的行高必须严格一致，否则滚动时行会一高一低地抖
+.db-tree-view
+  display inline
+
+.db-tree-view-mark
+  display inline-block
+  margin-right 4px
+  padding 0 3px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  color var(--text-dark)
+  font-size 10px
+  line-height 14px
+  vertical-align text-bottom
+
 // PG 表结构主键徽标（列定义网格）
 .db-pk-tag
   margin 0
