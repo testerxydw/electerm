@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -24,6 +24,15 @@ import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory } from '../../common/db-sql-history'
+// B 批：查询收藏（B-1~B-4）与 SQL 模板（B-3，同一份定义菜单/补全共用）
+import {
+  listFavorites,
+  saveFavorite,
+  removeFavorite,
+  exportFavorites,
+  importFavorites
+} from '../../common/db-sql-favorite'
+import { SQL_TEMPLATES, buildTemplateSql } from '../../common/db-sql-snippets'
 import {
   clampPanelSize,
   readHistoryPanelSize,
@@ -32,7 +41,8 @@ import {
   moveHistoryIndex,
   clampHistoryIndex,
   previewText,
-  filterHistory
+  filterHistory,
+  filterFavorites
 } from '../../common/db-sql-history-panel'
 import { formatSql } from '../../common/db-sql-format'
 // 只取元数据整形函数：引擎主体仍只被懒加载的编辑器引用，
@@ -2087,6 +2097,199 @@ export default auto(function DbSession (props) {
     }, 0)
   }
 
+  // ---- B 批：SQL 查询收藏（B-1~B-4）。与历史共用同一弹层（双 tab）， ----
+  // 主进程文件存储（userData/db-sql-favorites.json，上限 500 条，白名单字段），
+  // 重启保留；列表/删除失败静默降级，保存失败弹窗要感知（favSaving 状态回滚）
+
+  // 弹层当前 tab：'history' | 'favorite'
+  const [favTab, setFavTab] = useState('history')
+  const [favList, setFavList] = useState([])
+  const [favFilter, setFavFilter] = useState('')
+  // 编辑弹窗：null 关闭；{ id?, title, sql }——id 缺省即新建（主进程生成 id）
+  const [favEdit, setFavEdit] = useState(null)
+  const [favSaving, setFavSaving] = useState(false)
+
+  const favListShown = useMemo(
+    () => filterFavorites(favList, favFilter),
+    [favList, favFilter]
+  )
+
+  const refreshFavorites = () => {
+    listFavorites()
+      .then(setFavList)
+      .catch(err => console.warn('load sql favorites failed:', err))
+  }
+
+  // tab 切换：第一次进收藏 tab 时拉列表（历史 tab 维持原行为不动）
+  const switchPanelTab = (key) => {
+    setFavTab(key)
+    if (key === 'favorite') {
+      refreshFavorites()
+    }
+  }
+
+  // B-1 插入光标：编辑器句柄 insertText（有选区替换选区，保留撤销栈）。
+  // 句柄缺失（编辑器懒加载未就绪）退化为追加到文末，功能不缺席
+  const insertToEditor = (text) => {
+    const ok = sqlEditorRef.current && sqlEditorRef.current.insertText(text)
+    if (!ok) {
+      setSqlText(t => (t ? t + '\n' + text : text))
+    }
+  }
+
+  const pickFavorite = (item) => {
+    insertToEditor(item.sql)
+    openSqlHistory(false)
+  }
+
+  // B-2 新建：默认取当前编辑器内容
+  const newFavorite = () => {
+    setFavEdit({ id: '', title: '', sql: sqlText || '' })
+  }
+
+  const editFavorite = (item) => {
+    setFavEdit({ id: item.id, title: item.title || '', sql: item.sql || '' })
+  }
+
+  // 标题缺省取语句首个非注释行前 60 字符（与快速面板 firstLine 同思路）
+  const favTitleFallback = (sql) => {
+    const line = String(sql || '')
+      .split('\n')
+      .map(l => l.trim())
+      .find(l => l && !l.startsWith('--') && !l.startsWith('#')) || ''
+    return line.slice(0, 60)
+  }
+
+  const saveFavEdit = () => {
+    if (!favEdit || !favEdit.sql.trim() || favSaving) {
+      return
+    }
+    setFavSaving(true)
+    saveFavorite({
+      id: favEdit.id || '',
+      title: favEdit.title.trim() || favTitleFallback(favEdit.sql),
+      sql: favEdit.sql,
+      dbType: tab.dbType
+    })
+      .then(list => {
+        setFavSaving(false)
+        setFavEdit(null)
+        if (Array.isArray(list)) {
+          setFavList(list)
+        }
+      })
+      .catch(err => {
+        setFavSaving(false)
+        message.error((err && err.message) || e('dbFavSaveFailed'))
+      })
+  }
+
+  // 先本地移除（点击即刻消失），主进程落盘后以回包为准；失败不回滚——
+  // 下次打开会重新出现，与历史删除同一策略
+  const removeOneFavorite = (item) => {
+    if (!item || !item.id) {
+      return
+    }
+    setFavList(list => list.filter(x => x.id !== item.id))
+    removeFavorite(item.id).then(list => {
+      if (Array.isArray(list)) {
+        setFavList(list)
+      }
+    })
+  }
+
+  // B-4 导出：路径经 showSaveDialog（渲染层不碰 fs），主进程白名单过滤后写 JSON
+  const exportFav = () => {
+    window.api.saveDialog({
+      title: e('dbFavExport'),
+      defaultPath: 'db-sql-favorites.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+      .then(res => {
+        if (!res || res.canceled || !res.filePath) {
+          return null
+        }
+        return exportFavorites(res.filePath, favList).then(n => {
+          message.success(e('dbFavExported').replace('{n}', String(n)))
+        })
+      })
+      .catch(err => {
+        message.error((err && err.message) || e('dbFavExportFailed'))
+      })
+  }
+
+  // B-4 导入：主进程读文件 + 按 id upsert（重复覆盖、新条追加），
+  // 返回 { list, imported, overwritten } 供提示
+  const importFav = () => {
+    window.api.openDialog({
+      title: e('dbFavImport'),
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+      .then(res => {
+        const p = Array.isArray(res) ? res[0] : (res && res.filePaths && res.filePaths[0])
+        if (!p) {
+          return null
+        }
+        return importFavorites(p).then(r => {
+          if (r && Array.isArray(r.list)) {
+            setFavList(r.list)
+          }
+          if (r) {
+            message.success(
+              e('dbFavImported')
+                .replace('{n}', String(r.imported))
+                .replace('{m}', String(r.overwritten))
+            )
+          }
+        })
+      })
+      .catch(err => {
+        message.error((err && err.message) || e('dbFavImportFailed'))
+      })
+  }
+
+  // B-3 模板插入：key 取 SQL_TEMPLATES；withTable 用当前选中表（列清单来自
+  // structureV2——getTableStructure 的规范化列，与列白名单/补全同源已缓存，
+  // 等价于设计所说 describeTable 列信息且更干净）。无选中表生成骨架
+  const insertTemplate = (key, withTable) => {
+    let ctx = { dialect: tab.dbType }
+    if (withTable && sel) {
+      ctx = {
+        dialect: tab.dbType,
+        schema: sel.schema || '',
+        table: sel.table,
+        columns: structureV2.columns || []
+      }
+    }
+    const text = buildTemplateSql(key, ctx)
+    if (!text) {
+      return
+    }
+    insertToEditor(text)
+  }
+
+  const templateMenu = {
+    items: [
+      ...SQL_TEMPLATES.map(t => ({
+        key: t.key,
+        icon: <CodeOutlined />,
+        label: e('dbTpl' + t.key.charAt(0).toUpperCase() + t.key.slice(1))
+      })),
+      { type: 'divider' },
+      {
+        key: 'genInsert',
+        icon: <PlusOutlined />,
+        label: e('dbTplGenInsert'),
+        // 没选中表就没有列清单，禁用并提示（验收：无选中表禁用）
+        disabled: !sel,
+        title: sel ? '' : e('dbTplGenInsertNeedTable')
+      }
+    ],
+    onClick: ({ key }) => insertTemplate(key, key === 'genInsert')
+  }
+
   // 拖拽调整尺寸：右边缘改宽、右下角改宽高。
   // 监听挂在 window 上而不是用 pointer capture——弹层在 portal 里，
   // 指针一移出弹层，元素上的事件就断了
@@ -3744,6 +3947,252 @@ export default auto(function DbSession (props) {
     </div>
   )
 
+  // 历史 tab 内容：从弹层抽出成变量，供「收藏/历史」双 tab 条件渲染（B-1）。
+  // 收藏 tab 共用弹层的尺寸/拖拽把手，只换列表区
+  const historyInnerEl = (
+    <>
+      <div className='db-history-head'>
+        <span className='db-history-title'>
+          {e('dbSqlHistory')}
+          {sqlHistory.length ? <span className='db-history-count'>{sqlHistory.length}</span> : null}
+        </span>
+        {
+          sqlHistory.length
+            ? (
+              <Popconfirm
+                title={e('dbSqlHistoryClearConfirm')}
+                onConfirm={clearAllSqlHistory}
+              >
+                <Button
+                  type='text'
+                  size='small'
+                  icon={<DeleteOutlined />}
+                  title={e('dbSqlHistoryClear')}
+                />
+              </Popconfirm>
+              )
+            : null
+        }
+      </div>
+      {
+        // 环形上限 200 条，找旧语句靠滚动太费劲；只匹配语句文本，不匹配库名/时间
+        sqlHistory.length
+          ? (
+            <Input
+              className='db-history-filter'
+              size='small'
+              allowClear
+              value={histFilter}
+              placeholder={e('dbSqlHistoryFilter')}
+              onChange={ev => {
+                setHistFilter(ev.target.value)
+                setHistIndex(0)
+              }}
+              onKeyDown={onHistFilterKeyDown}
+            />
+            )
+          : null
+      }
+      {
+        histList.length
+          ? (
+            <div className='db-history-body'>
+              <div
+                className='db-history-list'
+                ref={histListRef}
+                tabIndex={0}
+                role='listbox'
+                aria-label={e('dbSqlHistory')}
+                onKeyDown={onHistKeyDown}
+              >
+                {
+                  histList.map((item, i) => (
+                    <div
+                      key={i}
+                      role='option'
+                      aria-selected={i === histIndex}
+                      className={
+                        'db-history-item' +
+                        (i === histIndex ? ' is-active' : '')
+                      }
+                      onClick={() => pickSqlHistory(item)}
+                      onMouseEnter={() => setHistIndex(i)}
+                    >
+                      <div className='db-history-sql'>{previewText(item.sql)}</div>
+                      <div className='db-history-meta'>
+                        <span className='db-history-time'>
+                          {new Date(item.ts).toLocaleString()}
+                        </span>
+                        <span className='db-history-src'>
+                          {dbTypeLabelMap[item.dbType] || item.dbType}
+                          {item.dbName ? ' · ' + item.dbName : ''}
+                        </span>
+                        {
+                          item.ok === false
+                            ? <span className='db-history-fail'>{e('dbSqlHistoryFailed')}</span>
+                            : null
+                        }
+                        <span className='db-history-ops'>
+                          <Button
+                            className='db-history-copy'
+                            type='text'
+                            size='small'
+                            icon={<CopyOutlined />}
+                            title={e('dbSqlHistoryCopy')}
+                            onClick={ev => {
+                              // 只复制，不插回编辑器：想复用长语句又不想动当前编辑内容
+                              ev.stopPropagation()
+                              copy(previewText(item.sql))
+                            }}
+                          />
+                          <Button
+                            className='db-history-del'
+                            type='text'
+                            danger
+                            size='small'
+                            icon={<CloseOutlined />}
+                            title={e('dbSqlHistoryDelete')}
+                            aria-label={e('dbSqlHistoryDelete')}
+                            onClick={ev => {
+                              // 必须挡住冒泡：不挡住会同时把这条语句插回编辑器
+                              ev.stopPropagation()
+                              removeOneSqlHistory(item)
+                            }}
+                          />
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+              {
+                // 预览栏：悬浮/键盘选中项的完整语句。列表里只给两行，
+                // 因为一条语句可能几十行，全展开会把列表挤没
+                histCur
+                  ? (
+                    <div className='db-history-preview'>
+                      <div className='db-history-preview-head'>
+                        <span>{e('dbSqlHistoryPreview')}</span>
+                        <Button
+                          type='text'
+                          size='small'
+                          icon={<CopyOutlined />}
+                          title={e('dbSqlHistoryCopy')}
+                          onClick={() => copy(previewText(histCur.sql))}
+                        />
+                      </div>
+                      <pre className='db-history-preview-code'>{previewText(histCur.sql)}</pre>
+                    </div>
+                    )
+                  : null
+              }
+            </div>
+            )
+          : (
+            <div className='db-history-empty'>
+              {sqlHistory.length ? e('dbSqlHistoryNoMatch') : e('dbSqlHistoryEmpty')}
+            </div>
+            )
+      }
+      <div className='db-history-note'>{e('dbSqlHistoryNote')}</div>
+    </>
+  )
+
+  // 收藏 tab 内容（B-1/B-2/B-4）：工具条（新建/导入/导出）+ 搜索 + 列表。
+  // 条目操作：插光标/复制/编辑/删除；主标题行整块可点（插光标并关闭弹层）
+  const favContentEl = (
+    <div className='db-fav-body'>
+      <div className='db-fav-toolbar'>
+        <Button size='small' icon={<PlusOutlined />} onClick={newFavorite}>
+          {e('dbFavNew')}
+        </Button>
+        <Button size='small' icon={<UploadOutlined />} onClick={importFav}>
+          {e('dbFavImport')}
+        </Button>
+        <Button
+          size='small'
+          icon={<DownloadOutlined />}
+          disabled={!favList.length}
+          onClick={exportFav}
+        >
+          {e('dbFavExport')}
+        </Button>
+      </div>
+      {
+        favList.length
+          ? (
+            <Input
+              className='db-history-filter'
+              size='small'
+              allowClear
+              value={favFilter}
+              placeholder={e('dbFavFilter')}
+              onChange={ev => setFavFilter(ev.target.value)}
+            />
+            )
+          : null
+      }
+      {
+        favListShown.length
+          ? (
+            <div className='db-fav-list'>
+              {
+                favListShown.map(item => (
+                  <div key={item.id} className='db-fav-item'>
+                    <div
+                      className='db-fav-main'
+                      title={previewText(item.sql)}
+                      onClick={() => pickFavorite(item)}
+                    >
+                      <div className='db-fav-title'>{item.title || previewText(item.sql)}</div>
+                      <div className='db-fav-meta'>
+                        <span>{dbTypeLabelMap[item.dbType] || item.dbType}</span>
+                        <span>{new Date(item.ts).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div className='db-fav-ops'>
+                      <Button
+                        type='text'
+                        size='small'
+                        icon={<CopyOutlined />}
+                        title={e('dbFavCopy')}
+                        onClick={() => copy(item.sql)}
+                      />
+                      <Button
+                        type='text'
+                        size='small'
+                        icon={<EditOutlined />}
+                        title={e('dbFavEdit')}
+                        onClick={() => editFavorite(item)}
+                      />
+                      <Popconfirm
+                        title={e('dbFavDelConfirm')}
+                        onConfirm={() => removeOneFavorite(item)}
+                      >
+                        <Button
+                          type='text'
+                          size='small'
+                          danger
+                          icon={<DeleteOutlined />}
+                          title={e('dbFavDelete')}
+                          aria-label={e('dbFavDelete')}
+                        />
+                      </Popconfirm>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+            )
+          : (
+            <div className='db-history-note'>
+              {favList.length ? e('dbFavNoMatch') : e('dbFavEmpty')}
+            </div>
+            )
+      }
+    </div>
+  )
+
   const sqlArea = (
     <div className='db-sql-area'>
       <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
@@ -3784,161 +4233,64 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+        {
+          // B-3 SQL 模板：内置骨架菜单 + 按当前表生成 INSERT（无选中表禁用）。
+          // Redis 无 SQL 编辑器，不显示
+          !isRedis
+            ? (
+              <Dropdown
+                menu={templateMenu}
+                trigger={['click']}
+                placement='bottomLeft'
+              >
+                <Button
+                  size='small'
+                  icon={<CodeOutlined />}
+                  title={e('dbTplMenu')}
+                />
+              </Dropdown>
+              )
+            : null
+        }
         <Popover
           placement='bottomLeft'
           trigger='click'
           open={sqlHistoryOpen}
-          onOpenChange={openSqlHistory}
+          onOpenChange={open => {
+            openSqlHistory(open)
+            // 停在收藏 tab 时打开也要刷新（列表 ≤500 条，文件读一次不贵）
+            if (open && favTab === 'favorite') {
+              refreshFavorites()
+            }
+          }}
           content={
             <div
               className='db-history-pop'
               data-split={splitMode(histSize.width)}
               style={{ width: histSize.width, height: histSize.height }}
             >
-              <div className='db-history-head'>
-                <span className='db-history-title'>
+              <div className='db-history-tabbar'>
+                <Button
+                  size='small'
+                  type={favTab === 'history' ? 'primary' : 'text'}
+                  icon={<HistoryOutlined />}
+                  onClick={() => switchPanelTab('history')}
+                >
                   {e('dbSqlHistory')}
-                  {sqlHistory.length ? <span className='db-history-count'>{sqlHistory.length}</span> : null}
-                </span>
-                {
-                  sqlHistory.length
-                    ? (
-                      <Popconfirm
-                        title={e('dbSqlHistoryClearConfirm')}
-                        onConfirm={clearAllSqlHistory}
-                      >
-                        <Button
-                          type='text'
-                          size='small'
-                          icon={<DeleteOutlined />}
-                          title={e('dbSqlHistoryClear')}
-                        />
-                      </Popconfirm>
-                      )
-                    : null
-                }
+                </Button>
+                <Button
+                  size='small'
+                  type={favTab === 'favorite' ? 'primary' : 'text'}
+                  icon={<StarOutlined />}
+                  onClick={() => switchPanelTab('favorite')}
+                >
+                  {e('dbFavTab')}
+                </Button>
               </div>
+              {favTab === 'favorite' ? favContentEl : null}
               {
-                // 环形上限 200 条，找旧语句靠滚动太费劲；只匹配语句文本，不匹配库名/时间
-                sqlHistory.length
-                  ? (
-                    <Input
-                      className='db-history-filter'
-                      size='small'
-                      allowClear
-                      value={histFilter}
-                      placeholder={e('dbSqlHistoryFilter')}
-                      onChange={ev => {
-                        setHistFilter(ev.target.value)
-                        setHistIndex(0)
-                      }}
-                      onKeyDown={onHistFilterKeyDown}
-                    />
-                    )
-                  : null
+                favTab === 'history' ? historyInnerEl : null
               }
-              {
-                histList.length
-                  ? (
-                    <div className='db-history-body'>
-                      <div
-                        className='db-history-list'
-                        ref={histListRef}
-                        tabIndex={0}
-                        role='listbox'
-                        aria-label={e('dbSqlHistory')}
-                        onKeyDown={onHistKeyDown}
-                      >
-                        {
-                          histList.map((item, i) => (
-                            <div
-                              key={i}
-                              role='option'
-                              aria-selected={i === histIndex}
-                              className={
-                                'db-history-item' +
-                                (i === histIndex ? ' is-active' : '')
-                              }
-                              onClick={() => pickSqlHistory(item)}
-                              onMouseEnter={() => setHistIndex(i)}
-                            >
-                              <div className='db-history-sql'>{previewText(item.sql)}</div>
-                              <div className='db-history-meta'>
-                                <span className='db-history-time'>
-                                  {new Date(item.ts).toLocaleString()}
-                                </span>
-                                <span className='db-history-src'>
-                                  {dbTypeLabelMap[item.dbType] || item.dbType}
-                                  {item.dbName ? ' · ' + item.dbName : ''}
-                                </span>
-                                {
-                                  item.ok === false
-                                    ? <span className='db-history-fail'>{e('dbSqlHistoryFailed')}</span>
-                                    : null
-                                }
-                                <span className='db-history-ops'>
-                                  <Button
-                                    className='db-history-copy'
-                                    type='text'
-                                    size='small'
-                                    icon={<CopyOutlined />}
-                                    title={e('dbSqlHistoryCopy')}
-                                    onClick={ev => {
-                                      // 只复制，不插回编辑器：想复用长语句又不想动当前编辑内容
-                                      ev.stopPropagation()
-                                      copy(previewText(item.sql))
-                                    }}
-                                  />
-                                  <Button
-                                    className='db-history-del'
-                                    type='text'
-                                    danger
-                                    size='small'
-                                    icon={<CloseOutlined />}
-                                    title={e('dbSqlHistoryDelete')}
-                                    aria-label={e('dbSqlHistoryDelete')}
-                                    onClick={ev => {
-                                      // 必须挡住冒泡：不挡住会同时把这条语句插回编辑器
-                                      ev.stopPropagation()
-                                      removeOneSqlHistory(item)
-                                    }}
-                                  />
-                                </span>
-                              </div>
-                            </div>
-                          ))
-                        }
-                      </div>
-                      {
-                        // 预览栏：悬浮/键盘选中项的完整语句。列表里只给两行，
-                        // 因为一条语句可能几十行，全展开会把列表挤没
-                        histCur
-                          ? (
-                            <div className='db-history-preview'>
-                              <div className='db-history-preview-head'>
-                                <span>{e('dbSqlHistoryPreview')}</span>
-                                <Button
-                                  type='text'
-                                  size='small'
-                                  icon={<CopyOutlined />}
-                                  title={e('dbSqlHistoryCopy')}
-                                  onClick={() => copy(previewText(histCur.sql))}
-                                />
-                              </div>
-                              <pre className='db-history-preview-code'>{previewText(histCur.sql)}</pre>
-                            </div>
-                            )
-                          : null
-                      }
-                    </div>
-                    )
-                  : (
-                    <div className='db-history-empty'>
-                      {sqlHistory.length ? e('dbSqlHistoryNoMatch') : e('dbSqlHistoryEmpty')}
-                    </div>
-                    )
-              }
-              <div className='db-history-note'>{e('dbSqlHistoryNote')}</div>
               {
                 // 拖拽把手：右边缘改宽、右下角改宽高。
                 // 放在 body 之外、绝对定位贴边，列表滚动条靠 body 的 padding 让开
@@ -4725,6 +5077,36 @@ export default auto(function DbSession (props) {
         columns={structureV2.columns || []}
         confirmRisk={confirmImportRisk}
       />
+      {/* B-2 收藏编辑：标题 + 语句（复用 A 批编辑器组件，实例独立）。
+          新建默认带当前编辑器内容（newFavorite 已填） */}
+      <Modal
+        open={!!favEdit}
+        title={favEdit && favEdit.id ? e('dbFavEditTitle') : e('dbFavNewTitle')}
+        onCancel={() => setFavEdit(null)}
+        onOk={saveFavEdit}
+        okText={e('dbFavSave')}
+        cancelText={e('cancel')}
+        confirmLoading={favSaving}
+        width={680}
+        destroyOnClose
+      >
+        <div className='db-fav-edit'>
+          <Input
+            value={favEdit ? favEdit.title : ''}
+            placeholder={e('dbFavTitlePh')}
+            onChange={ev => setFavEdit(s => ({ ...s, title: ev.target.value }))}
+          />
+          <div className='db-fav-edit-sql'>
+            <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
+              <SqlCodeEditor
+                value={favEdit ? favEdit.sql : ''}
+                onChange={v => setFavEdit(s => ({ ...s, sql: v }))}
+                dbType={tab.dbType}
+              />
+            </Suspense>
+          </div>
+        </div>
+      </Modal>
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>

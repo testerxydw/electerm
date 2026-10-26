@@ -307,6 +307,23 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
       const view = viewRef.current
       return view ? view.state.doc.toString() : ''
     },
+    // 光标处插入（B-1 收藏"插入光标"/B-3 模板菜单共用）：
+    // 有选区则替换选区，无选区在光标处插入；插入后光标落在文本尾部。
+    // 走 dispatch 而不是 onChange 回写全文——保留撤销栈，且不丢光标位置
+    insertText (text) {
+      const view = viewRef.current
+      if (!view || typeof text !== 'string') {
+        return false
+      }
+      const sel = view.state.selection.main
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+        scrollIntoView: true
+      })
+      view.focus()
+      return true
+    },
     // 页内查找：返回全文命中区间
     getSearchHits (kw) {
       const view = viewRef.current

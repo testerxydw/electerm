@@ -135,3 +135,25 @@ export function filterHistory (list, kw) {
   }
   return arr.filter(it => String((it && it.sql) || '').toLowerCase().includes(q))
 }
+
+/**
+ * 收藏列表筛选（B-1）：标题 / 语句 / 引擎三处任一命中即保留。
+ * 与 filterHistory 同口径：大小写不敏感、空关键词原样返回
+ */
+export function filterFavorites (list, kw) {
+  const arr = Array.isArray(list) ? list : []
+  const q = typeof kw === 'string' ? kw.trim().toLowerCase() : ''
+  if (!q) {
+    return arr
+  }
+  return arr.filter(it => {
+    if (!it) {
+      return false
+    }
+    return (
+      String(it.title || '').toLowerCase().includes(q) ||
+      String(it.sql || '').toLowerCase().includes(q) ||
+      String(it.dbType || '').toLowerCase().includes(q)
+    )
+  })
+}

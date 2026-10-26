@@ -1834,3 +1834,74 @@ body.db-col-resizing
   font-family var(--db-code-font, var(--font-mono))
   font-size 12px
   word-break break-all
+
+// B 批：SQL 收藏面板（与历史弹层共用容器，双 tab）
+.db-history-tabbar
+  display flex
+  gap 4px
+  padding 0 10px 6px
+  border-bottom 1px solid var(--border)
+
+.db-fav-body
+  flex 1
+  min-height 0
+  display flex
+  flex-direction column
+  padding 8px 10px
+  overflow auto
+
+.db-fav-toolbar
+  display flex
+  gap 6px
+  margin-bottom 8px
+
+.db-fav-list
+  flex 1
+  min-height 0
+  overflow auto
+
+.db-fav-item
+  display flex
+  align-items center
+  gap 6px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 6px 8px
+  margin-bottom 6px
+  &:hover
+    background var(--main-light)
+
+.db-fav-main
+  flex 1
+  min-width 0
+  cursor pointer
+
+.db-fav-title
+  color var(--text)
+  font-weight 500
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-fav-meta
+  display flex
+  gap 10px
+  color var(--text-dark)
+  font-size 12px
+  margin-top 2px
+
+.db-fav-ops
+  flex none
+  display flex
+  gap 2px
+
+// B-2 收藏编辑弹窗：标题行 + 编辑器区
+.db-fav-edit
+  display flex
+  flex-direction column
+  gap 10px
+
+.db-fav-edit-sql
+  height 280px
+  .db-sql-editor
+    height 100%
