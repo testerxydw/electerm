@@ -406,7 +406,12 @@ const en = {
   splitHorizontal: 'Split horizontally',
   splitVertical: 'Split vertically',
   moveToPane: 'Move to pane',
-  cannotSplitFurther: 'Already at max layout, cannot split further'
+  cannotSplitFurther: 'Already at max layout, cannot split further',
+  // E2-3b 命令面板
+  dbQuickOpenPlaceholder: 'Search actions, tables, columns and history...',
+  dbQuickOpenGroupAction: 'Actions',
+  dbQuickOpenGroupObject: 'Tables & columns',
+  dbQuickOpenGroupHistory: 'Recent SQL'
 }
 
 // 简体中文
@@ -799,7 +804,12 @@ const zhCn = {
   dbColMoveUp: '上移',
   dbColMoveDown: '下移',
   dbFormatLocale: '本地化格式',
-  dbFormatLocaleHint: '数值与日期按系统区域显示（仅显示层；编辑、导出、UPDATE 一律用原值）'
+  dbFormatLocaleHint: '数值与日期按系统区域显示（仅显示层；编辑、导出、UPDATE 一律用原值）',
+  // E2-3b 命令面板
+  dbQuickOpenPlaceholder: '搜索动作、表、列与历史语句...',
+  dbQuickOpenGroupAction: '动作',
+  dbQuickOpenGroupObject: '表与列',
+  dbQuickOpenGroupHistory: '最近 SQL'
 }
 
 module.exports = {
