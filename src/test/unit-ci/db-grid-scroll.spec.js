@@ -140,6 +140,29 @@ describe('批次 C：数据库页渲染收口契约', () => {
     assert.match(block, /&:focus-visible/, 'focus-visible ring missing')
     assert.match(block, /outline 2px solid var\(--primary\)/)
   })
+
+  test('全部 hook 必须在 error/!ready 早退之前（React hooks 顺序）', () => {
+    // 23eafc70 曾把命令面板的 8 个 hook 放在 `if (error) return` 之后：
+    // 连接失败时 hook 数比首帧少 8，React 直接抛
+    // "Rendered fewer hooks than expected"，全客户端无 error boundary
+    // → 整树卸载，用户看到白屏而不是断线重连页。文件里 sqlTables 的注释
+    // （"必须留在 if (!ready) return 之前"）早写过这条铁律，这里钉成测试
+    const src = loadJsx()
+    const early = src.indexOf('  if (error) {')
+    assert.ok(early > 0, 'error early-return marker missing')
+    const markers = [
+      'const [quickOpen, setQuickOpen] = useState(false)',
+      'const quickItems = useMemo(',
+      'const sqlTables = useMemo(',
+      'const treeData = useMemo(',
+      'const columnWidths = useMemo('
+    ]
+    for (const m of markers) {
+      const pos = src.indexOf(m)
+      assert.ok(pos > 0, m + ' missing')
+      assert.ok(pos < early, m + ' must be declared before the error early-return (hooks order)')
+    }
+  })
 })
 
 describe('DbGridTable: css layout contract', () => {

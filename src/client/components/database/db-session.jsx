@@ -2726,22 +2726,6 @@ export default auto(function DbSession (props) {
     '--db-code-font': tab.fontFamily || window.store._config?.fontFamily
   }
 
-  if (error) {
-    return (
-      <div
-        className='db-session-wrap db-session-error'
-        style={dbCodeFontStyle}
-      >
-        <DbConnError
-          tab={tab}
-          error={error}
-          onRetry={retryConnect}
-        />
-        <RemoteFloatControl isFullScreen={!!fullscreen} />
-      </div>
-    )
-  }
-
   // ---- E2-3b 命令面板（Ctrl/Cmd+K）：四类来源 ----
 
   const [quickOpen, setQuickOpen] = useState(false)
@@ -2933,6 +2917,22 @@ export default auto(function DbSession (props) {
     ...quickHistory,
     ...quickColumns
   ], [quickActions, quickObjects, quickHistory, quickColumns])
+
+  if (error) {
+    return (
+      <div
+        className='db-session-wrap db-session-error'
+        style={dbCodeFontStyle}
+      >
+        <DbConnError
+          tab={tab}
+          error={error}
+          onRetry={retryConnect}
+        />
+        <RemoteFloatControl isFullScreen={!!fullscreen} />
+      </div>
+    )
+  }
 
   if (!ready) {
     return (
