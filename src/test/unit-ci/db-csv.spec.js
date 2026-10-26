@@ -13,7 +13,7 @@ const SRC = path.join(ROOT, 'src/client/common/db-csv.js')
 
 const loadFns = () => {
   const code = fs.readFileSync(SRC, 'utf8').replace(/^export /gm, '')
-  const ctx = {}
+  const ctx = { Buffer }
   vm.createContext(ctx)
   vm.runInContext(code, ctx)
   assert.equal(typeof ctx.csvEscape, 'function', 'csvEscape missing')
@@ -61,7 +61,27 @@ describe('db-csv csvEscape', () => {
 })
 
 describe('db-csv toCsv', () => {
-  const { toCsv } = loadFns()
+  const { toCsv, isBinEnvelope } = loadFns()
+
+  test('isBinEnvelope 识别 F3 信封、拒认普通对象', () => {
+    assert.equal(isBinEnvelope({ __bin: { size: 5, b64: 'aGVsbG8=', truncated: false } }), true)
+    assert.equal(isBinEnvelope({ __bin: { size: 5 } }), false) // 字段不全
+    assert.equal(isBinEnvelope({ other: 1 }), false)
+    assert.equal(isBinEnvelope('x'), false)
+    assert.equal(isBinEnvelope(null), false)
+    assert.equal(isBinEnvelope([{ __bin: {} }]), false) // 数组
+  })
+
+  test('小二进制：整列 base64 导出不丢数据', () => {
+    const bin = { __bin: { size: 5, b64: 'aGVsbG8=', truncated: false } }
+    const csv = toCsv(['blob'], [{ blob: bin }])
+    assert.equal(csv, '\uFEFFblob\r\naGVsbG8=\r\n')
+  })
+
+  test('截断的大二进制：toCsv 抛错（不静默导出残缺数据）', () => {
+    const bin = { __bin: { size: 200000, b64: 'YWJj', truncated: true } }
+    assert.throws(() => toCsv(['blob'], [{ blob: bin }]), /请用 SQL 模式导出/)
+  })
 
   test('文件头 BOM + 表头行 + \r\n 行间', () => {
     const csv = toCsv(['a', 'b'], [{ a: 1, b: 2 }])
@@ -99,7 +119,7 @@ describe('db-csv toCsv', () => {
 // A1 复制为 SQL/JSON/TSV（doc/设计-数据库阶段3-2026-10-22.md §7.2）
 
 describe('db-csv sqlQuoteVal / sqlQuoteIdent', () => {
-  const { sqlQuoteVal, sqlQuoteIdent } = loadFns()
+  const { sqlQuoteVal, sqlQuoteIdent, buildCopyStatements } = loadFns()
 
   test('null/undefined → NULL', () => {
     assert.equal(sqlQuoteVal(null), 'NULL')
@@ -130,6 +150,25 @@ describe('db-csv sqlQuoteVal / sqlQuoteIdent', () => {
     assert.equal(sqlQuoteIdent('t', 'backtick'), '`t`')
     assert.equal(sqlQuoteIdent('my`table', 'backtick'), '`mytable`')
     assert.equal(sqlQuoteIdent('my"t', 'double'), '"myt"')
+  })
+
+  test('F3 小二进制：mysql X 十六进制字面量、pg \\x 字面量', () => {
+    const bin = { __bin: { size: 3, b64: Buffer.from('abc').toString('base64'), truncated: false } }
+    assert.equal(sqlQuoteVal(bin, 'backtick'), "X'" + Buffer.from('abc').toString('hex') + "'")
+    assert.equal(sqlQuoteVal(bin, 'double'), "'\\x" + Buffer.from('abc').toString('hex') + "'")
+  })
+
+  test('F3 截断大二进制：sqlQuoteVal 抛错（不静默写出残缺值）', () => {
+    const bin = { __bin: { size: 200000, b64: 'YWJj', truncated: true } }
+    assert.throws(() => sqlQuoteVal(bin, 'backtick'), /请用 SQL 模式导出/)
+  })
+
+  test('F3 二进制不被 String() 成 [object Object]', () => {
+    const bin = { __bin: { size: 1, b64: 'YQ==', truncated: false } }
+    const out = buildCopyStatements('insert', {
+      table: 't', headers: ['blob'], rows: [{ blob: bin }], pkColumn: '', quote: 'backtick'
+    })
+    assert.ok(!out.includes('[object Object]'), '出现 [object Object] 说明未识别信封')
   })
 })
 
@@ -189,11 +228,28 @@ describe('db-csv buildCopyStatements', () => {
     assert.equal(out, '[\n  {\n    "id": 1,\n    "name": null\n  }\n]')
   })
 
+  test('F3 json：二进制列输出提示串而非裸 b64 信封（防误以为是完整数据）', () => {
+    const bin = { __bin: { size: 5, b64: 'aGVsbG8=', truncated: false } }
+    const out = buildCopyStatements('json', {
+      table: 't', headers: ['id', 'blob'], rows: [{ id: 1, blob: bin }], quote: 'backtick'
+    })
+    assert.ok(out.includes('"<binary 5 bytes>"'), '应给出提示串')
+    assert.ok(!out.includes('"__bin"'), 'json 里不应泄露信封结构')
+  })
+
   test('tsv：首行列名，值内制表/换行替换为空格，null → 空串', () => {
     const out = buildCopyStatements('tsv', {
       table: 't', headers: ['a', 'b'], rows: [{ a: 'x\ty', b: 'p\nq' }, { a: null, b: 'z' }], quote: 'backtick'
     })
     assert.equal(out, 'a\tb\nx y\tp q\n\tz')
+  })
+
+  test('F3 tsv：二进制列显示提示串而非字节串（TSV 给人看）', () => {
+    const bin = { __bin: { size: 5, b64: 'aGVsbG8=', truncated: false } }
+    const out = buildCopyStatements('tsv', {
+      table: 't', headers: ['a', 'blob'], rows: [{ a: 'x', blob: bin }], quote: 'backtick'
+    })
+    assert.equal(out, 'a\tblob\nx\t<binary 5 bytes>')
   })
 
   test('rows 非数组容错', () => {

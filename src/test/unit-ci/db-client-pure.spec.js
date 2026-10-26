@@ -42,7 +42,10 @@ function runInVm (src, stubs, filename) {
     setTimeout,
     clearTimeout,
     Promise,
-    Buffer
+    Buffer,
+    // 注入宿主 Uint8Array：否则 vm 上下文内的 Uint8Array 与宿主 realm 不同，
+    // safeCell 的 `v instanceof Uint8Array` 对宿主 Buffer 判 false，二进制信封失效。
+    Uint8Array
   }
   vm.createContext(sandbox)
   vm.runInContext(src, sandbox, { filename })
@@ -330,6 +333,29 @@ describe('mysql toResult（结果规范化）', () => {
     assert.equal(typeof r.rows[0].o, 'string')
   })
 
+  test('F3 二进制经 safeCell 转 __bin 信封（小字段完整 base64 / 不丢数据）', () => {
+    const r = mysql.toResult([{ blob: Buffer.from('hello') }], [])
+    const bin = r.rows[0].blob
+    assert.ok(bin && bin.__bin, '应为 __bin 信封而非字符串')
+    assert.equal(bin.__bin.size, 5)
+    assert.equal(bin.__bin.truncated, false)
+    assert.equal(bin.__bin.b64, Buffer.from('hello').toString('base64'))
+  })
+
+  test('F3 超大二进制只带前缀（truncated: true，不内联全量）', () => {
+    const big = Buffer.alloc(200 * 1024, 0x41) // 200KB
+    const r = mysql.toResult([{ blob: big }], [])
+    const bin = r.rows[0].blob.__bin
+    assert.equal(bin.truncated, true)
+    assert.equal(bin.size, 200 * 1024)
+    assert.ok(bin.b64.length < big.length, '前缀应远小于全量')
+  })
+
+  test('F3 空 Buffer 仍出信封（size 0，非 <binary 字符串）', () => {
+    const r = mysql.toResult([{ blob: Buffer.alloc(0) }], [])
+    assert.deepEqual(r.rows[0].blob, { __bin: { size: 0, b64: '', truncated: false } })
+  })
+
   test('OkPacket 类对象：提取 affectedRows，rows 为空数组', () => {
     const r = mysql.toResult({ affectedRows: 3 }, [])
     assert.equal(r.affected, 3)
@@ -358,6 +384,57 @@ describe('mysql normalizeResults（单语句 / 多语句统一）', () => {
     assert.deepEqual(rs[0].fields, ['a'])
     assert.deepEqual(rs[1].rows, [{ b: 2 }])
     assert.deepEqual(rs[1].fields, ['b'])
+  })
+})
+
+// ---------- postgres：二进制安全化（F3，vm 打桩 pg） ----------
+
+const PG_JS = path.join(ROOT, 'src/app/lib/db-client/postgres.js')
+
+function loadPostgresInVm (pgStub) {
+  return runInVm(
+    fs.readFileSync(PG_JS, 'utf8'),
+    { pg: pgStub, './structure-v2': {} },
+    'postgres.js'
+  )
+}
+
+describe('postgres getPageData 二进制安全化（F3，vm 打桩 pg）', () => {
+  test('bytea Buffer 经 IPC 不再退化成字节串，转 __bin 信封（与 mysql 同源修复）', async () => {
+    let queryCount = 0
+    const PgClient = function () {}
+    PgClient.prototype.connect = async function () {}
+    PgClient.prototype.query = async function () {
+      queryCount++
+      return { rows: [{ id: 1, data: Buffer.from('hello') }] }
+    }
+    PgClient.prototype.end = async function () {}
+    const mod = loadPostgresInVm({ Client: PgClient })
+    const res = await mod.getPageData(
+      { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' },
+      { table: 't', schema: 'public', page: 1, pageSize: 10 }
+    )
+    const bin = res.rows[0].data
+    assert.ok(bin && bin.__bin, 'bytea 应为 __bin 信封而非字节串')
+    assert.equal(bin.__bin.b64, Buffer.from('hello').toString('base64'))
+    assert.equal(bin.__bin.truncated, false)
+    assert.equal(queryCount, 1, '应只查一次主查询')
+  })
+
+  test('基本类型仍经 safeCell 走 String/ISO，不受二进制分支影响', async () => {
+    const PgClient = function () {}
+    PgClient.prototype.connect = async function () {}
+    PgClient.prototype.query = async function () {
+      return { rows: [{ id: 1, ts: new Date('2026-01-02T03:04:05.000Z'), n: 10n }] }
+    }
+    PgClient.prototype.end = async function () {}
+    const mod = loadPostgresInVm({ Client: PgClient })
+    const res = await mod.getPageData(
+      { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' },
+      { table: 't', schema: 'public', page: 1, pageSize: 10 }
+    )
+    assert.equal(typeof res.rows[0].ts, 'string')
+    assert.equal(res.rows[0].n, '10')
   })
 })
 
@@ -592,5 +669,151 @@ describe('testDbConnection 入口校验（不触网路径）', () => {
       () => testDbConnection({ dbType: 'oracle' }, null),
       /unsupported db type: oracle/
     )
+  })
+})
+
+// ---------- F1：外键引用侧栏 getReferences（vm 打桩） ----------
+
+describe('mysql getReferences（F1，vm 打桩）', () => {
+  const single = [
+    { fkName: 'fk_child_parent', schema: 'db', table: 'child', column: 'parent_id', refTable: 'parent', refColumn: 'id' }
+  ]
+  const composite = [
+    { fkName: 'fk_child_parent2', schema: 'db', table: 'child2', column: 'p_a', refTable: 'parent', refColumn: 'a' },
+    { fkName: 'fk_child_parent2', schema: 'db', table: 'child2', column: 'p_b', refTable: 'parent', refColumn: 'b' }
+  ]
+
+  test('groupReferences：单条外键正确聚合', () => {
+    const mod = loadMysqlInVm(makeMysql2Stubs().stub)
+    const refs = mod.groupReferences(single)
+    assert.equal(refs.length, 1)
+    // vm-realm 数组与宿主 Array 非同构造函数：比较前用 Array.from 搬回宿主 realm
+    assert.deepEqual(Array.from(refs[0].columns), ['parent_id'])
+    assert.deepEqual(Array.from(refs[0].refColumns), ['id'])
+    assert.equal(refs[0].table, 'child')
+    assert.equal(refs[0].refTable, 'parent')
+  })
+
+  test('groupReferences：复合外键保持列顺序一一对应', () => {
+    const mod = loadMysqlInVm(makeMysql2Stubs().stub)
+    const refs = mod.groupReferences(composite)
+    assert.equal(refs.length, 1)
+    assert.deepEqual(Array.from(refs[0].columns), ['p_a', 'p_b'], '子表 FK 列顺序')
+    assert.deepEqual(Array.from(refs[0].refColumns), ['a', 'b'], '本表被引用列顺序')
+  })
+
+  test('getReferences：全量返回引用本表的所有 FK', async () => {
+    const { stub } = makeMysql2Stubs({ rows: single.concat(composite) })
+    const mod = loadMysqlInVm(stub)
+    const res = await mod.getReferences(CONN, { database: 'db', table: 'parent' })
+    assert.equal(res.degraded, false)
+    assert.equal(res.references.length, 2, '两条引用本表的 FK')
+  })
+
+  test('getReferences：按选中列过滤（复合外键按单名列命中）', async () => {
+    const { stub } = makeMysql2Stubs({ rows: single.concat(composite) })
+    const mod = loadMysqlInVm(stub)
+    const res = await mod.getReferences(CONN, { database: 'db', table: 'parent', columns: ['a'] })
+    assert.equal(res.references.length, 1)
+    assert.deepEqual(Array.from(res.references[0].refColumns), ['a', 'b'])
+  })
+
+  test('getReferences：无匹配列时返回空（无外键态）', async () => {
+    const { stub } = makeMysql2Stubs({ rows: single })
+    const mod = loadMysqlInVm(stub)
+    const res = await mod.getReferences(CONN, { database: 'db', table: 'parent', columns: ['unrelated'] })
+    assert.equal(res.references.length, 0)
+  })
+
+  test('getReferences：查询失败降级 degraded 而非抛错', async () => {
+    const { stub } = makeMysql2Stubs({ queryFail: true })
+    const mod = loadMysqlInVm(stub)
+    const res = await mod.getReferences(CONN, { database: 'db', table: 'parent', columns: ['id'] })
+    assert.equal(res.degraded, true)
+    assert.equal(res.references.length, 0)
+  })
+})
+
+describe('postgres getReferences（F1，vm 打桩 pg）', () => {
+  function makePg (rows) {
+    const PgClient = function () {}
+    PgClient.prototype.connect = async function () {}
+    PgClient.prototype.query = async function () {
+      return { rows }
+    }
+    PgClient.prototype.end = async function () {}
+    return { Client: PgClient }
+  }
+
+  test('单条外键：columns/refColumns 正确（含 schema）', async () => {
+    const rows = [{
+      fkName: 'fk_child_parent',
+      schema: 'public',
+      table: 'child',
+      refTable: 'parent',
+      refSchema: 'public',
+      columns: ['parent_id'],
+      ref_columns: ['id']
+    }]
+    const mod = loadPostgresInVm(makePg(rows))
+    const res = await mod.getReferences(
+      { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' },
+      { schema: 'public', table: 'parent', columns: ['id'] }
+    )
+    assert.equal(res.degraded, false)
+    assert.equal(res.references.length, 1)
+    assert.deepEqual(res.references[0].columns, ['parent_id'])
+    assert.deepEqual(res.references[0].refColumns, ['id'])
+    assert.equal(res.references[0].schema, 'public')
+    assert.equal(res.references[0].table, 'child')
+  })
+
+  test('复合外键：按单名列过滤命中整条', async () => {
+    const rows = [{
+      fkName: 'fk_c_p',
+      schema: 's',
+      table: 'child',
+      refTable: 'parent',
+      refSchema: 's',
+      columns: ['a_id', 'b_id'],
+      ref_columns: ['a', 'b']
+    }]
+    const mod = loadPostgresInVm(makePg(rows))
+    const res = await mod.getReferences(
+      { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' },
+      { schema: 's', table: 'parent', columns: ['b'] }
+    )
+    assert.equal(res.references.length, 1)
+    assert.deepEqual(res.references[0].refColumns, ['a', 'b'])
+  })
+
+  test('无匹配列返回空；查询失败降级 degraded', async () => {
+    const singleRef = {
+      fkName: 'x',
+      schema: 's',
+      table: 'c',
+      refTable: 'p',
+      refSchema: 's',
+      columns: ['id'],
+      ref_columns: ['pid']
+    }
+    const mod = loadPostgresInVm(makePg([singleRef]))
+    const empty = await mod.getReferences(
+      { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' },
+      { schema: 's', table: 'parent', columns: ['zzz'] }
+    )
+    assert.equal(empty.references.length, 0)
+
+    const PgClient = function () {}
+    PgClient.prototype.connect = async function () {}
+    PgClient.prototype.query = async function () { throw new Error('permission denied') }
+    PgClient.prototype.end = async function () {}
+    const mod2 = loadPostgresInVm({ Client: PgClient })
+    const degraded = await mod2.getReferences(
+      { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' },
+      { schema: 's', table: 'parent', columns: ['id'] }
+    )
+    assert.equal(degraded.degraded, true)
+    assert.equal(degraded.references.length, 0)
   })
 })

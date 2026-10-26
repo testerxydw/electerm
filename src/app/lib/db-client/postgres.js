@@ -176,6 +176,79 @@ function pageWindow (page, pageSize) {
   }
 }
 
+// 单值安全化：IPC 走结构化克隆，只有纯值能安全穿越；
+// Date/bigint 先行处理，Buffer 转 __bin 信封，其余带原型的对象（numeric 实例等）
+// 统一转字符串，避免 "An object could not be cloned" 导致整页数据丢失。
+//
+// F3 二进制传输修复（设计 §9.1）：二进制列不再原样返回 Buffer（渲染层 String() 会
+// 得到逗号分隔的字节数字），改成携带 base64 前缀的 `__bin` 信封，导出/预览都能复用。
+// 大字段只带前缀供预览，全量取回走独立 op getCellBinary，不进 getPageData。
+// PG 的 pg 驱动把 bytea 默认返回 Buffer，与 MySQL 的 Uint8Array 同属二进制路径。
+const INLINE_LIMIT = 64 * 1024
+// 超限时只随信封带前 BIN_PREFIX_LIMIT 字节供预览（16KB base64，一页 400 行也不会拖垮渲染）
+const BIN_PREFIX_LIMIT = 4096
+
+// Buffer 继承自 Uint8Array；主进程经打包后 Buffer 可能被替换为 `buffer` polyfill，
+// 其 isBuffer 对「原生 Buffer 实例」返回 false，故一律用 instanceof Uint8Array 判定，
+// 再经 Buffer.from 归一后取 base64（对两种实现都成立）。
+function binEnvelope (v) {
+  const buf = Buffer.from(v)
+  const size = buf.length
+  if (size <= INLINE_LIMIT) {
+    return { __bin: { size, b64: buf.toString('base64'), truncated: false } }
+  }
+  return {
+    __bin: {
+      size,
+      b64: buf.subarray(0, BIN_PREFIX_LIMIT).toString('base64'),
+      truncated: true
+    }
+  }
+}
+
+function safeCell (v) {
+  if (v === null || v === undefined) {
+    return null
+  }
+  const t = typeof v
+  if (t === 'string' || t === 'number' || t === 'boolean') {
+    return v
+  }
+  if (v instanceof Date) {
+    return v.toISOString()
+  }
+  if (t === 'bigint') {
+    return v.toString()
+  }
+  // Buffer 继承自 Uint8Array（见 binEnvelope 注释），二进制一律走信封
+  if (v instanceof Uint8Array) {
+    return binEnvelope(v)
+  }
+  // 有 toJSON 的优先（驱动自定义类型）
+  if (typeof v.toJSON === 'function') {
+    try {
+      return safeCell(v.toJSON())
+    } catch (e) {
+      // fallthrough
+    }
+  }
+  try {
+    return String(v)
+  } catch (e) {
+    return null
+  }
+}
+
+function rowToPlain (rows) {
+  return rows.map(r => {
+    const o = {}
+    for (const k of Object.keys(r)) {
+      o[k] = safeCell(r[k])
+    }
+    return o
+  })
+}
+
 // ORDER BY 片段：orderClauses（多列）优先，为空时退回旧的单列 orderBy/order。
 // 列名必须在这里加引用符：orderClauses 来自渲染层且**不绑参数**，是裸着的 SQL 片段。
 // 上限 3 列是**不依赖表结构**的硬上限：主进程的 assertSafeOrderClauses 在没有 where、
@@ -250,7 +323,7 @@ async function getPageData (
   sql += ' LIMIT ' + (win.pageSize + 1) + ' OFFSET ' + win.offset
   const res = whereSql ? await c.query(sql, params) : await c.query(sql)
   return {
-    rows: res.rows.slice(0, win.pageSize),
+    rows: rowToPlain(res.rows.slice(0, win.pageSize)),
     hasMore: res.rows.length > win.pageSize
   }
 }
@@ -377,6 +450,59 @@ async function getTableStructure (conn, { table, schema }) {
     foreignKeys: fkRes.rows,
     table: tableRow
   })
+}
+
+// ---- F1 外键引用侧栏：反向查询"哪些表引用本表"（设计 §8） ----
+// 复用例：前端用返回的引用清单调 getPageData 展示引用行，本 op 只负责把"指向本表的 FK"找出来。
+// PG 走 pg_constraint（contype='f'）：confrelid 指向本表即"被引用方"。
+// conkey/confkey 是列号数组，需要按序号聚合成本表 FK 列 / 本表被引用列。
+const PG_REFERENCES = `
+SELECT con.conname AS fkName,
+       n.nspname AS schema,
+       t.relname AS table,
+       rc.relname AS refTable,
+       rn.nspname AS refSchema,
+       (SELECT array_agg(a.attname ORDER BY k.ord)
+          FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+          JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum) AS columns,
+       (SELECT array_agg(a.attname ORDER BY k.ord)
+          FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord)
+          JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum) AS ref_columns
+  FROM pg_constraint con
+  JOIN pg_class t ON t.oid = con.conrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN pg_class rc ON rc.oid = con.confrelid
+  JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+ WHERE con.contype = 'f'
+   AND rn.nspname = $1 AND rc.relname = $2
+ ORDER BY con.conname`
+
+// 只读查询：失败时降级返回 degraded，不让"账号无权限"等异常把主流程（看数据）拖垮
+// （验收：只读账号页签降级隐藏 + 一行提示）。
+async function getReferences (conn, { schema, table, columns }) {
+  const c = await getClient(conn)
+  const sch = schema || 'public'
+  const tbl = String(table)
+  try {
+    const res = await c.query(PG_REFERENCES, [sch, tbl])
+    let refs = (res.rows || []).map(r => ({
+      schema: r.schema,
+      table: r.table,
+      fkName: r.fkName,
+      refSchema: r.refSchema,
+      refTable: r.refTable,
+      columns: Array.isArray(r.columns) ? r.columns : [],
+      refColumns: Array.isArray(r.ref_columns) ? r.ref_columns : []
+    }))
+    // 按选中的本表列过滤（不传 columns 时返回全部引用本表的 FK）
+    if (Array.isArray(columns) && columns.length) {
+      const want = new Set(columns.map(c => String(c)))
+      refs = refs.filter(r => (r.refColumns || []).some(c => want.has(String(c))))
+    }
+    return { references: refs, degraded: false }
+  } catch (e) {
+    return { references: [], degraded: true, reason: e.message }
+  }
 }
 
 // 精确总行数（按需触发；大表会全扫描，故不默认执行）
@@ -558,7 +684,7 @@ async function executeSql (conn, { sql, readOnly }) {
   const list = Array.isArray(res) ? res : [res]
   return {
     results: list.map(r => ({
-      rows: r.rows || [],
+      rows: rowToPlain(r.rows || []),
       affected: r.command && r.command !== 'SELECT' ? r.rowCount : undefined,
       fields: Array.isArray(r.fields) ? r.fields.map(f => f.name) : []
     }))
@@ -589,6 +715,7 @@ module.exports = {
   executeSql,
   listColumns,
   closePostgresConnection,
-  // 纯函数导出仅供单测（列分组）
-  groupColumns
+  // 纯函数导出仅供单测（列分组 / 反向外键查询）
+  groupColumns,
+  getReferences
 }

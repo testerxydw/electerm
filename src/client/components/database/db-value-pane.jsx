@@ -10,8 +10,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dropdown, Input } from 'antd'
 import { CopyOutlined, CloseOutlined, SwapOutlined } from '@ant-design/icons'
 import { copy } from '../../common/clipboard'
-import { detectFormats, formatValue } from './db-value-format'
+import { formatValue } from './db-value-format'
 import { highlightValue } from './db-highlight'
+import { selectRenderers, isBinEnvelope, binPreviewBytes } from './value-renderers'
 
 const e = window.translate
 
@@ -51,11 +52,77 @@ function getSelRangeIn (el) {
   }
 }
 
+// 二进制信封按呈现器解码出预览文本（用于高亮 <pre>）。
+// image/blob-info 由 UI 单独渲染，这里返回空串避免把 base64 当文本高亮。
+function binPreviewText (value, key) {
+  if (!isBinEnvelope(value)) {
+    return String(value)
+  }
+  const env = value.__bin
+  if (key === 'hex') {
+    return binPreviewBytes(env).toString('hex')
+  }
+  if (key === 'base64' || key === 'raw') {
+    return env.b64
+  }
+  return ''
+}
+
+// 从二进制前缀猜图片 mime（仅前几字节足够判定常见格式）
+function guessImageMime (bytes) {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+    return 'image/gif'
+  }
+  return null
+}
+
+// 二进制 image 呈现器：信封内联 4KB 前缀够预览小图；判定为非图像则提示换 HEX/Base64
+function renderBinaryImage (env) {
+  const bytes = binPreviewBytes(env)
+  const mime = guessImageMime(bytes)
+  if (!mime) {
+    return (
+      <div className='db-value-pre db-value-pane-pre db-value-bin-note'>
+        {e('dbBinNotImage')}
+      </div>
+    )
+  }
+  return (
+    <div className='db-value-bin-image'>
+      <img src={'data:' + mime + ';base64,' + env.b64} alt='binary' />
+      <div className='db-value-bin-meta'>
+        {e('dbBinSize')}: {env.size}{env.truncated ? ' (' + e('dbBinTruncated') + ')' : ''} · {mime}
+      </div>
+    </div>
+  )
+}
+
+// 二进制 blob-info 呈现器：元数据卡 + 前若干字节 hex 预览
+function renderBlobInfo (env) {
+  const bytes = binPreviewBytes(env)
+  const previewHex = bytes.subarray(0, 64).toString('hex')
+  return (
+    <div className='db-value-pre db-value-pane-pre db-value-bin-info'>
+      <div><b>{e('dbBinEnvelope')}</b></div>
+      <div>{e('dbBinSize')}: {env.size} bytes{env.truncated ? ' (' + e('dbBinTruncated') + ')' : ''}</div>
+      <div>{e('dbBinPreview')} (hex): {previewHex}{bytes.length > 64 ? '…' : ''}</div>
+      <div className='db-value-bin-note'>{e('dbBinReadonly')}</div>
+    </div>
+  )
+}
+
 export default function DbValuePane (props) {
   const {
     title,
     meta = '',
     value = '',
+    column = {},
     patterns,
     themeConfig,
     editable = false,
@@ -84,23 +151,42 @@ export default function DbValuePane (props) {
     setFormatKey('raw')
   }, [value])
 
-  const formats = useMemo(() => (value ? detectFormats(value) : []), [value])
-  const activeFormat = formatKey !== 'raw' && formats.some(f => f.key === formatKey)
-    ? formatKey
-    : 'raw'
-  const formatLabel = activeFormat === 'raw' ? e('rawText') : activeFormat
-  const shown = activeFormat === 'raw' ? value : formatValue(value, activeFormat)
+  const isEnv = isBinEnvelope(value)
+  // F3 §9.2：用注册表统一选取可用呈现器（文本 / 二进制），默认项按注册表决定
+  const selection = useMemo(() => selectRenderers(value, column), [value, column])
+  const active = selection.renderers.find(r => r.key === formatKey) ||
+    selection.renderers[0] || { key: 'raw', readonly: false, label: 'raw' }
+  const activeKey = active.key
+  const formatLabel = activeKey === 'raw' ? e('rawText') : activeKey
+  // 二进制呈现器全部 readonly（写回会破坏数据）；截断的大字段也强制只读
+  const truncatedEnv = isEnv && value.__bin && value.__bin.truncated === true
+  const readOnlyRenderer = active.readonly === true || truncatedEnv
+  const effectiveEditable = editable && !readOnlyRenderer
+
+  // 二进制按呈现器解码预览文本；image/blob-info 单独渲染，这里给占位
+  const shown = isEnv
+    ? binPreviewText(value, activeKey)
+    : (activeKey === 'raw' ? String(value) : formatValue(String(value), activeKey))
   const highlighted = useMemo(
     () => highlightValue(shown, patterns, themeConfig, { maxLength, maxHits }),
     [shown, patterns, themeConfig, maxLength, maxHits]
   )
   const dirty = editing && draft !== value
   const startEdit = () => {
+    if (readOnlyRenderer) {
+      return
+    }
     setDraft(value)
     setEditing(true)
   }
   const toggleFormat = () => {
-    setFormatKey(activeFormat === 'raw' ? (formats[0] ? formats[0].key : 'raw') : 'raw')
+    const list = selection.renderers
+    if (list.length < 2) {
+      return
+    }
+    const idx = list.findIndex(r => r.key === activeKey)
+    const next = list[(idx + 1) % list.length]
+    setFormatKey(next.key)
   }
   const save = () => {
     if (dirty && !saving && onSave) {
@@ -180,9 +266,14 @@ export default function DbValuePane (props) {
             : null
         }
         {extra}
-        <Button size='small' icon={<CopyOutlined />} title={e('copy')} onClick={() => copy(value)} />
+        <Button
+          size='small'
+          icon={<CopyOutlined />}
+          title={e('copy')}
+          onClick={() => copy(isEnv ? value.__bin.b64 : value)}
+        />
         {
-          formats.length
+          selection.renderers.length > 1
             ? (
               <Button size='small' disabled={editing} onClick={toggleFormat}>
                 <SwapOutlined /> {formatLabel}
@@ -192,8 +283,8 @@ export default function DbValuePane (props) {
         }
         {
           // 与右键菜单保持一致：edit 恒显示，不可编辑时置灰并提示原因
-          // （mysql 无主键 / 只读实例），避免两个引擎菜单观感不一致
-          (editable || editing)
+          // （mysql 无主键 / 只读实例 / 二进制只读），避免两个引擎菜单观感不一致
+          (effectiveEditable || editing)
             ? editing
               ? (
                 <>
@@ -208,8 +299,8 @@ export default function DbValuePane (props) {
               : (
                 <Button
                   size='small'
-                  disabled={!editable || saving}
-                  title={editable ? e('edit') : editDisabledTitle}
+                  disabled={!effectiveEditable || saving}
+                  title={effectiveEditable ? e('edit') : (readOnlyRenderer ? e('dbBinReadonly') : editDisabledTitle)}
                   onClick={startEdit}
                 >
                   {e('edit')}
@@ -233,15 +324,19 @@ export default function DbValuePane (props) {
               onChange={ev => setDraft(ev.target.value)}
             />
             )
-          : (
-            <pre
-              className='db-value-pre db-value-pane-pre'
-              ref={preRef}
-              onContextMenu={onPreContextMenu}
-            >
-              {highlighted}
-            </pre>
-            )
+          : isEnv && activeKey === 'image'
+            ? renderBinaryImage(value.__bin)
+            : isEnv && activeKey === 'blob-info'
+              ? renderBlobInfo(value.__bin)
+              : (
+                <pre
+                  className='db-value-pre db-value-pane-pre'
+                  ref={preRef}
+                  onContextMenu={onPreContextMenu}
+                >
+                  {highlighted}
+                </pre>
+                )
       }
       {
         menu
@@ -264,17 +359,17 @@ export default function DbValuePane (props) {
                       // 恒显示，不可编辑置灰（与头部 edit 按钮一致）
                       key: 'edit',
                       label: (
-                        <span title={editable ? undefined : editDisabledTitle}>{e('edit')}</span>
+                        <span title={effectiveEditable ? undefined : (readOnlyRenderer ? e('dbBinReadonly') : editDisabledTitle)}>{e('edit')}</span>
                       ),
-                      disabled: !editable
+                      disabled: !effectiveEditable
                     },
                     {
                       key: 'replace',
                       label: (
-                        <span title={editable ? undefined : editDisabledTitle}>{e('replace')}</span>
+                        <span title={effectiveEditable ? undefined : (readOnlyRenderer ? e('dbBinReadonly') : editDisabledTitle)}>{e('replace')}</span>
                       ),
                       // 格式化视图不对应原文，替换无意义 → 置灰
-                      disabled: !editable || activeFormat !== 'raw'
+                      disabled: !effectiveEditable || activeKey !== 'raw'
                     }
                   ],
                   onClick: onMenuClick

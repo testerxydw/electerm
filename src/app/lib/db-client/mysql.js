@@ -104,8 +104,34 @@ async function mapLimit (list, limit, fn) {
 }
 
 // 单值安全化：IPC 走结构化克隆，只有纯值能安全穿越；
-// Date/bigint 先行处理，Buffer 摘要，其余带原型的对象（Decimal 实例、自定义类型等）
+// Date/bigint 先行处理，Buffer 转 __bin 信封，其余带原型的对象（Decimal 实例、自定义类型等）
 // 统一转字符串，避免 "An object could not be cloned" 导致整页数据丢失。
+//
+// F3 二进制传输修复（设计 §9.1）：二进制列不再转 `<binary N bytes>` 占位字符串
+// （那会直接丢掉数据），改成携带 base64 前缀的 `__bin` 信封，导出/预览都能复用。
+// 大字段只带前缀供预览，全量取回走独立 op getCellBinary，不进 getPageData。
+const INLINE_LIMIT = 64 * 1024
+// 超限时只随信封带前 BIN_PREFIX_LIMIT 字节供预览（16KB base64，一页 400 行也不会拖垮渲染）
+const BIN_PREFIX_LIMIT = 4096
+
+// Buffer 继承自 Uint8Array；主进程经打包后 Buffer 可能被替换为 `buffer` polyfill，
+// 其 isBuffer 对「原生 Buffer 实例」返回 false，故一律用 instanceof Uint8Array 判定，
+// 再经 Buffer.from 归一后取 base64（对两种实现都成立）。
+function binEnvelope (v) {
+  const buf = Buffer.from(v)
+  const size = buf.length
+  if (size <= INLINE_LIMIT) {
+    return { __bin: { size, b64: buf.toString('base64'), truncated: false } }
+  }
+  return {
+    __bin: {
+      size,
+      b64: buf.subarray(0, BIN_PREFIX_LIMIT).toString('base64'),
+      truncated: true
+    }
+  }
+}
+
 function safeCell (v) {
   if (v === null || v === undefined) {
     return null
@@ -124,7 +150,7 @@ function safeCell (v) {
   // `buffer` polyfill，其 isBuffer 对「原生 Buffer 实例」返回 false；
   // Buffer 继承自 Uint8Array，用 instanceof 判断对两种实现都成立。
   if (v instanceof Uint8Array) {
-    return `<binary ${v.length} bytes>`
+    return binEnvelope(v)
   }
   // 有 toJSON 的优先（驱动自定义类型如 mysql2 的 DECIMAL 包装）
   if (typeof v.toJSON === 'function') {
@@ -415,6 +441,69 @@ async function getTableStructure (conn, { table, database }) {
   })
 }
 
+// ---- F1 外键引用侧栏：反向查询"哪些表引用本表"（设计 §8） ----
+// 复用例：前端用返回的引用清单调 getPageData 展示引用行，本 op 只负责把"指向本表的 FK"找出来。
+// MySQL 走 information_schema.KEY_COLUMN_USAGE：REFERENCED_TABLE_* 指向本表即"被引用方"。
+const MY_REFERENCES = `
+SELECT k.CONSTRAINT_NAME AS fkName,
+       k.TABLE_SCHEMA AS schema,
+       k.TABLE_NAME AS table,
+       k.COLUMN_NAME AS column,
+       k.REFERENCED_TABLE_NAME AS refTable,
+       k.REFERENCED_COLUMN_NAME AS refColumn
+  FROM information_schema.KEY_COLUMN_USAGE k
+ WHERE k.REFERENCED_TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME = ?
+   AND k.REFERENCED_COLUMN_NAME IS NOT NULL
+ ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION`
+
+// 纯函数（导出仅供单测）：原始行 → 合并后的引用清单。
+// 同 (schema, table, fkName) 的多列行按 ORDINAL_POSITION 顺序聚合成一条，
+// columns（子表 FK 列）与 refColumns（本表被引用列）一一对应且顺序一致。
+function groupReferences (rows) {
+  const map = new Map()
+  for (const r of rows || []) {
+    const key = String(r.schema) + ' ' + String(r.table) + ' ' + String(r.fkName)
+    let entry = map.get(key)
+    if (!entry) {
+      entry = {
+        schema: r.schema,
+        table: r.table,
+        fkName: r.fkName,
+        refTable: r.refTable,
+        columns: [],
+        refColumns: []
+      }
+      map.set(key, entry)
+    }
+    entry.columns.push(r.column)
+    entry.refColumns.push(r.refColumn)
+  }
+  return Array.from(map.values())
+}
+
+// 只读查询：失败时降级返回 degraded，不让"账号无 information_schema 权限"等异常
+// 把主流程（看数据）拖垮（验收：只读账号页签降级隐藏 + 一行提示）。
+async function getReferences (conn, { database, table, columns }) {
+  const dbName = database || conn.dbName
+  if (!dbName) {
+    throw new Error('getReferences requires database')
+  }
+  const tbl = String(table)
+  const pool = await getPool(conn)
+  try {
+    const [rows] = await pool.query(MY_REFERENCES, [dbName, tbl])
+    let refs = groupReferences(rows || [])
+    // 按选中的本表列过滤（不传 columns 时返回全部引用本表的 FK）
+    if (Array.isArray(columns) && columns.length) {
+      const want = new Set(columns.map(c => String(c)))
+      refs = refs.filter(r => (r.refColumns || []).some(c => want.has(String(c))))
+    }
+    return { references: refs, degraded: false }
+  } catch (e) {
+    return { references: [], degraded: true, reason: e.message }
+  }
+}
+
 // 精确总行数（按需触发；大表会全扫描，故不默认执行）
 async function countRows (conn, { database, table }) {
   const pool = await getPool(conn)
@@ -637,10 +726,13 @@ module.exports = {
   executeSql,
   listColumns,
   closeMysqlConnection,
-  // 纯函数导出仅供单测（安全白名单 / 结果规范化 / 列分组）
+  // 纯函数导出仅供单测（安全白名单 / 结果规范化 / 列分组 / 二进制信封阈值 / 引用分组）
   checkReadonly,
   checkWritable,
   toResult,
   normalizeResults,
-  groupColumns
+  groupColumns,
+  groupReferences,
+  getReferences,
+  INLINE_LIMIT
 }

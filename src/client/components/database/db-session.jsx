@@ -14,6 +14,9 @@ import SessionBarActions from '../common/session-bar-actions'
 import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
+import DbRefsPane from './db-refs-pane'
+import { buildRefItems } from './db-ref-utils'
+import { isBinEnvelope } from './value-renderers'
 import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
@@ -445,7 +448,8 @@ export default auto(function DbSession (props) {
   // 判据就是它（structureCached）。用 describeTable 会出现"渲染层认为列合法、
   // 主进程判未知列"的错位（那份还是 DESC 两引擎字段名不同的原始行，且没有注释）。
   // 与现有 structure 并列而不是替换：行定位、插入表单、表结构 tab 仍在用 describeTable。
-  const [structureV2, setStructureV2] = useState({ loading: false, columns: [] })
+  // F1：foreignKeys（本表外键）一并保留，供「关联」侧栏的"被引用父行"方向使用
+  const [structureV2, setStructureV2] = useState({ loading: false, columns: [], foreignKeys: [] })
   // 查询路径（loadPage/onTableChange 里的异步回调）要读到最新列清单，state 在闭包里会过期
   const structureV2Ref = useRef({ columns: [] })
   // E2-3b：单元格展示层本地化开关。默认 'none'（原样 String(value)），
@@ -478,10 +482,93 @@ export default auto(function DbSession (props) {
   const [selectedCell, setSelectedCell] = useState(null)
   // A-5：列补全用的列索引（由 listColumns 整成 {表名: 列[]}）
   const [sqlColumns, setSqlColumns] = useState({})
-  // 面板值 = 选中单元格的原始值（编辑草稿在 DbValuePane 内部）
+  // 面板值 = 选中单元格的原始值（编辑草稿在 DbValuePane 内部）。
+  // F3：保留原始类型——二进制列现在是 __bin 信封对象，String() 会退化成
+  // "[object Object]"，所以这里不做 String()，由 DbValuePane 按类型呈现。
   const panelValue = selectedCell && grid.rows[selectedCell.rowKey]
-    ? String(grid.rows[selectedCell.rowKey][selectedCell.col] ?? '')
+    ? grid.rows[selectedCell.rowKey][selectedCell.col]
     : ''
+  // 选型侧栏 / 呈现器需要的列元数据（isBinary 等），按列名定位
+  const panelColumn = useMemo(() => {
+    if (!selectedCell) {
+      return {}
+    }
+    const c = (structureV2.columns || []).find(col => col && col.name === selectedCell.col)
+    return c || {}
+  }, [selectedCell, structureV2.columns])
+  // 元信息描述：二进制信封显示字节数，否则按字符长度
+  const panelMeta = isBinEnvelope(panelValue)
+    ? (panelValue.__bin.size + ' bytes')
+    : (typeof panelValue === 'string' ? panelValue.length + ' chars' : '')
+
+  // ---- F1 外键引用侧栏（设计 §8） ----
+  // 反向引用（"哪些表指向本表"）按 表+列 懒拉取并缓存：
+  // 换单元格但列不变时复用结果，避免每次点单元格都打一次 catalog
+  const [refInfo, setRefInfo] = useState({ loading: false, references: [], degraded: false })
+  const refsKeyRef = useRef('')
+  useEffect(() => {
+    if (isRedis || !sel || !selectedCell || !selectedCell.col) {
+      refsKeyRef.current = ''
+      return undefined
+    }
+    const key = [sel.database || '', sel.schema || '', sel.table || '', selectedCell.col].join('\u0000')
+    if (refsKeyRef.current === key) {
+      return undefined
+    }
+    refsKeyRef.current = key
+    let cancelled = false
+    setRefInfo({ loading: true, references: [], degraded: false })
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getReferences', {
+      database: sel.database,
+      schema: sel.schema || '',
+      table: sel.table,
+      columns: [selectedCell.col]
+    }).then(res => {
+      if (cancelled) {
+        return
+      }
+      setRefInfo({
+        loading: false,
+        references: (res && Array.isArray(res.references)) ? res.references : [],
+        degraded: !!(res && res.degraded)
+      })
+    }).catch(() => {
+      if (cancelled) {
+        return
+      }
+      // 目录查询失败等同降级：页签隐藏 + 一行提示，不影响主流程
+      setRefInfo({ loading: false, references: [], degraded: true })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isRedis, sel, selectedCell && selectedCell.col, tabId])
+  // 两方向的引用项：父行（本表外键 → 父表）本地可算；子记录依赖 refInfo
+  const refItems = useMemo(() => {
+    if (isRedis || !selectedCell || !sel) {
+      return []
+    }
+    const row = grid.rows[selectedCell.rowKey]
+    if (!row) {
+      return []
+    }
+    return buildRefItems({
+      column: selectedCell.col,
+      row,
+      foreignKeys: structureV2.foreignKeys || [],
+      references: refInfo.references,
+      database: sel.database,
+      schema: sel.schema || '',
+      dialect
+    })
+  }, [isRedis, selectedCell, grid.rows, structureV2.foreignKeys, refInfo.references, sel, dialect])
+  // 页签可见性：本表有外键（本地 FK 即刻可判）或反向引用非空时显示；
+  // 两者皆无 → 隐藏；降级（目录不可读）且无本地外键 → 隐藏 + 一行提示
+  const showRefTab = !isRedis && !!selectedCell && (
+    (structureV2.foreignKeys || []).length > 0 ||
+    refInfo.references.length > 0 ||
+    refInfo.degraded
+  )
   // T1 过滤变化会改变可见行：清掉选中/编辑，避免原索引指向另一行
   const resetPageFilter = () => {
     setPageFilter('')
@@ -691,7 +778,7 @@ export default auto(function DbSession (props) {
     viewKeyRef.current = ''
     countKeyRef.current = ''
     setView(fresh)
-    setStructureV2({ loading: false, columns: [] })
+    setStructureV2({ loading: false, columns: [], foreignKeys: [] })
     structureV2Ref.current = { columns: [] }
     setViewMode('builder')
     setWhereDraft('')
@@ -834,14 +921,15 @@ export default auto(function DbSession (props) {
       table: target.table
     }).then(res => {
       const columns = (res && Array.isArray(res.columns)) ? res.columns : []
+      const foreignKeys = (res && Array.isArray(res.foreignKeys)) ? res.foreignKeys : []
       structureV2Ref.current = { columns }
-      setStructureV2({ loading: false, columns })
+      setStructureV2({ loading: false, columns, foreignKeys })
       // 列清单晚到：重算"哪些条件引用了不存在的列"（列被删后旧视角要静默降级）
       refreshViewParts()
       return columns
     }).catch(() => {
       structureV2Ref.current = { columns: [] }
-      setStructureV2({ loading: false, columns: [] })
+      setStructureV2({ loading: false, columns: [], foreignKeys: [] })
       refreshViewParts()
       return []
     })
@@ -967,6 +1055,44 @@ export default auto(function DbSession (props) {
       setViewBarSeq(n => n + 1)
       refreshViewParts()
       return true
+    })
+  }
+
+  // F1：关联行"在标签页打开"——主网格切到目标表并按外键等值条件过滤。
+  // 不恢复该表的历史视角（restoreView）：用户要的是"带着这个值跳过去"。
+  // 条件里的列名来自 catalog（目标表真实列），值来自当前选中行；
+  // 主进程 assertPageBoundary 会用目标表结构兜底校验，值全部走绑定参数。
+  const openRefTable = (item) => {
+    if (!item || !item.target || !item.target.table || item.unusable) {
+      return
+    }
+    const conds = item.whereColumns.map((c, i) => ({
+      column: c,
+      op: 'eq',
+      value: item.whereValues[i]
+    }))
+    const next = {
+      database: item.target.database,
+      schema: item.target.schema || '',
+      table: item.target.table,
+      nodeType: 'table'
+    }
+    resetPageFilter()
+    resetExactRows()
+    viewSeqRef.current += 1
+    const seq = viewSeqRef.current
+    loadStructure(next).then(() => {
+      if (seq !== viewSeqRef.current) {
+        return null
+      }
+      viewKeyRef.current = viewIdOf(next)
+      countKeyRef.current = ''
+      setViewMode('builder')
+      setWhereDraft('')
+      setViewBarSeq(n => n + 1)
+      applyView(normalizeView({ conditions: conds }))
+      setSel(next)
+      return loadQuery(next, 1)
     })
   }
 
@@ -2105,6 +2231,12 @@ export default auto(function DbSession (props) {
     let node
     if (v === null || v === undefined) {
       node = <span className='db-cell-null'>NULL</span>
+    } else if (isBinEnvelope(v)) {
+      // F3：二进制列在网格里只显示大小占位（完整内容在下方值面板按呈现器解码）
+      node = hlNode(
+        highlightValue('<binary ' + v.__bin.size + ' bytes>', keywordPatterns, themeConfig),
+        kw
+      )
     } else if (typeof v === 'object') {
       node = hlNode(highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig), kw)
     } else {
@@ -2953,6 +3085,59 @@ export default auto(function DbSession (props) {
   const tableLabel = sel
     ? (sel.schema ? `${sel.schema}.${sel.table}` : `${sel.database}.${sel.table}`)
     : ''
+  // 值预览面板：值/关联两处都要用，提出来避免重复 JSX
+  const valuePaneEl = (
+    <DbValuePane
+      title={selectedCell ? selectedCell.col + ' - row ' + (Number(selectedCell.rowKey) + 1) : ''}
+      meta={panelMeta}
+      value={panelValue}
+      column={panelColumn}
+      patterns={keywordPatterns}
+      themeConfig={themeConfig}
+      editable={canEditCell}
+      editDisabledTitle={isReadonly ? e('dbErrReadOnly') : e('dbNoPrimaryKey')}
+      saving={grid.loading}
+      onSave={v => selectedCell && runCellUpdate(selectedCell.rowKey, selectedCell.col, v)}
+      onClose={() => setSelectedCell(null)}
+    />
+  )
+  // F1：值 + 关联 双页签（showRefTab 为 false 时不挂关联页签）
+  const refTabsEl = (
+    <Tabs
+      size='small'
+      className='db-pane-tabs'
+      items={[
+        {
+          key: 'value',
+          label: e('dbTabValue'),
+          children: valuePaneEl
+        },
+        {
+          key: 'refs',
+          label: e('dbTabRefs'),
+          children: (
+            <DbRefsPane
+              items={refItems}
+              dialect={dialect}
+              tabId={tabId}
+              degraded={refInfo.degraded}
+              loading={refInfo.loading}
+              onOpen={openRefTable}
+            />
+          )
+        }
+      ]}
+    />
+  )
+  const emptyPaneEl = (
+    <div className='db-pane-empty'>
+      <Empty description={e('dbSelectCell')} />
+    </div>
+  )
+  const bottomEl = selectedCell && grid.rows[selectedCell.rowKey]
+    ? (showRefTab ? refTabsEl : valuePaneEl)
+    : emptyPaneEl
+
   const dataArea = (
     <div className='db-grid-area'>
       <div className='db-grid-head'>
@@ -3372,28 +3557,7 @@ export default auto(function DbSession (props) {
             }}
           />
         }
-        bottom={
-          selectedCell && grid.rows[selectedCell.rowKey]
-            ? (
-              <DbValuePane
-                title={selectedCell.col + ' - row ' + (Number(selectedCell.rowKey) + 1)}
-                meta={panelValue.length + ' chars'}
-                value={panelValue}
-                patterns={keywordPatterns}
-                themeConfig={themeConfig}
-                editable={canEditCell}
-                editDisabledTitle={isReadonly ? e('dbErrReadOnly') : e('dbNoPrimaryKey')}
-                saving={grid.loading}
-                onSave={v => runCellUpdate(selectedCell.rowKey, selectedCell.col, v)}
-                onClose={() => setSelectedCell(null)}
-              />
-              )
-            : (
-              <div className='db-pane-empty'>
-                <Empty description={e('dbSelectCell')} />
-              </div>
-              )
-        }
+        bottom={bottomEl}
       />
       {
         // B1 插入行弹窗：每列 文本输入 + NULL 勾选；自增列留空（占位提示），

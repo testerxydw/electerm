@@ -6,10 +6,36 @@
  * 文件头写 BOM（\uFEFF）保证 Excel/LibreOffice 打开中文不乱码；行间 \r\n。
  */
 
+// 识别 F3 二进制信封（src/app/lib/db-client/{mysql,postgres}.js 的 binEnvelope 输出）。
+// 仅当结构严格匹配才认作信封，避免与业务里恰好带 __bin 键的普通对象混淆。
+export function isBinEnvelope (v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    return false
+  }
+  if (!('__bin' in v)) {
+    return false
+  }
+  const bin = v.__bin
+  return !!bin && typeof bin === 'object' &&
+    typeof bin.size === 'number' && typeof bin.b64 === 'string' &&
+    typeof bin.truncated === 'boolean'
+}
+
 // 单字段转义：null/undefined 输出空串，其余 String() 化后按需包裹
 export function csvEscape (v) {
   if (v === null || v === undefined) {
     return ''
+  }
+  if (isBinEnvelope(v)) {
+    const bin = v.__bin
+    if (bin.truncated) {
+      // 截断的二进制不能导出残缺数据：宁可让整个导出失败，
+      // 也比静默写出"看起来完整其实被截"的文件安全。
+      throw new Error(
+        `含二进制大字段（${bin.size} 字节，已截断），请用 SQL 模式导出`
+      )
+    }
+    return bin.b64
   }
   const s = String(v)
   if (/[",\n\r]/.test(s)) {
@@ -64,6 +90,18 @@ export function sqlQuoteVal (v, quote) {
   if (v === null || v === undefined) {
     return 'NULL'
   }
+  if (isBinEnvelope(v)) {
+    // 二进制列：小字段用十六进制字面量（mysql X'..' / pg '\x..'）尽量可写回；
+    // 截断的大字段无法无损还原，显式抛错，不让复制 SQL 静默写出残缺数据。
+    const bin = v.__bin
+    if (bin.truncated) {
+      throw new Error(
+        `含二进制大字段（${bin.size} 字节，已截断），请用 SQL 模式导出`
+      )
+    }
+    const hex = Buffer.from(bin.b64, 'base64').toString('hex')
+    return quote === 'double' ? `'\\x${hex}'` : `X'${hex}'`
+  }
   const t = typeof v
   if (t === 'number' || t === 'boolean' || t === 'bigint') {
     return String(v)
@@ -86,7 +124,13 @@ export function toTsv (headers, rows) {
   for (const row of (rows || [])) {
     lines.push(heads.map(h => {
       const v = row ? row[h] : ''
-      return clean(v === null || v === undefined ? '' : v)
+      if (v === null || v === undefined) {
+        return ''
+      }
+      if (isBinEnvelope(v)) {
+        return `<binary ${v.__bin.size} bytes>`
+      }
+      return clean(v)
     }).join('\t'))
   }
   return lines.join('\n')
@@ -103,7 +147,10 @@ export function buildCopyStatements (kind, { table, database, headers, rows, pkC
     const plain = list.map(r => {
       const o = {}
       heads.forEach(h => {
-        o[h] = r && r[h] !== undefined ? r[h] : null
+        const v = r && r[h] !== undefined ? r[h] : null
+        // 二进制信封直接序列化会暴露 b64 前缀，易误以为是完整数据；
+        // 改成明确的提示串，不泄露也不误导。
+        o[h] = isBinEnvelope(v) ? `<binary ${v.__bin.size} bytes>` : v
       })
       return o
     })
