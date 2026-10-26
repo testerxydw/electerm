@@ -116,7 +116,8 @@ describe('A-1 外壳装配', () => {
   })
 
   test('回调通过 ref 读取最新值（避免 Ctrl+Enter 调到旧闭包）', () => {
-    assert.match(src, /cbRef\.current = \{ onChange, onRun, onFormat \}/)
+    // D 批追加 onExplainSelection（选区右键「解释所选」），同一 ref 纪律
+    assert.match(src, /cbRef\.current = \{ onChange, onRun, onFormat, onExplainSelection \}/)
   })
 
   test('外部改值只在 doc 不一致时 dispatch（防输入循环覆盖光标）', () => {

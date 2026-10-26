@@ -20,6 +20,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
   forwardRef
 } from 'react'
 import { EditorState, Compartment } from '@codemirror/state'
@@ -62,6 +63,8 @@ import { scanTextHits } from './db-search'
 // 4 行 ≈ 96px、12 行 ≈ 260px：与替换前的 Input.TextArea autoSize={minRows:4,maxRows:12} 对齐
 const MIN_HEIGHT = 96
 const MAX_HEIGHT = 260
+
+const e = window.translate
 
 /**
  * A-8 六项开关 → CM6 扩展（关掉的项返回空数组，不是"传 false 参数"——
@@ -266,15 +269,17 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     columns = {},
     // A-8：六项可选能力，只传改了的那几项也行（内部按默认值补齐）
     opts = null,
-    className = ''
+    className = '',
+    // D 批：编辑器选区右键「解释所选」回调（无选区走浏览器默认菜单）
+    onExplainSelection = null
   } = props
 
   const hostRef = useRef(null)
   const viewRef = useRef(null)
   // 回调放 ref：EditorView 只创建一次，扩展里读到的必须是"最新"回调，
   // 否则父组件重渲染后 Ctrl+Enter 会调到上一轮闭包（旧 sqlText）
-  const cbRef = useRef({ onChange, onRun, onFormat })
-  cbRef.current = { onChange, onRun, onFormat }
+  const cbRef = useRef({ onChange, onRun, onFormat, onExplainSelection })
+  cbRef.current = { onChange, onRun, onFormat, onExplainSelection }
 
   // 补全配置同理：source 在 view 生命周期里只注册一次，配置必须走 ref
   const cfgRef = useRef({})
@@ -306,6 +311,15 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     getValue () {
       const view = viewRef.current
       return view ? view.state.doc.toString() : ''
+    },
+    // 当前选区文本（无选区返回空串）：D 批「解释」入口优先解释选区
+    getSelectionText () {
+      const view = viewRef.current
+      if (!view) {
+        return ''
+      }
+      const s = view.state.selection.main
+      return s.from === s.to ? '' : view.state.doc.sliceString(s.from, s.to)
     },
     // 光标处插入（B-1 收藏"插入光标"/B-3 模板菜单共用）：
     // 有选区则替换选区，无选区在光标处插入；插入后光标落在文本尾部。
@@ -488,6 +502,30 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     })
   }, [placeholder])
 
+  // D 批：选区右键「解释所选」。有非空选区时阻止默认菜单、弹自绘单项菜单；
+  // 无选区（或未接回调）走浏览器默认菜单。菜单坐标存 state，关闭即消失
+  const [ctxMenu, setCtxMenu] = useState(null)
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) {
+      return undefined
+    }
+    const onCtx = ev => {
+      const view = viewRef.current
+      if (!view || !cbRef.current.onExplainSelection) {
+        return
+      }
+      const s = view.state.selection.main
+      if (s.from === s.to) {
+        return
+      }
+      ev.preventDefault()
+      setCtxMenu({ x: ev.clientX, y: ev.clientY })
+    }
+    host.addEventListener('contextmenu', onCtx)
+    return () => host.removeEventListener('contextmenu', onCtx)
+  }, [])
+
   // A-8：六项开关变化 → 整块 reconfig，不重建 view（保住文本、光标、滚动与撤销栈）
   const optSig = JSON.stringify(normalizeSqlEditorOpts(opts))
   useEffect(() => {
@@ -515,10 +553,41 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
   }, [optSig])
 
   return (
-    <div
-      ref={hostRef}
-      className={'db-sql-editor' + (readOnly ? ' db-sql-editor-readonly' : '') + (className ? ' ' + className : '')}
-    />
+    <>
+      <div
+        ref={hostRef}
+        className={'db-sql-editor' + (readOnly ? ' db-sql-editor-readonly' : '') + (className ? ' ' + className : '')}
+      />
+      {
+        ctxMenu
+          ? (
+            <div
+              className='db-sql-ctx-overlay'
+              onMouseDown={() => setCtxMenu(null)}
+              onContextMenu={ev => {
+                ev.preventDefault()
+                setCtxMenu(null)
+              }}
+            >
+              <div className='db-sql-ctx-menu' style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+                <div
+                  className='db-sql-ctx-item'
+                  onMouseDown={ev => {
+                    ev.stopPropagation()
+                    setCtxMenu(null)
+                    if (cbRef.current.onExplainSelection) {
+                      cbRef.current.onExplainSelection()
+                    }
+                  }}
+                >
+                  {e('dbExplainSelection')}
+                </div>
+              </div>
+            </div>
+            )
+          : null
+      }
+    </>
   )
 })
 

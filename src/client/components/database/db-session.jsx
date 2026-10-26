@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -73,6 +73,10 @@ import DbQuickOpen from './db-quick-open'
 // C 批：导出到文件（四步向导，走主进程流式导出）/ 导入 CSV/TSV（映射向导）
 import DbExportDialog from './db-export-dialog'
 import DbImportDialog from './db-import-dialog'
+// D 批：EXPLAIN 执行计划弹窗（树/图/JSON 三视图 + SVG/PNG 导出）
+import DbExplainDialog from './db-explain-tree'
+// D 批：Redis 类型化写接口层（写失败/成功都刷新详情，绝不本地假更新）
+import { redisWrite } from '../../common/db-redis-write'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
 import {
@@ -655,6 +659,20 @@ export default auto(function DbSession (props) {
   const [redisDetail, setRedisDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [ttlInput, setTtlInput] = useState(undefined)
+  // D 批：EXPLAIN 弹窗（对当前选区/整段语句做只读计划分析）
+  const [explainOpen, setExplainOpen] = useState(false)
+  const [explainSql, setExplainSql] = useState('')
+  // D 批 Redis 类型化写：行内编辑状态（{ rowKey, col, value }）+ 各类型"添加"输入
+  const [redisEdit, setRedisEdit] = useState(null)
+  const [redisAdd, setRedisAdd] = useState({
+    field: '',
+    value: '',
+    member: '',
+    score: '',
+    listValue: ''
+  })
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameInput, setRenameInput] = useState('')
 
   // 关键字高亮规则：与终端「关键字高亮」同一份配置（config.keywords）
   const keywordPatterns = useKeywordPatterns()
@@ -1440,10 +1458,12 @@ export default auto(function DbSession (props) {
 
   // 页码跳转输入（MySQL 网格；redis 为游标模式，不支持任意跳页）
   const [jumpPage, setJumpPage] = useState(null)
-  // redis 键详情分批渲染：每批 200，换键重置
+  // redis 键详情分批渲染：每批 200，换键重置；行内编辑/添加输入随键切换作废
   const [detailLimit, setDetailLimit] = useState(200)
   useEffect(() => {
     setDetailLimit(200)
+    setRedisEdit(null)
+    setRedisAdd(s => ({ ...s, field: '', value: '', member: '', score: '', listValue: '' }))
   }, [redisKey])
 
   // 页面内切换只读：先同步主进程（白名单以主进程实例为权威），成功再改本地与 tab，
@@ -2476,6 +2496,180 @@ export default auto(function DbSession (props) {
       loadRedisKeys(redisDb, '0', keyList.match)
       // 键数变了 → 同步刷新左侧各 db 的键个数
       loadTree()
+    }).catch(err => {
+      message.error(err && err.message ? err.message : String(err))
+    })
+  }
+
+  // ---- D 批：EXPLAIN（只读计划分析，设计 §12.1） ----
+
+  // 「解释」入口：优先解释编辑器当前选区，无选区解释整段语句。
+  // 库/schema 取当前树选中（与 runSql 同口径）；换行/分号的闸门在后端
+  const openExplain = () => {
+    const editor = sqlEditorRef.current
+    const selected = editor && editor.getSelectionText
+      ? editor.getSelectionText()
+      : ''
+    const text = (selected || sqlText).trim()
+    if (!text) {
+      message.warning(e('dbExplainEmptySql'))
+      return
+    }
+    setExplainSql(text)
+    setExplainOpen(true)
+  }
+
+  // ---- D 批：Redis 类型化写（T12） ----
+
+  // 统一执行：成功/失败都刷新详情与键列表（redisWrite 纪律），这里只补
+  // 成功提示与失败 toast。返回 { ok } 而不 rethrow，调用方按 ok 决定收尾
+  const runRedisWrite = (op, params, successMsg) => {
+    return redisWrite(tabId, op, params, {
+      refresh: () => {
+        selectRedisKey(redisKey)
+        loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
+      }
+    }).then(res => {
+      if (successMsg) {
+        message.success(successMsg)
+      }
+      return { ok: true, res }
+    }).catch(err => {
+      message.error(err && err.message ? err.message : String(err))
+      return { ok: false }
+    })
+  }
+
+  const addHashField = () => {
+    const field = redisAdd.field.trim()
+    if (!field) {
+      return
+    }
+    runRedisWrite('hashSetField', {
+      dbIndex: redisDb, key: redisKey, field, value: redisAdd.value
+    }, e('saved')).then(r => {
+      if (r.ok) {
+        setRedisAdd(s => ({ ...s, field: '', value: '' }))
+      }
+    })
+  }
+
+  const addMember = () => {
+    const member = redisAdd.member.trim()
+    if (!member) {
+      return
+    }
+    if (redisDetail && redisDetail.type === 'zset') {
+      runRedisWrite('zsetAdd', {
+        dbIndex: redisDb, key: redisKey, score: redisAdd.score, member
+      }, e('saved')).then(r => {
+        if (r.ok) {
+          setRedisAdd(s => ({ ...s, member: '', score: '' }))
+        }
+      })
+    } else {
+      runRedisWrite('setAdd', {
+        dbIndex: redisDb, key: redisKey, members: [member]
+      }, e('saved')).then(r => {
+        if (r.ok) {
+          setRedisAdd(s => ({ ...s, member: '' }))
+        }
+      })
+    }
+  }
+
+  const pushList = (position) => {
+    if (redisAdd.listValue === '') {
+      return
+    }
+    runRedisWrite('listPush', {
+      dbIndex: redisDb, key: redisKey, value: redisAdd.listValue, position
+    }, e('saved')).then(r => {
+      if (r.ok) {
+        setRedisAdd(s => ({ ...s, listValue: '' }))
+      }
+    })
+  }
+
+  // hash 行内编辑保存：HSET 覆盖同字段
+  const saveHashValue = (record) => {
+    const value = redisEdit ? redisEdit.value : ''
+    runRedisWrite('hashSetField', {
+      dbIndex: redisDb, key: redisKey, field: record.field, value
+    }, e('saved')).then(r => {
+      if (r.ok) {
+        setRedisEdit(null)
+      }
+    })
+  }
+
+  // zset 分值行内编辑：ZADD 同 member 天然覆盖
+  const saveZsetScore = (record) => {
+    const score = redisEdit ? redisEdit.value : ''
+    runRedisWrite('zsetAdd', {
+      dbIndex: redisDb, key: redisKey, score, member: record.member
+    }, e('saved')).then(r => {
+      if (r.ok) {
+        setRedisEdit(null)
+      }
+    })
+  }
+
+  // list 行内编辑：LSET 按下标覆盖
+  const saveListValue = (record) => {
+    const value = redisEdit ? redisEdit.value : ''
+    runRedisWrite('listSetAt', {
+      dbIndex: redisDb, key: redisKey, index: record.index, value
+    }, e('saved')).then(r => {
+      if (r.ok) {
+        setRedisEdit(null)
+      }
+    })
+  }
+
+  // set 成员编辑 = 删旧加新（成员是身份标识）：任一步失败都刷新详情
+  const editSetMember = (oldMember, newMember) => {
+    const nm = String(newMember || '').trim()
+    if (!nm || nm === oldMember) {
+      setRedisEdit(null)
+      return
+    }
+    redisWrite(tabId, 'setRem', {
+      dbIndex: redisDb, key: redisKey, members: [oldMember]
+    }).then(() => redisWrite(tabId, 'setAdd', {
+      dbIndex: redisDb, key: redisKey, members: [nm]
+    })).then(() => {
+      message.success(e('saved'))
+      setRedisEdit(null)
+      selectRedisKey(redisKey)
+      loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
+    }).catch(err => {
+      // 中间态可能已删旧未加新：必须刷新详情拿真实状态
+      selectRedisKey(redisKey)
+      loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
+      message.error(err && err.message ? err.message : String(err))
+    })
+  }
+
+  // 重命名键（RENAMENX，不覆盖）：成功后切到新键；冲突由后端抛含 newKey 的
+  // 可读错误，经 toast 展示。键名变化，刷新走 keyList，详情在新键上重拉
+  const doRenameKeyNx = () => {
+    const newKey = renameInput.trim()
+    if (!newKey || newKey === redisKey) {
+      return
+    }
+    redisWrite(tabId, 'renameKeyNx', {
+      dbIndex: redisDb, key: redisKey, newKey
+    }, {
+      refresh: () => loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack),
+      onSuccess: () => {
+        setRedisKey(newKey)
+        selectRedisKey(newKey)
+      }
+    }).then(() => {
+      message.success(e('dbRenamed'))
+      setRenameOpen(false)
+      setRenameInput('')
     }).catch(err => {
       message.error(err && err.message ? err.message : String(err))
     })
@@ -4202,6 +4396,7 @@ export default auto(function DbSession (props) {
           onChange={setSqlText}
           onRun={runSql}
           onFormat={formatSqlEditor}
+          onExplainSelection={openExplain}
           readOnly={isReadonly}
           dbType={tab.dbType}
           placeholder={e('dbSqlPlaceholder')}
@@ -4249,6 +4444,20 @@ export default auto(function DbSession (props) {
                   title={e('dbTplMenu')}
                 />
               </Dropdown>
+              )
+            : null
+        }
+        {
+          // D 批：解释（EXPLAIN 可视化）。只读分析，redis 无 SQL 不显示；
+          // 优先解释编辑器选区，无选区解释整段语句
+          !isRedis
+            ? (
+              <Button
+                size='small'
+                icon={<NodeIndexOutlined />}
+                title={e('dbExplainBtn')}
+                onClick={openExplain}
+              />
               )
             : null
         }
@@ -4526,6 +4735,62 @@ export default auto(function DbSession (props) {
   }
 
   // 键详情：按类型渲染（string 文本框；hash/list/set/zset 网格）
+
+  // 行尾删除按钮（Popconfirm 包裹）：hash 删 field / set/zset 删 member / list 删下标
+  const redisRowOps = (onConfirm) => (
+    <Popconfirm title={e('dbRedisDelRowConfirm')} onConfirm={onConfirm}>
+      <Button
+        size='small'
+        type='text'
+        danger
+        icon={<DeleteOutlined />}
+        disabled={isReadonly}
+        title={isReadonly ? e('dbErrReadOnly') : e('dbRedisDelRowConfirm')}
+      />
+    </Popconfirm>
+  )
+
+  // 行内可编辑单元格渲染：redisEdit 命中当前格 → Input(数字格用 InputNumber) + 确认/取消；
+  // 否则走普通高亮渲染
+  const renderRedisEditable = (record, col, value, onSave, numeric = false) => {
+    const editing = redisEdit && redisEdit.rowKey === record.__rowKey && redisEdit.col === col
+    if (!editing) {
+      return renderCell(value)
+    }
+    const editor = numeric
+      ? (
+        <InputNumber
+          size='small'
+          autoFocus
+          value={redisEdit.value === '' ? undefined : Number(redisEdit.value)}
+          onChange={v => setRedisEdit(s => ({ ...s, value: v === undefined ? '' : String(v) }))}
+        />
+        )
+      : (
+        <Input
+          size='small'
+          autoFocus
+          value={redisEdit.value}
+          onChange={ev => setRedisEdit(s => ({ ...s, value: ev.target.value }))}
+          onPressEnter={onSave}
+        />
+        )
+    return (
+      <span className='db-redis-cell-edit'>
+        {editor}
+        <Button size='small' type='text' icon={<CheckOutlined />} onClick={onSave} />
+        <Button size='small' type='text' icon={<CloseOutlined />} onClick={() => setRedisEdit(null)} />
+      </span>
+    )
+  }
+
+  // 行内编辑入口（双击触发）；readOnly 时不进编辑态
+  const editRedisCell = (record, col, value) => {
+    if (!isReadonly) {
+      setRedisEdit({ rowKey: record.__rowKey, col, value: String(value ?? '') })
+    }
+  }
+
   const renderRedisDetail = () => {
     const d = redisDetail
     let body = null
@@ -4586,7 +4851,25 @@ export default auto(function DbSession (props) {
             pagination={false}
             columns={[
               { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
-              { title: e('dbValue'), dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+              {
+                title: e('dbValue'),
+                dataIndex: 'value',
+                key: 'value',
+                ellipsis: true,
+                // D 批：双击 value 行内编辑（HSET 覆盖同字段）
+                onCell: r => ({
+                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
+                }),
+                render: (v, r) => renderRedisEditable(r, 'value', v, () => saveHashValue(r))
+              },
+              {
+                title: '',
+                key: 'ops',
+                width: 60,
+                render: (_, r) => redisRowOps(() => runRedisWrite('hashDelField', {
+                  dbIndex: redisDb, key: redisKey, fields: [r.field]
+                }, e('dbDeleted')))
+              }
             ]}
             dataSource={hashFields.map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
             rowKey='__rowKey'
@@ -4603,7 +4886,25 @@ export default auto(function DbSession (props) {
             pagination={false}
             columns={[
               { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
-              { title: e('dbValue'), dataIndex: 'value', key: 'value', ellipsis: true, render: renderCell }
+              {
+                title: e('dbValue'),
+                dataIndex: 'value',
+                key: 'value',
+                ellipsis: true,
+                // D 批：双击 value 行内编辑（LSET 按下标）
+                onCell: r => ({
+                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
+                }),
+                render: (v, r) => renderRedisEditable(r, 'value', v, () => saveListValue(r))
+              },
+              {
+                title: '',
+                key: 'ops',
+                width: 60,
+                render: (_, r) => redisRowOps(() => runRedisWrite('listRemAt', {
+                  dbIndex: redisDb, key: redisKey, index: r.index
+                }, e('dbDeleted')))
+              }
             ]}
             dataSource={listRows.map((v, i) => ({ index: i, value: v, __rowKey: i }))}
             rowKey='__rowKey'
@@ -4619,7 +4920,25 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: e('dbMember'), dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell }
+              {
+                title: e('dbMember'),
+                dataIndex: 'member',
+                key: 'member',
+                ellipsis: true,
+                // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）
+                onCell: r => ({
+                  onDoubleClick: () => editRedisCell(r, 'member', r.member)
+                }),
+                render: (v, r) => renderRedisEditable(r, 'member', v, () => editSetMember(r.member, redisEdit ? redisEdit.value : ''))
+              },
+              {
+                title: '',
+                key: 'ops',
+                width: 60,
+                render: (_, r) => redisRowOps(() => runRedisWrite('setRem', {
+                  dbIndex: redisDb, key: redisKey, members: [r.member]
+                }, e('dbDeleted')))
+              }
             ]}
             dataSource={setRows.map((v, i) => ({ member: v, __rowKey: i }))}
             rowKey='__rowKey'
@@ -4640,8 +4959,36 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: e('dbMember'), dataIndex: 'member', key: 'member', ellipsis: true, render: renderCell },
-              { title: e('dbScore'), dataIndex: 'score', key: 'score', width: 120, render: renderCell }
+              {
+                title: e('dbMember'),
+                dataIndex: 'member',
+                key: 'member',
+                ellipsis: true,
+                // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）
+                onCell: () => ({
+                  onDoubleClick: () => message.info(e('dbRedisMemberImmutable'))
+                }),
+                render: renderCell
+              },
+              {
+                title: e('dbScore'),
+                dataIndex: 'score',
+                key: 'score',
+                width: 150,
+                // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）
+                onCell: r => ({
+                  onDoubleClick: () => editRedisCell(r, 'score', r.score)
+                }),
+                render: (v, r) => renderRedisEditable(r, 'score', v, () => saveZsetScore(r), true)
+              },
+              {
+                title: '',
+                key: 'ops',
+                width: 60,
+                render: (_, r) => redisRowOps(() => runRedisWrite('zsetRem', {
+                  dbIndex: redisDb, key: redisKey, members: [r.member]
+                }, e('dbDeleted')))
+              }
             ]}
             dataSource={list}
             rowKey='__rowKey'
@@ -4663,6 +5010,110 @@ export default auto(function DbSession (props) {
                 <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
                 <span className='db-grid-page-no'>{e('dbTypeMeta').replace('{type}', d.type)}</span>
                 <span className='db-grid-page-no'>{e('dbTtlMeta').replace('{ttl}', d.ttl > 0 ? d.ttl + 's' : e('dbNone'))}</span>
+                {
+                  // D 批 T12：按类型显隐的添加控件（只读全部禁用）
+                  d.type === 'hash'
+                    ? (
+                      <>
+                        <Input
+                          size='small'
+                          className='db-redis-add-input'
+                          placeholder={e('dbField')}
+                          value={redisAdd.field}
+                          disabled={isReadonly}
+                          onChange={ev => setRedisAdd(s => ({ ...s, field: ev.target.value }))}
+                          onPressEnter={addHashField}
+                        />
+                        <Input
+                          size='small'
+                          className='db-redis-add-input'
+                          placeholder={e('dbValue')}
+                          value={redisAdd.value}
+                          disabled={isReadonly}
+                          onChange={ev => setRedisAdd(s => ({ ...s, value: ev.target.value }))}
+                          onPressEnter={addHashField}
+                        />
+                        <Button
+                          size='small'
+                          icon={<PlusOutlined />}
+                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisAddField')}
+                          disabled={isReadonly}
+                          onClick={addHashField}
+                        />
+                      </>
+                      )
+                    : null
+                }
+                {
+                  d.type === 'set' || d.type === 'zset'
+                    ? (
+                      <>
+                        <Input
+                          size='small'
+                          className='db-redis-add-input'
+                          placeholder={e('dbMember')}
+                          value={redisAdd.member}
+                          disabled={isReadonly}
+                          onChange={ev => setRedisAdd(s => ({ ...s, member: ev.target.value }))}
+                          onPressEnter={addMember}
+                        />
+                        {
+                          d.type === 'zset'
+                            ? (
+                              <InputNumber
+                                size='small'
+                                className='db-redis-add-input'
+                                placeholder={e('dbScore')}
+                                value={redisAdd.score === '' ? undefined : Number(redisAdd.score)}
+                                disabled={isReadonly}
+                                onChange={v => setRedisAdd(s => ({ ...s, score: v === undefined ? '' : String(v) }))}
+                              />
+                              )
+                            : null
+                        }
+                        <Button
+                          size='small'
+                          icon={<PlusOutlined />}
+                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisAddMember')}
+                          disabled={isReadonly}
+                          onClick={addMember}
+                        />
+                      </>
+                      )
+                    : null
+                }
+                {
+                  d.type === 'list'
+                    ? (
+                      <>
+                        <Input
+                          size='small'
+                          className='db-redis-add-input'
+                          placeholder={e('dbValue')}
+                          value={redisAdd.listValue}
+                          disabled={isReadonly}
+                          onChange={ev => setRedisAdd(s => ({ ...s, listValue: ev.target.value }))}
+                        />
+                        <Button
+                          size='small'
+                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisInsertHead')}
+                          disabled={isReadonly}
+                          onClick={() => pushList('left')}
+                        >
+                          {e('dbRedisInsertHead')}
+                        </Button>
+                        <Button
+                          size='small'
+                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisInsertTail')}
+                          disabled={isReadonly}
+                          onClick={() => pushList('right')}
+                        >
+                          {e('dbRedisInsertTail')}
+                        </Button>
+                      </>
+                      )
+                    : null
+                }
                 <InputNumber
                   size='small'
                   min={0}
@@ -4671,6 +5122,17 @@ export default auto(function DbSession (props) {
                   onChange={setTtlInput}
                 />
                 <Button size='small' disabled={isReadonly} onClick={applyTtl}>{e('dbSetTtl')}</Button>
+                <Button
+                  size='small'
+                  disabled={isReadonly}
+                  title={isReadonly ? e('dbErrReadOnly') : e('dbRedisRenameKey')}
+                  onClick={() => {
+                    setRenameInput('')
+                    setRenameOpen(true)
+                  }}
+                >
+                  {e('dbRedisRenameKey')}
+                </Button>
                 <Popconfirm title={e('dbDeleteKey')} onConfirm={delSelectedKey}>
                   <Button size='small' danger disabled={isReadonly}>{e('dbDelete')}</Button>
                 </Popconfirm>
@@ -5077,6 +5539,34 @@ export default auto(function DbSession (props) {
         columns={structureV2.columns || []}
         confirmRisk={confirmImportRisk}
       />
+      {/* D 批：EXPLAIN 执行计划（选区/整段语句，只读分析；redis 不入口） */}
+      <DbExplainDialog
+        open={explainOpen}
+        onClose={() => setExplainOpen(false)}
+        tabId={tabId}
+        database={(sel && sel.database) || tab.dbName || ''}
+        schema={sel ? sel.schema : ''}
+        sql={explainSql}
+      />
+      {/* D 批 Redis 重命名键（RENAMENX，不覆盖；冲突走后端可读错误） */}
+      <Modal
+        open={renameOpen}
+        title={e('dbRedisRenameKey')}
+        onCancel={() => setRenameOpen(false)}
+        onOk={doRenameKeyNx}
+        okText={e('dbRedisRenameKey')}
+        cancelText={e('cancel')}
+        width={420}
+        destroyOnClose
+      >
+        <Input
+          autoFocus
+          value={renameInput}
+          placeholder={e('dbRedisNewNamePh')}
+          onChange={ev => setRenameInput(ev.target.value)}
+          onPressEnter={doRenameKeyNx}
+        />
+      </Modal>
       {/* B-2 收藏编辑：标题 + 语句（复用 A 批编辑器组件，实例独立）。
           新建默认带当前编辑器内容（newFavorite 已填） */}
       <Modal

@@ -1905,3 +1905,86 @@ body.db-col-resizing
   height 280px
   .db-sql-editor
     height 100%
+
+// ---- D 批：EXPLAIN 弹窗（树/图/JSON 三视图） ----
+.db-explain-toolbar
+  display flex
+  align-items center
+  gap 8px
+  margin-bottom 8px
+
+.db-explain-body
+  min-height 160px
+  max-height 60vh
+  overflow auto
+
+.db-explain-svg
+  display block
+
+.db-explain-edge
+  stroke var(--border)
+  stroke-width 1.5
+
+.db-explain-node
+  fill var(--surface-1)
+  stroke var(--main-light)
+
+.db-explain-node-title
+  fill var(--text)
+  font-size 12px
+  font-weight 600
+
+.db-explain-node-sub
+  fill var(--text-dark)
+  font-size 11px
+
+// 树视图：节点类型与 Extra 高亮（预估字段保持普通文本色）
+.db-explain-type
+  color var(--primary)
+  font-weight 600
+
+.db-explain-extra
+  color var(--warn)
+
+.db-explain-json-pre
+  margin 0
+  max-height 46vh
+  overflow auto
+  font-size 12px
+  line-height 1.5
+  color var(--text)
+  font-family var(--db-code-font, var(--font-mono))
+
+// ---- D 批：Redis 类型化写 ----
+.db-redis-add-input
+  width 110px
+
+.db-redis-cell-edit
+  display inline-flex
+  align-items center
+  gap 4px
+  width 100%
+
+// SQL 编辑器选区右键「解释所选」：透明遮罩 + 单项菜单
+.db-sql-ctx-overlay
+  position fixed
+  z-index 1000
+  inset 0
+
+.db-sql-ctx-menu
+  position fixed
+  background var(--surface-1)
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  box-shadow var(--shadow-2)
+  padding 4px
+  min-width 120px
+
+.db-sql-ctx-item
+  padding 5px 12px
+  border-radius var(--radius-xs)
+  color var(--text)
+  cursor pointer
+  font-size 12px
+  &:hover
+    background var(--hover-bg)
