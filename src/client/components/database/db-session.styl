@@ -1336,3 +1336,114 @@ body.db-hist-resizing
 .db-view-hint
   color var(--text-dark)
   font-size 12px
+
+// ------------------------------------------------------------------ //
+// E2-3b：表头两行 / 列宽拖拽 / 列显示弹层 / 本地化开关（设计 §7.5）
+// ------------------------------------------------------------------ //
+// 表头两行：列名 + 注释小字。注释为空时第二行不渲染，高度回退到单行
+.db-col-title
+  position relative
+  display flex
+  flex-direction column
+  gap 1px
+  // 注释行可能很长：列头本身是 ellipsis 的，两行都要能各自截断
+  min-width 0
+  line-height 1.35
+
+.db-col-name
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-col-comment
+  color var(--text-dark)
+  font-size 11px
+  font-weight 400
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+// 列宽拖拽手柄：贴 th 右边沿的一条 6px 热区。
+// 点击会冒泡到表头触发排序，所以 JS 里 stopPropagation + preventDefault
+.db-col-resizer
+  position absolute
+  top 0
+  right -8px
+  width 16px
+  height 100%
+  cursor col-resize
+  // 默认看不见，hover 时才出现一道竖线：列头空间本来就紧
+  &::after
+    content ''
+    position absolute
+    top 20%
+    right 7px
+    width 2px
+    height 60%
+    background transparent
+  &:hover::after
+    background var(--border)
+
+// 拖拽期间：全局禁选中 + 全屏 col-resize 光标。
+// 不加这条时鼠标滑出表格区域会变回默认光标，用户不知道拖拽还在进行
+body.db-col-resizing
+  user-select none
+  cursor col-resize
+
+// 列显示弹层（隐藏 / 列序）
+.db-cols-pop
+  width 240px
+  max-height 320px
+  overflow-y auto
+
+.db-cols-pop-head
+  padding 0 4px 6px
+  margin-bottom 4px
+  border-bottom 1px solid var(--border)
+  font-weight 500
+
+.db-cols-pop-row
+  display flex
+  align-items center
+  gap 4px
+  padding 3px 4px
+  border-radius var(--radius-sm)
+  &:hover
+    background var(--hover-bg)
+  .ant-checkbox
+    flex 0 0 auto
+  .ant-checkbox + span
+    // Checkbox 的 label 默认占满剩余空间，名字要能截断
+    min-width 0
+    flex 1 1 auto
+
+.db-cols-pop-name
+  display block
+  max-width 150px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-size 12px
+
+.db-cols-pop-btns
+  display inline-flex
+  flex 0 0 auto
+  margin-left auto
+
+.db-cols-pop-note
+  margin-top 6px
+  padding 6px 4px 0
+  border-top 1px solid var(--border)
+  color var(--text-dark)
+  font-size 11px
+
+// 本地化开关：开关 + 文字标签，与网格头部其他控件同高
+.db-format-locale
+  display inline-flex
+  align-items center
+  gap 6px
+  white-space nowrap
+
+.db-format-locale-label
+  color var(--text)
+  font-size 12px

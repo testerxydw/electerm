@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -72,6 +72,9 @@ import {
   saveGridView,
   removeGridView
 } from '../../common/db-grid-views'
+// E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
+// 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
+import { formatCellValue, readFormatLocale, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -443,6 +446,11 @@ export default auto(function DbSession (props) {
   const [structureV2, setStructureV2] = useState({ loading: false, columns: [] })
   // 查询路径（loadPage/onTableChange 里的异步回调）要读到最新列清单，state 在闭包里会过期
   const structureV2Ref = useRef({ columns: [] })
+  // E2-3b：单元格展示层本地化开关。默认 'none'（原样 String(value)），
+  // 要的人自己在网格头部打开。只影响 renderCell 的显示文本
+  const [formatLocale, setFormatLocale] = useState(
+    () => readFormatLocale(window.store._config)
+  )
   // 当前视角：只有六个字段（normalizeView 裁过），排序/条件/页大小的**唯一**数据源
   const [view, setView] = useState(() => normalizeView(null))
   const viewRef = useRef(view)
@@ -891,7 +899,11 @@ export default auto(function DbSession (props) {
     }
     viewSaveTimer.current = setTimeout(() => {
       viewSaveTimer.current = null
-      const empty = !v.conditions.length && !v.order.length && v.pageSize === undefined
+      // 空视角不写盘而是删键：否则"重置"刚删掉的键会被下一次自动保存在 400ms 后复活。
+      // 列显示设置（宽/序/隐藏）也算"非空"：用户只拖过列宽时这份视角必须留得住
+      const empty = !v.conditions.length && !v.order.length && v.pageSize === undefined &&
+        !v.hiddenColumns.length && !v.columnOrder.length &&
+        Object.keys(v.columnWidths).length === 0
       // 空视角不写盘而是删键：否则"重置"刚删掉的键会被下一次自动保存在 400ms 后复活
       if (empty) {
         removeGridView(key)
@@ -908,6 +920,24 @@ export default auto(function DbSession (props) {
     if (opts.persist !== false) {
       scheduleViewSave(next)
     }
+  }
+
+  /**
+   * 列显示设置（隐藏/列宽/列序）补丁。与 onViewChange 分开是因为：
+   * 这些改动**不改变结果集**，不该走"应用 → 回第 1 页 → 重新取数"那条路
+   * （拖个列宽就重新查一次库是不可接受的）。落盘照走 400ms 防抖。
+   * @param {Object} patch { hiddenColumns?, columnWidths?, columnOrder? }
+   */
+  const patchViewColumns = (patch) => {
+    const cur = viewRef.current
+    applyView(normalizeView({
+      conditions: cur.conditions,
+      order: cur.order,
+      pageSize: cur.pageSize,
+      hiddenColumns: patch.hiddenColumns !== undefined ? patch.hiddenColumns : cur.hiddenColumns,
+      columnWidths: patch.columnWidths !== undefined ? patch.columnWidths : cur.columnWidths,
+      columnOrder: patch.columnOrder !== undefined ? patch.columnOrder : cur.columnOrder
+    }))
   }
 
   /**
@@ -1701,14 +1731,21 @@ export default auto(function DbSession (props) {
     ? grid.rows.filter((_, i) => selectedRowKeys.includes(i))
     : filteredRows
 
-  // 网格导出：列取当前行键（grid.rows 不含 __rowKey）
+  // 导出列集 = 当前可见列（§7.6 验收 4：隐藏列不导出，导出按当前可见列 + 当前条件）。
+  // 复制为 INSERT/TSV 走同一条：隐藏列意味着用户此刻不关心它，
+  // 但真去读 row[k] 仍是原值 —— 格式化只发生在 renderCell，从不回流到这里
+  const gridExportHeaders = () => grid.rows.length
+    ? visibleColumnNames(Object.keys(grid.rows[0]))
+    : []
+
+  // 网格导出：列取当前可见列（grid.rows 不含 __rowKey）
   const exportGridCsv = () => {
     if (!grid.rows.length) {
       return
     }
     downloadCsv(
       `db-${sel.database}-${sel.table}-${tsName()}.csv`,
-      Object.keys(grid.rows[0]),
+      gridExportHeaders(),
       gridExportRows()
     )
   }
@@ -1718,7 +1755,7 @@ export default auto(function DbSession (props) {
     if (!grid.rows.length || !sel) {
       return
     }
-    const headers = Object.keys(grid.rows[0])
+    const headers = gridExportHeaders()
     const base = `db-${sel.database}-${sel.table}-${tsName()}`
     if (kind === 'json') {
       const rows = gridExportRows().map(r => {
@@ -1782,7 +1819,7 @@ export default auto(function DbSession (props) {
     const text = buildCopyStatements(kind, {
       table: sel.table,
       database: sel.database,
-      headers: Object.keys(grid.rows[0]),
+      headers: gridExportHeaders(),
       rows,
       pkColumn,
       quote: isPg ? 'double' : 'backtick'
@@ -2056,18 +2093,26 @@ export default auto(function DbSession (props) {
     })
   }
 
-  const renderCell = (v, cellFilterKw = '') => {
+  // dataType 来自 structureV2.columns（与主进程校验同源）；SQL 结果集没有类型
+  // 信息，调用方传 '' —— 此时只格式化"驱动已经给出 JS number"的值，字符串不猜
+  const renderCell = (v, cellFilterKw = '', dataType = '') => {
+    // antd 的 render(text, record, index) 会把整行对象传进第二参。
+    // 只认字符串关键字：否则 hlNode 会拿对象去 indexOf，靠"[object Object]" 永不命中
+    // 蒙混过关（能跑，但语义是错的）
+    const filterKw = typeof cellFilterKw === 'string' ? cellFilterKw : ''
     let node
     if (v === null || v === undefined) {
       node = <span className='db-cell-null'>NULL</span>
     } else if (typeof v === 'object') {
       node = hlNode(highlightValue(JSON.stringify(v).slice(0, 200), keywordPatterns, themeConfig), kw)
     } else {
-      // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类
-      node = hlNode(highlightValue(String(v), keywordPatterns, themeConfig), kw)
+      // 数字/布尔也一并走高亮：关键字规则常写成 `\b(0|1)\b` 这类。
+      // 格式化只改这一处显示文本：编辑框取原值（见下方 Input 的 value）、
+      // 导出取原始行、UPDATE 拼原值，三条都不经过 formatCellValue
+      node = hlNode(highlightValue(formatCellValue(v, dataType, formatLocale), keywordPatterns, themeConfig), kw)
     }
     // T1 本页过滤高亮用独立 class，避免被顶栏查找计数/导航误收
-    return cellFilterKw ? hlNode(node, cellFilterKw, 'db-page-hit') : node
+    return filterKw ? hlNode(node, filterKw, 'db-page-hit') : node
   }
 
   // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
@@ -2100,14 +2145,155 @@ export default auto(function DbSession (props) {
     return hit ? (hit.desc === true ? 'descend' : 'ascend') : null
   }
 
+  // 列类型表（小写键）：renderCell 的格式化与表头注释都查它。
+  // 与 structureV2.columns 同源（getTableStructure），SQL 结果集查不到就是空
+  const colTypeByName = useMemo(() => {
+    const out = Object.create(null)
+    for (const c of structureV2.columns || []) {
+      if (c && typeof c.name === 'string' && c.name) {
+        out[c.name.toLowerCase()] = String(c.dataType || '')
+      }
+    }
+    return out
+  }, [structureV2.columns])
+
+  // 列注释表（小写键）：表头第二行小字。无注释的列不占高度
+  const colCommentByName = useMemo(() => {
+    const out = Object.create(null)
+    for (const c of structureV2.columns || []) {
+      if (c && typeof c.name === 'string' && c.name) {
+        const comment = typeof c.comment === 'string' ? c.comment.trim() : ''
+        if (comment) {
+          out[c.name.toLowerCase()] = comment
+        }
+      }
+    }
+    return out
+  }, [structureV2.columns])
+
+  // 全部列（含被隐藏的）的当前顺序：columnOrder 里点名的列先按那个顺序排，
+  // 没提到的列按结果集顺序接在后面 —— 新加的列不能因为旧视角没提它
+  // 就被排到看不见的位置。列被删后旧视角里的名字自然消失，静默降级
+  const orderedColumnNames = (keys) => {
+    const byLower = new Map(keys.map(k => [String(k).toLowerCase(), k]))
+    const ordered = []
+    const used = new Set()
+    for (const name of view.columnOrder || []) {
+      const real = byLower.get(String(name).toLowerCase())
+      if (real !== undefined && !used.has(real)) {
+        ordered.push(real)
+        used.add(real)
+      }
+    }
+    for (const k of keys) {
+      if (!used.has(k)) {
+        ordered.push(k)
+      }
+    }
+    return ordered
+  }
+
+  // 可见列 = 全部列的顺序再过滤 hiddenColumns。渲染与导出共用这一个函数，
+  // 保证"屏幕上看到的列"与"导出/复制出的列"永远一致（§7.6 验收 4）
+  const visibleColumnNames = (keys) => {
+    const hidden = new Set((view.hiddenColumns || []).map(h => String(h).toLowerCase()))
+    return orderedColumnNames(keys)
+      .filter(k => !hidden.has(String(k).toLowerCase()))
+  }
+
+  // 列宽三源优先级：拖拽中 > 视角里记的（用户拖过） > 按内容自适应。
+  // 视角里的空值/脏值已被 normalizeWidths 丢掉，落到这里就是 undefined
+  const widthOf = (k) => {
+    if (liveWidth && liveWidth.col === k) {
+      return liveWidth.width
+    }
+    return view.columnWidths[k] || columnWidths[k] || 90
+  }
+
+  // 显示/隐藏一列。hiddenColumns 存原名（不转小写）：渲染时大小写不敏感匹配，
+  // 但存进去的保持用户看到的写法，重置后手改配置文件也能认出来
+  const toggleColumnVisible = (name, checked) => {
+    const lower = String(name).toLowerCase()
+    const cur = (view.hiddenColumns || []).filter(h => String(h).toLowerCase() !== lower)
+    if (!checked) {
+      cur.push(name)
+    }
+    patchViewColumns({ hiddenColumns: cur })
+  }
+
+  // 上/下移动一列（列显示弹层里的箭头）。移动的是**全部列**的顺序，
+  // 不只是可见列：否则"把第 3 列移到最前"会因为前面藏着隐藏列而错位一格
+  const moveColumn = (name, dir) => {
+    if (!grid.rows.length) {
+      return
+    }
+    const order = orderedColumnNames(Object.keys(grid.rows[0]))
+    const i = order.indexOf(name)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= order.length) {
+      return
+    }
+    const next = order.slice()
+    next.splice(i, 1)
+    next.splice(j, 0, name)
+    patchViewColumns({ columnOrder: next })
+  }
+
+  // 列宽拖拽：mousedown 记起点 → mousemove 只改本地 liveWidth（不写视角）→
+  // mouseup 一次性提交。拖拽中不碰 view 的理由见 liveWidth 声明处
+  const startColResize = (ev, col) => {
+    // 别触发表头排序（点击事件会冒泡到 th）
+    ev.preventDefault()
+    ev.stopPropagation()
+    const startX = ev.clientX
+    const startW = widthOf(col)
+    const move = (e) => {
+      const w = Math.max(60, Math.min(1200, Math.round(startW + e.clientX - startX)))
+      liveWidthRef.current = { col, width: w }
+      setLiveWidth({ col, width: w })
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      document.body.classList.remove('db-col-resizing')
+      const cur = liveWidthRef.current
+      liveWidthRef.current = null
+      setLiveWidth(null)
+      if (cur) {
+        patchViewColumns({
+          columnWidths: { ...viewRef.current.columnWidths, [cur.col]: cur.width }
+        })
+      }
+    }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+    document.body.classList.add('db-col-resizing')
+  }
+
   const columns = grid.rows.length
-    ? Object.keys(grid.rows[0]).map(k => {
-      const width = columnWidths[k] || 90
+    ? visibleColumnNames(Object.keys(grid.rows[0])).map(k => {
+      const dataType = colTypeByName[String(k).toLowerCase()] || ''
+      const comment = colCommentByName[String(k).toLowerCase()] || ''
       return {
-        title: k,
+        title: (
+          <span className='db-col-title'>
+            <span className='db-col-name'>{k}</span>
+            {
+              comment
+                ? <span className='db-col-comment' title={comment}>{comment}</span>
+                : null
+            }
+            {/* 列宽拖拽手柄：贴右边沿，和排序点击互不重叠 */}
+            <span
+              className='db-col-resizer'
+              onMouseDown={ev => startColResize(ev, k)}
+              onClick={ev => ev.stopPropagation()}
+            />
+          </span>
+        ),
         dataIndex: k,
         key: k,
-        width,
+        width: widthOf(k),
         ellipsis: true,
         sorter: true,
         sortOrder: sortOrderOf(k),
@@ -2162,7 +2348,7 @@ export default auto(function DbSession (props) {
               />
             )
           }
-          return renderCell(v, pageFilterKw)
+          return renderCell(v, pageFilterKw, dataType)
         }
       }
     })
@@ -2681,6 +2867,100 @@ export default auto(function DbSession (props) {
         }
         {
           sel ? renderPageSizeSelect() : null
+        }
+        {
+          // E2-3b：列显示弹层（隐藏 / 列序）。只改视角的列字段，不重新取数
+          sel && grid.rows.length
+            ? (
+              <Popover
+                trigger='click'
+                placement='bottomRight'
+                content={
+                  <div className='db-cols-pop'>
+                    <div className='db-cols-pop-head'>{e('dbColumns')}</div>
+                    {
+                      // 弹层里列的是**可见列**的当前顺序：隐藏的列不该占着一行
+                      // 箭头让用户够不着。顺序本身按全部列算（见 moveColumn）
+                      visibleColumnNames(Object.keys(grid.rows[0])).map((name, i, arr) => (
+                        <div key={name} className='db-cols-pop-row'>
+                          <Checkbox
+                            checked
+                            onChange={ev => toggleColumnVisible(name, ev.target.checked)}
+                          >
+                            <span className='db-cols-pop-name' title={name}>{name}</span>
+                          </Checkbox>
+                          <span className='db-cols-pop-btns'>
+                            <Button
+                              size='small'
+                              type='text'
+                              icon={<UpOutlined />}
+                              disabled={i === 0}
+                              title={e('dbColMoveUp')}
+                              onClick={() => moveColumn(name, -1)}
+                            />
+                            <Button
+                              size='small'
+                              type='text'
+                              icon={<DownOutlined />}
+                              disabled={i === arr.length - 1}
+                              title={e('dbColMoveDown')}
+                              onClick={() => moveColumn(name, 1)}
+                            />
+                          </span>
+                        </div>
+                      ))
+                    }
+                    {
+                      // 隐藏列也在这里列出（置勾选态为 false），否则隐藏过的列
+                      // 除了"重置视角"没有任何途径恢复
+                      orderedColumnNames(Object.keys(grid.rows[0]))
+                        .filter(name => (view.hiddenColumns || [])
+                          .some(h => String(h).toLowerCase() === String(name).toLowerCase()))
+                        .map(name => (
+                          <div key={'h-' + name} className='db-cols-pop-row'>
+                            <Checkbox
+                              checked={false}
+                              onChange={ev => toggleColumnVisible(name, ev.target.checked)}
+                            >
+                              <span className='db-cols-pop-name' title={name}>{name}</span>
+                            </Checkbox>
+                          </div>
+                        ))
+                    }
+                    <div className='db-cols-pop-note'>{e('dbColumnsHint')}</div>
+                  </div>
+                }
+              >
+                <Tooltip title={e('dbColumns')}>
+                  <Button size='small' icon={<MenuOutlined />} />
+                </Tooltip>
+              </Popover>
+              )
+            : null
+        }
+        {
+          // E2-3b：数值/日期本地化开关（默认关）。只改 renderCell 的显示文本，
+          // 编辑框/导出/UPDATE 都取原值 —— 见 db-format-value 模块头注释
+          sel && grid.rows.length
+            ? (
+              <Tooltip title={e('dbFormatLocaleHint')}>
+                <span className='db-format-locale'>
+                  <Switch
+                    size='small'
+                    checked={formatLocale === 'os'}
+                    onChange={on => {
+                      const v = on ? 'os' : 'none'
+                      setFormatLocale(v)
+                      // 写补丁而不是整份配置：setConfig 是浅合并，
+                      // 整份写回会盖掉并发改的其他键
+                      window.store.setConfig({ [FORMAT_LOCALE_KEY]: v })
+                    }}
+                  />
+                  <span className='db-format-locale-label'>{e('dbFormatLocale')}</span>
+                </span>
+              </Tooltip>
+              )
+            : null
         }
         {
           // 刷新当前表：保持页码/排序，只重新取数

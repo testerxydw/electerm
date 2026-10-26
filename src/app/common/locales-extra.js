@@ -395,6 +395,12 @@ const en = {
   dbViewProblemTooLong: 'The condition is longer than {n} characters',
   dbViewBlocked: 'The condition was rejected by the safety check; nothing was executed',
   dbViewNoMatch: 'No rows match the current condition',
+  dbColumns: 'Columns',
+  dbColumnsHint: 'Hidden columns are not exported or copied. Column order and width are saved per table',
+  dbColMoveUp: 'Move up',
+  dbColMoveDown: 'Move down',
+  dbFormatLocale: 'Local format',
+  dbFormatLocaleHint: 'Format numbers and dates with the system locale (display only; editing, export and UPDATE always use the raw value)',
   // 上游语言包 2.3.34 未跟上主仓新增的 pane 布局词条, 本地补齐
   terminalLog: 'Terminal Log',
   splitHorizontal: 'Split horizontally',
@@ -787,7 +793,13 @@ const zhCn = {
   dbViewProblemUnbalanced: '括号不配平',
   dbViewProblemTooLong: '条件超过 {n} 个字符',
   dbViewBlocked: '条件被安全检查拒绝，没有执行任何语句',
-  dbViewNoMatch: '没有符合当前条件的行'
+  dbViewNoMatch: '没有符合当前条件的行',
+  dbColumns: '列显示',
+  dbColumnsHint: '隐藏的列不会参与导出与复制；列序与列宽按表记忆',
+  dbColMoveUp: '上移',
+  dbColMoveDown: '下移',
+  dbFormatLocale: '本地化格式',
+  dbFormatLocaleHint: '数值与日期按系统区域显示（仅显示层；编辑、导出、UPDATE 一律用原值）'
 }
 
 module.exports = {

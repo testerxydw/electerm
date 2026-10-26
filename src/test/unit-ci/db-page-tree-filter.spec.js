@@ -150,7 +150,8 @@ describe('T1/T2 wiring contract', () => {
   test('main grid uses filteredRows and preserves page-filter highlight class', () => {
     const src = loadJsx()
     assert.ok(src.includes('dataSource={filteredRows}'), 'grid dataSource must use filteredRows')
-    assert.ok(src.includes('return renderCell(v, pageFilterKw)'), 'cells must highlight page filter')
+    // E2-3b：第三参是列类型（展示层格式化用），pageFilterKw 仍是第二参
+    assert.ok(src.includes('return renderCell(v, pageFilterKw, dataType)'), 'cells must highlight page filter')
     assert.ok(src.includes("className='db-page-filter'"), 'page filter input missing')
     assert.ok(src.includes("'db-page-hit'"), 'page filter mark class must stay isolated')
   })

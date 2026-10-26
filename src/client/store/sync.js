@@ -890,6 +890,7 @@ export default (Store) => {
     const { store } = window
     const configSyncKeys = [
       'dbPageSize',
+      'dbFormatLocale',
       'keywords',
       'keepaliveInterval',
       'rightClickSelectsWord',
