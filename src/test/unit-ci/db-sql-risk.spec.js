@@ -833,9 +833,9 @@ describe('db-safe-guard: verdict.reason 必须进弹窗（现在算完就丢）'
     }
   })
 
-  test('两处 askRiskConfirm 调用都把 reason 传下去', () => {
+  test('所有 askRiskConfirm 调用都把 reason 传下去', () => {
     const blocks = callBlocks(SESSION_JSX, 'askRiskConfirm(')
-    assert.equal(blocks.length, 2, 'SQL 执行与行级写各一条路径，实际 ' + blocks.length)
+    assert.equal(blocks.length, 3, 'SQL 执行、行级写、导入危险模式各一条路径，实际 ' + blocks.length)
     for (const b of blocks) {
       assert.match(b, /reason: verdict\.reason/, 'payload 缺少 reason: ' + b.slice(0, 120))
     }

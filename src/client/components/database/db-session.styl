@@ -1669,3 +1669,168 @@ body.db-col-resizing
   th
     color var(--text)
     background transparent
+
+// ---- C 批：导出到文件 / 导入 CSV/TSV 对话框 ----
+
+.db-export-body
+.db-import-body
+  margin-top 16px
+
+.db-export-step
+.db-import-step
+  padding-top 4px
+
+.db-export-step-title
+.db-import-step-title
+  margin-bottom 10px
+  font-weight 500
+  color var(--text)
+
+.db-export-format-item
+  display block
+  margin-bottom 6px
+
+.db-export-note
+.db-import-note
+  margin-top 12px
+
+.db-export-cols
+  display flex
+  flex-direction column
+  gap 4px
+  max-height 260px
+  overflow auto
+  padding 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+
+.db-export-path-row
+.db-import-path-row
+  display flex
+  gap 8px
+  align-items center
+
+.db-export-path-row
+  .ant-input
+    flex 1
+
+.db-export-summary
+  margin-top 10px
+  color var(--text-dark)
+  font-size 12px
+
+.db-export-progress
+.db-import-progress
+  padding 10px 12px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+
+.db-export-progress-line
+  color var(--text)
+
+.db-export-progress-sub
+  margin-top 4px
+  color var(--text-dark)
+  font-size 12px
+
+.db-import-file-info
+  margin-top 12px
+
+.db-import-file-path
+  color var(--text)
+  word-break break-all
+
+.db-import-sample
+  margin-top 8px
+  padding 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  overflow auto
+  max-height 120px
+
+.db-import-sample-row
+  display flex
+  gap 12px
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  color var(--text-dark)
+  white-space nowrap
+  span
+    max-width 180px
+    overflow hidden
+    text-overflow ellipsis
+
+.db-import-mapping
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 8px
+  max-height 300px
+  overflow auto
+
+.db-import-mapping-head
+  display flex
+  gap 12px
+  color var(--text-dark)
+  font-size 12px
+  padding-bottom 6px
+  border-bottom 1px solid var(--border)
+  span:first-child
+    width 140px
+  span:last-child
+    flex 1
+
+.db-import-mapping-row
+  display flex
+  gap 12px
+  align-items flex-start
+  padding 6px 0
+
+.db-import-file-col
+  width 140px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+
+.db-import-mapping-ctl
+  flex 1
+  display flex
+  flex-direction column
+  gap 6px
+  .ant-select
+    width 100%
+
+.db-import-extra
+  display flex
+  gap 6px
+  .ant-select
+    flex 0 0 40%
+
+.db-import-expr
+  font-family var(--db-code-font, var(--font-mono))
+
+.db-import-confirm
+  display block
+  margin-top 12px
+
+.db-import-batch
+  margin-top 12px
+  display flex
+  gap 8px
+  align-items center
+  color var(--text)
+
+.db-import-errors
+  margin-top 10px
+  max-height 140px
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 6px 10px
+
+.db-import-error-item
+  color var(--warn)
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  word-break break-all

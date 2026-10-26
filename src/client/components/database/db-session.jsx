@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import DbConnError from './db-conn-error'
@@ -60,6 +60,9 @@ import DbDangerConfirm from './db-danger-confirm'
 import DbViewBar from './db-view-bar'
 // E2-3b 命令面板：打分/分组是纯函数层（db-quick-open.js），组件只管展示与键盘
 import DbQuickOpen from './db-quick-open'
+// C 批：导出到文件（四步向导，走主进程流式导出）/ 导入 CSV/TSV（映射向导）
+import DbExportDialog from './db-export-dialog'
+import DbImportDialog from './db-import-dialog'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
 import {
@@ -1955,6 +1958,60 @@ export default auto(function DbSession (props) {
     copy(text)
   }
 
+  // ---- C 批：导出到文件 / 导入 CSV/TSV ----
+
+  const [exportOpen, setExportOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  // 发起导出时冻结的视角片段（C-12 所见即所导）：与网格同源的
+  // where/whereParams/orderClauses 存 state 而不是渲染期重算，
+  // 避免对话框打开期间视角变化悄悄改变导出范围
+  const [exportParts, setExportParts] = useState(null)
+
+  const openExportDialog = () => {
+    if (!sel) {
+      return
+    }
+    setExportParts(viewParts(viewRef.current))
+    setExportOpen(true)
+  }
+
+  // 危险导入模式（overwrite/upsert）的 production 闸门：复用 E1 riskGate 弹窗
+  // （shouldConfirm 决定要不要问、问几次；输库名那条路径由 DbDangerConfirm 承担）。
+  // 取消 = 零调用：对话框收不到放行信号就不会发起 start
+  const confirmImportRisk = async (mode) => {
+    const note = mode === 'overwrite' ? e('dbImportModeOverwrite') : e('dbImportModeUpsert')
+    if (!isProduction) {
+      return true
+    }
+    const state = guardRef.current
+    const scope = nextScope('import')
+    const verdict = shouldConfirm({
+      level: 'write',
+      production: true,
+      state,
+      connKey,
+      scope,
+      now: Date.now()
+    })
+    if (!verdict.need) {
+      return true
+    }
+    const target = `${mode} ${(sel && sel.database) || tab.dbName || ''}.${sel && sel.table}`
+    const ok = await askRiskConfirm({
+      level: 'write',
+      requireDbName: verdict.requireDbName,
+      dbName: (sel && sel.database) || tab.dbName || '',
+      statements: [{ text: target, level: 'write', firstKeyword: '' }],
+      reasons: [note],
+      reason: verdict.reason,
+      allowMute: false
+    })
+    if (ok) {
+      markAsked(state, scope)
+    }
+    return ok
+  }
+
   // ---- S3-C SQL 执行历史（主进程文件环形 200 条，仅本地，跨启动稳定） ----
 
   const [sqlHistoryOpen, setSqlHistoryOpen] = useState(false)
@@ -3369,7 +3426,8 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // A4 导出菜单：CSV/JSON/SQL INSERT，范围同 A1（选中为选中，无选中为当前页）
+          // A4 导出菜单：CSV/JSON/SQL INSERT（内存导当前页）+ 导出到文件（C 批流式导出），
+          // 范围同 A1（选中为选中，无选中为当前页）
           sel && grid.rows.length
             ? (
               <Dropdown
@@ -3377,17 +3435,41 @@ export default auto(function DbSession (props) {
                   items: [
                     { key: 'csv', label: 'CSV' },
                     { key: 'json', label: 'JSON' },
-                    { key: 'sql', label: e('dbExportSql') }
+                    { key: 'sql', label: e('dbExportSql') },
+                    { type: 'divider' },
+                    { key: 'file', label: e('dbExportToFile') }
                   ],
-                  onClick: ({ key }) => key === 'csv'
-                    ? exportGridCsv()
-                    : exportGridAs(key)
+                  onClick: ({ key }) => {
+                    if (key === 'file') {
+                      openExportDialog()
+                    } else if (key === 'csv') {
+                      exportGridCsv()
+                    } else {
+                      exportGridAs(key)
+                    }
+                  }
                 }}
               >
                 <Tooltip title={e('dbExportCsv')}>
                   <Button size='small' icon={<DownloadOutlined />} />
                 </Tooltip>
               </Dropdown>
+              )
+            : null
+        }
+        {
+          // C 批导入入口：只读禁用（主进程 getDbTabContext.readOnly 兜底由阶段 1 保证）；
+          // 视图同样不提供导入（INSERT INTO 视图两引擎都可能直接拒绝）
+          sel && !isRedis
+            ? (
+              <Tooltip title={isReadonly ? e('dbImportReadonly') : e('dbImportTitle')}>
+                <Button
+                  size='small'
+                  icon={<UploadOutlined />}
+                  disabled={isReadonly || sel.nodeType === 'view'}
+                  onClick={() => setImportOpen(true)}
+                />
+              </Tooltip>
               )
             : null
         }
@@ -4617,6 +4699,31 @@ export default auto(function DbSession (props) {
         onClose={() => setQuickOpen(false)}
         items={quickItems}
         placeholder={e('dbQuickOpenPlaceholder')}
+      />
+      {/* C 批导出对话框：四步向导，执行参数与网格视角同源（C-12） */}
+      <DbExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        tabId={tabId}
+        database={sel ? sel.database : ''}
+        schema={sel ? sel.schema : ''}
+        table={sel ? sel.table : ''}
+        columns={structureV2.columns || []}
+        where={exportParts ? exportParts.where : ''}
+        whereParams={exportParts ? exportParts.whereParams : []}
+        orderClauses={exportParts ? exportParts.orderClauses : []}
+      />
+      {/* C 批导入向导：列映射/写入选型在渲染层，安全边界全部在主进程
+          （只读门控、expression 白名单、danger 模式确认） */}
+      <DbImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        tabId={tabId}
+        database={sel ? sel.database : ''}
+        schema={sel ? sel.schema : ''}
+        table={sel ? sel.table : ''}
+        columns={structureV2.columns || []}
+        confirmRisk={confirmImportRisk}
       />
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
