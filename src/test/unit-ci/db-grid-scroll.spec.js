@@ -99,7 +99,8 @@ describe('批次 C：数据库页渲染收口契约', () => {
     assert.ok(colBlock[0].includes('widthOf(k)'), 'columns must consume memoized widths')
     // E2-3b：宽度消费挪进了 widthOf（拖拽中 > 视角记忆 > 自适应），
     // memo 本身仍被消费、仍不被重复采样 —— 契约不变，只是多了一层优先级
-    const widthFn = src.match(/const widthOf = \(k\) => \{[\s\S]*?\n  \}/)
+    // \s{2} 而不是两个空格字面量：no-regex-spaces 会拦多空格正则
+    const widthFn = src.match(/const widthOf = \(k\) => \{[\s\S]*?\n\s{2}\}/)
     assert.ok(widthFn, 'widthOf helper not found')
     assert.ok(widthFn[0].includes('columnWidths[k]'), 'widthOf must consume memoized widths')
   })
