@@ -300,6 +300,161 @@ async function expireKey (conn, { dbIndex, key, seconds, readOnly }) {
   return c.expire(key, s)
 }
 
+// -------------------------------------------------- D 批：Redis 类型化写（T12） ----
+// 范围严格按设计 §12.2（总览 §3.3 T12）：hash HSET/HDEL、set SADD/SREM、
+// zset ZADD/ZREM、list LPUSH/RPUSH/LSET/LREM、key RENAMENX（string SET/TTL/DEL 为既有）。
+// **不做**：FLUSHDB/FLUSHALL、KEYS、通用命令、二进制写。
+// 全部 checkWritable 前置（与 setKey/delKey/expireKey 同一口径），
+// readOnly 以主进程实例为权威（dbClientOp 注入），渲染层传参不可信。
+
+// 键名必须是非空字符串（空 key 会让 redis 报错，提前给出可读信息且不发请求）
+function requireKey (fn, key) {
+  if (typeof key !== 'string' || !key) {
+    throw new Error(`${fn} requires a non-empty key`)
+  }
+}
+
+// members/fields 归一：非空字符串或非空字符串数组；
+// 空数组直接抛参数错误（不发 redis），空串元素过滤后为空同样拒绝
+function normalizeItems (fn, label, items) {
+  if (typeof items === 'string') {
+    if (!items) {
+      throw new Error(`${fn} requires a non-empty ${label}`)
+    }
+    return [items]
+  }
+  if (Array.isArray(items)) {
+    const list = items.map(x => String(x)).filter(x => x.length)
+    if (!list.length) {
+      throw new Error(`${fn} requires at least one non-empty ${label}`)
+    }
+    return list
+  }
+  throw new Error(`${fn} requires ${label} as string or array of strings`)
+}
+
+// 值归一：redis 只存字符串；undefined/null 存空串（与 setKey 透传语义保持宽松一致）
+function toStr (v) {
+  return v === undefined || v === null ? '' : String(v)
+}
+
+// hash 写字段：HSET
+async function hashSetField (conn, { dbIndex, key, field, value, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('hashSetField', key)
+  if (typeof field !== 'string' || !field) {
+    throw new Error('hashSetField requires a non-empty field')
+  }
+  const c = await useDb(conn, dbIndex)
+  return c.hset(key, field, toStr(value))
+}
+
+// hash 删字段：HDEL（fields 支持数组）
+async function hashDelField (conn, { dbIndex, key, fields, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('hashDelField', key)
+  const list = normalizeItems('hashDelField', 'fields', fields)
+  const c = await useDb(conn, dbIndex)
+  return c.hdel(key, ...list)
+}
+
+// set 加成员：SADD
+async function setAdd (conn, { dbIndex, key, members, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('setAdd', key)
+  const list = normalizeItems('setAdd', 'members', members)
+  const c = await useDb(conn, dbIndex)
+  return c.sadd(key, ...list)
+}
+
+// set 删成员：SREM
+async function setRem (conn, { dbIndex, key, members, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('setRem', key)
+  const list = normalizeItems('setRem', 'members', members)
+  const c = await useDb(conn, dbIndex)
+  return c.srem(key, ...list)
+}
+
+// zset 加成员：ZADD（score 必须有限数）
+async function zsetAdd (conn, { dbIndex, key, score, member, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('zsetAdd', key)
+  const s = Number(score)
+  if (!Number.isFinite(s)) {
+    throw new Error('zsetAdd requires a finite numeric score')
+  }
+  if (typeof member !== 'string' || !member) {
+    throw new Error('zsetAdd requires a non-empty member')
+  }
+  const c = await useDb(conn, dbIndex)
+  return c.zadd(key, s, member)
+}
+
+// zset 删成员：ZREM
+async function zsetRem (conn, { dbIndex, key, members, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('zsetRem', key)
+  const list = normalizeItems('zsetRem', 'members', members)
+  const c = await useDb(conn, dbIndex)
+  return c.zrem(key, ...list)
+}
+
+// list 推入：LPUSH / RPUSH（position: 'left' | 'right'）
+async function listPush (conn, { dbIndex, key, value, position, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('listPush', key)
+  if (position !== 'left' && position !== 'right') {
+    throw new Error('listPush requires position left or right')
+  }
+  const c = await useDb(conn, dbIndex)
+  const v = toStr(value)
+  if (position === 'left') {
+    return c.lpush(key, v)
+  }
+  return c.rpush(key, v)
+}
+
+// list 按下标设置：LSET（index 越界 ioredis 抛错，让它冒泡）
+async function listSetAt (conn, { dbIndex, key, index, value, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('listSetAt', key)
+  const idx = Number(index)
+  if (!Number.isInteger(idx)) {
+    throw new Error('listSetAt requires an integer index')
+  }
+  const c = await useDb(conn, dbIndex)
+  return c.lset(key, idx, toStr(value))
+}
+
+// list 删元素：LREM（count: >0 头→尾删 count 个；<0 尾→头；0 删全部；默认 1）
+async function listRemAt (conn, { dbIndex, key, index, count = 1, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('listRemAt', key)
+  const n = Number(count)
+  if (!Number.isInteger(n)) {
+    throw new Error('listRemAt requires an integer count')
+  }
+  const c = await useDb(conn, dbIndex)
+  return c.lrem(key, n, toStr(index))
+}
+
+// key 重命名（不覆盖）：RENAMENX —— 目标已存在返回 0，
+// 这里抛含 newKey 的可读错误而不是返回裸 0（前端据 message 提示）
+async function renameKeyNx (conn, { dbIndex, key, newKey, readOnly }) {
+  checkWritable(readOnly)
+  requireKey('renameKeyNx', key)
+  if (typeof newKey !== 'string' || !newKey) {
+    throw new Error('renameKeyNx requires a non-empty newKey')
+  }
+  const c = await useDb(conn, dbIndex)
+  const res = await c.renamenx(key, newKey)
+  if (Number(res) !== 1) {
+    throw new Error(`renamenx failed: target key already exists: ${newKey}`)
+  }
+  return { ok: true }
+}
+
 // 无参全清（app 退出兜底）
 async function closeRedisConnection () {
   for (const c of clients.values()) {
@@ -320,6 +475,17 @@ module.exports = {
   setKey,
   delKey,
   expireKey,
+  // D 批类型化写（T12）：全部 checkWritable 前置
+  hashSetField,
+  hashDelField,
+  setAdd,
+  setRem,
+  zsetAdd,
+  zsetRem,
+  listPush,
+  listSetAt,
+  listRemAt,
+  renameKeyNx,
   closeRedisConnection,
   // 纯函数导出仅供单测（HSCAN/SSCAN 游标循环）
   scanPage

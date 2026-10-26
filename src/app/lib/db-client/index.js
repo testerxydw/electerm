@@ -42,6 +42,7 @@ const OP_MAP = {
     deleteRows: 'deleteRows',
     countRows: 'countRows',
     executeSql: 'executeSql',
+    explainQuery: 'explainQuery',
     listColumns: 'listColumns'
   },
   postgres: {
@@ -55,6 +56,7 @@ const OP_MAP = {
     deleteRows: 'deleteRows',
     countRows: 'countRows',
     executeSql: 'executeSql',
+    explainQuery: 'explainQuery',
     listColumns: 'listColumns'
   },
   redis: {
@@ -63,7 +65,18 @@ const OP_MAP = {
     getKeyDetail: 'getKeyDetail',
     setKey: 'setKey',
     delKey: 'delKey',
-    expireKey: 'expireKey'
+    expireKey: 'expireKey',
+    // D 批类型化写（T12）：hash/set/zset/list/key
+    hashSetField: 'hashSetField',
+    hashDelField: 'hashDelField',
+    setAdd: 'setAdd',
+    setRem: 'setRem',
+    zsetAdd: 'zsetAdd',
+    zsetRem: 'zsetRem',
+    listPush: 'listPush',
+    listSetAt: 'listSetAt',
+    listRemAt: 'listRemAt',
+    renameKeyNx: 'renameKeyNx'
   }
 }
 
@@ -81,6 +94,8 @@ const OVERALL_TIMEOUT = 15000
 const OP_TIMEOUTS = {
   default: 15000,
   executeSql: 120000,
+  // EXPLAIN 属分析类：大表的计划生成同样可能超过 15s，跟随 executeSql 口径
+  explainQuery: 120000,
   getPageData: 60000,
   countRows: 60000
 }

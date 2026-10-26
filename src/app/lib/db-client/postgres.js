@@ -818,6 +818,142 @@ async function executeSql (conn, { sql, readOnly }) {
   }
 }
 
+// -------------------------------------------------- D 批：EXPLAIN (FORMAT JSON) ----
+// explainQuery({database, schema, sql}) → { dialect, root, raw }：
+// root 是统一节点树 { nodeType, table, rows, filtered, key, extra, cost, children }，
+// raw 是 pg 返回的原始计划文档（前端折叠查看用）。redis 不注册本 op。
+// pg 驱动已把 JSON 解析为 JS 对象：rows[0]['QUERY PLAN'] = [{ Plan: {...}, ... }]。
+// schema 入参仅保持调用契约一致：EXPLAIN 作用于用户输入的完整 SQL，
+// 表名已在 SQL 里（或依赖 search_path），无法（也无需）给 EXPLAIN 指定 schema。
+
+// 词法掩码：把字符串、标识符引号、行注释与块注释替换成空格（保留换行），长度与原文一致。
+// 与 mysql 适配器内联的同名函数同思路（极简版 maskSqlLiterals），供 containsAnalyze
+// 与多语句检查使用（两适配器不互相依赖，简单可靠优先）。
+function maskSqlText (text) {
+  const s = String(text || '')
+  const out = s.split('')
+  const n = s.length
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) {
+      if (out[k] !== '\n') {
+        out[k] = ' '
+      }
+    }
+  }
+  let i = 0
+  while (i < n) {
+    const c = s[i]
+    // 行注释 --（pg 不认 #，但裸 # 非法，多吞无害）
+    if ((c === '-' && s[i + 1] === '-') || c === '#') {
+      let j = s.indexOf('\n', i)
+      if (j < 0) {
+        j = n
+      }
+      blank(i, j)
+      i = j
+      continue
+    }
+    // 块注释 /* */
+    if (c === '/' && s[i + 1] === '*') {
+      const found = s.indexOf('*/', i + 2)
+      const j = found < 0 ? n : found + 2
+      blank(i, j)
+      i = j
+      continue
+    }
+    // 字符串 '...' / 标识符 "..."：反斜杠转义（E'' 串）+ 双写转义
+    if (c === '\'' || c === '"' || c === '`') {
+      let j = i + 1
+      while (j < n) {
+        if (s[j] === '\\') {
+          j += 2
+          continue
+        }
+        if (s[j] === c) {
+          if (s[j + 1] === c) {
+            j += 2
+            continue
+          }
+          j += 1
+          break
+        }
+        j += 1
+      }
+      const end = Math.min(j, n)
+      blank(i, end)
+      i = end
+      continue
+    }
+    i += 1
+  }
+  return out.join('')
+}
+
+// EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会**真实执行**语句，必须拒绝。
+// 直接对原文做 /\banalyze\b/i 会把字符串/注释里的 "analyze" 误杀，故先掩码再匹配。
+function containsAnalyze (sql) {
+  return /\banalyze\b/i.test(maskSqlText(sql))
+}
+
+function finiteOrNull (v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+// 递归抽取：pg 计划树挂在 Plan.Plans[] 下
+function convertPgNode (p) {
+  const children = (Array.isArray(p.Plans) ? p.Plans : []).map(convertPgNode)
+  // 树视图只展示展示性字段：过滤/连接/回描条件合并进 extra，索引名进 key
+  const extra = p.Filter || p['Index Cond'] || p['Join Filter'] || p['Recheck Cond'] || null
+  return {
+    nodeType: p['Node Type'] || 'Plan',
+    table: p['Relation Name'] || null,
+    rows: finiteOrNull(p['Plan Rows']),
+    filtered: null,
+    key: p['Index Name'] || null,
+    extra,
+    cost: finiteOrNull(p['Total Cost']),
+    children
+  }
+}
+
+// 纯函数（导出仅供单测）：EXPLAIN (FORMAT JSON) 计划文档（含 Plan 键的对象）→ 统一节点树
+function parsePgPlan (planDoc) {
+  if (!planDoc || typeof planDoc !== 'object' || Array.isArray(planDoc) || !planDoc.Plan) {
+    throw new Error('无法解析 EXPLAIN 输出：缺少 Plan')
+  }
+  return convertPgNode(planDoc.Plan)
+}
+
+async function explainQuery (conn, { database, schema, sql }) {
+  const s = String(sql || '').trim()
+  if (!s) {
+    throw new Error('explainQuery requires sql')
+  }
+  // 安全边界：EXPLAIN ANALYZE 会真实执行语句，词法级检查后一律拒绝
+  if (containsAnalyze(s)) {
+    throw new Error('EXPLAIN 拒绝 ANALYZE：EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会真实执行语句')
+  }
+  // pg 无 multipleStatements，单条 query 多语句会直接语法错；这里同样拒绝
+  // 多余分号，与 mysql 适配器口径一致（尾部孤立分号放行）
+  const masked = maskSqlText(s.replace(/[;\s]+$/, ''))
+  if (masked.includes(';')) {
+    throw new Error('EXPLAIN 一次只接受一条语句（检测到多余分号）')
+  }
+  const c = await getClient(conn)
+  if (database && database !== c.database) {
+    throw new Error('cross-database query not supported for postgres, connect with that database')
+  }
+  const res = await c.query('EXPLAIN (FORMAT JSON) ' + s)
+  const row = res.rows && res.rows[0]
+  const list = row && row['QUERY PLAN']
+  if (!list) {
+    throw new Error('无法解析 EXPLAIN 输出：缺少 QUERY PLAN')
+  }
+  const planDoc = Array.isArray(list) ? list[0] : list
+  return { dialect: 'postgres', root: parsePgPlan(planDoc), raw: planDoc }
+}
+
 // 无参全清（app 退出兜底）
 async function closePostgresConnection () {
   for (const c of clients.values()) {
@@ -841,11 +977,15 @@ module.exports = {
   deleteRows,
   countRows,
   executeSql,
+  explainQuery,
   listColumns,
   closePostgresConnection,
-  // 纯函数导出仅供单测（列分组 / 反向外键查询 / 批量 INSERT 语句构建）
+  // 纯函数导出仅供单测（列分组 / 反向外键查询 / 批量 INSERT 语句构建 /
+  // EXPLAIN 计划解析 / ANALYZE 词法检查）
   groupColumns,
   getReferences,
   buildInsertBatch,
-  insertBatchParams
+  insertBatchParams,
+  parsePgPlan,
+  containsAnalyze
 }

@@ -827,6 +827,232 @@ async function executeSql (conn, { sql, database, readOnly }) {
   }
 }
 
+// -------------------------------------------------- D 批：EXPLAIN FORMAT=JSON ----
+// explainQuery({database, sql}) → { dialect, root, raw }：
+// root 是统一节点树 { nodeType, table, rows, filtered, key, extra, cost, children }，
+// raw 是服务端原始 JSON（前端折叠查看用）。redis 不注册本 op。
+
+// 「实际行数」只在计划**真正执行过**时存在：mysql EXPLAIN ANALYZE 输出 r_rows，
+// pg ANALYZE 输出 Actual Rows。本实现的 explainQuery 永远拒绝 ANALYZE，
+// 正常返回里 actualRows 恒为 null —— 导出本函数仅供单测，防止未来放开 ANALYZE 时
+// 把预估值（rows_examined_per_scan / Plan Rows）误当实际值。
+function extractActualRows (plan) {
+  if (!plan || typeof plan !== 'object') {
+    return null
+  }
+  for (const k of ['r_rows', 'Actual Rows', 'actualRows']) {
+    const v = plan[k]
+    if (v !== undefined && v !== null) {
+      const n = Number(v)
+      if (Number.isFinite(n)) {
+        return n
+      }
+    }
+  }
+  return null
+}
+
+// 词法掩码：把字符串（含 '' 双写与反斜杠转义）、反引号/双引号标识符、
+// 行注释（-- 与 #）与块注释统一替换成空格（保留换行），长度与原文一致。
+// 与 db-sql-complete.maskSqlLiterals 同思路的极简版，仅供本文件的
+// containsAnalyze / 多语句检查使用（两个适配器各自内联，避免互相依赖）。
+function maskSqlText (text) {
+  const s = String(text || '')
+  const out = s.split('')
+  const n = s.length
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) {
+      if (out[k] !== '\n') {
+        out[k] = ' '
+      }
+    }
+  }
+  let i = 0
+  while (i < n) {
+    const c = s[i]
+    // 行注释 -- / #（pg 只认 --，多吞 # 无害：裸 # 在 SQL 里本就非法）
+    if ((c === '-' && s[i + 1] === '-') || c === '#') {
+      let j = s.indexOf('\n', i)
+      if (j < 0) {
+        j = n
+      }
+      blank(i, j)
+      i = j
+      continue
+    }
+    // 块注释 /* */（不嵌套，与 mysql 行为一致）
+    if (c === '/' && s[i + 1] === '*') {
+      const found = s.indexOf('*/', i + 2)
+      const j = found < 0 ? n : found + 2
+      blank(i, j)
+      i = j
+      continue
+    }
+    // 字符串 '...' / 标识符 `...` "..."：反斜杠转义 + 单/双引号双写转义
+    if (c === '\'' || c === '"' || c === '`') {
+      let j = i + 1
+      while (j < n) {
+        if (s[j] === '\\') {
+          j += 2
+          continue
+        }
+        if (s[j] === c) {
+          if (c !== '`' && s[j + 1] === c) {
+            j += 2
+            continue
+          }
+          j += 1
+          break
+        }
+        j += 1
+      }
+      const end = Math.min(j, n)
+      blank(i, end)
+      i = end
+      continue
+    }
+    i += 1
+  }
+  return out.join('')
+}
+
+// EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会**真实执行**语句，必须拒绝。
+// 直接对原文做 /\banalyze\b/i 会把字符串/注释里的 "analyze" 误杀，故先掩码再匹配。
+function containsAnalyze (sql) {
+  return /\banalyze\b/i.test(maskSqlText(sql))
+}
+
+function finiteOrNull (v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+// mysql JSON 计划树里的操作包装键 → 统一节点类型名
+const MYSQL_OP_LABELS = {
+  ordering_operation: 'Sort',
+  grouping_operation: 'Group',
+  windowing_operation: 'Window',
+  nested_loop: 'Nested Loop'
+}
+
+// table 节点 → 树视图展示字段（节点类型/表/预估 rows/filtered/key/Extra）
+function extractMysqlTable (t) {
+  const rows = t.rows_examined_per_scan !== undefined
+    ? finiteOrNull(t.rows_examined_per_scan)
+    : finiteOrNull(t.rows)
+  return {
+    table: t.table_name || t.table_label || null,
+    accessType: t.access_type || null,
+    rows,
+    filtered: finiteOrNull(t.filtered),
+    key: t.key || null,
+    // 新版本把过滤条件放 attached_condition，老版本在 extra
+    extra: t.extra || t.attached_condition || null
+  }
+}
+
+// 递归抽取：mysql 的计划树藏在 query_block 下的
+// ordering_operation/grouping_operation/nested_loop/table 等键里
+function convertMysqlNode (node, opLabel) {
+  const info = { table: null, accessType: null, rows: null, filtered: null, key: null, extra: null }
+  let cost = null
+  const children = []
+  for (const key of Object.keys(node || {})) {
+    const val = node[key]
+    if (!val || typeof val !== 'object') {
+      continue
+    }
+    if (key === 'table') {
+      Object.assign(info, extractMysqlTable(val))
+    } else if (key === 'cost_info') {
+      cost = finiteOrNull(val.query_cost)
+    } else if (key === 'nested_loop' && Array.isArray(val)) {
+      for (const item of val) {
+        children.push(convertMysqlNode(item, null))
+      }
+    } else if (/_operation$/.test(key)) {
+      children.push(convertMysqlNode(val, MYSQL_OP_LABELS[key] || key))
+    }
+  }
+  // 节点类型：操作包装用操作名；纯 table 节点用 access_type（ALL/ref/eq_ref/const…）
+  const nodeType = opLabel || info.accessType || (info.table ? 'TABLE' : 'NODE')
+  return {
+    nodeType,
+    table: info.table,
+    rows: info.rows,
+    filtered: info.filtered,
+    key: info.key,
+    extra: info.extra,
+    cost,
+    children
+  }
+}
+
+// 纯函数（导出仅供单测）：EXPLAIN FORMAT=JSON 输出 → 统一节点树。
+// 入参为已 parse 的对象（mysql2 拿到的是字符串，explainQuery 负责先 parse）
+function parseMysqlPlan (json) {
+  let doc = json
+  if (typeof json === 'string') {
+    try {
+      doc = JSON.parse(json)
+    } catch (e) {
+      throw new Error('无法解析 EXPLAIN 输出：不是合法 JSON')
+    }
+  }
+  if (!doc || typeof doc !== 'object') {
+    throw new Error('无法解析 EXPLAIN 输出：不是 JSON 对象')
+  }
+  const root = doc.query_block
+  if (!root || typeof root !== 'object') {
+    throw new Error('无法解析 EXPLAIN 输出：缺少 query_block')
+  }
+  return convertMysqlNode(root, 'SELECT')
+}
+
+async function explainQuery (conn, { database, sql }) {
+  const s = String(sql || '').trim()
+  if (!s) {
+    throw new Error('explainQuery requires sql')
+  }
+  // 安全边界：EXPLAIN ANALYZE 会真实执行语句，词法级检查后一律拒绝
+  if (containsAnalyze(s)) {
+    throw new Error('EXPLAIN 拒绝 ANALYZE：EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会真实执行语句')
+  }
+  // EXPLAIN 本身"只解释不执行"，但 multipleStatements 开着，
+  // `EXPLAIN FORMAT=JSON select 1; DELETE FROM t` 的第二条会真实执行 ——
+  // 掩码字符串/注释后仍有分号即拒绝多语句；尾部孤立分号剥掉后再发送
+  // （multipleStatements 下 `EXPLAIN ...;` 会被切成空语句，行为不定）
+  const clean = s.replace(/[;\s]+$/, '')
+  if (maskSqlText(clean).includes(';')) {
+    throw new Error('EXPLAIN 一次只接受一条语句（检测到多余分号）')
+  }
+  const pool = await getPool(conn)
+  const c = await pool.getConnection()
+  try {
+    // 与 executeSql 同一模式：同一连接先 USE 再执行，否则裸表名报 No database selected
+    if (database) {
+      await c.query('USE ' + quoteIdent(database))
+    }
+    const [rows] = await c.query('EXPLAIN FORMAT=JSON ' + clean)
+    const first = rows && rows[0]
+    if (!first) {
+      throw new Error('无法解析 EXPLAIN 输出：结果为空')
+    }
+    const raw = first.EXPLAIN !== undefined
+      ? first.EXPLAIN
+      : first[Object.keys(first)[0]]
+    let doc
+    try {
+      doc = typeof raw === 'string' ? JSON.parse(raw) : raw
+    } catch (e) {
+      throw new Error('无法解析 EXPLAIN 输出：不是合法 JSON')
+    }
+    return { dialect: 'mysql', root: parseMysqlPlan(doc), raw: doc }
+  } finally {
+    c.release()
+  }
+}
+
 // 无参全清（app 退出兜底）；有参按引用计数释放
 async function closeMysqlConnection (conn) {
   if (!conn) {
@@ -854,10 +1080,11 @@ module.exports = {
   deleteRows,
   countRows,
   executeSql,
+  explainQuery,
   listColumns,
   closeMysqlConnection,
   // 纯函数导出仅供单测（安全白名单 / 结果规范化 / 列分组 / 二进制信封阈值 / 引用分组 /
-  // 批量 INSERT 语句构建）
+  // 批量 INSERT 语句构建 / EXPLAIN 计划解析 / ANALYZE 词法检查）
   checkReadonly,
   checkWritable,
   toResult,
@@ -867,5 +1094,8 @@ module.exports = {
   getReferences,
   INLINE_LIMIT,
   buildInsertBatch,
-  insertBatchParams
+  insertBatchParams,
+  parseMysqlPlan,
+  containsAnalyze,
+  extractActualRows
 }
