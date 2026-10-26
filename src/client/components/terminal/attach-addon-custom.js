@@ -817,6 +817,8 @@ export default class AttachAddonCustom {
   sendToServer = (data) => {
     this._lastInputTime = Date.now()
     this.trafficTracker?.countUp(data)
+    // Track half-typed input so the keepalive never submits it (see _trackPendingInput)
+    this._trackPendingInput(data)
     // Start echo detection when password prompt is suspected
     if (this._passwordPromptDetected && !this._pendingEchoCheck && data !== '\r' && data !== '\n' && data !== '\x03') {
       this._pendingEchoCheck = { char: data, time: Date.now() }
