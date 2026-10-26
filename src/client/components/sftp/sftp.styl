@@ -195,10 +195,21 @@
   position fixed
   z-index 999
 
-.keyword-filter-icon
-  &:hover
-  &.active
+.sftp-keyword-bar
+  display flex
+  align-items center
+  justify-content space-between
+  padding-top 4px
+  padding-bottom 4px
+  background var(--main-darker)
+  border-bottom 1px solid var(--primary)
+  .sftp-keyword-bar-icon
     color var(--success)
+  .sftp-keyword-bar-text
+    flex 1
+    min-width 0
+  .sftp-keyword-bar-close:hover
+    color var(--error)
 
 .sftp-addr-menu-icon
   cursor pointer

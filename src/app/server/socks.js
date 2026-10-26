@@ -3,22 +3,28 @@
  */
 
 const { request } = require('http')
+const { isIP } = require('net')
 
-function isValidIP (input) {
-  // Check IPv4 format
-  const ipv4Pattern = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
-  if (ipv4Pattern.test(input)) {
-    return true
-  }
+/**
+ * url hostname without the brackets a URL keeps around an IPv6 literal
+ * @param {string} hostname
+ * @return {string}
+ */
+function plainHostname (hostname) {
+  return hostname.replace(/^\[(.*)\]$/, '$1')
+}
 
-  // Check IPv6 format
-  const ipv6Pattern = /^([\da-f]{1,4}:){7}[\da-f]{1,4}$/i
-  if (ipv6Pattern.test(input)) {
-    return true
-  }
-
-  // If input doesn't match IPv4 or IPv6 patterns, it's not a valid IP
-  return false
+/**
+ * socks proxy address from a URL hostname
+ * URL keeps the brackets around an IPv6 hostname ([::1]), which is not
+ * something net.connect can resolve, so drop them, and use net.isIP so
+ * compressed IPv6 forms like ::1 or fe80::1 count as an ip as well
+ * @param {string} hostname
+ * @return {object} {ipaddress} or {host}
+ */
+function proxyAddress (hostname) {
+  const addr = plainHostname(hostname)
+  return isIP(addr) ? { ipaddress: addr } : { host: addr }
 }
 
 function parseUrl (str) {
@@ -54,7 +60,11 @@ module.exports = (initOptions) => {
       const opts = {
         agent: false,
         protocol,
-        hostname,
+        // same bracket problem as the socks branch below: http.request
+        // connects to hostname, so '[::1]' goes to dns.lookup and fails.
+        // `host` stays as proxyURL.host, where the brackets belong, since it
+        // is what ends up in the Host header
+        hostname: plainHostname(hostname),
         port: proxyPort,
         host: proxyHost,
         path: `${host}:${port}`,
@@ -78,9 +88,9 @@ module.exports = (initOptions) => {
     })
   }
   const type = protocol.includes('5') ? 5 : 4
-  const isIp = isValidIP(hostname)
   const options = {
     proxy: {
+      ...proxyAddress(hostname),
       port: proxyPort,
       type,
       userId: username,
@@ -95,13 +105,9 @@ module.exports = (initOptions) => {
       port
     }
   }
-  if (isIp) {
-    options.proxy.ipaddress = hostname
-  } else {
-    options.proxy.host = hostname
-  }
-
   // use socks proxy
   const { SocksClient } = require('socks')
   return SocksClient.createConnection(options)
 }
+
+module.exports.proxyAddress = proxyAddress
