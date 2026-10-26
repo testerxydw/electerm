@@ -570,6 +570,119 @@ async function insertRow (conn, { database, schema, table, values, readOnly }) {
   return { affected: res.rowCount }
 }
 
+// -------------------------------------------------- C 批：分批 multi-row INSERT（导入）
+// 与 mysql 适配器同构（切批逻辑共用 ./insert-batch，事务/占位符按 pg 方言）：
+// - $n 占位符全批连续编号（表达式列不占号，编号与 params 顺序严格一致）
+// - upsert 用 ON CONFLICT (pk...) DO UPDATE SET col = EXCLUDED.col
+// - overwrite 先 DELETE FROM；rebuild 占位报错（D 批实现），与 mysql 适配器口径一致
+// - expressions：列名 → SQL 片段，必须先经 safe-clause.assertSafeClause 过列白名单
+//   （db-importer 负责，见 mysql 适配器同段注释）
+
+function buildInsertBatch ({
+  fullTable,
+  cols,
+  batchRows,
+  mode = 'append',
+  pkColumns,
+  updateColumns,
+  expressions
+}) {
+  const exprMap = expressions && typeof expressions === 'object' ? expressions : {}
+  const hasExpr = c => Object.prototype.hasOwnProperty.call(exprMap, c)
+  let n = 0
+  const rowSqls = batchRows.map(row => {
+    const cells = cols.map(c => {
+      if (hasExpr(c)) {
+        return String(exprMap[c])
+      }
+      n++
+      return '$' + n
+    })
+    return '(' + cells.join(', ') + ')'
+  })
+  let sql = 'INSERT INTO ' + fullTable +
+    ' (' + cols.map(quoteIdent).join(', ') + ')' +
+    ' VALUES ' + rowSqls.join(', ')
+  if (mode === 'upsert') {
+    const pks = (Array.isArray(pkColumns) ? pkColumns : []).map(String)
+    if (!pks.length) {
+      throw new Error('upsert requires primary key columns')
+    }
+    const upd = (Array.isArray(updateColumns) && updateColumns.length
+      ? updateColumns.map(String)
+      : cols.filter(c => !pks.includes(c)))
+    if (!upd.length) {
+      throw new Error('upsert requires updatable columns besides the primary key')
+    }
+    sql += ' ON CONFLICT (' + pks.map(quoteIdent).join(', ') + ') DO UPDATE SET ' +
+      upd.map(c => quoteIdent(c) + ' = EXCLUDED.' + quoteIdent(c)).join(', ')
+  }
+  return sql
+}
+
+function insertBatchParams (rows, cols, expressions) {
+  const exprMap = expressions && typeof expressions === 'object' ? expressions : {}
+  const bindCols = cols.filter(c => !Object.prototype.hasOwnProperty.call(exprMap, c))
+  const params = []
+  for (const row of rows) {
+    for (const c of bindCols) {
+      params.push(row[c] === undefined ? null : row[c])
+    }
+  }
+  return params
+}
+
+const INSERT_MODES = ['append', 'overwrite', 'upsert']
+
+async function insertRows (
+  conn,
+  { database, schema, table, rows, readOnly, mode = 'append', pkColumns, updateColumns, expressions }
+) {
+  checkWritable(readOnly)
+  if (!INSERT_MODES.includes(mode)) {
+    throw new Error(`unsupported insertRows mode: ${mode}`)
+  }
+  const list = Array.isArray(rows) ? rows.filter(r => r && typeof r === 'object') : []
+  if (!list.length) {
+    return { affected: 0, batchCount: 0, failures: [] }
+  }
+  const cols = Object.keys(list[0]).filter(k => k)
+  if (!cols.length) {
+    throw new Error('insertRows requires at least one column')
+  }
+  const { planInsertBatches } = require('./insert-batch')
+  const c = await getClient(conn)
+  if (database && database !== c.database) {
+    throw new Error('cross-database query not supported for postgres, connect with that database')
+  }
+  const fullTable = quoteIdent(schema || 'public') + '.' + quoteIdent(table)
+  const batches = planInsertBatches(list)
+  let affected = 0
+  const failures = []
+  for (let b = 0; b < batches.length; b++) {
+    const batch = batches[b]
+    const sql = buildInsertBatch({
+      fullTable, cols, batchRows: batch.rows, mode, pkColumns, updateColumns, expressions
+    })
+    try {
+      // 单客户端本来就是同一连接：BEGIN/COMMIT 直接发即可
+      await c.query('BEGIN')
+      const res = await c.query(sql, insertBatchParams(batch.rows, cols, expressions))
+      await c.query('COMMIT')
+      affected += res.rowCount || 0
+    } catch (e) {
+      await c.query('ROLLBACK').catch(() => {})
+      failures.push({
+        batchNo: b + 1,
+        firstRow: batch.firstRow,
+        rowCount: batch.rows.length,
+        message: e.message
+      })
+    }
+  }
+  return { affected, batchCount: batches.length, failures }
+}
+
 // 整行 DELETE 批量上限：防误操作大范围删除 + IN 子句过长
 const DELETE_ROWS_LIMIT = 200
 
@@ -710,12 +823,15 @@ module.exports = {
   getTableStructure,
   updateCell,
   insertRow,
+  insertRows,
   deleteRows,
   countRows,
   executeSql,
   listColumns,
   closePostgresConnection,
-  // 纯函数导出仅供单测（列分组 / 反向外键查询）
+  // 纯函数导出仅供单测（列分组 / 反向外键查询 / 批量 INSERT 语句构建）
   groupColumns,
-  getReferences
+  getReferences,
+  buildInsertBatch,
+  insertBatchParams
 }

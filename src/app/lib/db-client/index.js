@@ -457,6 +457,26 @@ async function setDbReadOnly (tabId, readOnly) {
   return { ok: true }
 }
 
+// ---------------------------------------------------------------- C 批：tab 上下文
+// 流式导出（db-exporter）与 CSV 导入（db-importer）需要绕过 op 分发表直接调
+// 适配器方法（insertRows / 循环 getPageData）。上下文一律从本模块取：
+// - readOnly 以主进程实例为权威（与 dbClientOp 的 safeArgs 注入同源），
+//   渲染层伪造 readOnly:false 到不了写入口
+// - adapter 是适配器模块本体：调用方只能调它的方法，连接生命周期（release/close）
+//   仍归 db-client 管理，调用方不得触碰
+function getDbTabContext (tabId) {
+  const inst = instances[tabId]
+  if (!inst || inst.pending) {
+    throw new Error('database tab not open')
+  }
+  return {
+    dbType: inst.dbType,
+    adapter: getAdapter(inst.dbType),
+    conn: inst.conn,
+    readOnly: inst.readOnly
+  }
+}
+
 async function closeDbTab (tabId) {
   const inst = instances[tabId]
   log.debug('[db-client] closeDbTab', tabId, inst ? (inst.pending ? 'pending' : 'normal') : 'missing')
@@ -497,6 +517,7 @@ module.exports = {
   openDbTab,
   dbClientOp,
   setDbReadOnly,
+  getDbTabContext,
   closeDbTab,
   closeAllDbTabs
 }

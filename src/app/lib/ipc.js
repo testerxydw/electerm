@@ -332,6 +332,9 @@ function initIpc () {
     setDbReadOnly: (...args) => require('./db-client').setDbReadOnly(...args),
     closeDbTab: (...args) => require('./db-client').closeDbTab(...args),
     closeAllDbTabs: (...args) => require('./db-client').closeAllDbTabs(...args),
+    // C 批流式导出/导入：任务型入口（start/status/cancel），见 db-exporter/db-importer
+    dbExportOp: (action, arg) => require('./db-exporter').dbExportOp(action, arg),
+    dbImportOp: (action, arg) => require('./db-importer').dbImportOp(action, arg),
     loadFontList,
     createRecordFile,
     appendRecFile,

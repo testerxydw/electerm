@@ -567,6 +567,135 @@ async function insertRow (conn, { database, table, values, readOnly }) {
   return { affected: res.affectedRows, insertId: res.insertId }
 }
 
+// -------------------------------------------------- C 批：分批 multi-row INSERT（导入）
+// 与单行 insertRow 的差异（设计 §10）：
+// - rows 是同构行对象数组，内部按 行数上限(500) + 估算 SQL 体积上限(1MB) 自动切批
+//   （切批逻辑在 ./insert-batch，与 pg 适配器共用，口径一致）
+// - 每批独立事务：一批失败记录 { batchNo, firstRow, rowCount, message } 后继续下一批，
+//   不让单批坏数据拖垮整个导入（失败明细由 db-importer 聚合进任务状态）
+// - expressions：列名 → SQL 片段（导入映射的 expression 模式）。片段必须先经
+//   safe-clause.assertSafeClause 过列白名单（db-importer 负责），适配器按调用方契约内联
+// - 全部非表达式值占位符绑定；标识符反引号引用
+// - overwrite：先 DELETE FROM（不用 TRUNCATE：可回滚、不隐式提交、权限要求更窄）；
+//   rebuild 本期占位报错（D 批实现）
+// 注：mysql 适配器没有 schema 概念，入参里的 schema 仅保持与 pg 签名一致，忽略。
+
+// 用文本协议 query 而不是 execute：每批占位符数量不同，execute 会为每种形状
+// 各准备一次预处理语句，大批导入下纯属浪费
+function buildInsertBatch ({
+  fullTable,
+  cols,
+  rowCount,
+  mode = 'append',
+  pkColumns,
+  updateColumns,
+  expressions
+}) {
+  const exprMap = expressions && typeof expressions === 'object' ? expressions : {}
+  const hasExpr = c => Object.prototype.hasOwnProperty.call(exprMap, c)
+  const cells = cols.map(c => (hasExpr(c) ? String(exprMap[c]) : '?'))
+  const valuesSql = Array.from({ length: rowCount }, () => '(' + cells.join(', ') + ')').join(', ')
+  let sql = 'INSERT INTO ' + fullTable +
+    ' (' + cols.map(quoteIdent).join(', ') + ')' +
+    ' VALUES ' + valuesSql
+  if (mode === 'upsert') {
+    const pks = (Array.isArray(pkColumns) ? pkColumns : []).map(String)
+    if (!pks.length) {
+      throw new Error('upsert requires primary key columns')
+    }
+    const upd = (Array.isArray(updateColumns) && updateColumns.length
+      ? updateColumns.map(String)
+      : cols.filter(c => !pks.includes(c)))
+    if (!upd.length) {
+      throw new Error('upsert requires updatable columns besides the primary key')
+    }
+    // VALUES(col) 在 8.0.20 起标记废弃但仍受支持：为了兼容 5.7 保留写法
+    sql += ' ON DUPLICATE KEY UPDATE ' +
+      upd.map(c => quoteIdent(c) + ' = VALUES(' + quoteIdent(c) + ')').join(', ')
+  }
+  return sql
+}
+
+function insertBatchParams (rows, cols, expressions) {
+  const exprMap = expressions && typeof expressions === 'object' ? expressions : {}
+  const bindCols = cols.filter(c => !Object.prototype.hasOwnProperty.call(exprMap, c))
+  const params = []
+  for (const row of rows) {
+    for (const c of bindCols) {
+      params.push(row[c] === undefined ? null : row[c])
+    }
+  }
+  return params
+}
+
+const INSERT_MODES = ['append', 'overwrite', 'upsert']
+
+async function insertRows (
+  conn,
+  { database, schema, table, rows, readOnly, mode = 'append', pkColumns, updateColumns, expressions }
+) {
+  checkWritable(readOnly)
+  if (!INSERT_MODES.includes(mode)) {
+    throw new Error(`unsupported insertRows mode: ${mode}`)
+  }
+  const list = Array.isArray(rows) ? rows.filter(r => r && typeof r === 'object') : []
+  if (!list.length) {
+    return { affected: 0, batchCount: 0, failures: [] }
+  }
+  // 列清单取首行键：调用方（db-importer）保证同构，后继行多出的键忽略、缺失按 null
+  const cols = Object.keys(list[0]).filter(k => k)
+  if (!cols.length) {
+    throw new Error('insertRows requires at least one column')
+  }
+  const { planInsertBatches } = require('./insert-batch')
+  const pool = await getPool(conn)
+  const fullTable = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  const batches = planInsertBatches(list)
+  let affected = 0
+  const failures = []
+  const runBatch = async (c, sql, params) => {
+    await c.query('START TRANSACTION')
+    const [res] = await c.query(sql, params)
+    await c.query('COMMIT')
+    return res.affectedRows || 0
+  }
+  const c = await pool.getConnection()
+  try {
+    if (mode === 'overwrite') {
+      // 清空与写入分事务：DELETE 本身可整批失败（权限/外键），失败则整个导入中止；
+      // 已提交批次保留是导入的既定语义（止步不回滚），不在一条大事务里硬凑原子性
+      try {
+        await runBatch(c, 'DELETE FROM ' + fullTable, [])
+      } catch (e) {
+        await c.query('ROLLBACK').catch(() => {})
+        throw new Error('overwrite 清空目标表失败: ' + e.message)
+      }
+    }
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b]
+      const sql = buildInsertBatch({
+        fullTable, cols, rowCount: batch.rows.length, mode, pkColumns, updateColumns, expressions
+      })
+      try {
+        affected += await runBatch(c, sql, insertBatchParams(batch.rows, cols, expressions))
+      } catch (e) {
+        await c.query('ROLLBACK').catch(() => {})
+        failures.push({
+          batchNo: b + 1,
+          firstRow: batch.firstRow,
+          rowCount: batch.rows.length,
+          message: e.message
+        })
+      }
+    }
+  } finally {
+    c.release()
+  }
+  return { affected, batchCount: batches.length, failures }
+}
+
 // 整行 DELETE 批量上限：防误操作大范围删除 + IN 子句过长
 const DELETE_ROWS_LIMIT = 200
 
@@ -721,12 +850,14 @@ module.exports = {
   getTableStructure,
   updateCell,
   insertRow,
+  insertRows,
   deleteRows,
   countRows,
   executeSql,
   listColumns,
   closeMysqlConnection,
-  // 纯函数导出仅供单测（安全白名单 / 结果规范化 / 列分组 / 二进制信封阈值 / 引用分组）
+  // 纯函数导出仅供单测（安全白名单 / 结果规范化 / 列分组 / 二进制信封阈值 / 引用分组 /
+  // 批量 INSERT 语句构建）
   checkReadonly,
   checkWritable,
   toResult,
@@ -734,5 +865,7 @@ module.exports = {
   groupColumns,
   groupReferences,
   getReferences,
-  INLINE_LIMIT
+  INLINE_LIMIT,
+  buildInsertBatch,
+  insertBatchParams
 }
