@@ -574,7 +574,8 @@ async function insertRow (conn, { database, schema, table, values, readOnly }) {
 // 与 mysql 适配器同构（切批逻辑共用 ./insert-batch，事务/占位符按 pg 方言）：
 // - $n 占位符全批连续编号（表达式列不占号，编号与 params 顺序严格一致）
 // - upsert 用 ON CONFLICT (pk...) DO UPDATE SET col = EXCLUDED.col
-// - overwrite 先 DELETE FROM；rebuild 占位报错（D 批实现），与 mysql 适配器口径一致
+// - overwrite 先独立事务 DELETE FROM 清空目标表（失败中止整个导入）；rebuild 占位
+//   报错（D 批实现），与 mysql 适配器口径一致
 // - expressions：列名 → SQL 片段，必须先经 safe-clause.assertSafeClause 过列白名单
 //   （db-importer 负责，见 mysql 适配器同段注释）
 
@@ -659,6 +660,19 @@ async function insertRows (
   const batches = planInsertBatches(list)
   let affected = 0
   const failures = []
+  if (mode === 'overwrite') {
+    // 清空与写入分事务：DELETE 本身可整批失败（权限/外键），失败则整个导入中止
+    // （抛错，不继续批次）；已提交批次保留是导入的既定语义（止步不回滚），
+    // 不在一条大事务里硬凑原子性。与 mysql 适配器 overwrite 分支口径一致。
+    try {
+      await c.query('BEGIN')
+      await c.query('DELETE FROM ' + fullTable)
+      await c.query('COMMIT')
+    } catch (e) {
+      await c.query('ROLLBACK').catch(() => {})
+      throw new Error('overwrite 清空目标表失败: ' + e.message)
+    }
+  }
   for (let b = 0; b < batches.length; b++) {
     const batch = batches[b]
     const sql = buildInsertBatch({

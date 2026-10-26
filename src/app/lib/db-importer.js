@@ -253,14 +253,18 @@ function normalizeMapping (mapping) {
 }
 
 /**
- * 文件行 → 待插入行对象（纯函数）。expression 列不进参数（由 SQL 片段求值）；
- * 映射引用了表头不存在的文件列时按 null 处理（预览侧应拦，这里是兜底）。
+ * 文件行 → 待插入行对象（纯函数）。expression 列也要占键位（值置 undefined）：
+ * insertRows 以首行 Object.keys 生成 INSERT 列清单，缺键会导致表达式列被静默丢弃
+ * （buildInsertBatch 的 hasExpr 永远命不中）；undefined 值不会进绑定参数
+ * （insertBatchParams 的 bindCols 本就跳过表达式列）。映射引用了表头不存在的
+ * 文件列时按 null 处理（预览侧应拦，这里是兜底）。
  */
 function mapRowToInsert (fields, setters, insertCols, headerCols) {
   const row = {}
   setters.forEach((s, i) => {
     const col = insertCols[i]
     if (s.kind === 'expression') {
+      row[col] = undefined
       return
     }
     if (s.kind === 'constant') {

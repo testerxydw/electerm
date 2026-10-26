@@ -598,4 +598,165 @@ describe('适配器 buildInsertBatch（mysql/pg）', () => {
     const p = await postgres.insertRows(null, { rows: [], readOnly: false })
     assert.deepEqual(p, { affected: 0, batchCount: 0, failures: [] })
   })
+
+  // ---------- QA Round1 回归：mock 驱动捕获真实语句 ----------
+
+  // 独立补丁：外层补丁只挡 electron/electron-log，这里再叠一层挡驱动模块；
+  // 委托回捕获的上一层，finally 恢复，不影响同 describe 其他用例
+  function patchDriver (request, factory) {
+    const M = require('node:module')
+    const prev = M._load
+    M._load = function (req, parent, isMain) {
+      if (req === request) {
+        return factory()
+      }
+      return prev.call(this, req, parent, isMain)
+    }
+    return () => {
+      M._load = prev
+    }
+  }
+
+  test('pg overwrite：批次前独立事务 DELETE，DELETE 失败中止整个导入', async () => {
+    const queries = []
+    const fakeClient = {
+      connect: async () => {},
+      end: async () => {},
+      query: async (sql) => {
+        queries.push(sql)
+        if (String(sql).startsWith('DELETE FROM')) {
+          throw new Error('mock delete denied')
+        }
+        return { rowCount: 1 }
+      }
+    }
+    const restore = patchDriver('pg', () => ({
+      Client: function () {
+        return fakeClient
+      }
+    }))
+    try {
+      // conn 参数唯一，避免命中模块级 clients 缓存拿到别的用例的连接
+      const conn = { dbHost: 'qa-pg-ow-fail', dbPort: 5432, dbUser: 'u', dbName: 'd' }
+      await assert.rejects(
+        postgres.insertRows(conn, {
+          schema: 'public', table: 't', rows: [{ a: 1 }], readOnly: false, mode: 'overwrite'
+        }),
+        /overwrite 清空目标表失败/
+      )
+      assert.deepEqual(queries, ['BEGIN', 'DELETE FROM "public"."t"', 'ROLLBACK'])
+    } finally {
+      restore()
+    }
+  })
+
+  test('pg overwrite：DELETE 成功后批次正常写入（语句顺序）', async () => {
+    const queries = []
+    const fakeClient = {
+      connect: async () => {},
+      end: async () => {},
+      query: async (sql) => {
+        queries.push(sql)
+        return { rowCount: 1 }
+      }
+    }
+    const restore = patchDriver('pg', () => ({
+      Client: function () {
+        return fakeClient
+      }
+    }))
+    try {
+      const conn = { dbHost: 'qa-pg-ow-ok', dbPort: 5432, dbUser: 'u', dbName: 'd' }
+      const r = await postgres.insertRows(conn, {
+        schema: 'public', table: 't', rows: [{ a: 1 }], readOnly: false, mode: 'overwrite'
+      })
+      assert.equal(r.failures.length, 0)
+      assert.deepEqual(queries, [
+        'BEGIN',
+        'DELETE FROM "public"."t"',
+        'COMMIT',
+        'BEGIN',
+        'INSERT INTO "public"."t" ("a") VALUES ($1)',
+        'COMMIT'
+      ])
+    } finally {
+      restore()
+    }
+  })
+
+  test('mysql insertRows e2e：expression 列进 INSERT 列清单，VALUES 为字面量、params 正确', async () => {
+    const calls = []
+    const fakeConn = {
+      query: async (sql, params) => {
+        calls.push([sql, params])
+        return [{ affectedRows: 1 }]
+      },
+      release: () => {}
+    }
+    const restore = patchDriver('mysql2/promise', () => ({
+      createPool: () => ({
+        getConnection: async () => fakeConn,
+        end: async () => {}
+      })
+    }))
+    try {
+      const conn = { dbHost: 'qa-my-expr', dbPort: 3306, dbUser: 'u', dbName: 'db' }
+      // 首行键含 expression 列（值为 undefined，mapRowToInsert 占键位）
+      const r = await mysql.insertRows(conn, {
+        database: 'db',
+        table: 't',
+        rows: [{ id: 1, note: 'K', ts: undefined }],
+        readOnly: false,
+        expressions: { ts: 'NOW()' }
+      })
+      assert.equal(r.failures.length, 0)
+      const insertCall = calls.find(c => String(c[0]).startsWith('INSERT INTO'))
+      assert.ok(insertCall, '未发出 INSERT')
+      assert.equal(
+        insertCall[0],
+        'INSERT INTO `db`.`t` (`id`, `note`, `ts`) VALUES (?, ?, NOW())'
+      )
+      // 绑定参数只有非表达式列：id=1, note='K'，表达式列不占位
+      assert.deepEqual(insertCall[1], [1, 'K'])
+    } finally {
+      restore()
+    }
+  })
+
+  test('pg insertRows e2e：expression 列进 INSERT 列清单，$n 编号跳过表达式列', async () => {
+    const calls = []
+    const fakeClient = {
+      connect: async () => {},
+      end: async () => {},
+      query: async (sql, params) => {
+        calls.push([sql, params])
+        return { rowCount: 1 }
+      }
+    }
+    const restore = patchDriver('pg', () => ({
+      Client: function () {
+        return fakeClient
+      }
+    }))
+    try {
+      const conn = { dbHost: 'qa-pg-expr', dbPort: 5432, dbUser: 'u', dbName: 'd' }
+      const r = await postgres.insertRows(conn, {
+        schema: 'public',
+        table: 't',
+        rows: [{ id: 1, note: 'K', ts: undefined }],
+        readOnly: false,
+        expressions: { ts: 'NOW()' }
+      })
+      assert.equal(r.failures.length, 0)
+      const insertCall = calls.find(c => String(c[0]).startsWith('INSERT INTO'))
+      assert.ok(insertCall, '未发出 INSERT')
+      assert.equal(
+        insertCall[0],
+        'INSERT INTO "public"."t" ("id", "note", "ts") VALUES ($1, $2, NOW())'
+      )
+      assert.deepEqual(insertCall[1], [1, 'K'])
+    } finally {
+      restore()
+    }
+  })
 })

@@ -313,9 +313,15 @@ describe('mapRowToInsert 行映射', () => {
   const insertCols = ['col_a', 'note', 'del', 'expr']
   const headerCols = ['a', 'b']
 
-  test('field 按表头下标取值 / constant / null / expression 不产参', () => {
+  test('field 按表头下标取值 / constant / null / expression 仅占键位不产参', () => {
     const row = mapRowToInsert(['v1', 'v2'], setters, insertCols, headerCols)
-    assert.deepEqual(row, { col_a: 'v1', note: 'K', del: null })
+    // expression 列必须占键位（insertRows 以首行 keys 生成 INSERT 列清单），
+    // 值为 undefined 时不进绑定参数（insertBatchParams 跳过表达式列）
+    assert.deepEqual(Object.keys(row), ['col_a', 'note', 'del', 'expr'])
+    assert.equal(row.col_a, 'v1')
+    assert.equal(row.note, 'K')
+    assert.equal(row.del, null)
+    assert.equal(row.expr, undefined)
   })
 
   test('映射引用表头不存在的文件列 → null（预览侧拦截后的兜底）', () => {
