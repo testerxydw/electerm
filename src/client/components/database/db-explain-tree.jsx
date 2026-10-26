@@ -130,13 +130,34 @@ export default function DbExplainDialog ({
     return layoutPlan(data.root)
   }, [data])
 
+  // 导出前把外部 CSS 解析成内联属性：XMLSerializer 不带走样式表，
+  // 节点/连线/文本只挂 class（fill/stroke 定义在 styl 里且是 var(--x)），
+  // 直接序列化的 SVG/PNG 会是黑块。clone 后按计算样式逐元素内联 ——
+  // 计算值来自当前主题，深浅主题导出都天然跟随（QA BUG-3）
+  const inlineSvgStyles = (srcSvg) => {
+    const clone = srcSvg.cloneNode(true)
+    const srcEls = srcSvg.querySelectorAll('*')
+    const dstEls = clone.querySelectorAll('*')
+    const props = ['fill', 'stroke', 'stroke-width', 'font-size', 'font-weight', 'font-family']
+    for (let i = 0; i < srcEls.length; i++) {
+      const cs = window.getComputedStyle(srcEls[i])
+      for (const p of props) {
+        const v = cs.getPropertyValue(p)
+        if (v) {
+          dstEls[i].setAttribute(p, v)
+        }
+      }
+    }
+    return clone
+  }
+
   // 导出：SVG 直接序列化下载；PNG 经 Image → canvas 二倍分辨率转制
   const exportGraph = (kind) => {
     const svg = svgRef.current
     if (!svg || !graph) {
       return
     }
-    const xml = new window.XMLSerializer().serializeToString(svg)
+    const xml = new window.XMLSerializer().serializeToString(inlineSvgStyles(svg))
     const name = 'db-explain-' + Date.now()
     if (kind === 'svg') {
       downloadText(name + '.svg', 'image/svg+xml;charset=utf-8', xml)

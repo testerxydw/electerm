@@ -349,6 +349,13 @@ describe('D 批：ANALYZE 词法检查与实际行数（mysql）', () => {
     assert.equal(mod.containsAnalyze('SELECT analyzed FROM t'), false)
   })
 
+  test('BUG-1 联动：-- 后无空格时 analyze 视为普通文本（保守误杀方向）', () => {
+    // --analyze 不是注释 → 文本里有 analyze 词 → 拒绝（宁可误拒）
+    assert.equal(mod.containsAnalyze('select 1 --analyze from t'), true)
+    // -- 后有空格 → 注释 → 不杀
+    assert.equal(mod.containsAnalyze('select 1 -- analyze from t'), false)
+  })
+
   test('extractActualRows：有实际行数才取，预估值不冒充', () => {
     assert.equal(mod.extractActualRows({ r_rows: 3 }), 3)
     assert.equal(mod.extractActualRows({ 'Actual Rows': 5 }), 5)
@@ -441,6 +448,54 @@ describe('D 批：mysql explainQuery（集成，vm 打桩）', () => {
       Array.from(ok.calls.queries),
       ['EXPLAIN FORMAT=JSON SELECT 1']
     )
+  })
+
+  test('BUG-1 回归：-- 后无空格不是注释，分号可见 → 多语句拒绝', async () => {
+    const { mod, calls } = loadMysql()
+    await assert.rejects(
+      mod.explainQuery(
+        { dbHost: 'h', dbPort: 3306 },
+        { sql: 'select 1 --x; DELETE FROM t' }
+      ),
+      /一条语句/
+    )
+    assert.equal(calls.queries.length, 0)
+  })
+
+  test('BUG-1 回归：-- 后跟空白仍是注释（掩到行尾，单条放行）', async () => {
+    const { mod, calls } = loadMysql({ rows: [{ EXPLAIN: JSON.stringify(DOC) }] })
+    // 真实 mysql 词法：-- 到行尾都是注释，服务端只看到 select 1，安全
+    await mod.explainQuery(
+      { dbHost: 'h', dbPort: 3306 },
+      { sql: 'select 1 -- ok; DELETE FROM t' }
+    )
+    assert.equal(calls.queries.length, 1)
+  })
+
+  test('BUG-1 回归：--ok 后跟普通字符且无分号，正常放行', async () => {
+    const { mod, calls } = loadMysql({ rows: [{ EXPLAIN: JSON.stringify(DOC) }] })
+    await mod.explainQuery({ dbHost: 'h', dbPort: 3306 }, { sql: 'select 1 --ok' })
+    assert.deepEqual(
+      Array.from(calls.queries),
+      ['EXPLAIN FORMAT=JSON select 1 --ok']
+    )
+  })
+
+  test('版本注释 /*! 一律拒绝（会被服务端当 SQL 执行，且掩不住内部分号）', async () => {
+    const { mod, calls } = loadMysql()
+    await assert.rejects(
+      mod.explainQuery(
+        { dbHost: 'h', dbPort: 3306 },
+        { sql: 'select 1 /*!80000 x*/ ; DELETE FROM t' }
+      ),
+      /版本注释/
+    )
+    // 字符串里的字面量 /*! 也拒绝：多语句防护语境宁可误杀
+    await assert.rejects(
+      mod.explainQuery({ dbHost: 'h', dbPort: 3306 }, { sql: "select '/*!' from t" }),
+      /版本注释/
+    )
+    assert.equal(calls.queries.length, 0)
   })
 
   test('服务端返回坏 JSON → 可读错', async () => {
@@ -574,6 +629,62 @@ describe('D 批：pg explainQuery（集成，vm 打桩）', () => {
     })
     const res = await mod.explainQuery({ dbHost: 'h', dbPort: 5432 }, { sql: 'SELECT 1' })
     assert.equal(res.root.nodeType, 'Result')
+  })
+
+  test('BUG-2 回归：dollar-quoted 串内的撇号不再吞掉后续分号', async () => {
+    const { mod, calls } = loadPg()
+    // 修复前 $$it's$$ 的撇号被误当字符串起点，`; DELETE` 全被吞、闸门失守
+    await assert.rejects(
+      mod.explainQuery(
+        { dbHost: 'h', dbPort: 5432 },
+        { sql: "SELECT $$it's$$; DELETE FROM t" }
+      ),
+      /一条语句/
+    )
+    await assert.rejects(
+      mod.explainQuery(
+        { dbHost: 'h', dbPort: 5432 },
+        { sql: "SELECT $fn$ it's $fn$; DELETE FROM t" }
+      ),
+      /一条语句/
+    )
+    assert.equal(calls.queries.length, 0)
+  })
+
+  test('BUG-2 回归：$1 占位符不是 dollar-quote 开标签，正常放行', async () => {
+    const { mod, calls } = loadPg({
+      result: { rows: [{ 'QUERY PLAN': [{ Plan: { 'Node Type': 'Result', 'Plan Rows': 1 } }] }] }
+    })
+    await mod.explainQuery(
+      { dbHost: 'h', dbPort: 5432 },
+      { sql: 'SELECT $1 FROM t WHERE x = $1' }
+    )
+    assert.deepEqual(
+      Array.from(calls.queries),
+      ['EXPLAIN (FORMAT JSON) SELECT $1 FROM t WHERE x = $1']
+    )
+  })
+
+  test('dollar-quoted 串内的 analyze 被掩掉，不触发 ANALYZE 拒绝', async () => {
+    const { mod } = loadPg({
+      result: { rows: [{ 'QUERY PLAN': [{ Plan: { 'Node Type': 'Result', 'Plan Rows': 1 } }] }] }
+    })
+    await mod.explainQuery(
+      { dbHost: 'h', dbPort: 5432 },
+      { sql: 'SELECT $$analyze$$ FROM t' }
+    )
+  })
+
+  test('悬空 dollar-quote 固定行为：保守掩到文末，放行为单条由服务端报错', async () => {
+    // close 配不上 → 掩到文末（后端注释已写明）：无分号可见，多语句闸门放行，
+    // 服务端对未闭合串报语法错，不会执行任何东西 —— 宁可保守不放大
+    const { mod } = loadPg({
+      result: { rows: [{ 'QUERY PLAN': [{ Plan: { 'Node Type': 'Result', 'Plan Rows': 1 } }] }] }
+    })
+    await mod.explainQuery(
+      { dbHost: 'h', dbPort: 5432 },
+      { sql: 'SELECT $tag$ unclosed ; DELETE FROM t' }
+    )
   })
 
   test('ANALYZE 拒绝且不触网；字符串里的 analyze 不杀', async () => {

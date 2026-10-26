@@ -861,6 +861,22 @@ function maskSqlText (text) {
       i = j
       continue
     }
+    // dollar-quoted string：$$...$$ 或 $tag$...$tag$（tag 词法同标识符）。
+    // pg 词法无嵌套：闭标签 = 首个同 tag。不掩掉它的话 `$$it's$$` 的撇号
+    // 会被误当普通字符串起点，把后续文本（含分号）全吞掉，多语句闸门失守
+    // （QA BUG-2）。$1/$2 占位符不受影响（数字不能开 tag）。
+    // 无法配对闭合时保守掩到文末：悬空串后的文本全部不可信，掩掉等于
+    // 拒绝 —— 分号不可见放行为单条，由服务端报未闭合串错，不会放大执行面。
+    if (c === '$') {
+      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i))
+      if (m) {
+        const close = s.indexOf(m[0], i + m[0].length)
+        const end = close < 0 ? n : close + m[0].length
+        blank(i, end)
+        i = end
+        continue
+      }
+    }
     // 字符串 '...' / 标识符 "..."：反斜杠转义（E'' 串）+ 双写转义
     if (c === '\'' || c === '"' || c === '`') {
       let j = i + 1

@@ -856,6 +856,9 @@ function extractActualRows (plan) {
 // 行注释（-- 与 #）与块注释统一替换成空格（保留换行），长度与原文一致。
 // 与 db-sql-complete.maskSqlLiterals 同思路的极简版，仅供本文件的
 // containsAnalyze / 多语句检查使用（两个适配器各自内联，避免互相依赖）。
+// 假设：默认 sql_mode（NO_BACKSHOASH_ESCAPES 未启用，反斜杠转义字符串成立）；
+// 该模式开启时掩码的引号边界可能偏移——方向是"多掩"（吞掉更多文本），
+// 分析类入口只会更保守，不会放大执行面。
 function maskSqlText (text) {
   const s = String(text || '')
   const out = s.split('')
@@ -870,8 +873,25 @@ function maskSqlText (text) {
   let i = 0
   while (i < n) {
     const c = s[i]
-    // 行注释 -- / #（pg 只认 --，多吞 # 无害：裸 # 在 SQL 里本就非法）
-    if ((c === '-' && s[i + 1] === '-') || c === '#') {
+    // 行注释 --：MySQL 词法要求 -- 后跟空白/控制字符才算注释（`--1` 是双负号）。
+    // 不满足时按普通文本跳过 —— 否则 `select 1 --x; DELETE FROM t` 的
+    // `--x; DELETE...` 被吞到行尾，多语句闸门看不见分号（QA BUG-1）
+    if (c === '-' && s[i + 1] === '-') {
+      const next = s[i + 2]
+      if (next === undefined || next === '\0' || /\s/.test(next)) {
+        let j = s.indexOf('\n', i)
+        if (j < 0) {
+          j = n
+        }
+        blank(i, j)
+        i = j
+      } else {
+        i += 1
+      }
+      continue
+    }
+    // 行注释 #（pg 只认 --，mysql 版多吞 # 无害：裸 # 在 pg SQL 里本就非法）
+    if (c === '#') {
       let j = s.indexOf('\n', i)
       if (j < 0) {
         j = n
@@ -1017,6 +1037,12 @@ async function explainQuery (conn, { database, sql }) {
   // 安全边界：EXPLAIN ANALYZE 会真实执行语句，词法级检查后一律拒绝
   if (containsAnalyze(s)) {
     throw new Error('EXPLAIN 拒绝 ANALYZE：EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会真实执行语句')
+  }
+  // 版本注释 /*! ... */ 会被服务端**当作 SQL 执行**（ /*!80000 SELECT 1 */ 是可执行体），
+  // 且会被块注释掩码吞掉、掩不住里面的分号 —— 多语句防护语境下没有合法用途，
+  // 含 /*! 即拒绝（宁可误杀字符串里的字面量，QA 低风险项拍板）
+  if (s.includes('/*!')) {
+    throw new Error('EXPLAIN 不接受版本注释（/*! ... */ 会真实执行）')
   }
   // EXPLAIN 本身"只解释不执行"，但 multipleStatements 开着，
   // `EXPLAIN FORMAT=JSON select 1; DELETE FROM t` 的第二条会真实执行 ——
