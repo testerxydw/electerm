@@ -26,6 +26,7 @@ import {
 } from '../../common/constants'
 import { SplitViewIcon } from '../icons/split-view'
 import { HeartbeatIcon } from '../icons/heartbeat'
+import { rightClickBehaviors } from '../../common/right-click-behavior'
 import SessionBarActions from '../common/session-bar-actions'
 import SessionBarStatus from '../common/session-bar-status'
 import TermSearch from '../terminal/term-search'
@@ -48,7 +49,7 @@ export default function SessionControl (props) {
     wrapDisabled,
     recording,
     recPaused,
-    pasteWhenContextMenu,
+    rightClickBehavior,
     onChangePane,
     toggleCheckSftpPathFollowSsh,
     onSshSftpSplitView,

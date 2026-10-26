@@ -26,6 +26,7 @@ import {
 } from '../../common/constants'
 import { refs } from '../common/ref'
 import sanitizeFilename from '../../common/sanitize-filename.js'
+import { getRightClickBehavior } from '../../common/right-click-behavior.js'
 import SessionRecIndicator from '../common/session-rec-indicator'
 import SessionControl from './session-control'
 import LazyBoundary from '../common/lazy-boundary'
@@ -707,7 +708,7 @@ export default class SessionWrapper extends Component {
           // T5-4d: 录制开关上顶栏, 状态在此读 recState (manate 追踪点) 传下去
           recording={!!rec}
           recPaused={!!rec?.paused}
-          pasteWhenContextMenu={!!this.props.config.pasteWhenContextMenu}
+          rightClickBehavior={getRightClickBehavior(this.props.config)}
           onChangePane={(pane) => this.onChangePane(pane)}
           toggleCheckSftpPathFollowSsh={this.toggleCheckSftpPathFollowSsh}
           onSshSftpSplitView={this.handleSshSftpSplitView}
