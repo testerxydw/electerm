@@ -53,7 +53,9 @@ function normSql (sql) {
 }
 
 // 稳定哈希：djb2 变体（32bit）。同一语句在不同保存/重启间哈希值一致，
-// 可直接作"内容指纹"参与去重与展示，不存大段 SQL 的比较开销
+// 可直接作"内容指纹"参与去重与展示，不存大段 SQL 的比较开销。
+// 【预留未接线】当前去重走 normSql 直接比较（上限 500 条，直比开销可忽略），
+// 本函数暂无生产调用方；保留作大数据量/指纹字段（如存 fingerprint 加速查找）扩展用
 function hashSql (sql) {
   const s = normSql(sql)
   let h = 5381

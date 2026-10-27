@@ -41,14 +41,14 @@ describe('db-sql-history (main-process file store)', () => {
     assert.equal(list[1].sql, 'SELECT 1')
   })
 
-  test('环形上限 200：超出丢最旧', () => {
-    for (let i = 0; i < 205; i++) {
+  test('环形上限跟随 MAX：超出丢最旧', () => {
+    for (let i = 0; i < h.MAX + 5; i++) {
       h.appendSqlHistory(entry('SELECT ' + i), file)
     }
     const list = h.listSqlHistory(file)
-    assert.equal(list.length, 200)
-    assert.equal(list[0].sql, 'SELECT 204')
-    assert.equal(list[199].sql, 'SELECT 5')
+    assert.equal(list.length, h.MAX)
+    assert.equal(list[0].sql, 'SELECT ' + (h.MAX + 4))
+    assert.equal(list[h.MAX - 1].sql, 'SELECT 5')
   })
 
   test('全局去重 + MRU：任意位置命中即提升最前并刷新时间', () => {

@@ -10,7 +10,9 @@
 const fs = require('fs')
 const path = require('path')
 
-const MAX = 200
+// 环形上限：与收藏 db-sql-favorites.js 对齐（原 200，2026-10 提升）；
+// 导出供单测跟随断言，避免硬编码
+const MAX = 500
 
 function readFile (filePath) {
   try {
@@ -129,6 +131,7 @@ function exportSqlHistory (items, filePath) {
 }
 
 module.exports = {
+  MAX,
   listSqlHistory,
   appendSqlHistory,
   removeSqlHistory,
