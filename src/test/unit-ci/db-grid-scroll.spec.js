@@ -93,10 +93,14 @@ describe('批次 C：数据库页渲染收口契约', () => {
   test('列宽采样抽成 useMemo，columns 不再每次 render 扫前 100 行', () => {
     const src = loadJsx()
     assert.ok(src.includes('const columnWidths = useMemo('), 'columnWidths memo missing')
-    const colBlock = src.match(/const columns = grid\.rows\.length[\s\S]*?\n\s{4}: \[\]/)
+    // 列定义已按 A1 收口成 useMemo（`const columns = useMemo(() => (grid.rows.length ...`），
+    // 契约只关心"采样不在 columns 里、宽度消费走 widthOf"，故两种写法都接受
+    const colBlock = src.match(/const columns = (?:useMemo\(\(\) => \()?grid\.rows\.length[\s\S]*?\n\s{4}: \[\]/)
     assert.ok(colBlock, 'columns block not found')
     assert.ok(!colBlock[0].includes('slice(0, 100)'), 'width sampling must stay out of columns')
     assert.ok(colBlock[0].includes('widthOf(k)'), 'columns must consume memoized widths')
+    // A1：columns 必须是 memo 化的，否则列定义每轮重建、antd 收不到同一份引用
+    assert.ok(/const columns = useMemo\(/.test(src), 'columns must be memoized')
     // E2-3b：宽度消费挪进了 widthOf（拖拽中 > 视角记忆 > 自适应），
     // memo 本身仍被消费、仍不被重复采样 —— 契约不变，只是多了一层优先级
     // \s{2} 而不是两个空格字面量：no-regex-spaces 会拦多空格正则

@@ -4,7 +4,7 @@
  * S5 将在此目录扩展 Redis 键空间形态，S4 增加 SQL 编辑器
  */
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
@@ -691,6 +691,10 @@ export default auto(function DbSession (props) {
     () => window.store.getThemeConfig(),
     [themeId]
   )
+  // 界面语言（原语）。`e()` 是模块级函数、每次调用现场取语言，但被 useMemo
+  // 缓存下来的列定义（列头 tooltip / Redis 列头）不会自动跟着语言切 —— 把语言
+  // 作为依赖带进这些 memo，切换界面语言时列定义才会重建
+  const langCode = window.store._config.language || window.initLanguage || ''
 
   // string 键原始值（值预览面板渲染/编辑；格式化与高亮缓存内聚在 DbValuePane）
   // 注意：必须放在下面那些提前 return 之前 —— hooks 数量不能在渲染间变化
@@ -2976,7 +2980,10 @@ export default auto(function DbSession (props) {
 
   // dataType 来自 structureV2.columns（与主进程校验同源）；SQL 结果集没有类型
   // 信息，调用方传 '' —— 此时只格式化"驱动已经给出 JS number"的值，字符串不猜
-  const renderCell = (v, cellFilterKw = '', dataType = '') => {
+  // A1：renderCell 提升为 useCallback，依赖其闭包引用的随渲染变化的值
+  // （keywordPatterns/kw/themeConfig/formatLocale）；hlNode/highlightValue/
+  // formatCellValue/isBinEnvelope 为模块级纯函数，稳定，不进依赖
+  const renderCell = useCallback((v, cellFilterKw = '', dataType = '') => {
     // antd 的 render(text, record, index) 会把整行对象传进第二参。
     // 只认字符串关键字：否则 hlNode 会拿对象去 indexOf，靠"[object Object]" 永不命中
     // 蒙混过关（能跑，但语义是错的）
@@ -3000,7 +3007,7 @@ export default auto(function DbSession (props) {
     }
     // T1 本页过滤高亮用独立 class，避免被顶栏查找计数/导航误收
     return filterKw ? hlNode(node, filterKw, 'db-page-hit') : node
-  }
+  }, [keywordPatterns, kw, themeConfig, formatLocale])
 
   // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
   // （如"一般"）出现大片空白；虚拟渲染是 fixed 布局，必须显式给宽。
@@ -3164,7 +3171,14 @@ export default auto(function DbSession (props) {
     document.body.classList.add('db-col-resizing')
   }
 
-  const columns = grid.rows.length
+  // A1：主数据网格列定义提升为 useMemo。依赖穷举闭包引用的组件级量：
+  // grid.rows（数据）、view（列序/隐藏/列宽/排序箭头）、liveWidth（列宽拖拽）、
+  // renderCell（高亮/格式化）、editing/editValue（行内编辑态）、canEditCell（只读态）、
+  // pageFilterKw（本页过滤高亮）、colTypeByName/colCommentByName（类型与注释）、
+  // langCode（列内 e() 文案随语言切换）、sel/pkColumn（submitEdit → runCellUpdate
+  // 的 UPDATE 目标与 WHERE 列；事件处理器本身是每轮新建的闭包，缓存后必须让
+  // 它们依赖的数据变化时重建，否则会拿着上一个表的主键拼 UPDATE）
+  const columns = useMemo(() => (grid.rows.length
     ? visibleColumnNames(Object.keys(grid.rows[0])).map(k => {
       const dataType = colTypeByName[String(k).toLowerCase()] || ''
       const comment = colCommentByName[String(k).toLowerCase()] || ''
@@ -3246,24 +3260,37 @@ export default auto(function DbSession (props) {
         }
       }
     })
-    : []
+    : []), [grid.rows, view, liveWidth, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn])
 
   // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
-  const columnsForResult = (r) => {
-    const rows = (r && r.rows) || []
-    const fields = (r && r.fields) || []
-    const keys = fields.length ? fields : (rows.length ? Object.keys(rows[0]) : [])
-    return keys.map(k => ({
-      title: k,
-      dataIndex: k,
-      key: k,
-      width: 220,
-      ellipsis: true,
-      render: renderCell
-    }))
-  }
+  // A1：多结果集按 results 索引派生成「列数组的数组」，随 sqlResult.results 与
+  // renderCell 一起 memo —— 否则每次 render（查询进度、无关 state）都会重建列，
+  // antd Table 收不到同一份 columns 引用就会整表重渲
+  const sqlResultColumns = useMemo(
+    () => (sqlResult.results || []).map(r => {
+      const rows = (r && r.rows) || []
+      const fields = (r && r.fields) || []
+      const keys = fields.length ? fields : (rows.length ? Object.keys(rows[0]) : [])
+      return keys.map(k => ({
+        title: k,
+        dataIndex: k,
+        key: k,
+        width: 220,
+        ellipsis: true,
+        render: renderCell
+      }))
+    }),
+    [sqlResult.results, renderCell]
+  )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
+  // A2：SQL 结果集行键数组提升到组件顶层 useMemo（依赖组件级 sqlResult.results），
+  // 避免传输进度等无关重渲触发 antd Table 全行重渲
+  const sqlResultRowMaps = useMemo(
+    () => (sqlResult.results || []).map(r => ((r && r.rows) || []).map((x, j) => ({ ...x, __rowKey: j }))),
+    [sqlResult.results]
+  )
+
   const renderSqlResults = () => {
     const results = sqlResult.results || []
     if (!results.length) {
@@ -3304,8 +3331,8 @@ export default auto(function DbSession (props) {
         }
         <DbGridTable
           size='small'
-          columns={columnsForResult(r)}
-          dataSource={((r && r.rows) || []).map((x, j) => ({ ...x, __rowKey: j }))}
+          columns={sqlResultColumns[i] || []}
+          dataSource={sqlResultRowMaps[i]}
           rowKey='__rowKey'
           pagination={false}
         />
@@ -3802,6 +3829,93 @@ export default auto(function DbSession (props) {
     ...quickHistory,
     ...quickColumns
   ], [quickActions, quickObjects, quickHistory, quickColumns])
+
+  // ---- A1/A2 网格列定义与行数组 memo（集中放在这里，**不能**放到下面的
+  // error/!ready 提前 return 之后）----
+  // ⚠️ hooks 数量不能在渲染间变化：本组件有 `if (error) return` / `if (!ready) return`
+  // 两条提前返回，连接建立（ready false → true）时渲染会从"少若干 hook"变成
+  // "多若干 hook"，把 useMemo 写在提前返回之后会直接抛
+  // "Rendered more hooks than during the previous render"。以下 memo 的依赖
+  // （structure / keyList / redisDetail / detailLimit / renderCell / langCode）
+  // 全部在本行之前已声明。
+
+  // A2：表结构行键数组（依赖 structure.rows）
+  const structureRows = useMemo(
+    () => structure.rows.map((r, i) => ({ ...r, __rowKey: i })),
+    [structure.rows]
+  )
+
+  // A1：表结构列定义（列名随驱动动态生成，仅依赖 structure.rows 与 renderCell）
+  const structColumns = useMemo(() => (structure.rows.length
+    ? Object.keys(structure.rows[0]).map(k => ({
+      title: k,
+      dataIndex: k,
+      key: k,
+      width: 200,
+      ellipsis: true,
+      // PG 主键列显示 PK 徽标；MySQL 沿用 DESC 的 Key=PRI 文本
+      render: k === 'is_primary_key'
+        ? v => (v === true ? <Tag className='db-pk-tag'>PK</Tag> : '')
+        : renderCell
+    }))
+    : []), [structure.rows, renderCell])
+
+  // A1：Redis 键列表列定义（列头文案来自 e() → langCode 一并入依赖，
+  // 切换界面语言时列头跟着变；其余仅依赖 renderCell）
+  const redisKeyColumns = useMemo(() => [
+    { title: e('dbKey'), dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
+    { title: e('type'), dataIndex: 'type', key: 'type', width: 90, render: renderCell },
+    { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
+  ], [renderCell, langCode])
+
+  // A2：Redis 键列表行键数组（依赖 keyList.rows），避免 SCAN 进度/详情加载等
+  // 无关重渲触发 antd Table 全行重渲
+  const redisKeyRows = useMemo(
+    () => (keyList.rows || []).map((r, i) => ({ ...r, __rowKey: i })),
+    [keyList.rows]
+  )
+
+  // A2：Redis 各类型详情的行键数组（依赖 redisDetail / detailLimit）
+  const redisHashRows = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'hash') {
+      return []
+    }
+    const hashFields = d.fields || []
+    return hashFields.map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))
+  }, [redisDetail])
+
+  const redisListRows = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'list') {
+      return []
+    }
+    const listRows = (d.rows || []).slice(0, detailLimit)
+    return listRows.map((v, i) => ({ index: i, value: v, __rowKey: i }))
+  }, [redisDetail, detailLimit])
+
+  const redisSetRows = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'set') {
+      return []
+    }
+    const setRows = d.rows || []
+    return setRows.map((v, i) => ({ member: v, __rowKey: i }))
+  }, [redisDetail])
+
+  const redisZsetRows = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'zset') {
+      return []
+    }
+    // zrange WITHSCORES 返回 [member, score, ...] 扁平数组
+    const rows = (d.rows || []).slice(0, detailLimit * 2)
+    const list = []
+    for (let i = 0; i < rows.length; i += 2) {
+      list.push({ member: rows[i], score: rows[i + 1], __rowKey: i })
+    }
+    return list
+  }, [redisDetail, detailLimit])
 
   if (error) {
     return (
@@ -5254,19 +5368,8 @@ export default auto(function DbSession (props) {
 
   // 表结构：列定义网格（列名随驱动而异 —— MySQL 为 Field/Type/Null/…，PG 为 column_name/data_type/…
   // 故直接按首行键动态生成列，避免写死）
-  const structColumns = structure.rows.length
-    ? Object.keys(structure.rows[0]).map(k => ({
-      title: k,
-      dataIndex: k,
-      key: k,
-      width: 200,
-      ellipsis: true,
-      // PG 主键列显示 PK 徽标；MySQL 沿用 DESC 的 Key=PRI 文本
-      render: k === 'is_primary_key'
-        ? v => (v === true ? <Tag className='db-pk-tag'>PK</Tag> : '')
-        : renderCell
-    }))
-    : []
+  // A2/A1：structureRows / structColumns 见上方"A1/A2 网格列定义与行数组 memo"
+  // 集中块（必须放在提前 return 之前，保证 hook 数量稳定）
 
   // A2 DDL 查看：SHOW CREATE TABLE 兼容视图，零后端改动走 executeSql
   const fetchDdl = () => {
@@ -5326,18 +5429,14 @@ export default auto(function DbSession (props) {
         size='small'
         loading={structure.loading}
         columns={structColumns}
-        dataSource={structure.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+        dataSource={structureRows}
         rowKey='__rowKey'
         pagination={false}
       />
     </div>
   )
 
-  const redisKeyColumns = [
-    { title: e('dbKey'), dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
-    { title: e('type'), dataIndex: 'type', key: 'type', width: 90, render: renderCell },
-    { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
-  ]
+  // A1/A2：redisKeyColumns / redisKeyRows 见上方集中 memo 块
 
   // list/zset 详情「加载更多」：detailLimit 分批渲染，避免一次进 DOM
   const renderMoreBtn = (total) => {
@@ -5432,6 +5531,8 @@ export default auto(function DbSession (props) {
     }
   }
 
+  // A2：redisHash/List/Set/ZsetRows 见上方集中 memo 块（提前 return 之前）
+
   const renderRedisDetail = () => {
     const d = redisDetail
     let body = null
@@ -5484,7 +5585,6 @@ export default auto(function DbSession (props) {
         />
       )
     } else if (d.type === 'hash') {
-      const hashFields = d.fields || []
       body = (
         <>
           <DbGridTable
@@ -5512,14 +5612,13 @@ export default auto(function DbSession (props) {
                 }, e('dbDeleted')))
               }
             ]}
-            dataSource={hashFields.map((f, i) => ({ field: f, value: d.rows[f], __rowKey: i }))}
+            dataSource={redisHashRows}
             rowKey='__rowKey'
           />
           {renderScanMore(d)}
         </>
       )
     } else if (d.type === 'list') {
-      const listRows = (d.rows || []).slice(0, detailLimit)
       body = (
         <>
           <DbGridTable
@@ -5547,14 +5646,13 @@ export default auto(function DbSession (props) {
                 }, e('dbDeleted')))
               }
             ]}
-            dataSource={listRows.map((v, i) => ({ index: i, value: v, __rowKey: i }))}
+            dataSource={redisListRows}
             rowKey='__rowKey'
           />
           {renderMoreBtn((d.rows || []).length)}
         </>
       )
     } else if (d.type === 'set') {
-      const setRows = d.rows || []
       body = (
         <>
           <DbGridTable
@@ -5581,19 +5679,14 @@ export default auto(function DbSession (props) {
                 }, e('dbDeleted')))
               }
             ]}
-            dataSource={setRows.map((v, i) => ({ member: v, __rowKey: i }))}
+            dataSource={redisSetRows}
             rowKey='__rowKey'
           />
           {renderScanMore(d)}
         </>
       )
     } else if (d.type === 'zset') {
-      const rows = (d.rows || []).slice(0, detailLimit * 2)
-      const list = []
-      // zrange WITHSCORES 返回 [member, score, ...] 扁平数组
-      for (let i = 0; i < rows.length; i += 2) {
-        list.push({ member: rows[i], score: rows[i + 1], __rowKey: i })
-      }
+      // zrange WITHSCORES 返回 [member, score, ...] 扁平数组，行键数组见顶层 redisZsetRows
       body = (
         <>
           <DbGridTable
@@ -5631,7 +5724,7 @@ export default auto(function DbSession (props) {
                 }, e('dbDeleted')))
               }
             ]}
-            dataSource={list}
+            dataSource={redisZsetRows}
             rowKey='__rowKey'
           />
           {renderMoreBtn(Math.ceil((d.rows || []).length / 2))}
@@ -5855,7 +5948,7 @@ export default auto(function DbSession (props) {
                     size='small'
                     loading={keyList.loading}
                     columns={redisKeyColumns}
-                    dataSource={keyList.rows.map((r, i) => ({ ...r, __rowKey: i }))}
+                    dataSource={redisKeyRows}
                     rowKey='__rowKey'
                     pagination={false}
                     onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
