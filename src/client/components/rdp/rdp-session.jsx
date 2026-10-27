@@ -100,6 +100,8 @@ export default class RdpSession extends PureComponent {
   }
 
   componentWillUnmount () {
+    // 主动卸载时不再把会话结束误判为连接失败
+    this._unmounting = true
     this.cleanup()
   }
 
@@ -322,12 +324,13 @@ export default class RdpSession extends PureComponent {
 
       canvas.focus()
 
-      this.session.run().then((info) => {
+      const session = this.session
+      session.run().then((info) => {
         this.log(`Session ended: ${info.reason()}`, 'info')
-        this.onSessionEnd()
+        this.onSessionEnd(session)
       }).catch((e) => {
         this.showError(e)
-        this.onSessionEnd()
+        this.onSessionEnd(session)
       })
     } catch (e) {
       this.showError(e)
@@ -444,7 +447,13 @@ export default class RdpSession extends PureComponent {
     }
   }
 
-  onSessionEnd = () => {
+  onSessionEnd = (session) => {
+    // 忽略两类误报：
+    // ① 卸载时主动 session.shutdown() 触发的结束；
+    // ② 旧会话实例的迟到结束事件（重连已建新会话，连接实际仍活着）。
+    // 二者都会让实际未断开的会话被标记 error，从而在 tab 上冒出重连按钮。
+    if (this._unmounting) return
+    if (session && this.session !== session) return
     this.session = null
     this.setStatus(statusMap.error)
   }

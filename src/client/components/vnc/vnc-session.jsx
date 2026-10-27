@@ -59,6 +59,8 @@ export default class VncSession extends PureComponent {
   }
 
   componentWillUnmount () {
+    // 主动卸载时不再把"断开"误判为连接失败（否则正在删除的 tab 会闪 error）
+    this._unmounting = true
     this._detachClipboardSync()
     this.rfb && this.rfb.disconnect()
     delete this.rfb
@@ -360,7 +362,9 @@ export default class VncSession extends PureComponent {
       'serververification'
     ]
     for (const event of events) {
-      rfb.addEventListener(event, this[`on${window.capitalizeFirstLetter(event)}`])
+      const handler = this[`on${window.capitalizeFirstLetter(event)}`]
+      // 闭包捕获当前 rfb 实例，防止旧实例的迟到 disconnect 事件误伤新连接
+      rfb.addEventListener(event, e => handler(e, rfb))
     }
     rfb.scaleViewport = this.getFit()
     rfb.clipViewport = clipViewport
@@ -384,7 +388,13 @@ export default class VncSession extends PureComponent {
   onDesktopsize = (event) => {
   }
 
-  onDisconnect = () => {
+  onDisconnect = (event, rfb) => {
+    // 忽略两类误报：
+    // ① 组件正卸载时主动调用 rfb.disconnect() 触发的断开；
+    // ② 旧 RFB 实例的迟到 disconnect（handleReInit 已建新实例，连接实际仍活着）。
+    // 二者都会让实际未断开的会话被标记 error，从而在 tab 上冒出重连按钮。
+    if (this._unmounting) return
+    if (this.rfb !== rfb) return
     this._detachClipboardSync()
     this.setStatus(statusMap.error)
   }

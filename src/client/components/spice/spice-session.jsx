@@ -47,6 +47,8 @@ export default class SpiceSession extends PureComponent {
   }
 
   componentWillUnmount () {
+    // 主动卸载时不再把连接错误误判为失败
+    this._unmounting = true
     this.detachMouseScaleFix()
     this.cleanup()
   }
@@ -263,6 +265,10 @@ export default class SpiceSession extends PureComponent {
 
     try {
       const SpiceMainConn = window.spiceHtml5.SpiceMainConn
+      // 每次连接尝试递增代际；onerror 仅对"当前这一代"生效，
+      // 旧连接的迟到错误（cleanup 触发 stop、或重建后的异步回调）一律忽略，
+      // 避免实际仍连着的会话被误标 error 而在 tab 上冒出重连按钮
+      const gen = (this._spiceGen = (this._spiceGen || 0) + 1)
       const spiceOpts = {
         uri: wsUrl,
         password: password || '',
@@ -276,6 +282,8 @@ export default class SpiceSession extends PureComponent {
         },
         onerror: (e) => {
           console.error('[SPICE] Connection error:', e)
+          if (this._unmounting) return
+          if (this._spiceGen !== gen) return
           this.setState({ loading: false })
           this.setStatus(statusMap.error)
         },
