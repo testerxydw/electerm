@@ -45,7 +45,32 @@ function pickEntry (entry) {
 }
 
 function listSqlHistory (filePath) {
-  return readFile(filePath)
+  // 读侧自愈去重：去重逻辑上线前的旧文件可能已有存量重复（append 只对新追加生效）。
+  // 列表是 MRU 序（最新在前），按归一化 SQL 保留首次出现 = 保留最新一条；
+  // 与 appendSqlHistory 的去重键同规则，打开即干净。仅在确有重复时回写落盘，
+  // 正常文件零写放大；回写失败静默降级（本次展示已干净，下次读取再试）
+  const list = readFile(filePath)
+  const seen = new Set()
+  const cleaned = []
+  for (const x of list) {
+    if (!x) {
+      continue
+    }
+    const key = normSql(x.sql)
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    cleaned.push(x)
+  }
+  if (cleaned.length !== list.length) {
+    try {
+      writeFile(filePath, cleaned)
+    } catch (e) {
+      // 磁盘满等：不影响本次展示，下次读取再试
+    }
+  }
+  return cleaned
 }
 
 // 归一化 SQL 作去重键：连续空白（含换行/缩进）压成单空格。

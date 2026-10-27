@@ -73,6 +73,34 @@ describe('db-sql-history (main-process file store)', () => {
     assert.equal(list[0].sql, 'SELECT *\n  FROM t;')
   })
 
+  test('读侧自愈去重：旧文件存量重复打开即清理（保留最新）并回写落盘', () => {
+    // 模拟去重逻辑上线前的旧文件：MRU 序里混着同语句的两条记录 + 一条脏数据 null
+    const legacy = [
+      { sql: 'SELECT 1', dbType: 'mysql', dbHost: '', dbName: '', ok: true, ts: 300 },
+      { sql: 'SELECT 2', dbType: 'mysql', dbHost: '', dbName: '', ok: true, ts: 250 },
+      { sql: 'SELECT 1', dbType: 'mysql', dbHost: '', dbName: '', ok: false, ts: 100 },
+      { sql: 'SELECT 2', dbType: 'mysql', dbHost: '', dbName: '', ok: true, ts: 50 }
+    ]
+    fs.writeFileSync(file, JSON.stringify(legacy))
+    const list = h.listSqlHistory(file)
+    // 各语句只留最新一条（MRU 首次出现），null 脏数据一并清掉
+    assert.deepEqual(list.map(x => x.ts), [300, 250])
+    assert.equal(list[0].ok, true)
+    // 已回写落盘：裸读文件也是干净的（下次 append 读到的基底同样无重复）
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(file, 'utf8')).map(x => x.ts),
+      [300, 250]
+    )
+  })
+
+  test('读侧自愈去重：无重复文件零写放大（内容原样返回）', () => {
+    h.appendSqlHistory(entry('SELECT 1', { ts: 100 }), file)
+    const before = fs.readFileSync(file, 'utf8')
+    const list = h.listSqlHistory(file)
+    assert.equal(list.length, 1)
+    assert.equal(fs.readFileSync(file, 'utf8'), before)
+  })
+
   test('失败语句也记录（ok:false）', () => {
     h.appendSqlHistory(entry('BAD SQL', { ok: false }), file)
     const list = h.listSqlHistory(file)
