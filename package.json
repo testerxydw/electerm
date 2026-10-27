@@ -1,6 +1,6 @@
 {
   "name": "electerm",
-  "version": "5.7.15",
+  "version": "5.7.21",
   "description": "Open-sourced terminal/ssh/sftp/telnet/serialport/RDP/VNC/Spice/ftp client(Linux, Mac, Windows, Android, HarmonyOS, iOS).",
   "main": "app.js",
   "scripts": {
@@ -67,7 +67,7 @@
     "@fontsource/maple-mono": "^5.2.5",
     "@lezer/highlight": "1.2.5",
     "@novnc/novnc": "1.7.0",
-    "@types/node": "22.9.3",
+    "@types/node": "22.10.5",
     "@vitejs/plugin-react": "^5.2.0",
     "@xterm/addon-attach": "0.13.0-beta.292",
     "@xterm/addon-fit": "0.12.0-beta.292",
