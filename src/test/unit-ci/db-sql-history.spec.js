@@ -101,6 +101,14 @@ describe('db-sql-history (main-process file store)', () => {
     assert.equal(fs.readFileSync(file, 'utf8'), before)
   })
 
+  test('结尾分号增删视为同一语句：合并不新增', () => {
+    h.appendSqlHistory(entry('SELECT 1;', { ts: 100 }), file)
+    h.appendSqlHistory(entry('SELECT 1', { ts: 200 }), file)
+    const list = h.listSqlHistory(file)
+    assert.equal(list.length, 1)
+    assert.equal(list[0].ts, 200)
+  })
+
   test('失败语句也记录（ok:false）', () => {
     h.appendSqlHistory(entry('BAD SQL', { ok: false }), file)
     const list = h.listSqlHistory(file)

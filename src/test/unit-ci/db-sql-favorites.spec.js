@@ -227,7 +227,41 @@ describe('db-sql-favorites (main-process file store)', () => {
 
   test('normSql/hashSql：空白与大小写归一，同语句哈希一致', () => {
     assert.equal(f.normSql('SELECT  *\nFROM t'), 'select * from t')
+    // 结尾分号（含多个）归一：格式化工具常增删，不归一会产生重复收藏
+    assert.equal(f.normSql('SELECT 1;'), 'select 1')
+    assert.equal(f.normSql('SELECT 1;;'), 'select 1')
     assert.equal(f.hashSql('SELECT 1'), f.hashSql('  select   1  '))
+  })
+
+  test('保存去重：格式化增删结尾分号视为同一语句，命中合并', () => {
+    f.saveFavorite(entry('SELECT 1;'), file)
+    const { list, duplicate } = f.saveFavorite(entry('select 1'), file)
+    assert.ok(duplicate)
+    assert.equal(list.length, 1)
+    assert.equal(list[0].sql, 'select 1')
+  })
+
+  test('读侧自愈去重：旧文件跨分组重复打开即清理（保留最新）并回写', () => {
+    // 模拟旧归一化规则（未去分号）时期留下的跨分组重复 + MRU 序
+    const legacy = [
+      { id: 'a', title: 't', sql: 'SELECT 1;', dbType: 'mysql', group: '234', ts: 300 },
+      { id: 'b', title: 't', sql: 'SELECT 2', dbType: 'mysql', group: '', ts: 250 },
+      { id: 'c', title: 't', sql: 'select 1', dbType: 'mysql', group: '', ts: 100 }
+    ]
+    fs.writeFileSync(file, JSON.stringify(legacy))
+    const list = f.listFavorites(file)
+    // 'SELECT 1;' 与 'select 1' 归一后同键：保留最新 a（其分组 234 随之保留）
+    assert.deepEqual(list.map(x => x.id), ['a', 'b'])
+    assert.equal(list[0].group, '234')
+    // 已回写落盘，下次 append 读到的基底同样无重复
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).length, 2)
+  })
+
+  test('读侧自愈去重：无重复文件零写放大', () => {
+    f.saveFavorite(entry('SELECT 1'), file)
+    const before = fs.readFileSync(file, 'utf8')
+    f.listFavorites(file)
+    assert.equal(fs.readFileSync(file, 'utf8'), before)
   })
 
   // ---- 空分组登记（修复"新建分组后看不到"）----

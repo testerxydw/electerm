@@ -73,10 +73,15 @@ function listSqlHistory (filePath) {
   return cleaned
 }
 
-// 归一化 SQL 作去重键：连续空白（含换行/缩进）压成单空格。
-// 格式化只改空白布局，归一化后同一语句等价——格式化前后不产生两条历史
+// 归一化 SQL 作去重键：连续空白（含换行/缩进）压成单空格，去结尾分号。
+// 格式化只改空白布局、常增删结尾分号，归一化后同一语句等价——
+// 格式化前后不产生两条历史。大小写保留敏感（历史是执行流水，
+// 大小写不同的语句在大小写敏感库可能语义不同，不作归并）
 function normSql (sql) {
-  return String(sql).replace(/\s+/g, ' ').trim()
+  return String(sql)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;+$/, '')
 }
 
 // 全局去重 + MRU：归一化后命中的旧条目移除，新条目置顶（ts=最后执行时间）；

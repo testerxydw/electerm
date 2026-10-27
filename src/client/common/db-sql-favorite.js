@@ -72,8 +72,12 @@ export function importFavorites (filePath) {
 }
 
 // SQL 归一化（与主进程 db-sql-favorites.js normSql 同规则）：
-// 连续空白压成单空格 + 转小写。渲染层用它做"是否已收藏"匹配，
-// 保证与主进程去重判定同源，格式化/大小写差异不产生假阴性
+// 连续空白压成单空格 + 转小写 + 去结尾分号。渲染层用它做"是否已收藏"匹配，
+// 保证与主进程去重判定同源——格式化（空白/分号/大小写差异）不产生假阴性
 export function normSql (sql) {
-  return String(sql).replace(/\s+/g, ' ').trim().toLowerCase()
+  return String(sql)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;+$/, '')
+    .toLowerCase()
 }

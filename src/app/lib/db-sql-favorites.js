@@ -45,11 +45,16 @@ function pickEntry (entry) {
   }
 }
 
-// 归一化 SQL 作去重键：连续空白（含换行/缩进/制表）压成单空格，大小写归一。
-// 与历史 db-sql-history.js 的 normSql 同思路——格式化只改空白布局，
-// 归一化后同一语句等价，格式化前后不产生重复收藏；关键词大小写差异也归一。
+// 归一化 SQL 作去重键：连续空白（含换行/缩进/制表）压成单空格，大小写归一，
+// 去掉结尾分号（可重复）——格式化工具常增删结尾分号，不归一会让
+// "格式化前"与"格式化后"被判定成两条不同语句（星标丢已收藏态 + 收藏出重复）。
+// 与历史 db-sql-history.js 的 normSql 同思路（历史侧保留大小写敏感）
 function normSql (sql) {
-  return String(sql).replace(/\s+/g, ' ').trim().toLowerCase()
+  return String(sql)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;+$/, '')
+    .toLowerCase()
 }
 
 // 稳定哈希：djb2 变体（32bit）。同一语句在不同保存/重启间哈希值一致，
@@ -66,7 +71,32 @@ function hashSql (sql) {
 }
 
 function listFavorites (filePath) {
-  return readFile(filePath)
+  // 读侧自愈去重（与 db-sql-history.listSqlHistory 同策略）：
+  // 旧文件/旧归一化规则（未去分号时期）留下的重复——含跨分组重复——
+  // 按 normSql 键去重，MRU 序保留首次出现 = 最新一条（其所在分组即保留分组），
+  // null 脏数据一并清除。仅在确有重复时回写落盘，正常文件零写放大
+  const list = readFile(filePath)
+  const seen = new Set()
+  const cleaned = []
+  for (const x of list) {
+    if (!x) {
+      continue
+    }
+    const key = normSql(x.sql)
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    cleaned.push(x)
+  }
+  if (cleaned.length !== list.length) {
+    try {
+      writeFile(filePath, cleaned)
+    } catch (e) {
+      // 磁盘满等：本次展示已干净，下次读取再试
+    }
+  }
+  return cleaned
 }
 
 // 无 id 时生成：毫秒 ts + 随机后缀，同毫秒多次保存也不撞
