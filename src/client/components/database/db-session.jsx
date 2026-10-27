@@ -2147,7 +2147,7 @@ export default auto(function DbSession (props) {
   // 已收藏语句集合（归一化 SQL）：历史页/SQL 框星标的"已收藏"态由此判定，
   // 与主进程去重同规则（normSql），收藏列表变化即重算
   const favSqlSet = useMemo(
-    () => new Set(favList.map(x => normSql(x.sql))),
+    () => new Set(favList.filter(Boolean).map(x => normSql(x.sql))),
     [favList]
   )
   // 该语句是否已收藏（归一化匹配）——星标变色/文案切换共用

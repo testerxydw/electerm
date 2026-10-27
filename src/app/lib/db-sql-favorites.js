@@ -218,7 +218,9 @@ function createGroup (name, groupsPath) {
 }
 
 // 分组信息：从列表统计分组名 → 各分组条数（默认分组归并到 ''），
-// 再合并"登记了但还没有条目"的空分组（计 0）。groupsPath 缺省时保持旧行为（纯推导）
+// 再合并"登记了但还没有条目"的空分组（计 0）。groupsPath 缺省时保持旧行为（纯推导）。
+// 约定：默认分组 key '' 仅在存在默认分组条目时才出现在结果里——
+// UI 侧已硬编码默认 chip 并用 favGroups[''] || 0 兜底，勿依赖 '' 恒存在
 function listGroups (filePath, groupsPath) {
   const list = readFile(filePath)
   const groups = {}
@@ -242,6 +244,9 @@ function listGroups (filePath, groupsPath) {
 // 重命名分组：把 list 里所有 group === old 的条目改写为 new，落盘；
 // 空分组登记表同步改名。返回重命名后的完整列表。旧名不存在则原样返回。
 function renameGroup (old, next, filePath, groupsPath) {
+  // next 与 createGroup 同规则归一化（trim + 80 截断），
+  // 保证登记表组名与条目 group 永远一致，不依赖调用方先 trim
+  next = String(next || '').trim().slice(0, 80)
   if (!old || !next || old === next) {
     return readFile(filePath)
   }
