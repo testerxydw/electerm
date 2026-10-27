@@ -363,6 +363,23 @@ export default function DbViewBar ({
   return (
     <div className='db-view-bar'>
       <div className='db-view-head'>
+        {
+          // 操作簇置左：模式切换/重置/应用位置固定最好找；
+          // 右侧留给状态信息（筛选计数/丢弃/截断），动作在前、状态在后
+          <span className='db-view-modes'>
+            <Button size='small' type={isSql ? 'default' : 'primary'} onClick={() => isSql && toBuilder()}>
+              {e('dbViewModeBuilder')}
+            </Button>
+            <Button size='small' type={isSql ? 'primary' : 'default'} onClick={() => !isSql && toSql()}>
+              SQL
+            </Button>
+          </span>
+        }
+        <Button size='small' onClick={onReset} disabled={loading}>{e('dbViewReset')}</Button>
+        <Button size='small' type='primary' loading={loading} disabled={!canApply} onClick={applyNow}>
+          {e('dbViewApply')}
+        </Button>
+        <span className='db-view-spacer' />
         <span className='db-view-funnel' title={e('dbViewHint')}>
           <FilterOutlined />
           {e('dbViewConditions').replace('{n}', appliedCount === null ? '—' : String(appliedCount))}
@@ -384,19 +401,6 @@ export default function DbViewBar ({
               )
             : null
         }
-        <span className='db-view-spacer' />
-        <span className='db-view-modes'>
-          <Button size='small' type={isSql ? 'default' : 'primary'} onClick={() => isSql && toBuilder()}>
-            {e('dbViewModeBuilder')}
-          </Button>
-          <Button size='small' type={isSql ? 'primary' : 'default'} onClick={() => !isSql && toSql()}>
-            SQL
-          </Button>
-        </span>
-        <Button size='small' onClick={onReset} disabled={loading}>{e('dbViewReset')}</Button>
-        <Button size='small' type='primary' loading={loading} disabled={!canApply} onClick={applyNow}>
-          {e('dbViewApply')}
-        </Button>
       </div>
       {
         isSql
