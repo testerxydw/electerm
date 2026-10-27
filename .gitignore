@@ -139,3 +139,5 @@ ftp-root
 .npmcache
 *.ncx
 真库配置.png
+mysql.png
+redis.png
