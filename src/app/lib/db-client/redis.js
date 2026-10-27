@@ -14,8 +14,17 @@ const refs = new Map()
 const currentDbMap = new Map()
 
 // 签名不含密码，避免密码出现在日志/调试信息中（与 mysql/postgres 一致）
+// B1：SSL/TLS 开关进签名 —— 同一 host:port 上切换 TLS 后必须拿到新 client，
+// 否则旧 client（明文/TLS）会被继续复用，"改了不生效"
 function sig (conn) {
-  return `${conn.dbHost}:${conn.dbPort}`
+  const sslTag = conn.dbSsl ? '|ssl=1' : '|ssl=0'
+  return `${conn.dbHost}:${conn.dbPort}${sslTag}`
+}
+
+// B1：连接级 TLS 选项。ioredis 的 `tls` 原样透传给 node tls.connect，
+// 内部自签证书场景用 rejectUnauthorized: false 跳过证书链校验
+function tlsOptions (conn) {
+  return conn.dbSsl ? { tls: { rejectUnauthorized: false } } : {}
 }
 
 function createClient (conn) {
@@ -28,7 +37,10 @@ function createClient (conn) {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     retryStrategy: null,
-    enableOfflineQueue: false
+    enableOfflineQueue: false,
+    // B1：启用 TLS（rediss:// / TLS 端口）。测试连接与真实连接共用本函数，
+    // 保证"测试通过"与实际连接参数一致
+    ...tlsOptions(conn)
   })
   c.on('error', () => {})
   return c

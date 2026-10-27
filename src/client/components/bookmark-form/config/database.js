@@ -26,7 +26,9 @@ const databaseConfig = {
       // 默认只读：主进程按此开关执行 SELECT/SHOW/DESC/EXPLAIN 白名单（见 db-client）
       readOnly: true,
       // E1 连接级安全带：默认非生产，非生产走两级确认（write 首次 / ddl、dangerous 每次）
-      production: false
+      production: false,
+      // B1：TLS/SSL 连接开关，默认关闭（内部自签场景再开启）
+      dbSsl: false
     })
   },
   layout: formItemLayout,
@@ -58,6 +60,13 @@ const databaseConfig = {
           type: 'switch',
           name: 'readOnly',
           label: () => e('readOnly'),
+          valuePropName: 'checked'
+        },
+        {
+          // B1：SSL/TLS 连接开关（覆盖内部自签场景，采用 rejectUnauthorized: false）
+          type: 'switch',
+          name: 'dbSsl',
+          label: () => e('dbUseSsl'),
           valuePropName: 'checked'
         },
         {

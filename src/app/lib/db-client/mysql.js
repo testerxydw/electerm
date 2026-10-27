@@ -10,7 +10,16 @@ const pools = new Map()
 const refs = new Map()
 
 function sig (conn) {
-  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}`
+  // B1：SSL 开关进签名 —— 同一 host:port 上切换 SSL 后必须拿到新池，
+  // 否则旧池（明文/TLS）会被继续复用，"改了不生效"
+  const sslTag = conn.dbSsl ? '|ssl=1' : '|ssl=0'
+  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}${sslTag}`
+}
+
+// B1：连接级 TLS/SSL 选项。内部自签证书场景，
+// 采用 rejectUnauthorized: false 跳过证书链校验（与设计一致）
+function sslOptions (conn) {
+  return conn.dbSsl ? { ssl: { rejectUnauthorized: false } } : {}
 }
 
 // openDbTab 时调用：计数 +1 并确保连接建立（失败上抛）
@@ -59,7 +68,9 @@ async function getPool (conn) {
     keepAliveInitialDelay: 30000,
     // 支持一次执行多条语句（分号分隔）→ 多结果集；
     // 只读模式下"全句写关键词扫描"会拦住 `SELECT 1; DROP TABLE t` 这类组合，故不放大写风险
-    multipleStatements: true
+    multipleStatements: true,
+    // B1：SSL/TLS 开关（覆盖内部自签场景，采用 rejectUnauthorized: false 跳过证书校验）
+    ...sslOptions(conn)
   })
   pools.set(key, pool)
   return pool
@@ -86,7 +97,10 @@ async function testMysqlConnection (conn) {
     user: conn.dbUser || 'root',
     password: conn.dbPassword || '',
     database: conn.dbName || undefined,
-    connectTimeout: 8000
+    connectTimeout: 8000,
+    // B1：测试连接必须与真实连接同参数，否则勾选 SSL 后"测试通过/失败"
+    // 的结论与后续打开连接的实际结果不一致
+    ...sslOptions(conn)
   })
   try {
     await c.ping()

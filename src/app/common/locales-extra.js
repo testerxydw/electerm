@@ -424,6 +424,7 @@ const en = {
   dbRiskBypassReadonly: 'Read-only mode: writes are blocked by the main process',
   dbRiskBypassOn: 'Protection suspended for {n} minutes, will be restored automatically',
   dbProductionFlag: 'Production connection',
+  dbUseSsl: 'Use TLS/SSL (self-signed allowed)',
   dbProductionHint: 'Production connection: every non-query statement needs a second confirmation with the database name typed in',
   // —— 快捷命令 / 通用 UI（批次 A）——
   noLabel: 'No label',
@@ -983,6 +984,7 @@ const zhCn = {
   dbRiskBypassReadonly: '只读模式：写操作由主进程拦截',
   dbRiskBypassOn: '保护已临时解除 {n} 分钟，到期自动恢复',
   dbProductionFlag: '生产连接',
+  dbUseSsl: '使用 TLS/SSL（允许自签名证书）',
   dbProductionHint: '生产连接：所有非查询语句都要二次确认并输入库名',
   // —— 快捷命令 / 通用 UI（批次 A）——
   noLabel: '无标签',

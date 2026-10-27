@@ -10,7 +10,16 @@ const clients = new Map()
 const refs = new Map()
 
 function sig (conn) {
-  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}`
+  // B1：SSL 开关进签名 —— 同一 host:port 上切换 SSL 后必须拿到新 client，
+  // 否则旧 client（明文/TLS）会被继续复用，"改了不生效"
+  const sslTag = conn.dbSsl ? '|ssl=1' : '|ssl=0'
+  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}${sslTag}`
+}
+
+// B1：连接级 TLS/SSL 选项。内部自签证书场景，
+// 采用 rejectUnauthorized: false 跳过证书链校验（与设计一致）
+function sslOptions (conn) {
+  return conn.dbSsl ? { ssl: { rejectUnauthorized: false } } : {}
 }
 
 async function getClient (conn) {
@@ -25,7 +34,9 @@ async function getClient (conn) {
     user: conn.dbUser,
     password: conn.dbPassword || undefined,
     database: conn.dbName || conn.dbUser,
-    connectionTimeoutMillis: 8000
+    connectionTimeoutMillis: 8000,
+    // B1：SSL/TLS 开关（覆盖内部自签场景，采用 rejectUnauthorized: false 跳过证书校验）
+    ...sslOptions(conn)
   })
   await c.connect()
   clients.set(key, c)
@@ -69,7 +80,9 @@ async function testPostgresConnection (conn) {
     user: conn.dbUser,
     password: conn.dbPassword || undefined,
     database: conn.dbName || conn.dbUser,
-    connectionTimeoutMillis: 8000
+    connectionTimeoutMillis: 8000,
+    // B1：测试连接必须与真实连接同参数，否则"测试通过"结论与实际连接不一致
+    ...sslOptions(conn)
   })
   try {
     await c.connect()
