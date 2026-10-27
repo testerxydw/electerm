@@ -269,7 +269,7 @@ const en = {
   dbSqlHistoryClear: 'Clear history',
   dbSqlHistoryClearConfirm: 'Clear all SQL history?',
   dbSqlHistoryFailed: 'failed',
-  dbSqlHistoryNote: 'Stored locally only (max 200). Results and passwords are never saved.',
+  dbSqlHistoryNote: 'Stored locally only (max {n}). Results and passwords are never saved.',
   // B 批：查询收藏 + SQL 模板
   dbFavTab: 'Favorites',
   dbHistFavEntry: 'History / Favorites',
@@ -828,7 +828,7 @@ const zhCn = {
   dbSqlHistoryClear: '清空历史',
   dbSqlHistoryClearConfirm: '清空全部 SQL 历史？',
   dbSqlHistoryFailed: '失败',
-  dbSqlHistoryNote: '仅存本地（上限 200 条），不保存结果与密码。',
+  dbSqlHistoryNote: '仅存本地（上限 {n} 条），不保存结果与密码。',
   // B 批：查询收藏 + SQL 模板
   dbFavTab: '收藏',
   dbHistFavEntry: '历史 / 收藏',

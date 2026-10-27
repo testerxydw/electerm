@@ -25,7 +25,7 @@ import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
-import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile } from '../../common/db-sql-history'
+import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile, SQL_HISTORY_MAX } from '../../common/db-sql-history'
 // B 批：查询收藏（B-1~B-4）与 SQL 模板（B-3，同一份定义菜单/补全共用）
 import {
   listFavorites,
@@ -2051,7 +2051,7 @@ export default auto(function DbSession (props) {
     return ok
   }
 
-  // ---- S3-C SQL 执行历史（主进程文件环形 200 条，仅本地，跨启动稳定） ----
+  // ---- S3-C SQL 执行历史（主进程文件环形存储，上限见 SQL_HISTORY_MAX，仅本地，跨启动稳定） ----
 
   const [sqlHistoryOpen, setSqlHistoryOpen] = useState(false)
   const [sqlHistory, setSqlHistory] = useState([])
@@ -4481,7 +4481,7 @@ export default auto(function DbSession (props) {
         }
       </div>
       {
-        // 环形上限 200 条，找旧语句靠滚动太费劲；只匹配语句文本，不匹配库名/时间
+        // 历史条数有环形上限（SQL_HISTORY_MAX），找旧语句靠滚动太费劲；只匹配语句文本，不匹配库名/时间
         sqlHistory.length
           ? (
             <Input
@@ -4661,7 +4661,7 @@ export default auto(function DbSession (props) {
             </div>
             )
       }
-      <div className='db-history-note'>{e('dbSqlHistoryNote')}</div>
+      <div className='db-history-note'>{e('dbSqlHistoryNote').replace('{n}', String(SQL_HISTORY_MAX))}</div>
     </>
   )
 
