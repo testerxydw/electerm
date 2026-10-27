@@ -379,7 +379,6 @@ export default function DbViewBar ({
         <Button size='small' type='primary' loading={loading} disabled={!canApply} onClick={applyNow}>
           {e('dbViewApply')}
         </Button>
-        <span className='db-view-spacer' />
         <span className='db-view-funnel' title={e('dbViewHint')}>
           <FilterOutlined />
           {e('dbViewConditions').replace('{n}', appliedCount === null ? '—' : String(appliedCount))}
@@ -401,6 +400,7 @@ export default function DbViewBar ({
               )
             : null
         }
+        <span className='db-view-spacer' />
       </div>
       {
         isSql
