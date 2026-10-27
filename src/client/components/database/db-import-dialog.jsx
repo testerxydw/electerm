@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Steps, Button, Select, Input, InputNumber, Radio, Checkbox, Alert, Tooltip } from 'antd'
 import { FolderOpenOutlined } from '@ant-design/icons'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import {
   buildImportMapping,
   mappingProblem,
@@ -153,7 +154,7 @@ export default function DbImportDialog (props) {
         setFile(res)
       }
     } catch (err) {
-      message.error(err.message)
+      showErrorModal({ error: err })
     } finally {
       setFileLoading(false)
     }
@@ -213,7 +214,7 @@ export default function DbImportDialog (props) {
       setRun({ importId, status: 'running', committedRows: 0, failedBatches: 0, errors: [], error: null })
       setStep(3)
     } catch (err) {
-      message.error(err.message)
+      showErrorModal({ error: err })
     }
   }
 

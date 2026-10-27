@@ -13,6 +13,7 @@ import {
   ReloadOutlined
 } from '@ant-design/icons'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import Modal from '../common/modal'
 import { copy, readClipboard } from '../../common/clipboard'
 import VncForm from './vnc-form'
@@ -389,7 +390,8 @@ export default class VncSession extends PureComponent {
   }
 
   onSecurityfailure = (event) => {
-    message.error('Security Failure: ' + event.detail?.reason)
+    // 安全失败含协议细节，走统一错误弹窗（带一键复制）而非瞬态 toast
+    showErrorModal({ error: 'Security Failure: ' + (event.detail?.reason || '') })
   }
 
   onSerververification = (event) => {

@@ -32,6 +32,7 @@ import RdpCredForm from './rdp-cred-form'
 import { FileTransferManager, createFileLogger } from './file-transfer'
 import { notification } from '../common/notification'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import ShowItem from '../common/show-item'
 import './rdp.styl'
 
@@ -381,7 +382,8 @@ export default class RdpSession extends PureComponent {
   showError = (err) => {
     const text = this.errText(err)
     this.log(`Connection failed: ${this.formatError(err)}`, 'error')
-    message.error(text, 10)
+    // 连接失败含堆栈/凭据错误详情，走统一错误弹窗（带一键复制）而非瞬态 toast
+    showErrorModal({ error: text })
   }
 
   onCredSubmit = (res) => {

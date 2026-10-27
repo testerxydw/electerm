@@ -9,6 +9,7 @@ import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag,
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import { refsStatic } from '../common/ref'
 import DbConnError from './db-conn-error'
 import SessionBarActions from '../common/session-bar-actions'
@@ -719,13 +720,15 @@ export default auto(function DbSession (props) {
     String(err && err.message ? err.message : err)
   )
 
-  // 统一操作错误出口：连接类错误置顶提示（带重连按钮），其余仅 toast
+  // 统一操作错误出口：连接类错误置顶提示（带重连按钮），其余走统一错误弹窗（带一键复制）
   const onOpError = (err) => {
     const msg = err && err.message ? err.message : String(err)
     if (isConnError(err)) {
+      // 连接类：横幅自身带错误全文 + 复制 + 重连，无需再弹窗
       setConnError(msg)
+      return
     }
-    message.error(msg)
+    showErrorModal({ error: err })
   }
 
   // 系统库显示开关：默认显示（专业工具惯例），隐藏偏好持久化在 config
@@ -2757,7 +2760,7 @@ export default auto(function DbSession (props) {
         setRedisDetail(null)
       }
       setDetailLoading(false)
-      message.error(err && err.message ? err.message : String(err))
+      showErrorModal({ error: err })
     })
   }
 
@@ -2774,7 +2777,7 @@ export default auto(function DbSession (props) {
       loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
       selectRedisKey(redisKey)
     }).catch(err => {
-      message.error(err && err.message ? err.message : String(err))
+      showErrorModal({ error: err })
     })
   }
 
@@ -2793,7 +2796,7 @@ export default auto(function DbSession (props) {
       // 键数变了 → 同步刷新左侧各 db 的键个数
       loadTree()
     }).catch(err => {
-      message.error(err && err.message ? err.message : String(err))
+      showErrorModal({ error: err })
     })
   }
 
@@ -2831,7 +2834,7 @@ export default auto(function DbSession (props) {
       }
       return { ok: true, res }
     }).catch(err => {
-      message.error(err && err.message ? err.message : String(err))
+      showErrorModal({ error: err })
       return { ok: false }
     })
   }
@@ -2943,7 +2946,7 @@ export default auto(function DbSession (props) {
       // 中间态可能已删旧未加新：必须刷新详情拿真实状态
       selectRedisKey(redisKey)
       loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
-      message.error(err && err.message ? err.message : String(err))
+      showErrorModal({ error: err })
     })
   }
 
@@ -2967,7 +2970,7 @@ export default auto(function DbSession (props) {
       setRenameOpen(false)
       setRenameInput('')
     }).catch(err => {
-      message.error(err && err.message ? err.message : String(err))
+      showErrorModal({ error: err })
     })
   }
 

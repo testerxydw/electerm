@@ -12,6 +12,7 @@ import EditWithCustomEditor from '../text-editor/edit-with-custom-editor'
 import BatchOpAlert from './batch-op-alert'
 import BatchOpLogs from './batch-op-logs'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import { refsStatic } from '../common/ref'
 import generate from '../../common/uid'
 import { safeGetItem, safeSetItem } from '../../common/safe-local-storage'
@@ -123,7 +124,7 @@ export default function BatchOpEditor ({ widget }) {
       message.success('Workflow execution completed')
     } catch (err) {
       if (err.message !== 'Workflow aborted') {
-        message.error('Workflow execution failed: ' + err.message)
+        showErrorModal({ error: 'Workflow execution failed: ' + err.message })
       }
     } finally {
       setExecuting(false)

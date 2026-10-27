@@ -2,14 +2,14 @@
  * bookmark form
  */
 import { useState } from 'react'
+import { showErrorModal } from '../../common/error-modal'
 import {
   Button,
   Input,
   AutoComplete,
   Form,
   Select,
-  Space,
-  message
+  Space
 } from 'antd'
 import { formItemLayout } from '../../../common/form-layout'
 import { uniqBy } from 'lodash-es'
@@ -50,7 +50,7 @@ function KeyField ({ name, label, desc, pathName, pathPlaceholder, form }) {
     try {
       file = await openFileSelect()
     } catch (err) {
-      message.error('cannot read file: ' + err.message)
+      showErrorModal({ error: 'cannot read file: ' + err.message })
       return
     }
     if (!file) {

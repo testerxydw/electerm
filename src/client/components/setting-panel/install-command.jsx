@@ -6,6 +6,7 @@ import {
   WarningOutlined
 } from '@ant-design/icons'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import HelpIcon from '../common/help-icon'
 import { installCommandHelpLink } from '../../common/constants'
 
@@ -40,11 +41,11 @@ export default function InstallCommand () {
       if (res && res.ok) {
         message.success(okText)
       } else {
-        message.error((res && res.message) || 'Failed to update the electerm command')
+        showErrorModal({ error: (res && res.message) || 'Failed to update the electerm command' })
       }
       await refresh()
     } catch (err) {
-      message.error(err.message || String(err))
+      showErrorModal({ error: err })
     } finally {
       setLoading(false)
     }

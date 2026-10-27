@@ -14,6 +14,7 @@ import {
   LoadingOutlined
 } from '@ant-design/icons'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import { appendMandatoryGuardrails } from '../ai/ai-guardrails'
 import AiHistory, { addHistoryItem } from '../ai/ai-history.jsx'
 import HelpIcon from '../common/help-icon'
@@ -196,7 +197,7 @@ export default function QuickCommandAiEditor (props) {
       message.success(e('Done'))
     } catch (err) {
       console.error('AI quick command generation error:', err)
-      message.error('Can not generate quick command from AI response: ' + err.message)
+      showErrorModal({ error: 'Can not generate quick command from AI response: ' + err.message })
     } finally {
       setLoading(false)
     }

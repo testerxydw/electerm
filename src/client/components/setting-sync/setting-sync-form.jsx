@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react'
 import { ArrowDownOutlined, ArrowUpOutlined, SaveOutlined, ClearOutlined } from '@ant-design/icons'
 import { Button, Input, Form, Alert } from 'antd'
-import { notification } from '../common/notification'
+import { showErrorModal } from '../common/error-modal'
 import SwitchLabel from '../common/switch'
 import Link from '../common/external-link'
 import dayjs from 'dayjs'
@@ -95,9 +95,10 @@ export default function SyncForm (props) {
     window.store.updateSyncSetting(up)
     const test = await window.store.testSyncToken(syncType, res.gistId)
     if (isError(test)) {
-      return notification.error({
-        message: test.message || 'Request failed',
-        description: test.stack || 'Request failed'
+      // 同步校验失败需看完整堆栈上报，走统一错误弹窗（带一键复制）
+      return showErrorModal({
+        error: [test.message || 'Request failed', test.stack]
+          .filter(Boolean).join('\n')
       })
     }
     // if (!res.gistId && syncType !== syncTypes.custom && syncType !== syncTypes.cloud) {

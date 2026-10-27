@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Form, Tabs } from 'antd'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import { renderFormItem } from './common/fields'
 import SubmitButtons from './common/submit-buttons'
 import { uniq } from 'lodash-es'
@@ -153,7 +154,7 @@ export default function FormRenderer ({ config, props, onForm }) {
     } else {
       const err = 'connection fails' +
         (msg ? `: ${msg}` : '')
-      message.error(err)
+      showErrorModal({ error: err })
     }
   }
 

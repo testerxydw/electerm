@@ -18,6 +18,7 @@ import {
 import Password from '../common/password'
 import AiHistory, { addHistoryItem } from './ai-history'
 import message from '../common/message'
+import { showErrorModal } from '../common/error-modal'
 import { getAIPresets, getAIModelOptions, normalizeAIBaseURL } from './ai-presets'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import './ai-config.styl'
@@ -141,7 +142,7 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
         values.authHeaderNameAI
       )
       if (res && res.error) {
-        message.error(res.error)
+        showErrorModal({ error: res.error })
       } else if (res && res.response) {
         message.success('AI config works!')
       } else {
@@ -149,7 +150,7 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
       }
     } catch (e) {
       if (e.message) {
-        message.error(e.message)
+        showErrorModal({ error: e })
       }
     } finally {
       setTesting(false)
@@ -179,7 +180,7 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
         values.proxyAI
       )
       if (res && res.error) {
-        message.error(res.error)
+        showErrorModal({ error: res.error })
       } else if (res && res.models && res.models.length) {
         setCachedModels(res.models)
         setModelsFetched(true)
@@ -194,7 +195,7 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
       }
     } catch (e) {
       if (e.message) {
-        message.error(e.message)
+        showErrorModal({ error: e })
       }
     } finally {
       setLoadingModels(false)
