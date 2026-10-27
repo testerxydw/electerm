@@ -239,6 +239,10 @@ const en = {
   dbWizardPrev: 'Previous',
   dbViewDdl: 'View DDL',
   dbDdlNotFound: 'DDL not available for this object',
+  // B2 树扩展：非表对象分组标题（组名是稳定英文 token，标题随语言）
+  dbRoutines: 'Procedures & Functions',
+  dbTriggers: 'Triggers',
+  dbEvents: 'Events',
   dbFormatSql: 'Format SQL (Ctrl/Cmd+Shift+F)',
   dbSqlKeywordCase: 'Completion keyword case (Aa = lower, AA = UPPER)',
   dbSqlOpts: 'Editor options',
@@ -799,6 +803,10 @@ const zhCn = {
   dbWizardPrev: '上一步',
   dbViewDdl: '查看 DDL',
   dbDdlNotFound: '该对象没有可用的 DDL',
+  // B2 树扩展：非表对象分组标题（组名是稳定英文 token，标题随语言）
+  dbRoutines: '存储过程与函数',
+  dbTriggers: '触发器',
+  dbEvents: '事件',
   dbFormatSql: '格式化 SQL（Ctrl/Cmd+Shift+F）',
   dbSqlKeywordCase: '补全关键字大小写（Aa 小写 / AA 大写）',
   dbSqlOpts: '编辑器选项',

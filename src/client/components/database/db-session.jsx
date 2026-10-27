@@ -145,7 +145,25 @@ const SEL_COL_W = 36
 // 树节点 key 用 JSON 数组编码，避免库/表名含 '.' 时拆解歧义
 // F0：元数据契约 v2 起叶子多了 type:'view'。树的三处分支（过滤/展开/渲染）
 // 原来只认 'table'，视图会被当成 schema 画成一个带 S 标记的空节点、点不开
-const isLeafNode = node => node.type === 'table' || node.type === 'view'
+// B2：叶子类型扩到非表对象（过程/函数/触发器/事件）—— 它们点开看 DDL、不进数据网格。
+// 若仍按非叶子处理，会被画成带 S 标记的 schema 节点且点不开。
+// 保持单行声明：db-page-tree-filter.spec.js 按 `^const isLeafNode = .+$` 抽取真实源码执行
+const isLeafNode = node => ['table', 'view', 'procedure', 'function', 'trigger', 'event'].includes(node.type)
+// B2：非表对象的单字母标记（与 view 的 V 共用一套视觉语言）
+const DB_OBJECT_MARKS = {
+  procedure: 'P',
+  function: 'F',
+  trigger: 'T',
+  event: 'E'
+}
+const isDbObjectType = type => Object.prototype.hasOwnProperty.call(DB_OBJECT_MARKS, type)
+// 分组节点标题走 i18n；组名本身是稳定英文 token（routines/triggers/events），
+// 不随界面语言变化 —— 展开键与树过滤都按它匹配
+const DB_GROUP_LABEL = {
+  routine: 'dbRoutines',
+  trigger: 'dbTriggers',
+  event: 'dbEvents'
+}
 const nodeKey = (database, schema, table) => JSON.stringify([
   database,
   schema || '',
@@ -919,6 +937,17 @@ export default auto(function DbSession (props) {
     }
     // key 编码 [database, schema, table]；MySQL schema 为空串
     const [database, schema, table] = JSON.parse(node.key)
+    // B2：非表对象（过程/函数/触发器/事件）没有数据网格，点开看 DDL
+    if (isDbObjectType(node.nodeType)) {
+      showObjectDdl({
+        database,
+        schema: schema || '',
+        name: table,
+        objectType: node.nodeType,
+        ...(node.objMeta || {})
+      })
+      return
+    }
     // nodeType: 'table' | 'view'。缺省按 table 处理（旧 metadata 无 type 时是表）
     const next = { database, schema: schema || '', table, nodeType: node.nodeType || 'table' }
     resetPageFilter()
@@ -3431,12 +3460,13 @@ export default auto(function DbSession (props) {
     const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
       if (isLeafNode(node)) {
         // F0：视图与表在树里同名同形，不给标记就分不出哪个是视图（点开也看不出）。
-        // 与 PG schema 的 S 标记共用一套视觉语言（小方块 + 单字母）
+        // B2：过程(P)/函数(F)/触发器(T)/事件(E) 同理，统一用「小方块 + 单字母」
+        const mark = node.type === 'view' ? 'V' : (DB_OBJECT_MARKS[node.type] || '')
         return {
-          title: node.type === 'view'
+          title: mark
             ? (
               <span className='db-tree-view'>
-                <span className='db-tree-view-mark'>V</span>
+                <span className='db-tree-view-mark'>{mark}</span>
                 {treeTitle(node.name)}
               </span>
               )
@@ -3444,7 +3474,26 @@ export default auto(function DbSession (props) {
           key: nodeKey(dbName, schema, node.name),
           isLeaf: true,
           // 类型随节点走：后续按钮门控（视图不可插入行）要它
-          nodeType: node.type
+          nodeType: node.type,
+          // B2：对象定位信息（PG 函数需签名区分重载、触发器需表名）——
+          // 只挂在树节点上，不进 metadata 契约之外的持久化
+          objMeta: isDbObjectType(node.type)
+            ? { signature: node.signature || '', table: node.table || '' }
+            : undefined
+        }
+      }
+      // B2：库内对象分组（过程与函数 / 触发器 / 事件）。分组本身不可选中，
+      // 只负责收起，避免几百个过程把表名挤出屏幕
+      if (node.type === 'group') {
+        return {
+          title: (
+            <span className='db-tree-schema'>
+              <span className='db-tree-group-mark'>G</span>
+              {treeTitle(e(DB_GROUP_LABEL[node.group] || 'dbRoutines'))}
+            </span>
+          ),
+          key: nodeKey(dbName, schema, node.name),
+          children: toTreeChildren(dbName, schema, node.children)
         }
       }
       // PG schema 节点：S 标记便于与库 / 表区分；空 schema 也保留
@@ -3758,18 +3807,23 @@ export default auto(function DbSession (props) {
               id: nodeKey(db.name, schema, node.name),
               title: node.name,
               subtitle: schema ? `${db.name}.${schema}` : db.name,
-              // 与树的视图标记共用同一视觉语言（小字 V），不算文案不进词条
-              hint: node.type === 'view' ? 'V' : '',
+              // 与树的视图标记共用同一视觉语言（小字 V/P/F/T/E），不算文案不进词条
+              hint: node.type === 'view' ? 'V' : (DB_OBJECT_MARKS[node.type] || ''),
               run: () => onSelectTree(null, {
                 node: {
                   key: nodeKey(db.name, schema, node.name),
                   isLeaf: true,
-                  nodeType: node.type
+                  nodeType: node.type,
+                  objMeta: isDbObjectType(node.type)
+                    ? { signature: node.signature || '', table: node.table || '' }
+                    : undefined
                 }
               })
             })
           } else if (Array.isArray(node.children)) {
-            walk(node.name, node.children)
+            // B2：分组节点（routines/triggers/events）不改变 schema 归属，
+            // 否则 subtitle 会变成 db.routines 这种假 schema
+            walk(node.type === 'group' ? schema : node.name, node.children)
           }
         }
       }
@@ -5404,6 +5458,29 @@ export default auto(function DbSession (props) {
           text: err && err.message ? err.message : String(err)
         }))
       })
+  }
+
+  // B2：对象 DDL 查看（过程/函数/触发器/事件）。只读、复用表 DDL 的弹窗与复制能力。
+  // 定位参数随对象类型变化：PG 函数用签名区分重载、触发器用表名区分同名
+  const showObjectDdl = (target) => {
+    setDdl({ open: true, loading: true, title: target.name, text: '' })
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getObjectDdl', {
+      database: target.database,
+      schema: target.schema || '',
+      name: target.name,
+      objectType: target.objectType,
+      signature: target.signature || '',
+      table: target.table || ''
+    }).then(res => {
+      const text = res && res.ddl ? res.ddl : ''
+      setDdl(d => ({ ...d, loading: false, text: text || e('dbDdlNotFound') }))
+    }).catch(err => {
+      setDdl(d => ({
+        ...d,
+        loading: false,
+        text: err && err.message ? err.message : String(err)
+      }))
+    })
   }
 
   const structureArea = (

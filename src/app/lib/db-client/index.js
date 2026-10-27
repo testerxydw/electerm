@@ -43,7 +43,8 @@ const OP_MAP = {
     countRows: 'countRows',
     executeSql: 'executeSql',
     explainQuery: 'explainQuery',
-    listColumns: 'listColumns'
+    listColumns: 'listColumns',
+    getObjectDdl: 'getObjectDdl'
   },
   postgres: {
     getMetadata: 'getMetadata',
@@ -57,7 +58,8 @@ const OP_MAP = {
     countRows: 'countRows',
     executeSql: 'executeSql',
     explainQuery: 'explainQuery',
-    listColumns: 'listColumns'
+    listColumns: 'listColumns',
+    getObjectDdl: 'getObjectDdl'
   },
   redis: {
     getMetadata: 'getMetadata',

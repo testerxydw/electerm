@@ -227,13 +227,16 @@ async function getMetadata (conn, args) {
         'WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
         [String(dbName)]
       )
+      // B2：过程/函数/触发器/事件作为「分组节点」挂在库下（与表并列但不混在一起，
+      // 否则几百个过程会把表名挤走）。取不到就少一组，绝不影响表清单
+      const objects = await getDbObjects(pool, dbName)
       return {
         name: dbName,
         type: 'database',
         children: (tables || []).map(t => ({
           name: t.TABLE_NAME,
           type: t.TABLE_TYPE === 'VIEW' ? 'view' : 'table'
-        }))
+        })).concat(objects)
       }
     } catch (e) {
       log.warn('getMetadata db failed:', dbName, e.message)
@@ -245,6 +248,124 @@ async function getMetadata (conn, args) {
       }
     }
   })
+}
+
+// B2：库内非表对象。三组各自独立 try/catch —— 事件调度器关闭 / 无 EVENT 权限 /
+// MariaDB 差异都只影响自己那一组，不会把表和视图一起带没。
+// 组名用稳定英文 token（routines/triggers/events），中文标题在渲染层用 i18n 取，
+// 这样树过滤、持久化的展开键不会随界面语言变化而失效。
+async function getDbObjects (pool, dbName) {
+  const groups = []
+  const safe = async (sql, label) => {
+    try {
+      const [rows] = await pool.query(sql, [String(dbName)])
+      return rows || []
+    } catch (e) {
+      log.warn(`getMetadata ${label} failed:`, dbName, e.message)
+      return []
+    }
+  }
+  const routines = await safe(
+    'SELECT ROUTINE_NAME AS name, ROUTINE_TYPE AS kind FROM information_schema.ROUTINES ' +
+    'WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_NAME',
+    'routines'
+  )
+  if (routines.length) {
+    groups.push({
+      name: 'routines',
+      type: 'group',
+      group: 'routine',
+      children: routines.map(r => ({
+        name: r.name,
+        type: String(r.kind || '').toUpperCase() === 'PROCEDURE' ? 'procedure' : 'function'
+      }))
+    })
+  }
+  const triggers = await safe(
+    'SELECT TRIGGER_NAME AS name, EVENT_OBJECT_TABLE AS tbl FROM information_schema.TRIGGERS ' +
+    'WHERE TRIGGER_SCHEMA = ? ORDER BY TRIGGER_NAME',
+    'triggers'
+  )
+  if (triggers.length) {
+    groups.push({
+      name: 'triggers',
+      type: 'group',
+      group: 'trigger',
+      children: triggers.map(r => ({
+        name: r.name,
+        type: 'trigger',
+        table: r.tbl || ''
+      }))
+    })
+  }
+  const events = await safe(
+    'SELECT EVENT_NAME AS name FROM information_schema.EVENTS ' +
+    'WHERE EVENT_SCHEMA = ? ORDER BY EVENT_NAME',
+    'events'
+  )
+  if (events.length) {
+    groups.push({
+      name: 'events',
+      type: 'group',
+      group: 'event',
+      children: events.map(r => ({ name: r.name, type: 'event' }))
+    })
+  }
+  return groups
+}
+
+// B2：对象 DDL（只读查看）。对象种类走白名单，标识符一律反引号引用 ——
+// 名称来自元数据树，与表名同源，不能直接拼进 SQL。
+// 不同 MySQL/MariaDB 版本的列名不一致（Create Procedure / SQL Original Statement /
+// Create Event），故取「最长的字符串列」而不是写死列名。
+const DDL_KINDS = {
+  procedure: 'PROCEDURE',
+  function: 'FUNCTION',
+  trigger: 'TRIGGER',
+  event: 'EVENT'
+}
+
+async function getObjectDdl (conn, args) {
+  const kind = DDL_KINDS[String((args && args.objectType) || '').toLowerCase()]
+  if (!kind) {
+    throw new Error(`unsupported object type: ${args && args.objectType}`)
+  }
+  const name = String((args && args.name) || '')
+  if (!name) {
+    throw new Error('object name required')
+  }
+  const pool = await getPool(conn)
+  const full = (args.database ? quoteIdent(args.database) + '.' : '') + quoteIdent(name)
+  const [rows] = await pool.query(`SHOW CREATE ${kind} ${full}`)
+  const row = rows && rows[0]
+  if (!row) {
+    throw new Error(`object not found: ${name}`)
+  }
+  return {
+    name,
+    objectType: String(args.objectType).toLowerCase(),
+    ddl: pickDdlText(row)
+  }
+}
+
+// SHOW CREATE 的返回列名随对象种类/版本变化（Create Procedure / SQL Original Statement /
+// Create Event / 老版本裸定义），不写死列名：优先取"像 DDL"的最长字符串，再退回最长字符串。
+// 抽成纯函数便于单测（这里最容易在换版本时静默返回空串）
+function pickDdlText (row) {
+  let ddl = ''
+  for (const v of Object.values(row || {})) {
+    if (typeof v === 'string' && v.length > ddl.length && /\b(CREATE|BEGIN)\b/i.test(v)) {
+      ddl = v
+    }
+  }
+  if (!ddl) {
+    for (const v of Object.values(row || {})) {
+      if (typeof v === 'string' && v.length > ddl.length) {
+        ddl = v
+      }
+    }
+  }
+  return ddl
 }
 
 function quoteIdent (name) {
@@ -1130,6 +1251,7 @@ module.exports = {
   release,
   evict,
   getMetadata,
+  getObjectDdl,
   getPageData,
   describeTable,
   getTableStructure,
@@ -1155,6 +1277,8 @@ module.exports = {
   buildInsertBatch,
   insertBatchParams,
   parseMysqlPlan,
+  pickDdlText,
+  getDbObjects,
   containsAnalyze,
   extractActualRows
 }

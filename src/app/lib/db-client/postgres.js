@@ -132,6 +132,80 @@ async function getMetadata (conn) {
       type: isView ? 'view' : 'table'
     })
   }
+  // B2：函数/过程/触发器按 schema 分组挂到树里。两条查询各自吞错 ——
+  // 某些托管实例限制 pg_proc 可见性，失败只该少一组、不该让整棵树打不开。
+  const [fnRes, tgRes] = await Promise.all([
+    c.query(
+      'SELECT n.nspname AS schema, p.proname AS name, p.prokind AS kind, ' +
+      'p.oid::regprocedure::text AS signature ' +
+      'FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace ' +
+      "WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') " +
+      "AND n.nspname NOT LIKE 'pg\\_%' " +
+      'ORDER BY n.nspname, p.proname'
+    ).catch(() => ({ rows: [] })),
+    c.query(
+      'SELECT n.nspname AS schema, t.tgname AS name, c.relname AS tbl ' +
+      'FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid ' +
+      'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      'WHERE NOT t.tgisinternal ' +
+      "AND n.nspname NOT IN ('pg_catalog', 'information_schema') " +
+      "AND n.nspname NOT LIKE 'pg\\_%' " +
+      'ORDER BY n.nspname, t.tgname'
+    ).catch(() => ({ rows: [] }))
+  ])
+  // prokind：'p' 过程，其余（'f' 普通函数 / 'a' 聚合 / 'w' 窗口）一律按函数展示
+  const fnBySchema = new Map()
+  for (const r of fnRes.rows || []) {
+    // 驱动/代理返回意外行时（缺 schema 列）直接跳过：宁可少一组，
+    // 也不能造出 name=undefined 的假 schema 节点
+    if (!r || !r.schema) {
+      continue
+    }
+    if (!fnBySchema.has(r.schema)) {
+      fnBySchema.set(r.schema, [])
+    }
+    fnBySchema.get(r.schema).push({
+      name: r.name,
+      type: r.kind === 'p' ? 'procedure' : 'function',
+      signature: r.signature || ''
+    })
+  }
+  for (const [schema, children] of fnBySchema) {
+    if (!bySchema.has(schema)) {
+      bySchema.set(schema, [])
+    }
+    bySchema.get(schema).push({
+      name: 'routines',
+      type: 'group',
+      group: 'routine',
+      children
+    })
+  }
+  const tgBySchema = new Map()
+  for (const r of tgRes.rows || []) {
+    if (!r || !r.schema) {
+      continue
+    }
+    if (!tgBySchema.has(r.schema)) {
+      tgBySchema.set(r.schema, [])
+    }
+    tgBySchema.get(r.schema).push({
+      name: r.name,
+      type: 'trigger',
+      table: r.tbl || ''
+    })
+  }
+  for (const [schema, children] of tgBySchema) {
+    if (!bySchema.has(schema)) {
+      bySchema.set(schema, [])
+    }
+    bySchema.get(schema).push({
+      name: 'triggers',
+      type: 'group',
+      group: 'trigger',
+      children
+    })
+  }
   const current = c.database
   return dbRes.rows.map(row => ({
     name: row.datname,
@@ -992,11 +1066,55 @@ async function closePostgresConnection () {
   refs.clear()
 }
 
+// B2：对象 DDL（只读查看）。种类走白名单；
+// 函数/过程用 regprocedure 签名定位（PG 允许重载，单靠名字会歧义或多结果），
+// 触发器用 tgname + 表名定位（同名触发器可存在于不同表）。
+async function getObjectDdl (conn, args) {
+  const kind = String((args && args.objectType) || '').toLowerCase()
+  if (kind !== 'function' && kind !== 'procedure') {
+    if (kind === 'trigger') {
+      const c = await getClient(conn)
+      const r = await c.query(
+        'SELECT pg_get_triggerdef(t.oid) AS ddl FROM pg_trigger t ' +
+        'JOIN pg_class c ON c.oid = t.tgrelid ' +
+        'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+        "WHERE t.tgname = $1 AND ($2 = '' OR c.relname = $2) LIMIT 1",
+        [String(args.name || ''), String(args.table || '')]
+      )
+      if (!r.rows.length) {
+        throw new Error(`trigger not found: ${args.name}`)
+      }
+      return { name: args.name, objectType: kind, ddl: r.rows[0].ddl }
+    }
+    throw new Error(`unsupported object type: ${args && args.objectType}`)
+  }
+  const signature = String((args && (args.signature || args.name)) || '')
+  if (!signature) {
+    throw new Error('function signature required')
+  }
+  const c = await getClient(conn)
+  // 签名来自元数据（regprocedure::text），直接查 pg_proc；查不到说明对象已被删
+  const f = await c.query(
+    'SELECT p.oid, p.proname FROM pg_proc p WHERE p.oid = $1::regprocedure',
+    [signature]
+  )
+  if (!f.rows.length) {
+    throw new Error(`${kind} not found: ${signature}`)
+  }
+  const d = await c.query('SELECT pg_get_functiondef($1) AS ddl', [f.rows[0].oid])
+  return {
+    name: f.rows[0].proname || args.name,
+    objectType: kind,
+    ddl: (d.rows[0] && d.rows[0].ddl) || ''
+  }
+}
+
 module.exports = {
   testPostgresConnection,
   acquire,
   release,
   getMetadata,
+  getObjectDdl,
   getPageData,
   describeTable,
   getTableStructure,

@@ -339,6 +339,17 @@
   font-size 10px
   line-height 14px
 
+// B2：库内对象分组（过程与函数 / 触发器 / 事件）的 G 标记。
+// 与 schema 的 S 标记同一套视觉语言；行高必须与其它树节点严格一致，
+// 故沿用 inline-block + 10px 字号，不加 vertical-align
+.db-tree-group-mark
+  padding 0 3px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  color var(--text-dark)
+  font-size 10px
+  line-height 14px
+
 // F0：视图叶子节点的 V 标记（与 .db-tree-schema-mark 同一套视觉语言：
 // 小方块 + 单字母）。视图在树里与表同名同形，没有标记就分不出来
 // 关键：不能用 inline-flex 包文字。实测 inline-flex 会把树行从 24px 撑到 25px

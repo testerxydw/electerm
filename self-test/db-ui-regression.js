@@ -86,7 +86,28 @@ const STUB = `
         children: [
           { name: 'users', type: 'table' },
           { name: 'orders', type: 'table' },
-          { name: 'v_active', type: 'view' }
+          { name: 'v_active', type: 'view' },
+          {
+            name: 'routines',
+            type: 'group',
+            group: 'routine',
+            children: [
+              { name: 'sp_demo', type: 'procedure' },
+              { name: 'fn_demo', type: 'function' }
+            ]
+          },
+          {
+            name: 'triggers',
+            type: 'group',
+            group: 'trigger',
+            children: [{ name: 'trg_demo', type: 'trigger', table: 'users' }]
+          },
+          {
+            name: 'events',
+            type: 'group',
+            group: 'event',
+            children: [{ name: 'ev_demo', type: 'event' }]
+          }
         ]
       }])
     }
@@ -106,6 +127,13 @@ const STUB = `
     if (op === 'countRows') return Promise.resolve({ count: 40 })
     if (op === 'listColumns') return Promise.resolve(cols.map(c => ({ name: c.name, type: c.type })))
     if (op === 'getReferences') return Promise.resolve([])
+    if (op === 'getObjectDdl') {
+      return Promise.resolve({
+        name: a[2] && a[2].name,
+        objectType: a[2] && a[2].objectType,
+        ddl: 'CREATE PROCEDURE sp_demo()\\nBEGIN\\n  SELECT 1;\\nEND'
+      })
+    }
     return Promise.resolve(null)
   }
   return 'stub-installed'
@@ -279,6 +307,39 @@ const main = async () => {
   const structRows = await cdp.eval('window.__visRows()')
   check('表结构页签渲染出行', tabClicked === 'ok' && structRows > 0, { tabClicked, structRows })
   console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3-structure.png')))
+
+  // 5) B2：树里出现非表对象分组，点开过程能看到 DDL
+  await cdp.eval(`
+    (() => {
+      const g = [...document.querySelectorAll('.ant-tree-title')].filter(window.__vis)
+        .find(x => x.innerText.includes('存储过程') || x.innerText.includes('Procedures'))
+      if (g) g.click()
+      return g ? 'ok' : 'missing'
+    })()
+  `)
+  await sleep(600)
+  const treeTitles = JSON.parse(await cdp.eval("JSON.stringify([...document.querySelectorAll('.ant-tree-title')].filter(window.__vis).map(x => x.innerText.trim()))") || '[]')
+  check('B2 树里出现对象分组（过程与函数/触发器/事件）',
+    treeTitles.some(t => /存储过程|Procedures/.test(t)) &&
+    treeTitles.some(t => /触发器|Triggers/.test(t)) &&
+    treeTitles.some(t => /事件|Events/.test(t)),
+    treeTitles)
+
+  const procClicked = await cdp.eval(`
+    (() => {
+      const p = [...document.querySelectorAll('.ant-tree-title')].filter(window.__vis)
+        .find(x => x.innerText.includes('sp_demo'))
+      if (!p) return 'missing'
+      p.click()
+      return 'ok'
+    })()
+  `)
+  await sleep(700)
+  const ddlText = await cdp.eval("((document.querySelector('.db-ddl-pre') || {}).textContent || '').slice(0, 60)")
+  check('B2 点开过程弹出 DDL（走 getObjectDdl）',
+    procClicked === 'ok' && /CREATE PROCEDURE/.test(String(ddlText)),
+    { procClicked, ddlText })
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '4-object-ddl.png')))
 
   const failed = results.filter(r => !r.ok)
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
