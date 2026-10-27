@@ -1,0 +1,113 @@
+// 错误类弹窗（错误类专用，与功能性 Modal 分离，样式语言对齐 modal.styl）
+// 恒带"一键复制 + 关闭"按钮，标题栏浅色品牌渐变洗染 + surface 卡片底。
+
+.error-modal-wrap
+  position fixed
+  inset 0
+  z-index 1000
+  display flex
+  align-items center
+  justify-content center
+
+.error-modal-mask
+  position absolute
+  inset 0
+  background var(--mask-bg)
+
+.error-modal-box
+  position relative
+  max-width 90vw
+  max-height 80vh
+  display flex
+  flex-direction column
+  background var(--surface-2)
+  border 1px solid var(--border)
+  border-radius var(--radius)
+  box-shadow var(--shadow-2)
+  overflow hidden
+
+.error-modal-head
+  display flex
+  align-items center
+  justify-content space-between
+  padding 14px 20px
+  border-bottom 1px solid var(--border)
+  // 与功能性 Modal 标题栏同款：浅色品牌渐变洗染
+  background unquote('linear-gradient(90deg, color-mix(in srgb, var(--error) 10%, transparent), transparent)')
+
+.error-modal-title
+  font-size 15px
+  font-weight 600
+  color var(--text)
+  line-height 1.5
+  flex 1
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.error-modal-head-actions
+  display flex
+  align-items center
+
+.error-modal-copy,
+.error-modal-close
+  display flex
+  align-items center
+  justify-content center
+  width 32px
+  height 32px
+  padding 0
+  margin-left 8px
+  background transparent
+  border none
+  border-radius var(--radius-sm)
+  color var(--text)
+  cursor pointer
+  transition background var(--dur-2) var(--ease)
+  &:hover
+    background var(--hover-bg)
+  &:focus
+    outline none
+
+.error-modal-body
+  padding 16px 20px 20px 20px
+  overflow auto
+  color var(--text)
+
+.error-modal-text
+  font-family var(--mono)
+  font-size 12px
+  line-height 1.6
+  white-space pre-wrap
+  word-break break-all
+  color var(--text)
+  user-select text
+
+.error-modal-footer
+  display flex
+  justify-content flex-end
+  gap 8px
+  padding 12px 20px
+  border-top 1px solid var(--border)
+
+.error-modal-cancel,
+.error-modal-ok
+  padding 5px 16px
+  border-radius var(--radius-sm)
+  cursor pointer
+  font-size 13px
+  transition background var(--dur-2) var(--ease)
+
+.error-modal-cancel
+  background var(--surface-1)
+  border 1px solid var(--border)
+  color var(--text)
+  &:hover
+    background var(--hover-bg)
+
+.error-modal-ok
+  background var(--primary)
+  border none
+  color var(--text-on-primary, #fff)
+  &:hover
+    opacity .9

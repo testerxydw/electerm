@@ -4,23 +4,11 @@ import classnames from 'classnames'
 import generateId from '../../common/uid'
 import { messageIcons } from '../../common/icon-helpers.jsx'
 import { copy } from '../../common/clipboard'
+import { getTextFromReactChildren } from '../../common/react-text'
 import './notification.styl'
 
 const notifications = []
 const NOTIFICATION_EVENT = 'notification-update'
-
-function getTextFromReactChildren (children) {
-  if (typeof children === 'string' || typeof children === 'number') {
-    return String(children)
-  }
-  if (React.isValidElement(children)) {
-    return getTextFromReactChildren(children.props.children)
-  }
-  if (Array.isArray(children)) {
-    return children.map(getTextFromReactChildren).join('\n')
-  }
-  return ''
-}
 
 function addNotification (notif) {
   notif.descriptions = notif.description ? [notif.description] : []
@@ -128,10 +116,10 @@ function NotificationItem ({ message, descriptions = [], type, onClose, duration
     }
   }
 
-  const handleCopy = (text, e) => {
+  const handleCopy = (e) => {
     e.stopPropagation()
-    const textToCopy = getTextFromReactChildren(text)
-    copy(textToCopy)
+    const pieces = [getTextFromReactChildren(message), ...validDescriptions]
+    copy(pieces.filter(Boolean).join('\n'))
   }
 
   const className = classnames('notification', type)
@@ -151,7 +139,8 @@ function NotificationItem ({ message, descriptions = [], type, onClose, duration
           <div className='notification-title' title={titleText}>{title}</div>
           <CopyOutlined
             className='notification-copy-icon'
-            onClick={(e) => handleCopy(message, e)}
+            title={window.translate('copyError')}
+            onClick={handleCopy}
           />
         </div>
         {validDescriptions.length > 0 && (
@@ -159,10 +148,6 @@ function NotificationItem ({ message, descriptions = [], type, onClose, duration
             {validDescriptions.map((desc, i) => (
               <div key={i}>{desc}</div>
             ))}
-            <CopyOutlined
-              className='notification-copy-icon'
-              onClick={(e) => handleCopy(validDescriptions, e)}
-            />
           </div>
         )}
       </div>
