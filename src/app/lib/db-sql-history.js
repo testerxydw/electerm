@@ -113,9 +113,25 @@ function clearSqlHistory (filePath) {
   }
 }
 
+// S3-D 历史导出：把渲染层给的（全部/筛选后）列表按白名单清洗写 JSON 文件。
+// 渲染层不碰 fs，路径经 saveDialog 在主进程侧由调用方传入，与收藏导出同策略。
+// 返回写入条数
+function exportSqlHistory (items, filePath) {
+  const arr = Array.isArray(items) ? items : []
+  const cleaned = arr
+    .filter(x => x && typeof x === 'object' && x.sql)
+    .map(x => pickEntry(x))
+  const tmp = filePath + '.tmp'
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(tmp, JSON.stringify(cleaned, null, 2))
+  fs.renameSync(tmp, filePath)
+  return cleaned.length
+}
+
 module.exports = {
   listSqlHistory,
   appendSqlHistory,
   removeSqlHistory,
-  clearSqlHistory
+  clearSqlHistory,
+  exportSqlHistory
 }

@@ -297,6 +297,10 @@ function initIpc () {
       if (action === 'clear') {
         return h.clearSqlHistory(file)
       }
+      if (action === 'exportFile') {
+        const a = arg || {}
+        return h.exportSqlHistory(a.items, a.filePath)
+      }
       throw new Error('unknown dbSqlHistoryOp action: ' + action)
     },
     // SQL 查询收藏（B 批）：与历史同一套主进程固定文件策略（userData/db-sql-favorites.json）。
@@ -304,6 +308,8 @@ function initIpc () {
     // 文件读写必须在主进程（渲染层不碰 fs）；导入在主进程做 id upsert 合并
     dbSqlFavoriteOp: async (action, arg) => {
       const file = join(app.getPath('userData'), 'db-sql-favorites.json')
+      // 空分组登记表：分组除从收藏条目推导外，空分组也要可持久化可见
+      const gfile = join(app.getPath('userData'), 'db-sql-fav-groups.json')
       const f = require('./db-sql-favorites')
       const a = arg || {}
       if (action === 'list') {
@@ -314,6 +320,18 @@ function initIpc () {
       }
       if (action === 'remove') {
         return f.removeFavorite(a.id, file)
+      }
+      if (action === 'listGroups') {
+        return f.listGroups(file, gfile)
+      }
+      if (action === 'createGroup') {
+        return f.createGroup(a.name, gfile)
+      }
+      if (action === 'renameGroup') {
+        return f.renameGroup(a.old, a.next, file, gfile)
+      }
+      if (action === 'deleteGroup') {
+        return f.deleteGroup(a.name, file, gfile)
       }
       if (action === 'exportFile') {
         return f.exportFavorites(a.items, a.filePath)

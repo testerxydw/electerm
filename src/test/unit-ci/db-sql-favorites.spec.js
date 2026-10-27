@@ -29,10 +29,10 @@ describe('db-sql-favorites (main-process file store)', () => {
   })
 
   test('保存时无 id 自动生成，返回列表最新在前', () => {
-    const list = f.saveFavorite(entry('SELECT 1'), file)
+    const { list } = f.saveFavorite(entry('SELECT 1'), file)
     assert.equal(list.length, 1)
     assert.ok(list[0].id.startsWith('fav-'))
-    const list2 = f.saveFavorite(entry('SELECT 2'), file)
+    const { list: list2 } = f.saveFavorite(entry('SELECT 2'), file)
     assert.equal(list2.length, 2)
     assert.equal(list2[0].sql, 'SELECT 2')
     // 跨调用（跨启动）可读
@@ -40,9 +40,9 @@ describe('db-sql-favorites (main-process file store)', () => {
   })
 
   test('upsert：带已存在 id 保存即覆盖，不追加', () => {
-    const l1 = f.saveFavorite(entry('SELECT 1', { id: 'fav-a' }), file)
+    const { list: l1 } = f.saveFavorite(entry('SELECT 1', { id: 'fav-a' }), file)
     assert.equal(l1[0].id, 'fav-a')
-    const l2 = f.saveFavorite(entry('SELECT 9', { id: 'fav-a', title: 'renamed' }), file)
+    const { list: l2 } = f.saveFavorite(entry('SELECT 9', { id: 'fav-a', title: 'renamed' }), file)
     assert.equal(l2.length, 1)
     assert.equal(l2[0].sql, 'SELECT 9')
     assert.equal(l2[0].title, 'renamed')
@@ -54,13 +54,15 @@ describe('db-sql-favorites (main-process file store)', () => {
     const item = raw[0]
     assert.equal(item.password, undefined)
     assert.equal(item.connStr, undefined)
+    // group 字段缺省时 pickEntry 不落盘（undefined 键被 JSON 丢弃），故白名单为原有五键
     assert.deepEqual(Object.keys(item).sort(), ['dbType', 'id', 'sql', 'title', 'ts'])
   })
 
   test('空语句保存是 no-op', () => {
-    f.saveFavorite({ title: 'x', sql: '' }, file)
-    assert.equal(f.listFavorites(file).length, 0)
-    f.saveFavorite(null, file)
+    const { list } = f.saveFavorite({ title: 'x', sql: '' }, file)
+    assert.equal(list.length, 0)
+    const { list: l2 } = f.saveFavorite(null, file)
+    assert.equal(l2.length, 0)
     assert.equal(f.listFavorites(file).length, 0)
   })
 
@@ -155,5 +157,123 @@ describe('db-sql-favorites (main-process file store)', () => {
     f.saveFavorite(entry('SELECT 1', { id: 'a' }), file)
     assert.equal(fs.existsSync(file + '.tmp'), false)
     assert.equal(fs.existsSync(file), true)
+  })
+
+  test('内容去重：新建时归一化 SQL 命中旧条目 → 合并不重复插入', () => {
+    const { list: l1 } = f.saveFavorite(entry('SELECT  *  FROM  t\nWHERE id=1'), file)
+    assert.equal(l1.length, 1)
+    const firstId = l1[0].id
+    // 空白/大小写差异归一后视为同一条，返回 duplicate 且合并标题
+    const { list: l2, duplicate } = f.saveFavorite(
+      { id: '', title: 'rename', sql: 'select * from t where id=1' },
+      file
+    )
+    assert.equal(l2.length, 1)
+    assert.ok(duplicate)
+    assert.equal(l2[0].id, firstId) // 保留原 id
+    assert.equal(l2[0].title, 'rename') // 标题被刷新
+  })
+
+  test('内容去重：带 id 保存不走去重（显式覆盖）', () => {
+    f.saveFavorite(entry('SELECT 1', { id: 'a' }), file)
+    const { list, duplicate } = f.saveFavorite({ id: 'a', title: 't', sql: 'SELECT 1' }, file)
+    assert.equal(list.length, 1)
+    assert.equal(duplicate, null)
+  })
+
+  test('分组：group 字段落盘与读取', () => {
+    f.saveFavorite(entry('SELECT 1', { id: 'a', group: '备份' }), file)
+    const item = f.listFavorites(file)[0]
+    assert.equal(item.group, '备份')
+  })
+
+  test('listGroups：统计各分组条数（默认分组归并到空串）', () => {
+    f.saveFavorite(entry('SELECT 1', { id: 'a', group: '备份' }), file)
+    f.saveFavorite(entry('SELECT 2', { id: 'b', group: '备份' }), file)
+    f.saveFavorite(entry('SELECT 3', { id: 'c' }), file)
+    const g = f.listGroups(file)
+    assert.equal(g['备份'], 2)
+    assert.equal(g[''], 1)
+  })
+
+  test('renameGroup：改写组名并落盘；旧组不存在原样返回', () => {
+    f.saveFavorite(entry('SELECT 1', { id: 'a', group: '旧组' }), file)
+    const l1 = f.renameGroup('旧组', '新组', file)
+    assert.equal(l1.find(x => x.id === 'a').group, '新组')
+    assert.equal(f.listFavorites(file)[0].group, '新组')
+    const l2 = f.renameGroup('不存在', 'X', file)
+    assert.equal(l2.find(x => x.id === 'a').group, '新组')
+  })
+
+  test('deleteGroup：组内条目移回默认分组，不删收藏', () => {
+    f.saveFavorite(entry('SELECT 1', { id: 'a', group: '临时' }), file)
+    const l = f.deleteGroup('临时', file)
+    assert.equal(l.length, 1)
+    assert.equal(l[0].group, '')
+    assert.equal(l[0].sql, 'SELECT 1')
+  })
+
+  test('filterByGroups：空/缺省返回全部，否则按组筛选', () => {
+    const items = [
+      { id: 'a', sql: '1', group: 'g1' },
+      { id: 'b', sql: '2', group: 'g2' },
+      { id: 'c', sql: '3', group: '' }
+    ]
+    assert.equal(f.filterByGroups(items, []).length, 3)
+    assert.equal(f.filterByGroups(items, ['g1']).length, 1)
+    assert.equal(f.filterByGroups(items, ['g1', 'g2']).length, 2)
+    assert.equal(f.filterByGroups(items, ['']).length, 1)
+  })
+
+  test('normSql/hashSql：空白与大小写归一，同语句哈希一致', () => {
+    assert.equal(f.normSql('SELECT  *\nFROM t'), 'select * from t')
+    assert.equal(f.hashSql('SELECT 1'), f.hashSql('  select   1  '))
+  })
+
+  // ---- 空分组登记（修复"新建分组后看不到"）----
+  test('createGroup：登记空分组并持久化；重名幂等', () => {
+    const gfile = path.join(dir, 'db-sql-fav-groups.json')
+    f.createGroup('报表', gfile)
+    f.createGroup('报表', gfile)
+    assert.deepEqual(f.createGroup(' 分析 ', gfile), ['报表', '分析'])
+    // 跨调用（跨启动）可读
+    assert.deepEqual(JSON.parse(fs.readFileSync(gfile, 'utf8')), ['报表', '分析'])
+  })
+
+  test('listGroups：合并登记的空分组（计 0），有条目后由推导覆盖', () => {
+    const gfile = path.join(dir, 'db-sql-fav-groups.json')
+    f.createGroup('空组', gfile)
+    f.saveFavorite(entry('SELECT 1', { id: 'a', group: '实组' }), file)
+    let g = f.listGroups(file, gfile)
+    assert.equal(g['空组'], 0)
+    assert.equal(g['实组'], 1)
+    // 组内出现条目后仍是同一分组名，计数切换为推导值
+    f.saveFavorite(entry('SELECT 2', { id: 'b', group: '空组' }), file)
+    g = f.listGroups(file, gfile)
+    assert.equal(g['空组'], 1)
+  })
+
+  test('listGroups：不传 groupsPath 保持旧行为（纯推导）', () => {
+    const gfile = path.join(dir, 'db-sql-fav-groups.json')
+    f.createGroup('孤组', gfile)
+    const g = f.listGroups(file)
+    assert.ok(!('孤组' in g))
+  })
+
+  test('renameGroup：空分组登记表同步改名', () => {
+    const gfile = path.join(dir, 'db-sql-fav-groups.json')
+    f.createGroup('旧名', gfile)
+    f.renameGroup('旧名', '新名', file, gfile)
+    const names = JSON.parse(fs.readFileSync(gfile, 'utf8'))
+    assert.ok(names.includes('新名'))
+    assert.ok(!names.includes('旧名'))
+  })
+
+  test('deleteGroup：空分组登记表同步移除', () => {
+    const gfile = path.join(dir, 'db-sql-fav-groups.json')
+    f.createGroup('将删', gfile)
+    f.deleteGroup('将删', file, gfile)
+    const names = JSON.parse(fs.readFileSync(gfile, 'utf8'))
+    assert.ok(!names.includes('将删'))
   })
 })
