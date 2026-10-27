@@ -2144,6 +2144,8 @@ export default auto(function DbSession (props) {
   const [quickFav, setQuickFav] = useState(null)
   // 当前收藏视图分组：null = 全部 | '' = 仅默认分组 | 其他 = 该分组
   const [favGroupView, setFavGroupView] = useState(null)
+  // 多选分组导出弹层：null 关闭 | 已勾选分组 key 数组（'' = 默认分组，默认全选）
+  const [exportMulti, setExportMulti] = useState(null)
   // 已收藏语句集合（归一化 SQL）：历史页/SQL 框星标的"已收藏"态由此判定，
   // 与主进程去重同规则（normSql），收藏列表变化即重算
   const favSqlSet = useMemo(
@@ -2472,13 +2474,9 @@ export default auto(function DbSession (props) {
       })
   }
 
-  // ---- 收藏导出（B-4 三粒度）：单组 / 多组 / 全选 ----
+  // ---- 收藏导出（B-4 三粒度）：单组 / 多选 / 全选 ----
   // 渲染层先按所选分组过滤 favList，再把子集交给主进程白名单写文件
-  const exportFavScoped = (group) => {
-    // group 为 null 表示"全选"，字符串表示"仅该分组"
-    const items = group === null
-      ? favList
-      : favList.filter(x => (x.group || '') === (group || ''))
+  const doExportFavorites = (items) => {
     if (!items.length) {
       message.warning(e('dbFavExportEmpty'))
       return
@@ -2500,6 +2498,26 @@ export default auto(function DbSession (props) {
       .catch(err => {
         message.error((err && err.message) || e('dbFavExportFailed'))
       })
+  }
+
+  const exportFavScoped = (group) => {
+    // group 为 null 表示"全选"，字符串表示"仅该分组"
+    const items = group === null
+      ? favList
+      : favList.filter(x => (x.group || '') === (group || ''))
+    doExportFavorites(items)
+  }
+
+  // 多选分组导出：exportMulti = null 关闭 | 已勾选的分组 key 数组（'' = 默认分组）
+  const submitExportMulti = () => {
+    const checked = exportMulti || []
+    if (!checked.length) {
+      message.warning(e('dbFavExportMultiEmpty'))
+      return
+    }
+    const set = new Set(checked)
+    doExportFavorites(favList.filter(x => set.has(x.group || '')))
+    setExportMulti(null)
   }
 
   // ---- 历史导出（S3-D）：全部或当前筛选结果 ----
@@ -4669,6 +4687,13 @@ export default auto(function DbSession (props) {
                       label: e('dbFavExportAll'),
                       onClick: () => exportFavScoped(null)
                     },
+                    // 多选分组：弹勾选框，按所选分组的并集导出
+                    {
+                      key: '__multi',
+                      icon: <FolderOpenOutlined />,
+                      label: e('dbFavExportMulti'),
+                      onClick: () => setExportMulti(Object.keys(favGroups))
+                    },
                     { type: 'divider' },
                     // 每个分组单独导出
                     ...Object.keys(favGroups)
@@ -6275,6 +6300,40 @@ export default auto(function DbSession (props) {
                 />
                 <pre className='db-history-preview-code'>{previewText(quickFav.sql)}</pre>
               </div>
+            </Modal>
+            )
+          : null
+      }
+      {
+        // 多选分组导出弹层：勾选若干分组（默认全选），按所选分组的并集导出
+        exportMulti
+          ? (
+            <Modal
+              open
+              title={e('dbFavExportMulti')}
+              onCancel={() => setExportMulti(null)}
+              onOk={submitExportMulti}
+              okText={e('dbFavExport')}
+              cancelText={e('cancel')}
+              width={360}
+              destroyOnClose
+            >
+              <Checkbox.Group
+                className='db-fav-export-multi'
+                value={exportMulti}
+                onChange={v => setExportMulti(v)}
+                options={Object.keys(favGroups)
+                  .sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
+                  .map(g => ({
+                    value: g,
+                    label: (
+                      <span>
+                        {g || e('dbFavGroupDefault')}
+                        <span className='db-fav-groupcount'>（{favGroups[g] || 0}）</span>
+                      </span>
+                    )
+                  }))}
+              />
             </Modal>
             )
           : null
