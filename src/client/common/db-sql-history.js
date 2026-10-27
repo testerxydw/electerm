@@ -50,3 +50,12 @@ export function clearSqlHistory () {
   return window.pre.runGlobalAsync('dbSqlHistoryOp', 'clear')
     .catch(() => {})
 }
+
+// 导出：filePath 来自渲染层 window.api.saveDialog；主进程白名单清洗后写 JSON。
+// 返回写入条数
+export function exportSqlHistory (filePath, items) {
+  return window.pre.runGlobalAsync('dbSqlHistoryOp', 'exportFile', {
+    filePath,
+    items
+  })
+}

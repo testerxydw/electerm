@@ -16,7 +16,9 @@ export async function listFavorites () {
   }
 }
 
-// 保存（upsert，带 id 即覆盖）：失败抛给调用方——编辑弹窗需要感知保存失败
+// 保存（upsert + 内容去重）：带 id 即覆盖；无 id 按归一化 SQL 去重——命中合并，
+// 返回 { list, duplicate }（duplicate 为命中的旧条目，null 表示无重复）。
+// 失败抛给调用方——编辑弹窗与一键收藏都需要感知保存结果
 export function saveFavorite (entry) {
   return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'save', entry)
 }
@@ -24,6 +26,31 @@ export function saveFavorite (entry) {
 // 删除：返回删除后的列表；失败静默（下次打开会再出现，同历史策略）
 export function removeFavorite (id) {
   return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'remove', { id })
+    .catch(() => null)
+}
+
+// 分组统计：{ 分组名: 条数 }（默认分组 key 为 ''；含"登记了但还没有条目"的空分组）
+export function listGroups () {
+  return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'listGroups')
+    .catch(() => ({}))
+}
+
+// 新建（登记）分组：空分组也立即持久化可见。幂等，重名不报错。
+// 返回登记表全量（失败 []）
+export function createFavoriteGroup (name) {
+  return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'createGroup', { name })
+    .catch(() => [])
+}
+
+// 重命名分组：返回重命名后的完整列表（失败 null）
+export function renameFavoriteGroup (old, next) {
+  return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'renameGroup', { old, next })
+    .catch(() => null)
+}
+
+// 删除分组：组内条目移回默认分组（''），不删收藏。返回完整列表（失败 null）
+export function deleteFavoriteGroup (name) {
+  return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'deleteGroup', { name })
     .catch(() => null)
 }
 
@@ -42,4 +69,11 @@ export function importFavorites (filePath) {
   return window.pre.runGlobalAsync('dbSqlFavoriteOp', 'importFile', {
     filePath
   })
+}
+
+// SQL 归一化（与主进程 db-sql-favorites.js normSql 同规则）：
+// 连续空白压成单空格 + 转小写。渲染层用它做"是否已收藏"匹配，
+// 保证与主进程去重判定同源，格式化/大小写差异不产生假阴性
+export function normSql (sql) {
+  return String(sql).replace(/\s+/g, ' ').trim().toLowerCase()
 }
