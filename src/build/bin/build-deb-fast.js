@@ -49,14 +49,24 @@ function exists (p) { return fs.existsSync(p) }
 
 // ---------------------------------------------------------------- 删除兜底
 // 本机安全 shim（node fs / shell rm 两个层面）会拦批量删除：rm 报“权限不够”、
-// fs.rmSync 报 “Too many trash name conflicts”。删不掉时整块挪到 /tmp 的回收站，
-// 语义等价（不再参与本次打包/编译），只是暂时占着磁盘，不会阻塞打包流程。
+// fs.rmSync 报 “Too many trash name conflicts”。删不掉时默认直接放弃移动——
+// 不再挪进回收站（work/app 一次就有数千文件/几十 MB，挪到 /tmp 回收站会塞爆磁盘）。
+// 仅在显式设 ELECTERM_ALLOW_TRASH=1 时才回退到回收站，供确实需要“删不掉也不报错”的环境使用。
+// 注：/bin/rm -rf 调的是原生二进制、不走 shim 的 rm 函数，绝大多数情况下仍能真删，
+// 回收站只是 rm 也被拦截时的兜底。
+const allowTrash = process.env.ELECTERM_ALLOW_TRASH === '1'
 const trashRoot = process.env.ELECTERM_TRASH || '/tmp/electerm-trash'
 
 // 跨设备时 rename 会 EXDEV，直接交给 mv（内部是 cp + unlink，不受 rm 拦截影响）
 function trashMove (p) {
   if (!exists(p)) {
     return true
+  }
+  // 默认不进回收站：删除被拦截时直接放弃残留（语义等价 /dev/null），不往 /tmp 堆。
+  // 仅在显式设 ELECTERM_ALLOW_TRASH=1 时才挪到回收站兜底。
+  if (!allowTrash) {
+    echo(`[deb-fast] ⚠ 删除被拦截，已放弃残留 ${p}（未进回收站；设 ELECTERM_ALLOW_TRASH=1 可启用兜底）`)
+    return false
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   let dst = path.join(trashRoot, `${stamp}-${process.pid}`, path.basename(p))
@@ -90,7 +100,7 @@ function shq (s) {
 }
 
 // 先 fs.rmSync，失败再直接用原生 /bin/rm（绕开 shim 里的 rm 函数），
-// 两者都不行才挪到 /tmp —— 能真删就别往 /tmp 堆（一次 app.asar.unpacked 就有几十 MB）
+// 两者都不行：默认放弃残留（不进回收站，等价 /dev/null）；仅 allowTrash 才挪回收站兜底
 function rmForce (p) {
   if (!exists(p)) {
     return true
@@ -106,7 +116,8 @@ function rmForce (p) {
       execSync(`/bin/rm -rf ${shq(p)}`, { stdio: 'ignore' })
     } catch (e) {}
   }
-  return !exists(p) || trashMove(p)
+  // 删不掉时：默认放弃残留（不进回收站，等价 /dev/null）；仅 allowTrash 才挪到回收站兜底
+  return !exists(p) || (allowTrash && trashMove(p))
 }
 
 // 0. 前置检查

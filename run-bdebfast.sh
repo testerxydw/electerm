@@ -57,9 +57,10 @@ cd "$ROOT"
 
 # ---------------------------------------------------------------- 删除兜底
 # 本机安全 shim 会拦 rm: safe-bin/rm 报 "权限不够", trash 版报 "Too many trash
-# name conflicts"。这两处清理(编译产物 / GUI 缓存)删不掉就整块挪到 /tmp 回收站:
-# 语义等价(不再参与本次编译/打包), 只是暂时占磁盘, 且绝不阻塞打包流程。
-# 顺序: 原生 /bin/rm(绕开 shim 函数) -> 普通 rm -> mv 到 /tmp
+# name conflicts"。默认不进回收站: 删不掉就直接放弃残留(语义等价 /dev/null),
+# 不再整块挪到 /tmp(编译产物 / GUI 缓存单次就有数千文件几十 MB, 会塞爆回收站)。
+# 仅在显式设 ELECTERM_ALLOW_TRASH=1 时才回退到回收站兜底(供确实需要"删不掉也不报错"的环境)。
+# 顺序: 原生 /bin/rm(绕开 shim 函数) -> 普通 rm -> (allowTrash 时) mv 到回收站
 TRASH_ROOT="${ELECTERM_TRASH:-/tmp/electerm-trash}"
 safe_rm () {
   local p dst
@@ -71,6 +72,11 @@ safe_rm () {
       if [ ! -e "$p" ]; then
         continue
       fi
+    fi
+    # 默认不进回收站: 删除被拦截时直接放弃残留(等价 /dev/null)
+    if [ "${ELECTERM_ALLOW_TRASH:-0}" != "1" ]; then
+      echo "[warn] rm 被拦截, 已放弃残留 $p (未进回收站; 设 ELECTERM_ALLOW_TRASH=1 启用兜底)"
+      continue
     fi
     dst="$TRASH_ROOT/$(date +%Y%m%d-%H%M%S)-$$/$(basename "$p")"
     # 同一次运行里同名目录（如两个 Cache）不能互相覆盖
