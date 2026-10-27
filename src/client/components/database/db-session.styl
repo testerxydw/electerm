@@ -887,6 +887,17 @@
   padding 0 2px
   height 18px
 
+// 历史条目内的一键收藏星标 / 分组下拉箭头（与复制/删除同款紧凑尺寸）
+.db-history-star
+  padding 0 2px
+  height 18px
+
+// 历史头部右侧操作组（导出 + 清空）
+.db-history-headops
+  display flex
+  align-items center
+  gap 2px
+
 // 删除：鼠标悬浮才露出的 X。
 // 危险色交给 antd 的 danger 语义（hover 自带红字 + 淡红底），不在这一层写 :hover color——
 // antd 的 text-button hover 规则是 `:where(...).ant-btn:not(:disabled):not(.ant-btn-disabled):hover`
@@ -1842,23 +1853,57 @@ body.db-col-resizing
   padding 0 10px 6px
   border-bottom 1px solid var(--border)
 
+// 收藏页：overflow hidden（滚动交给内部 .db-fav-list），
+// 右下角预留 22px 让开拖拽把手——横向滚动条只出现在列表底部、不再与把手重叠。
+// 右侧预留 6px 给右边缘改宽把手
 .db-fav-body
   flex 1
   min-height 0
   display flex
   flex-direction column
-  padding 8px 10px
-  overflow auto
+  padding 8px 10px 20px 6px
+  overflow hidden
 
 .db-fav-toolbar
   display flex
+  flex none
   gap 6px
   margin-bottom 8px
+  flex-wrap wrap
 
 .db-fav-list
   flex 1
   min-height 0
   overflow auto
+
+// 分组筛选 chips 行：横向可滚动，右侧让开把手
+.db-fav-grouprow
+  flex none
+  display flex
+  gap 4px
+  margin-bottom 8px
+  overflow-x auto
+  padding-right 4px
+  min-width 0
+
+.db-fav-groupchip
+  flex none
+
+// 分组折叠标题
+.db-fav-grouptitle
+  display flex
+  align-items center
+  gap 4px
+  padding 2px 2px 2px 0
+  margin-top 4px
+  font-weight 500
+  font-size 12px
+  color var(--text)
+  cursor pointer
+  user-select none
+  .db-fav-groupcount
+    color var(--text-dark)
+    font-weight 400
 
 .db-fav-item
   display flex
@@ -1894,6 +1939,25 @@ body.db-col-resizing
   flex none
   display flex
   gap 2px
+
+// 一键收藏：历史条目 / 收藏条目上的星标（只切透明度，布局不抖）
+.db-fav-star
+  padding 0 2px
+  height 18px
+
+// 分组下拉弹层
+.db-fav-grouppop
+  min-width 180px
+  .db-fav-grouppop-item
+    display flex
+    justify-content space-between
+    align-items center
+    gap 8px
+    width 100%
+  .db-fav-grouppop-new
+    display flex
+    gap 4px
+    padding 0 8px 6px
 
 // B-2 收藏编辑弹窗：标题行 + 编辑器区
 .db-fav-edit

@@ -5,10 +5,11 @@
  */
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined } from '@ant-design/icons'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
+import { refsStatic } from '../common/ref'
 import DbConnError from './db-conn-error'
 import SessionBarActions from '../common/session-bar-actions'
 import SearchBar from '../common/search-bar'
@@ -23,14 +24,19 @@ import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
-import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory } from '../../common/db-sql-history'
+import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile } from '../../common/db-sql-history'
 // B 批：查询收藏（B-1~B-4）与 SQL 模板（B-3，同一份定义菜单/补全共用）
 import {
   listFavorites,
   saveFavorite,
   removeFavorite,
   exportFavorites,
-  importFavorites
+  importFavorites,
+  listGroups,
+  createFavoriteGroup,
+  renameFavoriteGroup,
+  deleteFavoriteGroup,
+  normSql
 } from '../../common/db-sql-favorite'
 import { SQL_TEMPLATES, buildTemplateSql } from '../../common/db-sql-snippets'
 import {
@@ -2125,14 +2131,56 @@ export default auto(function DbSession (props) {
   const [favTab, setFavTab] = useState('history')
   const [favList, setFavList] = useState([])
   const [favFilter, setFavFilter] = useState('')
-  // 编辑弹窗：null 关闭；{ id?, title, sql }——id 缺省即新建（主进程生成 id）
+  // 编辑弹窗：null 关闭；{ id?, title, sql, group }——id 缺省即新建（主进程生成 id）
   const [favEdit, setFavEdit] = useState(null)
   const [favSaving, setFavSaving] = useState(false)
+  // 分组管理：groups = { 分组名: 条数 }（默认分组 key 为 ''）；folded = 已折叠的分组名集合；
+  // groupDialog = null 关闭 | { mode:'new' } | { mode:'rename', name } | { mode:'del', name }
+  const [favGroups, setFavGroups] = useState({})
+  const [favFolded, setFavFolded] = useState(new Set())
+  const [groupDialog, setGroupDialog] = useState(null)
+  const [groupInput, setGroupInput] = useState('')
+  // 一键收藏弹层：null 关闭 | { group }（group 为已选分组名，'' 默认分组）
+  const [quickFav, setQuickFav] = useState(null)
+  // 当前收藏视图分组：null = 全部 | '' = 仅默认分组 | 其他 = 该分组
+  const [favGroupView, setFavGroupView] = useState(null)
+  // 已收藏语句集合（归一化 SQL）：历史页/SQL 框星标的"已收藏"态由此判定，
+  // 与主进程去重同规则（normSql），收藏列表变化即重算
+  const favSqlSet = useMemo(
+    () => new Set(favList.map(x => normSql(x.sql))),
+    [favList]
+  )
+  // 该语句是否已收藏（归一化匹配）——星标变色/文案切换共用
+  const isFaved = (sql) => favSqlSet.has(normSql(sql))
 
   const favListShown = useMemo(
     () => filterFavorites(favList, favFilter),
     [favList, favFilter]
   )
+
+  // 分组视图过滤：favGroupView 为 null 显示全部；否则只显示该分组（'' 即默认分组）。
+  // 叠加在关键字过滤之上，分组 chips 与搜索结果互不干扰
+  const favVisible = useMemo(() => {
+    if (favGroupView === null) {
+      return favListShown
+    }
+    const g = favGroupView || ''
+    return favListShown.filter(x => (x.group || '') === g)
+  }, [favListShown, favGroupView])
+
+  // 按分组分桶（用于折叠/展开的分组标题渲染）：
+  // 组名有序（默认分组'' 排最前），组内条目保持原顺序（最新在前）
+  const favBuckets = useMemo(() => {
+    const map = new Map()
+    for (const x of favVisible) {
+      const g = x.group || ''
+      if (!map.has(g)) {
+        map.set(g, [])
+      }
+      map.get(g).push(x)
+    }
+    return Array.from(map.entries())
+  }, [favVisible])
 
   const refreshFavorites = () => {
     listFavorites()
@@ -2140,11 +2188,23 @@ export default auto(function DbSession (props) {
       .catch(err => console.warn('load sql favorites failed:', err))
   }
 
-  // tab 切换：第一次进收藏 tab 时拉列表（历史 tab 维持原行为不动）
+  // 分组统计（供分组侧栏/导出粒度/一键收藏下拉）。失败静默（无分组信息也能用）
+  const refreshFavGroups = () => {
+    listGroups()
+      .then(g => {
+        if (g && typeof g === 'object') {
+          setFavGroups(g)
+        }
+      })
+      .catch(() => {})
+  }
+
+  // tab 切换：第一次进收藏 tab 时拉列表与分组（历史 tab 维持原行为不动）
   const switchPanelTab = (key) => {
     setFavTab(key)
     if (key === 'favorite') {
       refreshFavorites()
+      refreshFavGroups()
     }
   }
 
@@ -2164,11 +2224,11 @@ export default auto(function DbSession (props) {
 
   // B-2 新建：默认取当前编辑器内容
   const newFavorite = () => {
-    setFavEdit({ id: '', title: '', sql: sqlText || '' })
+    setFavEdit({ id: '', title: '', sql: sqlText || '', group: '' })
   }
 
   const editFavorite = (item) => {
-    setFavEdit({ id: item.id, title: item.title || '', sql: item.sql || '' })
+    setFavEdit({ id: item.id, title: item.title || '', sql: item.sql || '', group: item.group || '' })
   }
 
   // 标题缺省取语句首个非注释行前 60 字符（与快速面板 firstLine 同思路）
@@ -2189,14 +2249,26 @@ export default auto(function DbSession (props) {
       id: favEdit.id || '',
       title: favEdit.title.trim() || favTitleFallback(favEdit.sql),
       sql: favEdit.sql,
-      dbType: tab.dbType
+      dbType: tab.dbType,
+      group: favEdit.group || ''
     })
-      .then(list => {
+      .then(res => {
         setFavSaving(false)
-        setFavEdit(null)
-        if (Array.isArray(list)) {
+        const list = res && Array.isArray(res.list) ? res.list : null
+        if (list) {
           setFavList(list)
         }
+        // 内容去重提示：新建场景命中已存在的同语句收藏
+        if (res && res.duplicate && !favEdit.id) {
+          const dupGroup = res.duplicate.group || ''
+          message.warning(
+            dupGroup
+              ? e('dbFavDupMoved').replace('{g}', dupGroup)
+              : e('dbFavDupDefault')
+          )
+          return
+        }
+        setFavEdit(null)
       })
       .catch(err => {
         setFavSaving(false)
@@ -2218,26 +2290,7 @@ export default auto(function DbSession (props) {
     })
   }
 
-  // B-4 导出：路径经 showSaveDialog（渲染层不碰 fs），主进程白名单过滤后写 JSON
-  const exportFav = () => {
-    window.api.saveDialog({
-      title: e('dbFavExport'),
-      defaultPath: 'db-sql-favorites.json',
-      filters: [{ name: 'JSON', extensions: ['json'] }],
-      properties: ['createDirectory', 'showOverwriteConfirmation']
-    })
-      .then(res => {
-        if (!res || res.canceled || !res.filePath) {
-          return null
-        }
-        return exportFavorites(res.filePath, favList).then(n => {
-          message.success(e('dbFavExported').replace('{n}', String(n)))
-        })
-      })
-      .catch(err => {
-        message.error((err && err.message) || e('dbFavExportFailed'))
-      })
-  }
+  // B-4 导出：三粒度由 exportFavScoped 处理（单组/多组/全选），见下方分组管理段。
 
   // B-4 导入：主进程读文件 + 按 id upsert（重复覆盖、新条追加），
   // 返回 { list, imported, overwritten } 供提示
@@ -2268,6 +2321,231 @@ export default auto(function DbSession (props) {
       .catch(err => {
         message.error((err && err.message) || e('dbFavImportFailed'))
       })
+  }
+
+  // ---- 分组管理（B-5）：创建/重命名/删除分组 + 分组折叠 ----
+  // 分组名取自收藏条目的 group 字段；新建分组 = 给收藏指定一个当前不存在的组名。
+  // 这些函数只操作内存 favList + 调主进程落盘，随后统一 refreshFavGroups
+
+  // 分组对话框确认：mode = 'new' 新建 | 'rename' 重命名 | 'del' 删除
+  const submitGroupDialog = () => {
+    const d = groupDialog
+    if (!d) {
+      return
+    }
+    const name = groupInput.trim()
+    if (d.mode === 'del') {
+      deleteFavoriteGroup(d.name).then(list => {
+        if (Array.isArray(list)) {
+          setFavList(list)
+          refreshFavGroups()
+          message.success(e('dbFavGroupDeleted').replace('{g}', d.name))
+        }
+      })
+      setGroupDialog(null)
+      setGroupInput('')
+      return
+    }
+    if (!name) {
+      message.error(e('dbFavGroupNameEmpty'))
+      return
+    }
+    if (d.mode === 'rename') {
+      renameFavoriteGroup(d.name, name).then(list => {
+        if (Array.isArray(list)) {
+          setFavList(list)
+          refreshFavGroups()
+          message.success(e('dbFavGroupRenamed').replace('{o}', d.name).replace('{n}', name))
+        }
+      })
+    } else {
+      // 新建：走主进程"空分组登记"持久化——否则空分组无条目归属，
+      // 在列表/下拉里永远不可见（登记后 listGroups 会合并空分组，计 0）
+      createFavoriteGroup(name)
+        .then(() => {
+          refreshFavGroups()
+          message.success(e('dbFavGroupCreated').replace('{g}', name))
+        })
+        .catch(() => {})
+    }
+    setGroupDialog(null)
+    setGroupInput('')
+  }
+
+  const toggleFavFold = (group) => {
+    setFavFolded(prev => {
+      const next = new Set(prev)
+      if (next.has(group)) {
+        next.delete(group)
+      } else {
+        next.add(group)
+      }
+      return next
+    })
+  }
+
+  // 把某收藏移入指定分组（编辑弹窗内的分组下拉走 saveFavEdit）
+  const moveFavoriteGroup = (item, group) => {
+    saveFavorite({ ...item, group })
+      .then(res => {
+        if (res && Array.isArray(res.list)) {
+          setFavList(res.list)
+          refreshFavGroups()
+        }
+      })
+      .catch(err => message.error((err && err.message) || e('dbFavSaveFailed')))
+  }
+
+  // ---- 一键收藏（B-6）：执行页当前 SQL / 历史页每条 SQL ----
+  // 复用编辑弹窗的保存路径（saveFavorite，含内容去重），但交互更轻。
+  // 两条路径共用 saveFavorite：
+  // - favoriteNow：立刻收藏到指定分组（星标按钮的直接动作，无弹窗）
+  // - openQuickFav：打开确认弹窗选分组（"新建分组"等需要指定分组的场景）
+  const favoriteNow = (sql, group) => {
+    if (!sql || !sql.trim()) {
+      message.warning(e('dbQuickFavEmpty'))
+      return
+    }
+    saveFavorite({
+      id: '',
+      title: favTitleFallback(sql),
+      sql,
+      dbType: tab.dbType,
+      group: group || ''
+    })
+      .then(res => {
+        if (res && Array.isArray(res.list)) {
+          setFavList(res.list)
+          refreshFavGroups()
+        }
+        if (res && res.duplicate) {
+          const g = res.duplicate.group || ''
+          message.warning(g ? e('dbFavDupMoved').replace('{g}', g) : e('dbFavDupDefault'))
+        } else {
+          message.success(e('dbFavSaved'))
+        }
+      })
+      .catch(err => {
+        message.error((err && err.message) || e('dbFavSaveFailed'))
+      })
+  }
+
+  const openQuickFav = (sql, existing) => {
+    if (!sql || !sql.trim()) {
+      message.warning(e('dbQuickFavEmpty'))
+      return
+    }
+    setQuickFav({
+      sql,
+      title: existing ? existing.title : '',
+      id: existing ? existing.id : '',
+      group: existing ? (existing.group || '') : ''
+    })
+  }
+
+  const doQuickFav = (group) => {
+    if (!quickFav) {
+      return
+    }
+    saveFavorite({
+      id: quickFav.id || '',
+      title: quickFav.title || favTitleFallback(quickFav.sql),
+      sql: quickFav.sql,
+      dbType: tab.dbType,
+      group: group || ''
+    })
+      .then(res => {
+        if (res && Array.isArray(res.list)) {
+          setFavList(res.list)
+          refreshFavGroups()
+        }
+        if (res && res.duplicate && !quickFav.id) {
+          const g = res.duplicate.group || ''
+          message.warning(g ? e('dbFavDupMoved').replace('{g}', g) : e('dbFavDupDefault'))
+        } else {
+          message.success(e('dbFavSaved'))
+        }
+        setQuickFav(null)
+      })
+      .catch(err => {
+        message.error((err && err.message) || e('dbFavSaveFailed'))
+      })
+  }
+
+  // ---- 收藏导出（B-4 三粒度）：单组 / 多组 / 全选 ----
+  // 渲染层先按所选分组过滤 favList，再把子集交给主进程白名单写文件
+  const exportFavScoped = (group) => {
+    // group 为 null 表示"全选"，字符串表示"仅该分组"
+    const items = group === null
+      ? favList
+      : favList.filter(x => (x.group || '') === (group || ''))
+    if (!items.length) {
+      message.warning(e('dbFavExportEmpty'))
+      return
+    }
+    window.api.saveDialog({
+      title: e('dbFavExport'),
+      defaultPath: 'db-sql-favorites.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+      .then(res => {
+        if (!res || res.canceled || !res.filePath) {
+          return null
+        }
+        return exportFavorites(res.filePath, items).then(n => {
+          message.success(e('dbFavExported').replace('{n}', String(n)))
+        })
+      })
+      .catch(err => {
+        message.error((err && err.message) || e('dbFavExportFailed'))
+      })
+  }
+
+  // ---- 历史导出（S3-D）：全部或当前筛选结果 ----
+  const exportSqlHistory = () => {
+    const items = histFilter.trim() ? histList : sqlHistory
+    if (!items.length) {
+      message.warning(e('dbHistExportEmpty'))
+      return
+    }
+    window.api.saveDialog({
+      title: e('dbHistExport'),
+      defaultPath: 'db-sql-history.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+      .then(res => {
+        if (!res || res.canceled || !res.filePath) {
+          return null
+        }
+        return exportHistoryFile(res.filePath, items).then(n => {
+          message.success(e('dbHistExported').replace('{n}', String(n)))
+        })
+      })
+      .catch(err => {
+        message.error((err && err.message) || e('dbHistExportFailed'))
+      })
+  }
+
+  // ---- AI 联动（B-7）：把当前 SQL 交给右侧 AI 面板解释 ----
+  // 复用既有 explainWithAi 的机制：refsStatic 里注册的 AIChat 暴露 setPrompt/handleSubmit，
+  // 这里先打开 AI 面板、填充提示词，再触发提交。500/1200ms 两步是 state 更新
+  // 与面板挂载的时序缓冲（explainWithAi 同款），保证 setPrompt 落地后再 submit
+  const askAiAboutSql = (sql) => {
+    const text = (sql || '').trim()
+    if (!text) {
+      message.warning(e('dbExplainEmptySql'))
+      return
+    }
+    window.store.handleOpenAIPanel()
+    setTimeout(() => {
+      window.store.aiPendingSqlPrompt = `请解释以下 SQL 语句：\n\n${text}`
+      refsStatic.get('AIChat')?.setPrompt(window.store.aiPendingSqlPrompt)
+    }, 500)
+    setTimeout(() => {
+      refsStatic.get('AIChat')?.handleSubmit()
+    }, 1200)
   }
 
   // B-3 模板插入：key 取 SQL_TEMPLATES；withTable 用当前选中表（列清单来自
@@ -4153,17 +4431,30 @@ export default auto(function DbSession (props) {
         {
           sqlHistory.length
             ? (
-              <Popconfirm
-                title={e('dbSqlHistoryClearConfirm')}
-                onConfirm={clearAllSqlHistory}
-              >
-                <Button
-                  type='text'
-                  size='small'
-                  icon={<DeleteOutlined />}
-                  title={e('dbSqlHistoryClear')}
-                />
-              </Popconfirm>
+              <span className='db-history-headops'>
+                {
+                  // S3-D 历史导出：全部 / 当前筛选结果。悬浮才露（与条目操作一致）
+                  <Button
+                    className='db-history-star'
+                    type='text'
+                    size='small'
+                    icon={<DownloadOutlined />}
+                    title={e('dbHistExport')}
+                    onClick={exportSqlHistory}
+                  />
+                }
+                <Popconfirm
+                  title={e('dbSqlHistoryClearConfirm')}
+                  onConfirm={clearAllSqlHistory}
+                >
+                  <Button
+                    type='text'
+                    size='small'
+                    icon={<DeleteOutlined />}
+                    title={e('dbSqlHistoryClear')}
+                  />
+                </Popconfirm>
+              </span>
               )
             : null
         }
@@ -4227,6 +4518,67 @@ export default auto(function DbSession (props) {
                             : null
                         }
                         <span className='db-history-ops'>
+                          {
+                            // 一键收藏：星标 = 直接收藏到默认分组；右侧小箭头 = 选指定分组
+                            !isRedis
+                              ? (
+                                <>
+                                  <Button
+                                    className='db-history-star'
+                                    type='text'
+                                    size='small'
+                                    icon={<StarFilled />}
+                                    // 已收藏态：金色实心星 + 文案切换；再点仍可收藏（合并刷新时间）
+                                    style={isFaved(item.sql) ? { color: '#faad14' } : undefined}
+                                    title={isFaved(item.sql) ? e('dbFavSaved') : e('dbSqlHistoryFav')}
+                                    onClick={ev => {
+                                      ev.stopPropagation()
+                                      favoriteNow(item.sql, '')
+                                    }}
+                                  />
+                                  <Dropdown
+                                    menu={{
+                                      items: [
+                                        {
+                                          key: 'fav-default',
+                                          icon: <StarOutlined />,
+                                          label: e('dbFavGroupDefault'),
+                                          onClick: () => favoriteNow(item.sql, '')
+                                        },
+                                        ...Object.keys(favGroups)
+                                          .filter(g => g !== '')
+                                          .sort((a, b) => a.localeCompare(b))
+                                          .map(g => ({
+                                            key: 'fav:' + g,
+                                            icon: <StarOutlined />,
+                                            label: g,
+                                            onClick: () => favoriteNow(item.sql, g)
+                                          })),
+                                        { type: 'divider' },
+                                        {
+                                          key: 'fav-new',
+                                          icon: <FolderAddOutlined />,
+                                          label: e('dbFavGroupNew'),
+                                          onClick: () => openQuickFav(item.sql)
+                                        }
+                                      ]
+                                    }}
+                                    trigger={['click']}
+                                    placement='bottomRight'
+                                  >
+                                    <Button
+                                      className='db-history-star'
+                                      type='text'
+                                      size='small'
+                                      icon={<DownOutlinedIcon />}
+                                      title={e('dbFavMoveGroup')}
+                                      onClick={ev => ev.stopPropagation()}
+                                    />
+                                  </Dropdown>
+                                </>
+                                )
+                              : null
+                            }
                           <Button
                             className='db-history-copy'
                             type='text'
@@ -4303,14 +4655,92 @@ export default auto(function DbSession (props) {
         <Button size='small' icon={<UploadOutlined />} onClick={importFav}>
           {e('dbFavImport')}
         </Button>
-        <Button
-          size='small'
-          icon={<DownloadOutlined />}
-          disabled={!favList.length}
-          onClick={exportFav}
-        >
-          {e('dbFavExport')}
-        </Button>
+        {
+          // 导出三粒度：单组 / 多组 / 全选。菜单项动态来自 favGroups
+          favList.length
+            ? (
+              <Dropdown
+                menu={{
+                  items: [
+                    // 全选（含所有分组）
+                    {
+                      key: '__all',
+                      icon: <ExportOutlined />,
+                      label: e('dbFavExportAll'),
+                      onClick: () => exportFavScoped(null)
+                    },
+                    { type: 'divider' },
+                    // 每个分组单独导出
+                    ...Object.keys(favGroups)
+                      .sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
+                      .map(g => ({
+                        key: 'g:' + g,
+                        label: (
+                          <span>
+                            {g || e('dbFavGroupDefault')}
+                            <span className='db-fav-groupcount'>（{favGroups[g]}）</span>
+                          </span>
+                        ),
+                        onClick: () => exportFavScoped(g)
+                      }))
+                  ]
+                }}
+                trigger={['click']}
+                placement='bottomLeft'
+              >
+                <Button size='small' icon={<DownloadOutlined />} disabled={!favList.length}>
+                  {e('dbFavExport')}
+                </Button>
+              </Dropdown>
+              )
+            : (
+              <Button size='small' icon={<DownloadOutlined />} disabled>
+                {e('dbFavExport')}
+              </Button>
+              )
+        }
+        {
+          // 分组管理：新建 / 重命名 / 删除
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'new',
+                  icon: <FolderAddOutlined />,
+                  label: e('dbFavGroupNew'),
+                  onClick: () => { setGroupInput(''); setGroupDialog({ mode: 'new' }) }
+                },
+                { type: 'divider' },
+                ...Object.keys(favGroups)
+                  .filter(g => g !== '')
+                  .sort((a, b) => a.localeCompare(b))
+                  .map(g => ({
+                    key: 'g:' + g,
+                    label: g,
+                    children: [
+                      {
+                        key: 'rename:' + g,
+                        label: e('dbFavGroupRename'),
+                        onClick: () => { setGroupInput(g); setGroupDialog({ mode: 'rename', name: g }) }
+                      },
+                      {
+                        key: 'del:' + g,
+                        label: e('dbFavGroupDel'),
+                        danger: true,
+                        onClick: () => setGroupDialog({ mode: 'del', name: g })
+                      }
+                    ]
+                  }))
+              ]
+            }}
+            trigger={['click']}
+            placement='bottomLeft'
+          >
+            <Button size='small' icon={<FolderOpenOutlined />} title={e('dbFavGroupManage')}>
+              {e('dbFavGroupManage')}
+            </Button>
+          </Dropdown>
+        }
       </div>
       {
         favList.length
@@ -4327,54 +4757,159 @@ export default auto(function DbSession (props) {
           : null
       }
       {
-        favListShown.length
+        // 分组 chips：全部 / 默认分组 / 各分组。点选切换视图，再次点击已选的分组回到全部
+        Object.keys(favGroups).length
+          ? (
+            <div className='db-fav-grouprow'>
+              <Button
+                className='db-fav-groupchip'
+                size='small'
+                type={favGroupView === null ? 'primary' : 'text'}
+                onClick={() => setFavGroupView(null)}
+              >
+                {e('dbFavGroupAll')}
+              </Button>
+              <Button
+                className='db-fav-groupchip'
+                size='small'
+                type={favGroupView === '' ? 'primary' : 'text'}
+                onClick={() => setFavGroupView(favGroupView === '' ? null : '')}
+              >
+                {e('dbFavGroupDefault')}（{favGroups[''] || 0}）
+              </Button>
+              {
+                Object.keys(favGroups)
+                  .filter(g => g !== '')
+                  .sort((a, b) => a.localeCompare(b))
+                  .map(g => (
+                    <Button
+                      key={g}
+                      className='db-fav-groupchip'
+                      size='small'
+                      type={favGroupView === g ? 'primary' : 'text'}
+                      onClick={() => setFavGroupView(favGroupView === g ? null : g)}
+                    >
+                      {g}（{favGroups[g]}）
+                    </Button>
+                  ))
+              }
+            </div>
+            )
+          : null
+      }
+      {
+        favVisible.length
           ? (
             <div className='db-fav-list'>
               {
-                favListShown.map(item => (
-                  <div key={item.id} className='db-fav-item'>
-                    <div
-                      className='db-fav-main'
-                      title={previewText(item.sql)}
-                      onClick={() => pickFavorite(item)}
-                    >
-                      <div className='db-fav-title'>{item.title || previewText(item.sql)}</div>
-                      <div className='db-fav-meta'>
-                        <span>{dbTypeLabelMap[item.dbType] || item.dbType}</span>
-                        <span>{new Date(item.ts).toLocaleString()}</span>
-                      </div>
+                // 按分组分桶渲染：每个非折叠分组一个标题 + 组内条目
+                favBuckets.map(([g, items]) => {
+                  const folded = favFolded.has(g)
+                  return (
+                    <div key={g}>
+                      {
+                        // 有多个分组时才显示分组标题（只有一个分组/未分组时保持简洁）
+                        Object.keys(favGroups).length > 1
+                          ? (
+                            <div
+                              className='db-fav-grouptitle'
+                              onClick={() => toggleFavFold(g)}
+                            >
+                              {folded ? <RightOutlined /> : <DownOutlinedIcon />}
+                              {g || e('dbFavGroupDefault')}
+                              <span className='db-fav-groupcount'>{items.length}</span>
+                            </div>
+                            )
+                          : null
+                      }
+                      {
+                        folded
+                          ? null
+                          : items.map(item => (
+                            <div key={item.id} className='db-fav-item'>
+                              <div
+                                className='db-fav-main'
+                                title={previewText(item.sql)}
+                                onClick={() => pickFavorite(item)}
+                              >
+                                <div className='db-fav-title'>{item.title || previewText(item.sql)}</div>
+                                <div className='db-fav-meta'>
+                                  <span>{dbTypeLabelMap[item.dbType] || item.dbType}</span>
+                                  <span>{new Date(item.ts).toLocaleString()}</span>
+                                  {
+                                    g
+                                      ? <span className='db-fav-groupcount'>{g}</span>
+                                      : null
+                                  }
+                                </div>
+                              </div>
+                              <div className='db-fav-ops'>
+                                {
+                                  // 一键收藏（此处为"移入分组"）：点击弹分组下拉
+                                  <Dropdown
+                                    menu={{
+                                      items: [
+                                        {
+                                          key: 'move-default',
+                                          label: e('dbFavGroupDefault'),
+                                          onClick: () => moveFavoriteGroup(item, '')
+                                        },
+                                        ...Object.keys(favGroups)
+                                          .filter(x => x !== '' && x !== item.group)
+                                          .sort((a, b) => a.localeCompare(b))
+                                          .map(x => ({
+                                            key: 'move:' + x,
+                                            label: x,
+                                            onClick: () => moveFavoriteGroup(item, x)
+                                          }))
+                                      ]
+                                    }}
+                                    trigger={['click']}
+                                    placement='bottomRight'
+                                  >
+                                    <Button
+                                      className='db-fav-star'
+                                      type='text'
+                                      size='small'
+                                      icon={<FolderOpenOutlined />}
+                                      title={e('dbFavMoveGroup')}
+                                    />
+                                  </Dropdown>
+                                }
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  icon={<CopyOutlined />}
+                                  title={e('dbFavCopy')}
+                                  onClick={() => copy(item.sql)}
+                                />
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  icon={<EditOutlined />}
+                                  title={e('dbFavEdit')}
+                                  onClick={() => editFavorite(item)}
+                                />
+                                <Popconfirm
+                                  title={e('dbFavDelConfirm')}
+                                  onConfirm={() => removeOneFavorite(item)}
+                                >
+                                  <Button
+                                    type='text'
+                                    size='small'
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    title={e('dbFavDelete')}
+                                    aria-label={e('dbFavDelete')}
+                                  />
+                                </Popconfirm>
+                              </div>
+                            </div>
+                          ))
+                      }
                     </div>
-                    <div className='db-fav-ops'>
-                      <Button
-                        type='text'
-                        size='small'
-                        icon={<CopyOutlined />}
-                        title={e('dbFavCopy')}
-                        onClick={() => copy(item.sql)}
-                      />
-                      <Button
-                        type='text'
-                        size='small'
-                        icon={<EditOutlined />}
-                        title={e('dbFavEdit')}
-                        onClick={() => editFavorite(item)}
-                      />
-                      <Popconfirm
-                        title={e('dbFavDelConfirm')}
-                        onConfirm={() => removeOneFavorite(item)}
-                      >
-                        <Button
-                          type='text'
-                          size='small'
-                          danger
-                          icon={<DeleteOutlined />}
-                          title={e('dbFavDelete')}
-                          aria-label={e('dbFavDelete')}
-                        />
-                      </Popconfirm>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               }
             </div>
             )
@@ -4461,6 +4996,71 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+        {
+          // B-6：一键收藏当前 SQL 框内容。星标 = 默认分组（一键）；小箭头 = 选指定分组
+          !isRedis
+            ? (
+              <>
+                <Button
+                  size='small'
+                  icon={<StarFilled />}
+                  disabled={!sqlText.trim()}
+                  style={isFaved(sqlText) ? { color: '#faad14' } : undefined}
+                  title={isFaved(sqlText) ? e('dbFavSaved') : e('dbQuickFavBtn')}
+                  onClick={() => favoriteNow(sqlText, '')}
+                />
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: 'fav-default',
+                        label: e('dbFavGroupDefault'),
+                        onClick: () => favoriteNow(sqlText, '')
+                      },
+                      ...Object.keys(favGroups)
+                        .filter(g => g !== '')
+                        .sort((a, b) => a.localeCompare(b))
+                        .map(g => ({
+                          key: 'fav:' + g,
+                          label: g,
+                          onClick: () => favoriteNow(sqlText, g)
+                        })),
+                      { type: 'divider' },
+                      {
+                        key: 'fav-new',
+                        label: e('dbFavGroupNew'),
+                        onClick: () => openQuickFav(sqlText)
+                      }
+                    ]
+                  }}
+                  trigger={['click']}
+                  placement='bottomRight'
+                >
+                  <Button
+                    size='small'
+                    icon={<DownOutlinedIcon />}
+                    disabled={!sqlText.trim()}
+                    title={e('dbFavMoveGroup')}
+                  />
+                </Dropdown>
+              </>
+              )
+            : null
+        }
+        {
+          // B-7：AI 解释当前 SQL。接入既有 AI 面板（右侧栏），复用 explainWithAi 机制
+          !isRedis
+            ? (
+              <Button
+                size='small'
+                icon={<ThunderboltOutlined />}
+                disabled={!sqlText.trim()}
+                title={e('dbAiExplain')}
+                onClick={() => askAiAboutSql(sqlText)}
+              />
+              )
+            : null
+        }
         <Popover
           placement='bottomLeft'
           trigger='click'
@@ -4470,6 +5070,7 @@ export default auto(function DbSession (props) {
             // 停在收藏 tab 时打开也要刷新（列表 ≤500 条，文件读一次不贵）
             if (open && favTab === 'favorite') {
               refreshFavorites()
+              refreshFavGroups()
             }
           }}
           content={
@@ -5567,6 +6168,35 @@ export default auto(function DbSession (props) {
           onPressEnter={doRenameKeyNx}
         />
       </Modal>
+      {/* 分组管理弹窗：新建 / 重命名 / 删除 */}
+      <Modal
+        open={!!groupDialog}
+        title={groupDialog && groupDialog.mode === 'del'
+          ? e('dbFavGroupDelTitle')
+          : (groupDialog && groupDialog.mode === 'rename' ? e('dbFavGroupRenameTitle') : e('dbFavGroupNewTitle'))}
+        onCancel={() => { setGroupDialog(null); setGroupInput('') }}
+        onOk={submitGroupDialog}
+        okText={groupDialog && groupDialog.mode === 'del' ? e('dbFavGroupDel') : e('ok')}
+        okButtonProps={groupDialog && groupDialog.mode === 'del' ? { danger: true } : undefined}
+        cancelText={e('cancel')}
+        destroyOnClose
+      >
+        {
+          groupDialog && groupDialog.mode === 'del'
+            ? (
+              <p>{e('dbFavGroupDelConfirm').replace('{g}', groupDialog.name)}</p>
+              )
+            : (
+              <Input
+                value={groupInput}
+                placeholder={e('dbFavGroupPh')}
+                onChange={ev => setGroupInput(ev.target.value)}
+                onPressEnter={submitGroupDialog}
+                autoFocus
+              />
+              )
+        }
+      </Modal>
       {/* B-2 收藏编辑：标题 + 语句（复用 A 批编辑器组件，实例独立）。
           新建默认带当前编辑器内容（newFavorite 已填） */}
       <Modal
@@ -5586,6 +6216,24 @@ export default auto(function DbSession (props) {
             placeholder={e('dbFavTitlePh')}
             onChange={ev => setFavEdit(s => ({ ...s, title: ev.target.value }))}
           />
+          {
+            // 收藏编辑：选择所属分组（含新建分组）
+            <AutoComplete
+              value={favEdit ? (favEdit.group || '') : ''}
+              options={[
+                { value: '', label: e('dbFavGroupDefault') },
+                ...Object.keys(favGroups)
+                  .filter(g => g !== '')
+                  .sort((a, b) => a.localeCompare(b))
+                  .map(g => ({ value: g, label: g }))
+              ]}
+              placeholder={e('dbFavGroupPh')}
+              allowClear
+              onChange={v => setFavEdit(s => ({ ...s, group: v }))}
+              filterOption={(input, option) =>
+                String((option && option.value) || '').toLowerCase().includes(String(input || '').toLowerCase())}
+            />
+          }
           <div className='db-fav-edit-sql'>
             <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
               <SqlCodeEditor
@@ -5597,6 +6245,40 @@ export default auto(function DbSession (props) {
           </div>
         </div>
       </Modal>
+      {
+        // 一键收藏确认弹层：SQL 已定，选择分组（默认/已有/新建）后确认
+        quickFav
+          ? (
+            <Modal
+              open={!!quickFav}
+              title={e('dbQuickFavTitle')}
+              onCancel={() => setQuickFav(null)}
+              onOk={() => doQuickFav(quickFav.group || '')}
+              okText={e('dbFavSave')}
+              cancelText={e('cancel')}
+              width={520}
+              destroyOnClose
+            >
+              <div className='db-fav-edit'>
+                <AutoComplete
+                  value={quickFav.group || ''}
+                  options={[
+                    { value: '', label: e('dbFavGroupDefault') },
+                    ...Object.keys(favGroups)
+                      .filter(g => g !== '')
+                      .sort((a, b) => a.localeCompare(b))
+                      .map(g => ({ value: g, label: g }))
+                  ]}
+                  placeholder={e('dbFavGroupPh')}
+                  allowClear
+                  onChange={v => setQuickFav(q => ({ ...q, group: v }))}
+                />
+                <pre className='db-history-preview-code'>{previewText(quickFav.sql)}</pre>
+              </div>
+            </Modal>
+            )
+          : null
+      }
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>
