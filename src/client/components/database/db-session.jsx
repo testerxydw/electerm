@@ -5152,7 +5152,9 @@ export default auto(function DbSession (props) {
             </div>
           }
         >
-          <Badge count={favList.length} size='small' offset={[-2, 4]}>
+          {/* offset[1] 是 marginTop（正值下移）：此前 4px 下压使徽标盖住按钮右上角
+              文字顶部；归零回到标准骑角位，顶边仍留 1px 不碰上方编辑器 */}
+          <Badge count={favList.length} size='small' offset={[-2, 0]}>
             <Button
               size='small'
               icon={<HistoryOutlined />}

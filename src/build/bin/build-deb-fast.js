@@ -134,16 +134,14 @@ echo(`[deb-fast] 测试版本：${debVersion}  ->  dist/${fileName}`)
 // 2. 重编译客户端到 work/app/assets（源码变更时必需）
 // 注：--prepare 或首次运行会整目录重建 work/app（连带清掉刚编译的 assets），
 // 此时先跳过，等 prepare 完成后在第 3 步末尾统一编译
+// 版本化产物（js/css/chunk/assets）的清理已统一收口到 vite-build.js
+// （npm run compile → npm run vite-build 内部），此处不再重复；
+// appReady=false 时 compile 延迟到第 3 步末尾，同样由 vite-build 负责清理
 if (skipCompile) {
   echo('[deb-fast] 跳过 compile（--skip-compile）')
 } else if (!appReady()) {
   echo('[deb-fast] work/app 未就绪，compile 移至 prepare 之后执行')
 } else {
-  // 清理 vite 产出的版本化目录（js/css/chunk/assets），避免 3.15.186 等历史残留
-  // 用 fs 直接删，避免 shell 引号导致 glob 不展开的问题；删不掉挪 /tmp（rmForce）
-  ;['js', 'css', 'chunk', 'assets'].forEach(d => {
-    rmForce(path.join(workApp, 'assets', d))
-  })
   run('npm run compile')
 }
 
