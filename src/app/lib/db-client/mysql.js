@@ -52,12 +52,30 @@ async function getPool (conn) {
     waitForConnections: true,
     connectionLimit: 4,
     enableKeepAlive: true,
+    // 空闲主动剔除：60s 内无操作就从池中回收连接（远早于防火墙/服务端空闲清理），
+    // 下次按需新建。防止服务端静默断开后，死连接滞留池中导致刷新超时。
+    idleTimeout: 60000,
+    // TCP keepalive 首次探测提前到 30s，避免默认 0（走系统 2h 级默认值）兜不住 NAT 空闲清理
+    keepAliveInitialDelay: 30000,
     // 支持一次执行多条语句（分号分隔）→ 多结果集；
     // 只读模式下"全句写关键词扫描"会拦住 `SELECT 1; DROP TABLE t` 这类组合，故不放大写风险
     multipleStatements: true
   })
   pools.set(key, pool)
   return pool
+}
+
+// 断连自愈：某次 db op 超时视为连接池可能已含死连接，销毁该签名池，
+// 下次 getPool 自动重建（重建后即恢复，无需手动关 tab 重开）。
+// 不校验 refs 引用计数：池坏时所有共享该池的 tab 都会挂，一并重建更符合"自愈"语义；
+// 引用计数仅决定"最后一个 tab 关闭才 end"，新建池后仍按同一计数逻辑共享。
+async function evict (conn) {
+  const key = sig(conn)
+  const pool = pools.get(key)
+  if (pool) {
+    pools.delete(key)
+    await pool.end().catch(() => {})
+  }
 }
 
 async function testMysqlConnection (conn) {
@@ -1096,6 +1114,7 @@ module.exports = {
   testMysqlConnection,
   acquire,
   release,
+  evict,
   getMetadata,
   getPageData,
   describeTable,

@@ -103,10 +103,22 @@ const OP_TIMEOUTS = {
 // label 用于区分超时来源（connection/metadata/db op xxx），错误消息随 label 穿透到前端
 // 结果落定时必须清掉定时器：否则每个 op 都会留下一个挂到超时点（最长 120s）的 timer，
 // 高频 op（补全列查询、分页）下会持续堆积；单测进程也会被这些 timer 拖着等满超时。
-function withTimeout (promise, ms, label = 'connection') {
+// 错误消息统一带 ETIMEDOUT 标记：前端 CONN_ERR_RE 正是靠它识别"断连"。
+// 断连场景下裸的 `${label} timeout` 不含任何关键词，会被误判为非连接错误——
+// 顶栏一直保持绿色"已连接"（用户实测超时但状态未更新的直接原因）。
+function withTimeout (promise, ms, label = 'connection', onTimeout) {
   let timer = null
   const timeout = new Promise((resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timeout (${Math.round(ms / 1000)}s)`)), ms)
+    timer = setTimeout(() => {
+      if (typeof onTimeout === 'function') {
+        try {
+          onTimeout()
+        } catch (e) {
+          log.warn('[db-client] withTimeout onTimeout failed', e.message)
+        }
+      }
+      reject(new Error(`${label} timeout (${Math.round(ms / 1000)}s) [ETIMEDOUT]`))
+    }, ms)
   })
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) {
@@ -173,6 +185,15 @@ async function testDbConnection (dbBookmark, sshBookmark) {
 
 async function openDbTab (dbBookmark, sshBookmark) {
   const adapter = getAdapter(dbBookmark.dbType)
+  // 打开阶段超时同样销毁连接池：acquire 建连被服务端拒绝/静默丢弃时，残留的池下次复用仍是死的。
+  // 用 inst.conn（buildConn 归一化后的签名）保证与 evict 内部 sig(conn) 的键一致；inst 后声明，
+  // 但闭包只在超时（acquire/getMetadata 挂起）时才执行，彼时 inst 已赋值。
+  let inst = null
+  const evictOnTimeout = () => {
+    if (adapter && typeof adapter.evict === 'function' && inst && inst.conn) {
+      adapter.evict(inst.conn)
+    }
+  }
   // 同一 tabId 重复 open（如断线重连）时先释放旧连接与隧道，避免句柄泄漏
   if (instances[dbBookmark.id]) {
     await closeDbTab(dbBookmark.id)
@@ -190,7 +211,6 @@ async function openDbTab (dbBookmark, sshBookmark) {
     acquired: false
   }
   instances[dbBookmark.id] = pending
-  let inst = null
   try {
     inst = await buildConn(dbBookmark, sshBookmark)
     pending.conn = inst.conn
@@ -201,7 +221,7 @@ async function openDbTab (dbBookmark, sshBookmark) {
       throw new Error('db tab closed while opening')
     }
     // acquire: 建立真实连接并验证（失败上抛，tab 打开即暴露连接问题）
-    await withTimeout(adapter.acquire(inst.conn), OVERALL_TIMEOUT)
+    await withTimeout(adapter.acquire(inst.conn), OVERALL_TIMEOUT, 'connection', evictOnTimeout)
     pending.acquired = true
     log.debug('[db-client] openDbTab acquired', dbBookmark.id, 'aborted=', pending.aborted)
     if (pending.aborted) {
@@ -209,7 +229,7 @@ async function openDbTab (dbBookmark, sshBookmark) {
       throw new Error('db tab closed while opening')
     }
     // open metadata eagerly to surface metadata errors at tab open
-    await withTimeout(adapter.getMetadata(inst.conn), OVERALL_TIMEOUT, 'metadata')
+    await withTimeout(adapter.getMetadata(inst.conn), OVERALL_TIMEOUT, 'metadata', evictOnTimeout)
     if (pending.aborted) {
       throw new Error('db tab closed while opening')
     }
@@ -255,7 +275,7 @@ function resetColumnsCache (inst) {
 
 // 同键并发去重：补全可能在同一个键上连发几次（编辑器重建 source 时），
 // 合并成一次查询；失败不缓存，下次输入会重试
-async function listColumnsCached (inst, adapter, args, opMs) {
+async function listColumnsCached (inst, adapter, args, opMs, onTimeout) {
   const key = columnsCacheKey(args)
   const cache = inst.columnsCache || resetColumnsCache(inst)
   if (cache.values.has(key)) {
@@ -264,7 +284,7 @@ async function listColumnsCached (inst, adapter, args, opMs) {
   if (cache.inflight.has(key)) {
     return cache.inflight.get(key)
   }
-  const p = withTimeout(adapter.listColumns(inst.conn, args), opMs, 'db op listColumns').then(
+  const p = withTimeout(adapter.listColumns(inst.conn, args), opMs, 'db op listColumns', onTimeout).then(
     res => {
       cache.values.set(key, res)
       cache.inflight.delete(key)
@@ -298,7 +318,7 @@ function resetStructureCache (inst) {
 }
 
 // 同键并发去重：结构面板 + 表头提示可能同时问同一张表，合并成一次四条查询
-async function structureCached (inst, adapter, args, opMs) {
+async function structureCached (inst, adapter, args, opMs, onTimeout) {
   const key = structureKey(args)
   const cache = inst.structureCache || resetStructureCache(inst)
   if (cache.values.has(key)) {
@@ -315,7 +335,8 @@ async function structureCached (inst, adapter, args, opMs) {
   const p = withTimeout(
     adapter.getTableStructure(inst.conn, args),
     opMs,
-    'db op getTableStructure'
+    'db op getTableStructure',
+    onTimeout
   ).then(
     res => {
       cache.values.set(key, res)
@@ -366,7 +387,7 @@ function needsPageBoundary (args) {
   return Array.isArray(args.orderClauses) && args.orderClauses.length > 0
 }
 
-async function assertPageBoundary (inst, adapter, args, opMs) {
+async function assertPageBoundary (inst, adapter, args, opMs, evictOnTimeout) {
   const where = typeof args.where === 'string' ? args.where.trim() : ''
   if (args.where !== undefined && args.where !== null && typeof args.where !== 'string') {
     throw new Error('条件体必须是字符串')
@@ -385,7 +406,7 @@ async function assertPageBoundary (inst, adapter, args, opMs) {
       database: args.database,
       schema: args.schema || '',
       table: args.table
-    }, opMs)
+    }, opMs, evictOnTimeout)
   } catch (e) {
     if (where) {
       // 有 where 就必须有列白名单：空白名单会把每条条件都判成未知列，
@@ -435,30 +456,39 @@ async function dbClientOp (tabId, op, args) {
     readOnly: inst.readOnly
   }
   const opMs = OP_TIMEOUTS[op] || OP_TIMEOUTS.default
+  // 断连自愈：db op 超时大概率是连接已被服务端静默断开（死 socket 挂起直到 withTimeout 拒绝）。
+  // 触发时销毁该签名的连接池（adapter.evict），下次操作自动重建——重建后即恢复，无需手动关 tab。
+  // mysql 适配器实现了 evict；postgres/redis 无池（单连接）超时属"慢查询/对端不响应"，
+  // 不销毁（避免把正常慢查询误判成断连），但错误已带 ETIMEDOUT 交给前端触发重连提示。
+  const evictOnTimeout = () => {
+    if (adapter && typeof adapter.evict === 'function') {
+      adapter.evict(inst.conn)
+    }
+  }
   if (op === 'getMetadata') {
     // 树刷新/切库后列与结构都可能已变，两套缓存必须跟着失效
     resetColumnsCache(inst)
     resetStructureCache(inst)
   }
   if (op === 'listColumns') {
-    return listColumnsCached(inst, adapter, safeArgs, opMs)
+    return listColumnsCached(inst, adapter, safeArgs, opMs, evictOnTimeout)
   }
   if (op === 'getTableStructure') {
-    return structureCached(inst, adapter, safeArgs, opMs)
+    return structureCached(inst, adapter, safeArgs, opMs, evictOnTimeout)
   }
   if (op === 'getPageData' && DB_ADAPTER[inst.dbType] !== 'redis' &&
     needsPageBoundary(safeArgs)) {
     // redis 的 getPageData 是 SCAN 语义：没有 where、也没有 getTableStructure，
     // 误走校验会抛 unsupported op（而不是"条件不合法"），故整类跳过
-    await assertPageBoundary(inst, adapter, safeArgs, opMs)
+    await assertPageBoundary(inst, adapter, safeArgs, opMs, evictOnTimeout)
   }
   if (op === 'executeSql') {
     // 执行完就丢结构缓存：用户可能刚跑过 ALTER/DDL，
     // 60s TTL 内还拿旧列会让表头与真实表对不上（DDL 不是高频操作，清空的代价可忽略）
-    return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`)
+    return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`, evictOnTimeout)
       .finally(() => resetStructureCache(inst))
   }
-  return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`)
+  return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`, evictOnTimeout)
 }
 
 // 页面上切换只读模式：白名单以主进程实例为权威（渲染层传参不可信），
