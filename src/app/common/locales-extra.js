@@ -272,6 +272,7 @@ const en = {
   dbSqlHistoryNote: 'Stored locally only (max 200). Results and passwords are never saved.',
   // B 批：查询收藏 + SQL 模板
   dbFavTab: 'Favorites',
+  dbHistFavEntry: 'History / Favorites',
   dbFavNew: 'New',
   dbFavImport: 'Import',
   dbFavExport: 'Export',
@@ -830,6 +831,7 @@ const zhCn = {
   dbSqlHistoryNote: '仅存本地（上限 200 条），不保存结果与密码。',
   // B 批：查询收藏 + SQL 模板
   dbFavTab: '收藏',
+  dbHistFavEntry: '历史 / 收藏',
   dbFavNew: '新建',
   dbFavImport: '导入',
   dbFavExport: '导出',

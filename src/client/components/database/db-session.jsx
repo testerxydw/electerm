@@ -5,7 +5,7 @@
  */
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Badge } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -5147,11 +5147,17 @@ export default auto(function DbSession (props) {
             </div>
           }
         >
-          <Button
-            size='small'
-            icon={<HistoryOutlined />}
-            title={e('dbSqlHistory')}
-          />
+          <Badge count={favList.length} size='small' offset={[-2, 4]}>
+            <Button
+              size='small'
+              icon={<HistoryOutlined />}
+              // 打开时高亮；文案直接写明"历史 / 收藏"——纯图标曾导致用户找不到收藏入口
+              type={sqlHistoryOpen ? 'primary' : 'default'}
+              title={e('dbHistFavEntry')}
+            >
+              {e('dbHistFavEntry')}
+            </Button>
+          </Badge>
         </Popover>
         {
           // A-7：补全关键字大小写开关（Aa 小写 / AA 大写）。Redis 无 SQL 语法，不显示
