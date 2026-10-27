@@ -5,7 +5,7 @@
  */
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Badge } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -5152,19 +5152,21 @@ export default auto(function DbSession (props) {
             </div>
           }
         >
-          {/* offset[1] 是 marginTop（正值下移）：此前 4px 下压使徽标盖住按钮右上角
-              文字顶部；归零回到标准骑角位，顶边仍留 1px 不碰上方编辑器 */}
-          <Badge count={favList.length} size='small' offset={[-2, 0]}>
-            <Button
-              size='small'
-              icon={<HistoryOutlined />}
-              // 打开时高亮；文案直接写明"历史 / 收藏"——纯图标曾导致用户找不到收藏入口
-              type={sqlHistoryOpen ? 'primary' : 'default'}
-              title={e('dbHistFavEntry')}
-            >
-              {e('dbHistFavEntry')}
-            </Button>
-          </Badge>
+          {/* 收藏数改为按钮内联小圆片：原骑角 Badge 的结构性问题是按钮上方仅 1px
+              空隙（编辑器底部），徽标上移会顶进编辑器、不移就压"藏"字顶部，
+              任何 offset 都两难 → 弃用绝对定位徽标，计数随文字排布永不遮挡 */}
+          <Button
+            size='small'
+            icon={<HistoryOutlined />}
+            // 打开时高亮；文案直接写明"历史 / 收藏"——纯图标曾导致用户找不到收藏入口
+            type={sqlHistoryOpen ? 'primary' : 'default'}
+            title={e('dbHistFavEntry')}
+          >
+            {e('dbHistFavEntry')}
+            {favList.length > 0 && (
+              <span className='db-hist-fav-count'>{favList.length}</span>
+            )}
+          </Button>
         </Popover>
         {
           // A-7：补全关键字大小写开关（Aa 小写 / AA 大写）。Redis 无 SQL 语法，不显示

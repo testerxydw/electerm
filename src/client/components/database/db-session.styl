@@ -482,6 +482,20 @@
   overflow hidden
   gap 8px
 
+// 历史/收藏按钮内的收藏数小圆片：内联随文字排布（替代骑角 Badge——
+// 按钮上方仅 1px 空隙，骑角位上移顶编辑器、不移压"藏"字，无法两全）
+.db-hist-fav-count
+  display inline-block
+  margin-left 6px
+  padding 0 5px
+  border-radius 7px
+  background var(--error)
+  color #fff
+  font-size 10px
+  line-height 14px
+  font-weight 500
+  vertical-align middle
+
 // A-1：CM6 外壳容器。边框/圆角/尺寸由编辑器主题（db-sql-editor.jsx）给出，
 // 这里只管它在 flex 列里的行为，以及懒加载骨架屏的占位尺寸。
 .db-sql-editor
