@@ -5092,8 +5092,10 @@ export default auto(function DbSession (props) {
           open={sqlHistoryOpen}
           onOpenChange={open => {
             openSqlHistory(open)
-            // 停在收藏 tab 时打开也要刷新（列表 ≤500 条，文件读一次不贵）
-            if (open && favTab === 'favorite') {
+            // 打开即刷新（不限 tab）：收藏文件全局共享，其他连接 tab/历史会话
+            // 的收藏变动也要在打开瞬间同步——否则按钮徽标(favList.length)
+            // 与弹层内分组计数会对不上。列表 ≤500 条，文件读一次不贵
+            if (open) {
               refreshFavorites()
               refreshFavGroups()
             }
