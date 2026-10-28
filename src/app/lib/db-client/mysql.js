@@ -876,6 +876,67 @@ async function deleteRows (conn, { database, table, pkColumn, pkValues, readOnly
   return { affected: res.affectedRows }
 }
 
+// 同列批量改值上限：与 deleteRows 同口径（一次最多改一屏勾选的行），
+// 同时约束 IN 子句长度与单条语句的影响面
+const UPDATE_CELLS_LIMIT = 200
+
+// 同列批量 UPDATE：updates = [{ pk, value }]，值全部占位符绑定、标识符反引号引用。
+// 两条路径：
+// - 全部目标行写成**同一个值**（工具栏"批量改值"）：一条 SET .. WHERE pk IN (..)，
+//   原子、快、affected 精确；
+// - 值各不相同（表内查找替换）：逐行 UPDATE，每行独立事务。不做整体原子性 ——
+//   半途失败时用户更想知道"哪几行没改到"，而不是整批回滚后连改成功的也一起回退。
+async function updateCells (conn, { database, table, pkColumn, column, updates, readOnly }) {
+  checkWritable(readOnly)
+  if (!column || !pkColumn) {
+    throw new Error('updateCells requires column and pkColumn')
+  }
+  const list = (Array.isArray(updates) ? updates : [])
+    .filter(u => u && typeof u === 'object' && u.pk !== null && u.pk !== undefined)
+  if (!list.length) {
+    throw new Error('updateCells requires at least one target row')
+  }
+  if (list.length > UPDATE_CELLS_LIMIT) {
+    throw new Error(`updateCells supports up to ${UPDATE_CELLS_LIMIT} rows at once`)
+  }
+  const pool = await getPool(conn)
+  const fullTable = database
+    ? quoteIdent(database) + '.' + quoteIdent(table)
+    : quoteIdent(table)
+  const valOf = v => (v === undefined ? null : v)
+  const sameValue = list.every(u => u.value === list[0].value)
+  if (sameValue) {
+    const sql = 'UPDATE ' + fullTable +
+      ' SET ' + quoteIdent(column) + ' = ?' +
+      ' WHERE ' + quoteIdent(pkColumn) +
+      ' IN (' + list.map(() => '?').join(', ') + ')'
+    const [res] = await pool.execute(sql, [valOf(list[0].value), ...list.map(u => u.pk)])
+    return { affected: res.affectedRows, failed: [] }
+  }
+  const one = 'UPDATE ' + fullTable +
+    ' SET ' + quoteIdent(column) + ' = ?' +
+    ' WHERE ' + quoteIdent(pkColumn) + ' = ?'
+  const c = await pool.getConnection()
+  let affected = 0
+  const failed = []
+  try {
+    for (const u of list) {
+      try {
+        await c.query('START TRANSACTION')
+        const [res] = await c.query(one, [valOf(u.value), u.pk])
+        await c.query('COMMIT')
+        affected += res.affectedRows || 0
+      } catch (e) {
+        await c.query('ROLLBACK').catch(() => {})
+        failed.push({ pk: u.pk, message: e.message })
+      }
+    }
+  } finally {
+    c.release()
+  }
+  return { affected, failed }
+}
+
 // 只读白名单：首关键词必须在允许集合内，且全句不得出现写关键词。
 // 只校验首关键词会被 `WITH x AS (...) DELETE FROM t` 绕过（MySQL 8 / PG 均支持该写语法），
 // 故追加一次全句写关键词扫描；宁可误拒（如 EXPLAIN DELETE），也不放行写操作。
@@ -1259,6 +1320,7 @@ module.exports = {
   insertRow,
   insertRows,
   deleteRows,
+  updateCells,
   countRows,
   executeSql,
   explainQuery,

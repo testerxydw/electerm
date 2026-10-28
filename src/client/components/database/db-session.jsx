@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -25,6 +25,11 @@ import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
 import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
+import {
+  planSameValue,
+  planReplace,
+  previewKeyList
+} from '../../common/db-grid-replace'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile, SQL_HISTORY_MAX } from '../../common/db-sql-history'
 // B 批：查询收藏（B-1~B-4）与 SQL 模板（B-3，同一份定义菜单/补全共用）
@@ -1744,6 +1749,132 @@ export default auto(function DbSession (props) {
         .map(r => r.__rowKey)
         .filter(k => !cur.has(k))
     })
+  }
+
+  // ---- B3-2 批量同列改值 / B3-3 表内查找替换 ----
+  // 两者共用主进程 updateCells（同列、按主键定位、值全部绑定），区别只在
+  // updates 的 value 是否一致：一致走单条 IN（快、原子），散值逐行（失败行可报）。
+  // 范围都限定"本页可见行"——不碰全表，避免一次误操作重写整张表（与 deleteRows 同口径）。
+  const [bulk, setBulk] = useState({ open: false, col: '', text: '', isNull: false })
+  const [rep, setRep] = useState({ open: false, col: '', find: '', text: '', matchCase: true, wholeCell: false })
+
+  // 可写列（用于两个弹窗的列下拉）：来自表结构缓存，含列名与类型
+  const writeColumns = useMemo(
+    () => (structureV2.columns || [])
+      .filter(c => c && typeof c.name === 'string' && c.name)
+      .map(c => ({ name: c.name, type: String(c.dataType || '') })),
+    [structureV2.columns]
+  )
+
+  // 取出当前勾选的原始行（grid.rows 才含主键，filteredRows 是过滤后的展示副本）
+  const selectedRows = useMemo(
+    () => grid.rows.filter((_, i) => selectedRowKeys.includes(i)),
+    [grid.rows, selectedRowKeys]
+  )
+
+  const openBulk = () => {
+    const def = selectedCell && selectedCell.col
+      ? selectedCell.col
+      : (writeColumns[0] || {}).name || ''
+    setBulk({ open: true, col: def, text: '', isNull: false })
+  }
+
+  // 共用：把一批 updates 发给主进程并刷新（B3-2/B3-3 都走这里）
+  const runUpdateCells = async (column, updates) => {
+    if (!sel || !pkColumn || !updates.length) {
+      return
+    }
+    setGrid(g => ({ ...g, loading: true }))
+    try {
+      const res = await window.pre.runGlobalAsync('dbClientOp', tabId, 'updateCells', {
+        database: sel.database,
+        schema: sel.schema || '',
+        table: sel.table,
+        pkColumn,
+        column,
+        updates
+      })
+      message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
+      const failed = (res && res.failed) || []
+      if (failed.length) {
+        message.warning(
+          e('dbUpdateCellsFailed').replace('{n}', String(failed.length)) +
+          ' ' + failed.slice(0, 3).map(f => `${f.pk}: ${f.message}`).join('; ')
+        )
+      }
+      setSelectedRowKeys([])
+      loadQuery(sel, grid.page)
+    } catch (err) {
+      setGrid(g => ({ ...g, loading: false }))
+      onOpError(err)
+    }
+  }
+
+  const submitBulk = async () => {
+    if (!sel || !pkColumn || !bulk.col) {
+      return
+    }
+    if (!selectedRows.length) {
+      message.info(e('dbNeedSelection'))
+      return
+    }
+    const value = bulk.isNull ? null : bulk.text
+    const plan = planSameValue(selectedRows, { column: bulk.col, pkColumn, value })
+    if (!plan.updates.length) {
+      message.info(e('dbBulkNoChange'))
+      return
+    }
+    const ok = await confirmRowWrite({
+      level: 'write',
+      text: 'UPDATE ' + writeTargetLabel(sel) +
+        ' SET ' + bulk.col + ' = ' + previewLiteral(value) +
+        ' WHERE ' + pkColumn + ' IN (' + previewKeyList(plan.updates.map(u => u.pk)) + ')',
+      note: e('dbAffectedRows').replace('{n}', String(plan.updates.length))
+    })
+    if (!ok) {
+      return
+    }
+    setBulk(b => ({ ...b, open: false }))
+    await runUpdateCells(bulk.col, plan.updates)
+  }
+
+  // 查找替换的实时预览：随输入变化，告诉用户"会改几行"（范围=当前页可见行）
+  const repPreview = useMemo(
+    () => planReplace(filteredRows, {
+      column: rep.col,
+      pkColumn,
+      find: rep.find,
+      replace: rep.text,
+      matchCase: rep.matchCase,
+      wholeCell: rep.wholeCell
+    }),
+    [rep, filteredRows, pkColumn]
+  )
+
+  const openReplace = () => {
+    const def = selectedCell && selectedCell.col
+      ? selectedCell.col
+      : (writeColumns[0] || {}).name || ''
+    setRep({ open: true, col: def, find: '', text: '', matchCase: true, wholeCell: false })
+  }
+
+  const submitReplace = async () => {
+    if (!sel || !pkColumn || !rep.col || !repPreview.updates.length) {
+      return
+    }
+    const ok = await confirmRowWrite({
+      level: 'write',
+      text: 'UPDATE ' + writeTargetLabel(sel) +
+        ' SET ' + rep.col + ' = replace(' + rep.col + ', ' +
+        previewLiteral(rep.find) + ', ' + previewLiteral(rep.text) + ')' +
+        ' WHERE ' + pkColumn + ' IN (' + previewKeyList(repPreview.updates.map(u => u.pk)) + ')',
+      note: e('dbAffectedRows').replace('{n}', String(repPreview.updates.length))
+    })
+    if (!ok) {
+      return
+    }
+    setRep(r => ({ ...r, open: false }))
+    await runUpdateCells(rep.col, repPreview.updates)
   }
 
   // 预览面板：选中单元格 + 保存
@@ -4448,6 +4579,41 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+        {
+          // B3-2 批量同列改值：门控与 deleteRows 同（只读 + 主键 + 有勾选 + 本页有行），
+          // 按钮常显禁用（与删除一致，避免选中后按钮位置跳动被误点）
+          sel && !isReadonly && pkColumn && grid.rows.length
+            ? (
+              <Tooltip title={selectedRowKeys.length ? e('dbBulkEdit') : e('dbNeedSelection')}>
+                <Button
+                  size='small'
+                  icon={<EditOutlined />}
+                  disabled={!selectedRowKeys.length}
+                  onClick={openBulk}
+                >
+                  {e('dbBulkEdit')}{selectedRowKeys.length ? `(${selectedRowKeys.length})` : ''}
+                </Button>
+              </Tooltip>
+              )
+            : null
+        }
+        {
+          // B3-3 查找替换：范围受"本页可见行"约束（见 repPreview 注释）；
+          // 不需要勾选（替换所有匹配单元格），但必须有主键才能逐行定位
+          sel && !isReadonly && pkColumn && grid.rows.length
+            ? (
+              <Tooltip title={e('dbReplace')}>
+                <Button
+                  size='small'
+                  icon={<SwapOutlined />}
+                  onClick={openReplace}
+                >
+                  {e('dbReplace')}
+                </Button>
+              </Tooltip>
+              )
+            : null
+        }
       </div>
       {
         // 视角条单独一行（不塞进 .db-grid-head）：那一行已经有标题/总数/本页过滤/
@@ -4590,6 +4756,130 @@ export default auto(function DbSession (props) {
                     )
                   })
                 }
+              </div>
+            </Modal>
+            )
+          : null
+      }
+      {
+        // B3-2 批量同列改值弹窗：选列 + 新值 + NULL 勾选；仅对"值变了"的行发 UPDATE
+        bulk.open
+          ? (
+            <Modal
+              open={bulk.open}
+              title={e('dbBulkEditTitle')
+                .replace('{column}', bulk.col)
+                .replace('{n}', String(selectedRows.length))}
+              onCancel={() => setBulk(b => ({ ...b, open: false }))}
+              onOk={submitBulk}
+              okText={e('dbAffected').replace('{n}', '→')}
+              cancelText={e('cancel')}
+              width={520}
+            >
+              <div className='db-bulk-form'>
+                <div className='db-bulk-row'>
+                  <span className='db-bulk-label'>{e('dbBulkColumn')}</span>
+                  <Select
+                    size='small'
+                    value={bulk.col}
+                    style={{ width: 280 }}
+                    showSearch
+                    optionFilterProp='label'
+                    onChange={col => setBulk(b => ({ ...b, col }))}
+                    options={writeColumns.map(c => ({ value: c.name, label: c.name }))}
+                  />
+                </div>
+                <div className='db-bulk-row'>
+                  <span className='db-bulk-label'>{e('dbBulkValue')}</span>
+                  <Input
+                    size='small'
+                    value={bulk.text}
+                    disabled={bulk.isNull}
+                    style={{ width: 280 }}
+                    onChange={ev => setBulk(b => ({ ...b, text: ev.target.value }))}
+                  />
+                  <Checkbox
+                    checked={bulk.isNull}
+                    onChange={ev => setBulk(b => ({ ...b, isNull: ev.target.checked }))}
+                  >
+                    NULL
+                  </Checkbox>
+                </div>
+                <div className='db-bulk-hint'>{e('dbBulkHint')}</div>
+              </div>
+            </Modal>
+            )
+          : null
+      }
+      {
+        // B3-3 表内查找替换弹窗：范围=本页可见行，实时预览"会改几行"
+        rep.open
+          ? (
+            <Modal
+              open={rep.open}
+              title={e('dbReplaceTitle').replace('{column}', rep.col)}
+              onCancel={() => setRep(r => ({ ...r, open: false }))}
+              onOk={submitReplace}
+              okButtonProps={{ disabled: !repPreview.updates.length }}
+              okText={e('dbReplace')}
+              cancelText={e('cancel')}
+              width={540}
+            >
+              <div className='db-replace-form'>
+                <div className='db-replace-row'>
+                  <span className='db-replace-label'>{e('dbReplaceColumn')}</span>
+                  <Select
+                    size='small'
+                    value={rep.col}
+                    style={{ width: 280 }}
+                    showSearch
+                    optionFilterProp='label'
+                    onChange={col => setRep(r => ({ ...r, col }))}
+                    options={writeColumns.map(c => ({ value: c.name, label: c.name }))}
+                  />
+                </div>
+                <div className='db-replace-row'>
+                  <span className='db-replace-label'>{e('dbReplaceFind')}</span>
+                  <Input
+                    size='small'
+                    value={rep.find}
+                    style={{ width: 280 }}
+                    onChange={ev => setRep(r => ({ ...r, find: ev.target.value }))}
+                  />
+                </div>
+                <div className='db-replace-row'>
+                  <span className='db-replace-label'>{e('dbReplaceWith')}</span>
+                  <Input
+                    size='small'
+                    value={rep.text}
+                    style={{ width: 280 }}
+                    onChange={ev => setRep(r => ({ ...r, text: ev.target.value }))}
+                  />
+                </div>
+                <div className='db-replace-opts'>
+                  <Checkbox
+                    checked={rep.matchCase}
+                    onChange={ev => setRep(r => ({ ...r, matchCase: ev.target.checked }))}
+                  >
+                    {e('dbReplaceMatchCase')}
+                  </Checkbox>
+                  <Checkbox
+                    checked={rep.wholeCell}
+                    onChange={ev => setRep(r => ({ ...r, wholeCell: ev.target.checked }))}
+                  >
+                    {e('dbReplaceWholeCell')}
+                  </Checkbox>
+                </div>
+                <div className='db-replace-preview'>
+                  {e('dbReplaceScope').replace('{n}', String(filteredRows.length))}
+                  {' · '}
+                  {repPreview.updates.length
+                    ? e('dbReplacePreview').replace('{n}', String(repPreview.updates.length))
+                    : e('dbReplaceNone')}
+                  {repPreview.skipped
+                    ? ` · ${repPreview.skipped} ${e('dbNeedSelection')}`
+                    : ''}
+                </div>
               </div>
             </Modal>
             )

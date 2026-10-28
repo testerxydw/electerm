@@ -812,6 +812,61 @@ async function deleteRows (conn, { database, schema, table, pkColumn, pkValues, 
   return { affected: res.rowCount }
 }
 
+// 同列批量改值上限：与 deleteRows 同口径（一次最多改一屏勾选的行）
+const UPDATE_CELLS_LIMIT = 200
+
+// 同列批量 UPDATE：updates = [{ pk, value }]，值走 $n 占位符绑定，标识符双引号引用。
+// 两条路径：
+// - 全部目标行写成**同一个值**（工具栏"批量改值"）：一条 SET .. WHERE pk IN (..)，
+//   原子、快、rowCount 精确；
+// - 值各不相同（表内查找替换）：逐行 UPDATE。这里不用 BEGIN/COMMIT ——
+//   pg 适配器是**按签名共享单个 Client**（见 getClient），显式事务会和并发 op
+//   抢同一个连接、互相把对方的语句卷进本事务，比"半途失败"更危险。
+//   失败行逐条记录，交给前端报"改了几行、哪几行失败"。
+async function updateCells (conn, { database, schema, table, pkColumn, column, updates, readOnly }) {
+  checkWritable(readOnly)
+  if (!column || !pkColumn) {
+    throw new Error('updateCells requires column and pkColumn')
+  }
+  const list = (Array.isArray(updates) ? updates : [])
+    .filter(u => u && typeof u === 'object' && u.pk !== null && u.pk !== undefined)
+  if (!list.length) {
+    throw new Error('updateCells requires at least one target row')
+  }
+  if (list.length > UPDATE_CELLS_LIMIT) {
+    throw new Error(`updateCells supports up to ${UPDATE_CELLS_LIMIT} rows at once`)
+  }
+  const c = await getClient(conn)
+  if (database && database !== c.database) {
+    throw new Error('cross-database query not supported for postgres, connect with that database')
+  }
+  const full = quoteIdent(schema || 'public') + '.' + quoteIdent(table)
+  const valOf = v => (v === undefined ? null : v)
+  const sameValue = list.every(u => u.value === list[0].value)
+  if (sameValue) {
+    const sql = 'UPDATE ' + full +
+      ' SET ' + quoteIdent(column) + ' = $1' +
+      ' WHERE ' + quoteIdent(pkColumn) +
+      ' IN (' + list.map((_, i) => '$' + (i + 2)).join(', ') + ')'
+    const res = await c.query(sql, [valOf(list[0].value), ...list.map(u => u.pk)])
+    return { affected: res.rowCount, failed: [] }
+  }
+  const one = 'UPDATE ' + full +
+    ' SET ' + quoteIdent(column) + ' = $1' +
+    ' WHERE ' + quoteIdent(pkColumn) + ' = $2'
+  let affected = 0
+  const failed = []
+  for (const u of list) {
+    try {
+      const res = await c.query(one, [valOf(u.value), u.pk])
+      affected += res.rowCount || 0
+    } catch (e) {
+      failed.push({ pk: u.pk, message: e.message })
+    }
+  }
+  return { affected, failed }
+}
+
 // 只读白名单：首关键词必须在允许集合内，且全句不得出现写关键词。
 // 只校验首关键词会被 `WITH x AS (...) DELETE FROM t` 绕过（MySQL 8 / PG 均支持该写语法），
 // 故追加一次全句写关键词扫描；宁可误拒（如 EXPLAIN DELETE），也不放行写操作。
@@ -1122,6 +1177,7 @@ module.exports = {
   insertRow,
   insertRows,
   deleteRows,
+  updateCells,
   countRows,
   executeSql,
   explainQuery,
