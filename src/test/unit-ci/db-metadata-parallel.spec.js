@@ -14,6 +14,9 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const JS = path.join(ROOT, 'src/app/lib/db-client/mysql.js')
+// 适配器顶部 require 的类型归一模块：vm 里未知 require 会转交宿主，而
+// `../../common/...` 是按**测试文件**目录解析的（会找不到），所以显式给真实模块
+const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
 
 // 假 pool：可配置每库表数据/延迟/失败；记录并发峰值
 function makePool (opts) {
@@ -61,6 +64,7 @@ function loadMysql (pool) {
   const src = fs.readFileSync(JS, 'utf8')
   const stubs = {
     '../../common/log': { debug () {}, info () {}, warn () {}, error () {} },
+    '../../common/db-type-normalize': TYPE_NORM,
     'mysql2/promise': {
       createPool () { return pool }
     }
@@ -72,7 +76,7 @@ function loadMysql (pool) {
       if (stubs[spec]) {
         return stubs[spec]
       }
-      return require(spec) // 相对导入（../../common/log 之外的都会被上面桩住）
+      return require(spec)
     }
   }
   vm.runInNewContext(src, sandbox, { filename: 'mysql.js' })

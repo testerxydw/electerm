@@ -5,6 +5,8 @@
  * 浏览其他库需新建指向该库的书签连接
  */
 
+const { normalizePgType, toColumns } = require('../../common/db-type-normalize')
+
 const clients = new Map()
 // per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
 const refs = new Map()
@@ -1022,7 +1024,9 @@ async function executeSql (conn, { sql, readOnly }) {
     results: list.map(r => ({
       rows: rowToPlain(r.rows || []),
       affected: r.command && r.command !== 'SELECT' ? r.rowCount : undefined,
-      fields: Array.isArray(r.fields) ? r.fields.map(f => f.name) : []
+      fields: Array.isArray(r.fields) ? r.fields.map(f => f.name) : [],
+      // H1a-3：与 fields 同长同序的类型契约，见 db-type-normalize.js
+      columns: toColumns(r.fields, f => normalizePgType(f.dataTypeID))
     }))
   }
 }

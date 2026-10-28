@@ -24,6 +24,10 @@ const path = require('node:path')
 const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
+
+// H1a-3：适配器顶部 require 的类型归一模块（纯函数、无依赖）。vm 里的 require 是白名单式，
+// 不给这一条就是“还没跑到被测函数就先 unexpected require”
+const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
 const MYSQL_JS = path.join(ROOT, 'src/app/lib/db-client/mysql.js')
 const POSTGRES_JS = path.join(ROOT, 'src/app/lib/db-client/postgres.js')
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
@@ -39,6 +43,7 @@ function runInVm (src, stubs, filename) {
     module: mod,
     exports: mod.exports,
     require: spec => {
+      if (spec === '../../common/db-type-normalize') return TYPE_NORM
       assert.ok(stubs[spec], 'unexpected require: ' + spec)
       return stubs[spec]
     },

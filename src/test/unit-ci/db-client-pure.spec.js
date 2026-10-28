@@ -21,6 +21,10 @@ const vm = require('node:vm')
 const Module = require('node:module')
 
 const ROOT = path.join(__dirname, '../../..')
+
+// H1a-3：适配器顶部 require 的类型归一模块（纯函数、无依赖）。vm 里的 require 是白名单式，
+// 不给这一条就是“还没跑到被测函数就先 unexpected require”
+const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
 const MYSQL_JS = path.join(ROOT, 'src/app/lib/db-client/mysql.js')
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 
@@ -35,6 +39,7 @@ function runInVm (src, stubs, filename) {
     module: mod,
     exports: mod.exports,
     require: spec => {
+      if (spec === '../../common/db-type-normalize') return TYPE_NORM
       assert.ok(stubs[spec], 'unexpected require: ' + spec)
       return stubs[spec]
     },
@@ -316,13 +321,25 @@ describe('mysql checkWritable（单元格写入门控）', () => {
 // ---------- mysql：结果规范化（纯函数） ----------
 
 describe('mysql toResult（结果规范化）', () => {
-  test('行数组：rows 保留、fields 提取 name、affected 为 undefined', () => {
-    const r = mysql.toResult([{ a: 1, b: 'x' }], [{ name: 'a' }, { name: 'b' }])
+  test('行数组：rows 保留、fields 提取 name、columns 与 fields 同长同序、affected 为 undefined', () => {
+    // columnType 3 = LONG(int)、253 = VAR_STRING(varchar)：见 mysql2/lib/constants/types.js
+    const r = mysql.toResult([{ a: 1, b: 'x' }], [
+      { name: 'a', columnType: 3 },
+      { name: 'b', columnType: 253 }
+    ])
     assert.deepEqual(r, {
       rows: [{ a: 1, b: 'x' }],
       affected: undefined,
-      fields: ['a', 'b']
+      fields: ['a', 'b'],
+      columns: [{ name: 'a', type: 'int' }, { name: 'b', type: 'varchar' }]
     })
+  })
+
+  test('H1a-3：fields 只给 name（没有类型码）时 columns 仍同长同序、type 为空', () => {
+    const r = mysql.toResult([{ a: 1, b: 'x' }], [{ name: 'a' }, { name: 'b' }])
+    assert.deepEqual(r.columns, [{ name: 'a', type: '' }, { name: 'b', type: '' }])
+    assert.equal(r.columns.length, r.fields.length)
+    assert.deepEqual(r.columns.map(c => c.name), r.fields)
   })
 
   test('行内特殊类型经 safeCell 转换（Date → ISO / bigint → string / 带原型对象 → string）', () => {
@@ -384,6 +401,24 @@ describe('mysql normalizeResults（单语句 / 多语句统一）', () => {
     assert.deepEqual(rs[0].fields, ['a'])
     assert.deepEqual(rs[1].rows, [{ b: 2 }])
     assert.deepEqual(rs[1].fields, ['b'])
+    // H1a-3：每个结果集各拿自己那份 columns（类型不能串到另一个结果集的列上）
+    assert.deepEqual(rs[0].columns, [{ name: 'a', type: '' }])
+    assert.deepEqual(rs[1].columns, [{ name: 'b', type: '' }])
+  })
+
+  test('H1a-3：多语句的类型按结果集各自归一，互不污染', () => {
+    // 8 = LONGLONG(bigint)、245 = JSON、252 + 字符集 63 = blob
+    const rows = [[{ n: 1 }], [{ j: '{}' }]]
+    const fields = [
+      [{ name: 'n', columnType: 8 }],
+      [{ name: 'j', columnType: 245 }, { name: 'f', columnType: 252, characterSet: 63 }]
+    ]
+    const rs = mysql.normalizeResults(rows, fields)
+    assert.deepEqual(rs[0].columns, [{ name: 'n', type: 'bigint' }])
+    assert.deepEqual(rs[1].columns, [
+      { name: 'j', type: 'json' },
+      { name: 'f', type: 'blob' }
+    ])
   })
 })
 
@@ -815,5 +850,52 @@ describe('postgres getReferences（F1，vm 打桩 pg）', () => {
     )
     assert.equal(degraded.degraded, true)
     assert.equal(degraded.references.length, 0)
+  })
+})
+
+// ---------- H1a-3：executeSql 的列类型契约（pg 侧；mysql 侧见上面 toResult） ----------
+
+describe('postgres executeSql 输出 columns（与 fields 同长同序）', () => {
+  const CONN = { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' }
+
+  function makePgResult (result) {
+    const PgClient = function () {}
+    PgClient.prototype.connect = async function () {}
+    PgClient.prototype.query = async function () { return result }
+    PgClient.prototype.end = async function () {}
+    return { Client: PgClient }
+  }
+
+  test('单结果集：dataTypeID 归一成 pg 的 data_type 名', async () => {
+    const mod = loadPostgresInVm(makePgResult({
+      rows: [{ id: 1, at: '2026-01-02' }],
+      command: 'SELECT',
+      fields: [{ name: 'id', dataTypeID: 23 }, { name: 'at', dataTypeID: 1082 }]
+    }))
+    const res = await mod.executeSql(CONN, { sql: 'select id, at from t', readOnly: false })
+    assert.deepEqual(res.results[0].fields, ['id', 'at'])
+    assert.deepEqual(res.results[0].columns, [
+      { name: 'id', type: 'integer' },
+      { name: 'at', type: 'date' }
+    ])
+  })
+
+  test('多语句（pg 返回结果数组）逐结果集各自出 columns', async () => {
+    const mod = loadPostgresInVm(makePgResult([
+      { rows: [{ a: 1 }], command: 'SELECT', fields: [{ name: 'a', dataTypeID: 20 }] },
+      { rows: [], command: 'INSERT', rowCount: 1, fields: [] }
+    ]))
+    const res = await mod.executeSql(CONN, { sql: 'select a; insert into t values (1)', readOnly: false })
+    assert.equal(res.results.length, 2)
+    assert.deepEqual(res.results[0].columns, [{ name: 'a', type: 'bigint' }])
+    assert.deepEqual(res.results[1].columns, [])
+  })
+
+  test('fields 缺失（非查询语句）时 columns 为空数组，fields 行为不变', async () => {
+    const mod = loadPostgresInVm(makePgResult({ rows: [], command: 'SET' }))
+    const res = await mod.executeSql(CONN, { sql: 'set search_path = public', readOnly: false })
+    // 空数组按长度断言：vm realm 的 [] 与宿主 [] 原型不同，deepStrictEqual 会判"结构相同但不等"
+    assert.equal(res.results[0].fields.length, 0)
+    assert.equal(res.results[0].columns.length, 0)
   })
 })

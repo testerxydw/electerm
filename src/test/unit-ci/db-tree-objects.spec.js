@@ -14,6 +14,9 @@ const vm = require('node:vm')
 //      树渲染/点击分支存在，分组文案中英齐全
 
 const ROOT = path.join(__dirname, '../../..')
+// 适配器顶部 require 的类型归一模块（纯函数、无依赖）。vm 里把未知 require 转交给宿主
+// 时，`../../common/...` 会按**测试文件**的目录解析而找不到，所以显式给真实模块
+const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
 const DB_CLIENT = path.join(ROOT, 'src/app/lib/db-client')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
@@ -29,7 +32,15 @@ const loadAdapter = (name, stubs) => {
   const sandbox = {
     module: mod,
     exports: mod.exports,
-    require: spec => (stubs[spec] ? stubs[spec] : require(spec)),
+    require: spec => {
+      if (stubs[spec]) {
+        return stubs[spec]
+      }
+      if (spec === '../../common/db-type-normalize') {
+        return TYPE_NORM
+      }
+      return require(spec)
+    },
     console,
     Promise,
     setTimeout,

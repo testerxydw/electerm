@@ -115,7 +115,7 @@ import {
 } from '../../common/db-grid-views'
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
-import { formatCellValue, readFormatLocale, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
+import { formatCellValue, readFormatLocale, cellAlignClass, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -3545,8 +3545,9 @@ export default auto(function DbSession (props) {
     })
   }
 
-  // dataType 来自 structureV2.columns（与主进程校验同源）；SQL 结果集没有类型
-  // 信息，调用方传 '' —— 此时只格式化"驱动已经给出 JS number"的值，字符串不猜
+  // dataType 来自 structureV2.columns（数据页）或结果集的 columns[].type（SQL 结果，
+  // H1a-3）；两处都拿不到类型时传 '' —— 此时只格式化"驱动已经给出 JS number"的值，
+  // 字符串不猜
   // A1：renderCell 提升为 useCallback，依赖其闭包引用的随渲染变化的值
   // （keywordPatterns/kw/themeConfig/formatLocale）；hlNode/highlightValue/
   // formatCellValue/isBinEnvelope 为模块级纯函数，稳定，不进依赖
@@ -3758,6 +3759,9 @@ export default auto(function DbSession (props) {
     ? visibleColumnNames(Object.keys(grid.rows[0])).map(k => {
       const dataType = colTypeByName[String(k).toLowerCase()] || ''
       const comment = colCommentByName[String(k).toLowerCase()] || ''
+      // H1a-3：数值列右对齐。按列定一次 class，不在每格的 render 里判 ——
+      // 200 行 × 20 列就是 4000 次判定，而这一列的类型根本不会变
+      const numCls = cellAlignClass(dataType)
       return {
         // H1a-1：操作提示挪到列头，td 不再被"提示语"占用（td 现在只负责悬停预览）
         // H1a-2：表头结构与其余网格统一走 ColHead（列名 + 注释 + 拖拽手柄）
@@ -3816,7 +3820,7 @@ export default auto(function DbSession (props) {
               setEditing(null)
             }
           },
-          className: 'db-cell-editable',
+          className: numCls ? 'db-cell-editable ' + numCls : 'db-cell-editable',
           // H1a-1：截断时才弹预览卡（长内容既没 title 也没预览是本轮的根因）
           ...previewProps(k, row)
         }),
@@ -3880,6 +3884,26 @@ export default auto(function DbSession (props) {
   })
   const { live: sqlLive, widthOf: sqlWidthOf } = sqlWidths
 
+  // H1a-3：SQL 结果的列类型表（每个结果集一份，键为小写列名）。
+  // 数据源是适配层新增的并列字段 `columns: [{name, type}]`（主进程
+  // app/common/db-type-normalize.js 把驱动的 columnType / dataTypeID 归一成
+  // DATA_TYPE 口径名）。刻意与数据页的 colTypeByName **同一套词表**，因为
+  // isNumberType/isDateType 认的就是这套名字；换一套就会静默不生效。
+  // 老结果（没有 columns）、列名查不到、type 为 '' 都按"不知道类型"处理：
+  // 不格式化、不右对齐 —— 宁可不格式化，也不能把 varchar 右对齐。
+  const sqlColTypeMaps = useMemo(
+    () => (sqlResult.results || []).map(r => {
+      const out = Object.create(null)
+      for (const c of (r && r.columns) || []) {
+        if (c && typeof c.name === 'string' && c.name) {
+          out[c.name.toLowerCase()] = String(c.type || '').toLowerCase()
+        }
+      }
+      return out
+    }),
+    [sqlResult.results]
+  )
+
   // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
   // A1：多结果集按 results 索引派生成「列数组的数组」，随 sqlResult.results 与
   // renderCell 一起 memo —— 否则每次 render（查询进度、无关 state）都会重建列，
@@ -3888,9 +3912,12 @@ export default auto(function DbSession (props) {
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
       const keys = sqlColumnKeys(r)
+      const typeMap = sqlColTypeMaps[i] || {}
       return keys.map(k => {
         // 复合键只用于宽度：列的 dataIndex/key 仍是列名（每结果集各自一张表）
         const wk = i + '::' + k
+        const dataType = typeMap[String(k).toLowerCase()] || ''
+        const numCls = cellAlignClass(dataType)
         return {
           // H1a-2：原来是写死 220 —— 短值列一片空白、长值列看不全，两头都难受
           title: (
@@ -3915,12 +3942,20 @@ export default auto(function DbSession (props) {
             })
           }),
           // H1a-1：结果集此前既没有 title 也没有预览，长文本只能靠横向滚动撞运气
-          onCell: row => previewProps(k, row),
-          render: renderCell
+          // H1a-3：数值列右对齐（与数据页同一条判定）
+          onCell: row => ({
+            className: numCls,
+            ...previewProps(k, row)
+          }),
+          // H1a-3：以前这里直接写 `render: renderCell`，antd 传的 (值, 整行, 下标)
+          // 会把**行下标**当成 dataType —— 结果就是"看起来没格式化"其实是格式化了
+          // 一个不存在的类型名。类型现在从 columns 来，关键字显式传 ''（SQL 结果
+          // 的本页过滤要等 H1，这里不预留参数）
+          render: v => renderCell(v, '', dataType)
         }
       })
     }),
-    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, previewProps]
+    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, previewProps, sqlColTypeMaps]
   )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
@@ -4642,7 +4677,7 @@ export default auto(function DbSession (props) {
         })
       }),
       onCell: row => previewProps('name', row),
-      render: renderCell
+      render: v => renderCell(v)
     },
     {
       title: (
@@ -4666,7 +4701,7 @@ export default auto(function DbSession (props) {
         })
       }),
       onCell: row => previewProps('type', row),
-      render: renderCell
+      render: v => renderCell(v)
     },
     {
       title: (
@@ -4690,7 +4725,7 @@ export default auto(function DbSession (props) {
         })
       }),
       onCell: row => previewProps('ttl', row),
-      render: renderCell
+      render: v => renderCell(v)
     }
   ], [renderCell, langCode, redisKeysFitted, redisColWidths, redisKeysLive, previewProps, keyList.rows])
 
@@ -6696,7 +6731,7 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: CELL_ELLIPSIS, onCell: r => previewProps('field', r), render: renderCell },
+              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: CELL_ELLIPSIS, onCell: r => previewProps('field', r), render: v => renderCell(v) },
               {
                 title: e('dbValue'),
                 dataIndex: 'value',
@@ -6736,7 +6771,7 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: '#', dataIndex: 'index', key: 'index', width: 80, render: renderCell },
+              { title: '#', dataIndex: 'index', key: 'index', width: 80, render: v => renderCell(v) },
               {
                 title: e('dbValue'),
                 dataIndex: 'value',
@@ -6824,7 +6859,7 @@ export default auto(function DbSession (props) {
                   onDoubleClick: () => message.info(e('dbRedisMemberImmutable')),
                   ...previewProps('member', r)
                 }),
-                render: renderCell
+                render: v => renderCell(v)
               },
               {
                 title: e('dbScore'),

@@ -22,6 +22,9 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const DB_CLIENT = path.join(ROOT, 'src/app/lib/db-client')
+// 适配器顶部 require 的类型归一模块：vm 里未知 require 转交宿主时会按测试文件目录
+// 解析 `../../common/...`（找不到），所以显式给真实模块
+const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
 
 const LOG_STUB = { debug () {}, info () {}, warn () {}, error () {} }
 const SKIP_RE = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|connect timeout|timeout|Connection is closed/i
@@ -34,6 +37,9 @@ function loadAdapter (name, stubs) {
     require: spec => {
       if (stubs[spec]) {
         return stubs[spec]
+      }
+      if (spec === '../../common/db-type-normalize') {
+        return TYPE_NORM
       }
       return require(spec)
     },

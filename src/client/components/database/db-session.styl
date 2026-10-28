@@ -489,6 +489,15 @@
 .db-cell-editor
   width 100%
 
+// H1a-3：数值列右对齐。class 打在 td 上（onCell），判定在列定义里做一次
+// （db-format-value.js 的 cellAlignClass）—— 表头刻意不动：列头右边沿是列宽
+// 拖拽手柄的热区（H1a-2 几何契约 right:0 + z-index:2），右对齐会把列名压进
+// col-resize 光标底下，看着像坏了。
+// tabular-nums：右对齐靠的是数位对齐，比例字体下 1 比 8 窄，对齐了也看不出对齐
+.db-cell-num
+  text-align right
+  font-variant-numeric tabular-nums
+
 // 值预览（原文 / 格式化都走这里）：等宽、可滚动、可选中复制，内容已按关键字高亮
 .db-value-pre
   flex 1 1 auto

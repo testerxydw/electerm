@@ -4,6 +4,7 @@
  */
 
 const log = require('../../common/log')
+const { normalizeMysqlType, toColumns } = require('../../common/db-type-normalize')
 
 const pools = new Map()
 // per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
@@ -1036,7 +1037,9 @@ function checkReadonly (sql, readOnly) {
   }
 }
 
-// 把单个查询结果规范成 { rows, affected, fields }
+// 把单个查询结果规范成 { rows, affected, fields, columns }
+// columns 是与 fields 同长同序的类型契约（H1a-3）：驱动一直知道每列类型，
+// 以前只取 f.name 把它丢了，导致 SQL 结果页拿不到数据页那套本地化/右对齐
 function toResult (rows, fields) {
   const isRows = Array.isArray(rows)
   return {
@@ -1044,7 +1047,8 @@ function toResult (rows, fields) {
     affected: !isRows && rows && typeof rows === 'object' && 'affectedRows' in rows
       ? rows.affectedRows
       : undefined,
-    fields: Array.isArray(fields) ? fields.map(f => f.name) : []
+    fields: Array.isArray(fields) ? fields.map(f => f.name) : [],
+    columns: toColumns(fields, f => normalizeMysqlType(f.columnType, f))
   }
 }
 

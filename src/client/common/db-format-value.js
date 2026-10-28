@@ -82,6 +82,21 @@ export function isNumberType (dataType) {
   return NUMBER_TYPES.has(String(dataType || '').toLowerCase())
 }
 
+/**
+ * 数值列的单元格 class（H1a-3）。数据页与 SQL 结果页共用这一条判定，
+ * 同一列在两个网格里方向一致才是"读得下去"，各判一次就又是一处不一致。
+ *
+ * 为什么不用 antd 的 `column.align = 'right'`：它会把**表头**一起右对齐，
+ * 而表头右边沿正是列宽拖拽手柄的热区（H1a-2 的几何契约：`right: 0` + `z-index: 2`）。
+ * 列名压到那儿，鼠标划过文字就变成 col-resize 光标，看着像坏了。
+ *
+ * @param {string} dataType 列类型（'' 表示"没有类型信息"，不右对齐）
+ * @returns {string} 单元格 class，非数值列返回 ''
+ */
+export function cellAlignClass (dataType) {
+  return isNumberType(dataType) ? 'db-cell-num' : ''
+}
+
 // 本地日期/时间格式化的缓存：Intl 构造不便宜，网格每格都新建一遍会被放大成
 // 虚拟渲染里的可见卡顿。key 固定为 'os'（本机区域），两个格式化器常驻即可。
 // maximumFractionDigits 显式放开：默认 3 位就是上面第 4 条边界的来源。
@@ -173,7 +188,8 @@ function groupViaNumber (num, raw) {
  * **不处理对象**：JSON 序列化是渲染层既有行为，与本地化无关。
  *
  * @param {*} value 单元格原值
- * @param {string} dataType 该列的类型（F0 结构契约；SQL 结果集没有，传 '' 即可）
+ * @param {string} dataType 该列的类型（数据页取 F0 结构契约，SQL 结果取适配层的
+ *   `columns[].type`；两处都没有时传 '' —— 只格式化驱动已给出 JS number 的值，字符串不猜）
  * @param {'none'|'os'} mode 本地化模式
  * @returns {string} 展示文本
  */

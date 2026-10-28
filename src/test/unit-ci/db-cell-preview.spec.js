@@ -313,8 +313,9 @@ describe('接线：db-session 传给预览的 props 形状', () => {
 
   test('onCell 让位：合并进已有编辑 handler 的列用展开，不覆盖既有回调', () => {
     const src = fs.readFileSync(SESSION, 'utf8')
-    // Redis 详情 hash/list/set/zset 的 value/member/score 列原本已有双击编辑
-    assert.equal((src.match(/\.\.\.previewProps\(/g) || []).length, 6, 'data grid + redis detail 5 列')
+    // Redis 详情 hash/list/set/zset 的 value/member/score 列原本已有双击编辑；
+    // H1a-3 起 SQL 结果列也要合并（previewProps + 数值列 className），所以是 7
+    assert.equal((src.match(/\.\.\.previewProps\(/g) || []).length, 7, 'data grid + sql result + redis detail 5 列')
     const hashValue = src.match(/onCell: r => \(\{[\s\S]*?\.\.\.previewProps\('value', r\)/)
     assert.ok(hashValue, 'redis hash value must keep its own onCell and merge preview props')
     assert.ok(/onDoubleClick: \(\) => editRedisCell/.test(src), 'redis inline edit must survive the merge')
