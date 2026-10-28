@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Pagination } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -18,7 +18,11 @@ import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
 import DbCellPreview, { useCellPreview, CELL_ELLIPSIS } from './db-cell-preview'
-import { fitColumnWidths } from '../../common/db-column-width'
+import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
+import {
+  fitColumnWidths,
+  wideColumnWidth
+} from '../../common/db-column-width'
 import { buildRefItems } from './db-ref-utils'
 import { isBinEnvelope } from './value-renderers'
 import RemoteFloatControl from '../common/remote-float-control'
@@ -2300,6 +2304,9 @@ export default auto(function DbSession (props) {
           results: (res && res.results) || [],
           error: ''
         })
+        // H1a-2：重新执行 = 新一轮列宽（拖过的宽对新结果集没有意义）。
+        // 翻页/本地过滤/换分页大小不走到这里，所以那些场景下列宽保持不变
+        setSqlColWidths({})
         // S3-C：执行历史只存本地（语句/引擎/库），失败也记录
         appendSqlHistory({
           sql,
@@ -3595,6 +3602,14 @@ export default auto(function DbSession (props) {
     onMouseLeave: handlePreviewLeave
   }), [previewShow, handlePreviewLeave])
 
+  // H1a-2：列头右键菜单也是全站单例（和预览卡同一个理由：每列挂一个浮层，
+  // 200 列的数据页每次列 memo 重建都要挂/卸上百个 Trigger）。
+  // 各网格只负责在 onHeaderCell 里把"哪一列 + 属于哪个宽度状态 + 加宽到多少"报过来
+  const colMenu = useColMenu()
+  // JSX 侧解构成 handle*（与预览卡同一约定：包一层箭头就是每轮新引用，
+  // 浮层会反复摘挂 pointerdown/keydown/scroll 监听）
+  const { target: colMenuTarget, hide: handleColMenuHide } = colMenu
+
   // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
   // （如"一般"）出现大片空白；虚拟渲染是 fixed 布局，必须显式给宽。
   // 采样单独 memo：输入查找/过滤时不必重新扫描 100 行 × 所有列。
@@ -3670,20 +3685,34 @@ export default auto(function DbSession (props) {
       .filter(k => !hidden.has(String(k).toLowerCase()))
   }
 
-  // 列宽拖拽中的实时宽度：state 驱动渲染（拖拽要看得见变宽），ref 镜像供
-  // mouseup 读最终值（闭包里的 state 会过期）。拖拽过程不写视角 ——
-  // mousemove 每帧 patch 视角会把一次拖拽放大成几十次持久化 + 列清单重算，
-  // mouseup 才一次性提交（见 startColResize）
-  const [liveWidth, setLiveWidth] = useState(null)
-  const liveWidthRef = useRef(null)
+  // 列宽三源（拖拽中 > 手动 > 自适应 > 90）与拖拽机构抽到 useColWidths，
+  // 5 处网格共用同一套。数据页把手动宽提交回**持久化视角**，所以 H1a-2 之后
+  // 的行为与之前逐字一致（拖完落盘、切表回来还在）；差别只是实现换了地方 +
+  // 起点改用 th 实测宽（不再有"按下第一帧跳回配置宽"的抖动）
+  const dataWidths = useColWidths({
+    manual: view.columnWidths,
+    commit: (upd) => patchViewColumns({
+      columnWidths: upd(viewRef.current.columnWidths || {})
+    }),
+    fitted: columnWidths
+  })
+  const { live: dataLive, widthOf } = dataWidths
 
-  // 列宽三源优先级：拖拽中 > 视角里记的（用户拖过） > 按内容自适应。
-  // 视角里的空值/脏值已被 normalizeWidths 丢掉，落到这里就是 undefined
-  const widthOf = (k) => {
-    if (liveWidth && liveWidth.col === k) {
-      return liveWidth.width
-    }
-    return view.columnWidths[k] || columnWidths[k] || 90
+  // H1a-2：工具行的"自适应全部列"（4 处网格同一个形状）。只在有手动宽时可点：
+  // 没拖过/加宽过时按下去不会有任何变化，禁用比"点了没反应"诚实
+  const colFitAllBtn = (wg) => {
+    const handleFitAll = () => wg.clearAllCols()
+    return (
+      <Tooltip title={e('dbColAutoFitAll')}>
+        <Button
+          size='small'
+          className='db-col-fitall'
+          icon={<ColumnWidthOutlined />}
+          disabled={!wg.hasManual}
+          onClick={handleFitAll}
+        />
+      </Tooltip>
+    )
   }
 
   // 显示/隐藏一列。hiddenColumns 存原名（不转小写）：渲染时大小写不敏感匹配，
@@ -3715,68 +3744,34 @@ export default auto(function DbSession (props) {
     patchViewColumns({ columnOrder: next })
   }
 
-  // 列宽拖拽：mousedown 记起点 → mousemove 只改本地 liveWidth（不写视角）→
-  // mouseup 一次性提交。拖拽中不碰 view 的理由见 liveWidth 声明处
-  const startColResize = (ev, col) => {
-    // 别触发表头排序（点击事件会冒泡到 th）
-    ev.preventDefault()
-    ev.stopPropagation()
-    const startX = ev.clientX
-    const startW = widthOf(col)
-    const move = (e) => {
-      const w = Math.max(60, Math.min(1200, Math.round(startW + e.clientX - startX)))
-      liveWidthRef.current = { col, width: w }
-      setLiveWidth({ col, width: w })
-    }
-    const up = () => {
-      document.removeEventListener('mousemove', move)
-      document.removeEventListener('mouseup', up)
-      document.body.classList.remove('db-col-resizing')
-      const cur = liveWidthRef.current
-      liveWidthRef.current = null
-      setLiveWidth(null)
-      if (cur) {
-        patchViewColumns({
-          columnWidths: { ...viewRef.current.columnWidths, [cur.col]: cur.width }
-        })
-      }
-    }
-    document.addEventListener('mousemove', move)
-    document.addEventListener('mouseup', up)
-    document.body.classList.add('db-col-resizing')
-  }
-
   // A1：主数据网格列定义提升为 useMemo。依赖穷举闭包引用的组件级量：
-  // grid.rows（数据）、view（列序/隐藏/列宽/排序箭头）、liveWidth（列宽拖拽）、
+  // grid.rows（数据）、view（列序/隐藏/列宽/排序箭头）、dataLive（列宽拖拽中）、
   // renderCell（高亮/格式化）、editing/editValue（行内编辑态）、canEditCell（只读态）、
   // pageFilterKw（本页过滤高亮）、colTypeByName/colCommentByName（类型与注释）、
   // langCode（列内 e() 文案随语言切换）、sel/pkColumn（submitEdit → runCellUpdate
   // 的 UPDATE 目标与 WHERE 列；事件处理器本身是每轮新建的闭包，缓存后必须让
   // 它们依赖的数据变化时重建，否则会拿着上一个表的主键拼 UPDATE）
+  // ⚠️ dataWidths 里的函数（widthOf/startResize）每轮渲染都是新引用，不进依赖：
+  // 进了等于每轮重建列定义，memo 白做。要重建靠的是它们读的那三个量：
+  // view（手动宽）/ columnWidths（自适应宽）/ dataLive（拖拽中）
   const columns = useMemo(() => (grid.rows.length
     ? visibleColumnNames(Object.keys(grid.rows[0])).map(k => {
       const dataType = colTypeByName[String(k).toLowerCase()] || ''
       const comment = colCommentByName[String(k).toLowerCase()] || ''
       return {
+        // H1a-1：操作提示挪到列头，td 不再被"提示语"占用（td 现在只负责悬停预览）
+        // H1a-2：表头结构与其余网格统一走 ColHead（列名 + 注释 + 拖拽手柄）
         title: (
-          <span
+          <ColHead
+            label={k}
+            colKey={k}
+            wg={dataWidths}
+            comment={comment}
+            // 数据页原来只说"单击预览/双击编辑"，拖宽这件事在这里等于没人告知——
+            // 手柄 hover 才显形，看不到提示就不会有人去试，所以把拖拽提示并进来
+            hint={`${canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')} · ${e('dbColResizeHint')}`}
             className='db-col-title'
-            // H1a-1：操作提示挪到列头，td 不再被"提示语"占用（td 现在只负责悬停预览）
-            title={canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')}
-          >
-            <span className='db-col-name'>{k}</span>
-            {
-              comment
-                ? <span className='db-col-comment' title={comment}>{comment}</span>
-                : null
-            }
-            {/* 列宽拖拽手柄：贴右边沿，和排序点击互不重叠 */}
-            <span
-              className='db-col-resizer'
-              onMouseDown={ev => startColResize(ev, k)}
-              onClick={ev => ev.stopPropagation()}
-            />
-          </span>
+          />
         ),
         dataIndex: k,
         key: k,
@@ -3784,6 +3779,15 @@ export default auto(function DbSession (props) {
         ellipsis: CELL_ELLIPSIS,
         sorter: true,
         sortOrder: sortOrderOf(k),
+        // H1a-2：右键列头出列宽菜单（自适应本列 / 加宽到 N / 自适应全部列）。
+        // 加宽目标宽在按下时才量（右键是低频动作），菜单上显示的数字即结果
+        onHeaderCell: () => ({
+          onContextMenu: ev => colMenu.openColMenu(ev, {
+            wg: dataWidths,
+            key: k,
+            wide: wideColumnWidth(grid.rows, k)
+          })
+        }),
         // 单击选中 → 下方预览面板；双击命中区放在整个单元格（td）上：
         // 值短时后面的空白也能双击进编辑态，之前挂在文字 span 上，
         // 只有精确双击到字符才生效
@@ -3840,29 +3844,83 @@ export default auto(function DbSession (props) {
         }
       }
     })
-    : []), [grid.rows, view, liveWidth, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn, previewProps])
+    : []), [grid.rows, view, dataLive, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn, previewProps])
+
+  // 结果集的列名：优先 fields（列顺序稳定），否则从首行推断。
+  // 量宽的 memo 与列定义 memo 必须用同一个来源，否则"量的列"和"渲染的列"会错位
+  const sqlColumnKeys = (r) => {
+    const fields = (r && r.fields) || []
+    if (fields.length) {
+      return fields
+    }
+    const rows = (r && r.rows) || []
+    const first = rows[0]
+    return first && typeof first === 'object' ? Object.keys(first) : []
+  }
+
+  // H1a-2：SQL 结果列宽。自适应按**各结果集**各自量（同一份手动宽 map 以
+  // "下标::列名"为键，多结果集各拖各的互不影响）；手动宽只进内存、不写表视角 ——
+  // 结果集的列随查询变，存进视角只会攒脏宽（决策 11），所以重新执行即清空
+  const [sqlColWidths, setSqlColWidths] = useState({})
+  const sqlFitted = useMemo(() => {
+    const out = {}
+    for (const [i, r] of (sqlResult.results || []).entries()) {
+      const keys = sqlColumnKeys(r)
+      const w = fitColumnWidths((r && r.rows) || [], keys)
+      for (const k of keys) {
+        out[i + '::' + k] = w[k]
+      }
+    }
+    return out
+  }, [sqlResult.results])
+  const sqlWidths = useColWidths({
+    manual: sqlColWidths,
+    commit: (upd) => setSqlColWidths(prev => upd(prev)),
+    fitted: sqlFitted
+  })
+  const { live: sqlLive, widthOf: sqlWidthOf } = sqlWidths
 
   // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
   // A1：多结果集按 results 索引派生成「列数组的数组」，随 sqlResult.results 与
   // renderCell 一起 memo —— 否则每次 render（查询进度、无关 state）都会重建列，
   // antd Table 收不到同一份 columns 引用就会整表重渲
   const sqlResultColumns = useMemo(
-    () => (sqlResult.results || []).map(r => {
+    () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
-      const fields = (r && r.fields) || []
-      const keys = fields.length ? fields : (rows.length ? Object.keys(rows[0]) : [])
-      return keys.map(k => ({
-        title: k,
-        dataIndex: k,
-        key: k,
-        width: 220,
-        ellipsis: CELL_ELLIPSIS,
-        // H1a-1：结果集此前既没有 title 也没有预览，长文本只能靠横向滚动撞运气
-        onCell: row => previewProps(k, row),
-        render: renderCell
-      }))
+      const keys = sqlColumnKeys(r)
+      return keys.map(k => {
+        // 复合键只用于宽度：列的 dataIndex/key 仍是列名（每结果集各自一张表）
+        const wk = i + '::' + k
+        return {
+          // H1a-2：原来是写死 220 —— 短值列一片空白、长值列看不全，两头都难受
+          title: (
+            <ColHead
+              label={k}
+              colKey={wk}
+              wg={sqlWidths}
+              hint={e('dbColResizeHint')}
+            />
+          ),
+          dataIndex: k,
+          key: k,
+          width: sqlWidthOf(wk),
+          ellipsis: CELL_ELLIPSIS,
+          onHeaderCell: () => ({
+            onContextMenu: ev => colMenu.openColMenu(ev, {
+              wg: sqlWidths,
+              key: wk,
+              // 宽度用的是「结果集下标::列名」，菜单标题只显示列名
+              head: k,
+              wide: wideColumnWidth(rows, k)
+            })
+          }),
+          // H1a-1：结果集此前既没有 title 也没有预览，长文本只能靠横向滚动撞运气
+          onCell: row => previewProps(k, row),
+          render: renderCell
+        }
+      })
     }),
-    [sqlResult.results, renderCell, previewProps]
+    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, previewProps]
   )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
@@ -3942,6 +4000,13 @@ export default auto(function DbSession (props) {
                     </Tooltip>
                   </Dropdown>
                   )
+                : null
+            }
+            {
+              // H1a-2：结果集列宽工具（与列头右键菜单同一动作，多个结果集共用一份手动宽，
+              // 按的是"这次执行的所有列"）
+              rows.length
+                ? colFitAllBtn(sqlWidths)
                 : null
             }
           </div>
@@ -4491,14 +4556,56 @@ export default auto(function DbSession (props) {
     [structure.rows]
   )
 
+  // ---- H1a-2：表结构 / Redis 键列表的列宽（内存态，同 SQL 结果一个道理：
+  // 这两处都不是"某张表的视角"，写进视角没有归属）----
+  const [structColWidths, setStructColWidths] = useState({})
+  const structFitted = useMemo(
+    () => (structure.rows.length ? fitColumnWidths(structure.rows, Object.keys(structure.rows[0])) : {}),
+    [structure.rows]
+  )
+  const structWidths = useColWidths({
+    manual: structColWidths,
+    commit: (upd) => setStructColWidths(prev => upd(prev)),
+    fitted: structFitted
+  })
+  const { live: structLive, widthOf: structWidthOf } = structWidths
+
+  const [redisColWidths, setRedisColWidths] = useState({})
+  const commitRedisColWidths = (upd) => setRedisColWidths(prev => upd(prev))
+  const redisKeysFitted = useMemo(
+    () => fitColumnWidths(keyList.rows || [], ['name', 'type', 'ttl']),
+    [keyList.rows]
+  )
+  const redisKeysWidths = useColWidths({
+    manual: redisColWidths,
+    commit: commitRedisColWidths,
+    fitted: redisKeysFitted
+  })
+  const { live: redisKeysLive, widthOf: redisKeysWidthOf } = redisKeysWidths
+
   // A1：表结构列定义（列名随驱动动态生成，仅依赖 structure.rows 与 renderCell）
   const structColumns = useMemo(() => (structure.rows.length
     ? Object.keys(structure.rows[0]).map(k => ({
-      title: k,
+      // H1a-2：写死 200 → 按内容自适应 + 可拖 / 可加宽（注释、默认值这两列最常超长）
+      title: (
+        <ColHead
+          label={k}
+          colKey={k}
+          wg={structWidths}
+          hint={e('dbColResizeHint')}
+        />
+      ),
       dataIndex: k,
       key: k,
-      width: 200,
+      width: structWidthOf(k),
       ellipsis: CELL_ELLIPSIS,
+      onHeaderCell: () => ({
+        onContextMenu: ev => colMenu.openColMenu(ev, {
+          wg: structWidths,
+          key: k,
+          wide: wideColumnWidth(structure.rows, k)
+        })
+      }),
       // H1a-1：注释/默认值这类长文本列此前悬停什么都看不到
       onCell: row => previewProps(k, row),
       // PG 主键列显示 PK 徽标；MySQL 沿用 DESC 的 Key=PRI 文本
@@ -4506,15 +4613,86 @@ export default auto(function DbSession (props) {
         ? v => (v === true ? <Tag className='db-pk-tag'>PK</Tag> : '')
         : renderCell
     }))
-    : []), [structure.rows, renderCell, previewProps])
+    : []), [structure.rows, renderCell, structFitted, structColWidths, structLive, previewProps])
 
   // A1：Redis 键列表列定义（列头文案来自 e() → langCode 一并入依赖，
   // 切换界面语言时列头跟着变；其余仅依赖 renderCell）
+  // H1a-2：三列都可拖/可加宽。键名列原来根本没有宽度（长键名只能靠运气），
+  // 现在按内容量到 90~360，长键名再加宽到 720 或拖到手感合适
   const redisKeyColumns = useMemo(() => [
-    { title: e('dbKey'), dataIndex: 'name', key: 'name', ellipsis: CELL_ELLIPSIS, onCell: row => previewProps('name', row), render: renderCell },
-    { title: e('type'), dataIndex: 'type', key: 'type', width: 90, ellipsis: CELL_ELLIPSIS, onCell: row => previewProps('type', row), render: renderCell },
-    { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, ellipsis: CELL_ELLIPSIS, onCell: row => previewProps('ttl', row), render: renderCell }
-  ], [renderCell, langCode, previewProps])
+    {
+      title: (
+        <ColHead
+          label={e('dbKey')}
+          colKey='name'
+          wg={redisKeysWidths}
+          hint={e('dbColResizeHint')}
+        />
+      ),
+      dataIndex: 'name',
+      key: 'name',
+      width: redisKeysWidthOf('name'),
+      ellipsis: CELL_ELLIPSIS,
+      onHeaderCell: () => ({
+        onContextMenu: ev => colMenu.openColMenu(ev, {
+          wg: redisKeysWidths,
+          key: 'name',
+          head: e('dbKey'),
+          wide: wideColumnWidth(keyList.rows || [], 'name')
+        })
+      }),
+      onCell: row => previewProps('name', row),
+      render: renderCell
+    },
+    {
+      title: (
+        <ColHead
+          label={e('type')}
+          colKey='type'
+          wg={redisKeysWidths}
+          hint={e('dbColResizeHint')}
+        />
+      ),
+      dataIndex: 'type',
+      key: 'type',
+      width: redisKeysWidthOf('type'),
+      ellipsis: CELL_ELLIPSIS,
+      onHeaderCell: () => ({
+        onContextMenu: ev => colMenu.openColMenu(ev, {
+          wg: redisKeysWidths,
+          key: 'type',
+          head: e('type'),
+          wide: wideColumnWidth(keyList.rows || [], 'type')
+        })
+      }),
+      onCell: row => previewProps('type', row),
+      render: renderCell
+    },
+    {
+      title: (
+        <ColHead
+          label={e('dbTtl')}
+          colKey='ttl'
+          wg={redisKeysWidths}
+          hint={e('dbColResizeHint')}
+        />
+      ),
+      dataIndex: 'ttl',
+      key: 'ttl',
+      width: redisKeysWidthOf('ttl'),
+      ellipsis: CELL_ELLIPSIS,
+      onHeaderCell: () => ({
+        onContextMenu: ev => colMenu.openColMenu(ev, {
+          wg: redisKeysWidths,
+          key: 'ttl',
+          head: e('dbTtl'),
+          wide: wideColumnWidth(keyList.rows || [], 'ttl')
+        })
+      }),
+      onCell: row => previewProps('ttl', row),
+      render: renderCell
+    }
+  ], [renderCell, langCode, redisKeysFitted, redisColWidths, redisKeysLive, previewProps, keyList.rows])
 
   // A2：Redis 键列表行键数组（依赖 keyList.rows），避免 SCAN 进度/详情加载等
   // 无关重渲触发 antd Table 全行重渲
@@ -4857,6 +5035,12 @@ export default auto(function DbSession (props) {
                 </Tooltip>
               </Popover>
               )
+            : null
+        }
+        {
+          // H1a-2：一键回到"按内容自适应"（清掉这一张表拖过/加宽过的手动宽）
+          sel && grid.rows.length
+            ? colFitAllBtn(dataWidths)
             : null
         }
         {
@@ -6313,18 +6497,27 @@ export default auto(function DbSession (props) {
   const structureArea = (
     <div className='db-struct-area'>
       {
-        // A2 DDL 入口：仅 mysql 系显示
-        !isPg
+        // 工具行：只要结构表有行就留着。原来只在 mysql 系（有 DDL 按钮）时渲染，
+        // 那样 PG 就没有任何地方点"自适应全部列"（H1a-2）—— 行集有列就该有列宽工具
+        structure.rows.length
           ? (
             <div className='db-struct-tools'>
-              <Button
-                size='small'
-                icon={<SearchOutlined />}
-                loading={ddl.loading}
-                onClick={fetchDdl}
-              >
-                {e('dbViewDdl')}
-              </Button>
+              {
+                // A2 DDL 入口：仅 mysql 系显示
+                !isPg
+                  ? (
+                    <Button
+                      size='small'
+                      icon={<SearchOutlined />}
+                      loading={ddl.loading}
+                      onClick={fetchDdl}
+                    >
+                      {e('dbViewDdl')}
+                    </Button>
+                    )
+                  : null
+              }
+              {colFitAllBtn(structWidths)}
             </div>
             )
           : null
@@ -6920,6 +7113,8 @@ export default auto(function DbSession (props) {
                   onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
                 />
                 {renderPageSizeSelect()}
+                {/* H1a-2：键名列宽工具（长键名加宽后一键回到按内容自适应） */}
+                {colFitAllBtn(redisKeysWidths)}
               </div>
               <DbSplitPane
                 storageKey={REDIS_SPLIT_KEY}
@@ -7476,6 +7671,11 @@ export default auto(function DbSession (props) {
         onHide={handlePreviewHide}
         onEnter={handlePreviewEnter}
         onLeave={handlePreviewLeave}
+      />
+      {/* H1a-2：列宽菜单。同样全站单例，5 处网格共用这一份浮层 */}
+      <DbColMenu
+        target={colMenuTarget}
+        onHide={handleColMenuHide}
       />
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />

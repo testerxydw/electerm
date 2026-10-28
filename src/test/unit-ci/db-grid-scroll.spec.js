@@ -6,6 +6,7 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+const RESIZE_JSX = path.join(ROOT, 'src/client/components/database/db-col-resize.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
 // 数据库网格统一滚动（doc/已完成/数据库功能设计归档-2026-10-21.md）：
@@ -108,10 +109,22 @@ describe('批次 C：数据库页渲染收口契约', () => {
     assert.ok(/const columns = useMemo\(/.test(src), 'columns must be memoized')
     // E2-3b：宽度消费挪进了 widthOf（拖拽中 > 视角记忆 > 自适应），
     // memo 本身仍被消费、仍不被重复采样 —— 契约不变，只是多了一层优先级
+    // H1a-2：widthOf 又从组件里下沉进共用的 useColWidths（5 处网格一套优先级）。
+    // 这里守的是"数据页确实把 memo 采样喂给了共用的 fitted 源"，以及共用实现
+    // 真的读了那个源；两者断了任何一处，列宽都会退回每轮 render 扫行
+    const hookCall = src.match(/const dataWidths = useColWidths\(\{[\s\S]*?\n {2}\}\)/)
+    assert.ok(hookCall, 'data grid must take its widths from useColWidths')
+    assert.ok(hookCall[0].includes('fitted: columnWidths'), 'memoized sampling must feed the shared hook')
+    assert.ok(
+      src.includes('const { live: dataLive, widthOf } = dataWidths'),
+      'widthOf must come from the shared hook, not a local copy'
+    )
+    const resize = fs.readFileSync(RESIZE_JSX, 'utf8')
     // \s{2} 而不是两个空格字面量：no-regex-spaces 会拦多空格正则
-    const widthFn = src.match(/const widthOf = \(k\) => \{[\s\S]*?\n\s{2}\}/)
-    assert.ok(widthFn, 'widthOf helper not found')
-    assert.ok(widthFn[0].includes('columnWidths[k]'), 'widthOf must consume memoized widths')
+    const widthFn = resize.match(/const widthOf = \(key\) => pickColumnWidth\(\{[\s\S]*?\n\s{2}\}\)/)
+    assert.ok(widthFn, 'widthOf helper not found in useColWidths')
+    assert.ok(widthFn[0].includes('fitted: (fitted || {})[key]'), 'widthOf must consume the fitted map')
+    assert.ok(widthFn[0].includes('live && live.key === key'), 'widthOf must let the dragging column win')
   })
 
   test('treeData 按元数据/筛选/查找关键字记忆化', () => {

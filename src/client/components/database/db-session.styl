@@ -1481,21 +1481,32 @@ body.db-hist-resizing
   text-overflow ellipsis
   white-space nowrap
 
-// 列宽拖拽手柄：贴 th 右边沿的一条 6px 热区。
+// 列宽拖拽手柄：贴在列头文字区右边沿的一条 16px 热区。
 // 点击会冒泡到表头触发排序，所以 JS 里 stopPropagation + preventDefault
+//
+// 两个"必须内收、不能骑在 th 边沿上"的实测理由（原写法 right -8px 让手柄中心
+// 正好落在裁剪线上，结果可排序列的拖拽 100% 失灵）：
+// 1) antd 给 .ant-table-column-title 加了 overflow hidden，而我们的手柄挂在它
+//    里面的 .db-col-title/.db-col-head 上。right -8px 时外半条（8px）被裁掉，
+//    elementFromPoint 在那半条上拿到的是遮罩；改成 right 0 后整条都在裁剪框内。
+// 2) 可排序列还有一层 .ant-table-column-sorters::after（absolute + inset 0、
+//    z-index auto、树序在后）要盖住我们，所以手柄这侧要留一个正 z-index 才翻得上去。
+// 内收而不是去解 antd 的裁剪：那道 hidden 正是长列名省略号的依赖，而且外八字会
+// 压到排序图标（1122~1136）上，把"点一下排序"的落点也吃掉。
 .db-col-resizer
   position absolute
   top 0
-  right -8px
+  right 0
   width 16px
   height 100%
   cursor col-resize
+  z-index 2
   // 默认看不见，hover 时才出现一道竖线：列头空间本来就紧
   &::after
     content ''
     position absolute
     top 20%
-    right 7px
+    right 0
     width 2px
     height 60%
     background transparent
@@ -2301,3 +2312,57 @@ body.db-col-resizing
 .db-cell-preview-more
   color var(--text-dark)
   font-style italic
+
+// ------------------------------------------------------------------ //
+// H1a-2：列宽可控（5 处网格共用的表头手柄 + 单例列头菜单）
+// ------------------------------------------------------------------ //
+// 单行表头（SQL 结果 / 结构页 / Redis）用的标题容器。与数据页的 .db-col-title
+// 同构（手柄绝对定位在右边沿，所以必须 relative；列名要能各自截断所以 min-width 0），
+// 但不带注释行，也不给 gap —— 单行表头多 1px 行高就会让 5 处网格的行高假设漂移。
+.db-col-head
+  position relative
+  display flex
+  flex-direction column
+  min-width 0
+  line-height 1.35
+
+// 列头菜单：全站单例（一份浮层服务 5 处网格），内容就是三行按钮。
+// 用 button 而不是 div：Tab/Enter 天然可用，键盘用户不必靠鼠标
+.db-col-menu
+  display flex
+  flex-direction column
+  gap 2px
+  min-width 168px
+
+.db-col-menu-head
+  padding 0 6px 4px
+  margin-bottom 2px
+  border-bottom 1px solid var(--border)
+  color var(--text-dark)
+  font-size 11px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-col-menu-item
+  display block
+  width 100%
+  padding 4px 6px
+  border 0
+  border-radius var(--radius-sm)
+  background transparent
+  color var(--text)
+  font-size 12px
+  text-align left
+  cursor pointer
+  &:hover
+    background var(--hover-bg)
+
+// 菜单锚点：与预览卡同理 —— fixed 元素 offsetParent 恒为 null，0×0 会被
+// rc-trigger 的 isVisible 判成"不可见"，浮层就永远停在 -1000vw/-1000vh。
+// 1px 透明 + 不吃事件，视觉上等价于不存在。
+.db-col-menu-anchor
+  position fixed
+  width 1px
+  height 1px
+  pointer-events none
