@@ -67,6 +67,7 @@ export const sshBookmarkSchema = {
   useSshAgent: z.boolean().optional().describe('Use SSH agent, default is true'),
   sshAgent: z.string().optional().describe('SSH agent path'),
   agentForward: z.boolean().optional().describe('Enable SSH agent forwarding (like ssh -A), requires SSH agent, default is false'),
+  production: z.boolean().optional().describe('Production host: excluded from broadcast input targets by default and requires an extra confirmation to include, default is false'),
   serverHostKey: z.array(z.string()).optional().describe('Server host key algorithms'),
   cipher: z.array(z.string()).optional().describe('Cipher list'),
   compress: z.array(z.string()).optional().describe('Compression algorithms'),

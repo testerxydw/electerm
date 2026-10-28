@@ -46,6 +46,7 @@ export default function SessionControl (props) {
     sftpPathFollowSsh,
     keepaliveEnabled,
     broadcastInput,
+    broadcastCount,
     wrapDisabled,
     recording,
     recPaused,
@@ -239,7 +240,9 @@ export default function SessionControl (props) {
     if (isSshDisabled || !showSshFeatures) {
       return null
     }
-    const title = e('broadcastInput')
+    const title = broadcastInput
+      ? `${e('broadcastInput')} (${broadcastCount || 0})`
+      : e('broadcastInput')
     const iconProps = {
       className: classnames('sess-icon pointer broadcast-icon', {
         active: broadcastInput

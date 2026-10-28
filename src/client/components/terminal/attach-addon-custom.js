@@ -2,6 +2,11 @@ import { loadAttachAddon } from './xterm-loader.js'
 import { handleSessionControlMessage } from '../../common/session-bar-data.js'
 import SessionTrafficTracker from '../../common/session-traffic.js'
 import SessionRecorder from '../../common/session-recorder.js'
+import {
+  registerBroadcastAddon,
+  unregisterBroadcastAddon,
+  mirrorInput
+} from '../../common/term-broadcast.js'
 
 // Cursor-positioning sequences stripped from the head of surviving output
 // after a drop. These are either relative (ESC[nA rewinds n rows) or restore
@@ -283,6 +288,8 @@ export default class AttachAddonCustom {
     // Automation taps: subscribers receive the decoded string BEFORE write
     // coalescing (see writeToTerminal). Suppressed output never reaches taps.
     this._dataTaps = new Set()
+    // G1 广播输入：>0 表示本次 sendToServer 是别的终端镜像过来的，不再二次扇出
+    this._broadcastDepth = 0
   }
 
   addDataTap = (fn) => {
@@ -411,6 +418,8 @@ export default class AttachAddonCustom {
   activate = async (terminal = this.term) => {
     await this._initBase()
     this.addSocketListener(this._socket, 'message', this.onMsg)
+    // 广播目标按 tab 查找真实连接：注册点在 activate，未连上的 tab 天然收不到
+    registerBroadcastAddon(this.infoTabId, this)
 
     if (this._bidirectional) {
       this._disposables.push(terminal.onData((data) => this.sendToServer(data)))
@@ -485,6 +494,8 @@ export default class AttachAddonCustom {
         this._echoCheckTimer = null
         // 有回显说明不是密码提示: 恢复录制
         this.recorder?.resume()
+        // 广播红条同步解除"已暂停"
+        window.store?.clearBroadcastBlocked?.()
         // Cancel the password dropdown if it was shown
         this.term?.parent?.onPasswordPromptCancelled?.()
       }
@@ -572,6 +583,8 @@ export default class AttachAddonCustom {
     this._handleEchoDetection(str)
     if (this._checkPasswordPrompt(str) && !this._passwordPromptDetected) {
       this._passwordPromptDetected = true
+      // 广播红条提示"密码输入中 · 已暂停广播"（非主控时 store 侧 no-op）
+      window.store?.setBroadcastBlocked?.('password')
       // 密码提示出现: 录制立刻避录（recordAvoidPassword 关闭时不避录），
       // 直到回车/回显确认提示结束
       if (window.store?.config?.recordAvoidPassword !== false) {
@@ -817,6 +830,9 @@ export default class AttachAddonCustom {
   sendToServer = (data) => {
     this._lastInputTime = Date.now()
     this.trafficTracker?.countUp(data)
+    // 密码提示状态在本次输入处理中可能被重置（回车结束密码输入），
+    // 镜像判定必须用"处理前"的快照，否则提交密码的那个回车会被打到所有目标上。
+    const wasPasswordPrompt = this._passwordPromptDetected
     // Track half-typed input so the keepalive never submits it (see _trackPendingInput)
     this._trackPendingInput(data)
     // Start echo detection when password prompt is suspected
@@ -831,6 +847,8 @@ export default class AttachAddonCustom {
         this.term?.parent?.onPasswordPromptCancelled?.()
         // 密码输入结束: 恢复录制 (输入密码期间 recorder.pause 避录)
         this.recorder?.resume()
+        // 广播红条从"已暂停"恢复（非主控时 store 侧 no-op）
+        window.store?.clearBroadcastBlocked?.()
       }
       this._passwordPromptDetected = false
       this._lastOutputLine = ''
@@ -843,6 +861,33 @@ export default class AttachAddonCustom {
       this.recorder?.onInput(data)
     }
     this._sendData(data)
+    this._mirrorBroadcast(data, wasPasswordPrompt)
+  }
+
+  // G1 广播输入：在唯一输入汇聚点做扇出。密码期/OSC 应答/防环判定都在
+  // term-broadcast.js（纯函数），这里只负责读 store 状态与上报"暂停"。
+  _mirrorBroadcast = (data, wasPasswordPrompt) => {
+    const store = typeof window === 'undefined' ? null : window.store
+    const state = store && store.broadcast
+    if (!this.infoTabId || !state || !state.on || state.sourceTabId !== this.infoTabId) {
+      return
+    }
+    if (wasPasswordPrompt) {
+      // 主控正在输密码：不镜像（否则 sudo 密码会打到所有目标机）
+      // 结束密码的 Enter/Ctrl+C 不再置回 blocked —— sendToServer 已经清掉，
+      // 再置回来会让广播永久卡在"已暂停"（后续输入全被闸门拦掉）
+      if (data !== '\r' && data !== '\n' && data !== '\x03') {
+        store.setBroadcastBlocked?.('password')
+      }
+      return
+    }
+    mirrorInput({
+      state,
+      sourceTabId: this.infoTabId,
+      data,
+      passwordPrompt: wasPasswordPrompt,
+      depth: this._broadcastDepth
+    })
   }
 
   _startKeepalive = () => {
@@ -963,6 +1008,11 @@ export default class AttachAddonCustom {
       return
     }
     this.disposed = true
+    // 广播：注销连接并让 store 把该 tab 移出目标（tab 已关闭时 store 侧静默）
+    unregisterBroadcastAddon(this.infoTabId, this)
+    if (this.infoTabId) {
+      window.store?.onBroadcastAddonClosed?.(this.infoTabId)
+    }
     this.trafficTracker?.stop()
     this.trafficTracker = null
     // tab 关闭兜底停录: 落盘尾部缓冲

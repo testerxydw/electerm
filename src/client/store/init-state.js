@@ -106,6 +106,15 @@ export default () => {
 
     // batch input selected tab ids
     _batchInputSelectedTabIds: new Set(),
+    // G1 广播输入（设计 §14.2）：同一时刻只有一个主控，targets 为快照
+    // { on, sourceTabId, targets: [{tabId,title,host,isProduction}], blocked }
+    broadcast: {
+      on: false,
+      sourceTabId: '',
+      targets: [],
+      blocked: null
+    },
+    broadcastPickerOpen: false,
     aiChatHistory: [],
     agentRunning: false,
     // ask turns and the agent loop compact their conversation when the window

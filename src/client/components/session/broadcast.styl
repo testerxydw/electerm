@@ -1,0 +1,127 @@
+// G1 广播输入：顶栏红条 + 目标选择弹层（设计 §14.2）
+// 红条浮在终端内容顶部 28px，不改终端高度（避免触发 xterm fit 重排）。
+
+.broadcast-bar
+  position absolute
+  top 0
+  left 0
+  right 0
+  height 28px
+  z-index 260
+  display flex
+  align-items center
+  gap 8px
+  padding 0 12px
+  background var(--error)
+  color var(--text-on-status)
+  font-size var(--fs-sm)
+  line-height 28px
+  cursor pointer
+  user-select none
+  &.broadcast-bar-blocked
+    background var(--warn)
+
+.broadcast-bar-dot
+  width 6px
+  height 6px
+  flex none
+  border-radius var(--radius-pill)
+  background var(--text-on-status)
+  animation broadcast-dot-pulse 1.6s var(--ease) infinite
+
+@keyframes broadcast-dot-pulse
+  0%, 100%
+    opacity 1
+  50%
+    opacity .35
+
+.broadcast-bar-text
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-weight 600
+
+.broadcast-bar-blocked-hint
+  color var(--text-on-status)
+  opacity .9
+
+.broadcast-bar-exit
+  margin-left auto
+  flex none
+
+// ---- 目标选择弹层 ----
+.broadcast-desc
+  margin 0 0 10px
+  color var(--text-dark)
+  font-size var(--fs-sm)
+
+.broadcast-list
+  max-height 320px
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--surface-1)
+
+.broadcast-item
+  display flex
+  align-items center
+  gap 8px
+  padding 6px 10px
+  cursor pointer
+  border-bottom 1px solid var(--border)
+  &:last-child
+    border-bottom none
+  &:hover
+    background var(--hover-bg)
+  &.broadcast-item-on
+    background var(--active-bg)
+
+.broadcast-item-title
+  flex 1 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.broadcast-item-host
+  flex none
+  color var(--text-dark)
+  font-size var(--fs-xs)
+  font-family var(--font-mono)
+
+.broadcast-prod-badge
+  flex none
+  padding 0 4px
+  border-radius var(--radius-xs)
+  background var(--warn-bg)
+  color var(--warn)
+  font-size var(--fs-xs)
+  line-height 16px
+
+.broadcast-empty
+  padding 16px 10px
+  color var(--text-dark)
+  font-size var(--fs-sm)
+  text-align center
+
+.broadcast-tools
+  display flex
+  align-items center
+  gap 10px
+  margin-top 8px
+
+.broadcast-prod-warn
+  color var(--error)
+
+.broadcast-prod-hosts
+  margin 6px 0 10px
+  padding 8px 10px
+  max-height 160px
+  overflow auto
+  border-radius var(--radius-sm)
+  background var(--error-bg)
+  color var(--error)
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  white-space pre-wrap

@@ -23,6 +23,7 @@ import uiThemeExtend from './ui-theme'
 import terminalThemeExtend from './terminal-theme'
 import transferHistoryExtend from './transfer-history'
 import batchInputHistory from './batch-input-history'
+import broadcastExtend from './broadcast'
 import transferExtend from './transfer-list'
 import addressBookmarkExtend from './address-bookmark'
 import widgetsExtend from './widgets'
@@ -406,6 +407,7 @@ terminalThemeExtend(Store)
 uiThemeExtend(Store)
 transferHistoryExtend(Store)
 batchInputHistory(Store)
+broadcastExtend(Store)
 transferExtend(Store)
 addressBookmarkExtend(Store)
 widgetsExtend(Store)

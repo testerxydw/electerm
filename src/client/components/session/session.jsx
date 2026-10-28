@@ -28,6 +28,7 @@ import { refs } from '../common/ref'
 import sanitizeFilename from '../../common/sanitize-filename.js'
 import { getRightClickBehavior } from '../../common/right-click-behavior.js'
 import SessionRecIndicator from '../common/session-rec-indicator'
+import BroadcastBar from './broadcast-bar.jsx'
 import SessionControl from './session-control'
 import LazyBoundary from '../common/lazy-boundary'
 import './session.styl'
@@ -50,7 +51,6 @@ export default class SessionWrapper extends Component {
       key: Math.random(),
       splitSize: [50, 50],
       sessionOptions: null,
-      broadcastInput: false,
       wrapDisabled: false
     }
     if (props.tab.sshSftpSplitView === undefined) {
@@ -227,8 +227,7 @@ export default class SessionWrapper extends Component {
   renderTerminals = () => {
     const {
       sessionOptions,
-      sftpPathFollowSsh,
-      broadcastInput
+      sftpPathFollowSsh
     } = this.state
     const {
       tab
@@ -355,7 +354,6 @@ export default class SessionWrapper extends Component {
       ...this.props,
       sftpPathFollowSsh,
       themeConfig,
-      broadcastInput,
       pane,
       ...pick(
         this,
@@ -380,6 +378,8 @@ export default class SessionWrapper extends Component {
           sessionOptions={sessionOptions}
           {...pops}
         />
+        {/* G1 广播红条：浮在终端内容顶部，只在主控 tab 里出现 */}
+        <BroadcastBar tabId={tab.id} />
       </div>
     )
   }
@@ -497,12 +497,6 @@ export default class SessionWrapper extends Component {
     // Make this tab the active tab before fullscreening
     window.store.activeTabId = this.props.tab.id
     window.store.toggleSessFullscreen(true, this.props.tab.id)
-  }
-
-  toggleBroadcastInput = () => {
-    this.setState({
-      broadcastInput: !this.state.broadcastInput
-    })
   }
 
   toggleKeepalive = () => {
@@ -659,6 +653,10 @@ export default class SessionWrapper extends Component {
     // T5-4c: 录制中浮层。render 里读 recState 让 manate 追踪 (开/停录触发重渲染),
     // 仅终端类 tab 显示 (数据库/桌面/网页页无会话录制)
     const rec = window.store.recState[this.props.tab.id]
+    // G1 广播：状态源在 store.broadcast（addon 扇出读同一份），此处只驱动顶栏灯态
+    const broadcast = window.store.broadcast
+    const broadcastActive = !!broadcast.on &&
+      broadcast.sourceTabId === this.props.tab.id
     const recIndicator = this.isNotTerminalType()
       ? null
       : (
@@ -703,7 +701,8 @@ export default class SessionWrapper extends Component {
           canSplitView={this.canSplitView()}
           sftpPathFollowSsh={this.state.sftpPathFollowSsh}
           keepaliveEnabled={!!this.props.tab.keepaliveEnabled}
-          broadcastInput={this.state.broadcastInput}
+          broadcastInput={broadcastActive}
+          broadcastCount={broadcastActive ? broadcast.targets.length : 0}
           wrapDisabled={this.state.wrapDisabled}
           // T5-4d: 录制开关上顶栏, 状态在此读 recState (manate 追踪点) 传下去
           recording={!!rec}
@@ -713,7 +712,7 @@ export default class SessionWrapper extends Component {
           toggleCheckSftpPathFollowSsh={this.toggleCheckSftpPathFollowSsh}
           onSshSftpSplitView={this.handleSshSftpSplitView}
           toggleKeepalive={this.toggleKeepalive}
-          toggleBroadcastInput={this.toggleBroadcastInput}
+          toggleBroadcastInput={() => window.store.toggleBroadcast()}
           toggleWrap={this.toggleWrap}
           toggleSessionRecord={() => window.store.toggleSessionRecord(this.props.tab.id)}
           toggleSessionRecordPause={() => window.store.toggleSessionRecordPause(this.props.tab.id)}

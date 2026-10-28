@@ -318,6 +318,21 @@ export const sshSettings = [
     label: () => e('ignoreKeyboardInteractive'),
     valuePropName: 'checked'
   },
+  {
+    // G1 广播输入：生产标记挂在连接上，广播目标默认跳过它，要选须二次确认
+    type: 'switch',
+    name: 'production',
+    label: () => e('productionHost'),
+    valuePropName: 'checked'
+  },
+  {
+    type: 'info',
+    name: 'productionHint',
+    props: {
+      message: e('productionHostHint'),
+      showIcon: true
+    }
+  },
   commonFields.enableTerminalImage,
   ...terminalSettings.slice(0, -1), // All except terminalBackground
   commonFields.proxyCommand,

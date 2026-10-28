@@ -23,6 +23,7 @@ const sshConfig = {
       useSshAgent: true,
       sshAgent: '',
       agentForward: false,
+      production: false,
       serverHostKey: [],
       cipher: [],
       compress: [],

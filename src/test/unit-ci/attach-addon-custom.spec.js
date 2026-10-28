@@ -609,3 +609,86 @@ describe('alternate screen lossless direct write', () => {
     }
   })
 })
+
+describe('broadcast fanout (G1)', () => {
+  const loadBroadcast = () => import('../../client/common/term-broadcast.js')
+
+  // source 是主控，target 是广播目标；两侧都真实走 sendToServer → _sendData
+  const makeFanout = async () => {
+    const { default: AttachAddonCustom } = await loadModule()
+    const { registerBroadcastAddon, resetBroadcastAddons } = await loadBroadcast()
+    resetBroadcastAddons()
+    const localSent = []
+    const targetSent = []
+    const blocked = []
+    const source = new AttachAddonCustom({ write: () => {} }, {})
+    source.infoTabId = 'src'
+    source._sendData = d => { localSent.push(d) }
+    const target = new AttachAddonCustom({ write: () => {} }, {})
+    target.infoTabId = 'dst'
+    target._sendData = d => { targetSent.push(d) }
+    registerBroadcastAddon('src', source)
+    registerBroadcastAddon('dst', target)
+    global.window.store = {
+      broadcast: {
+        on: true,
+        sourceTabId: 'src',
+        targets: [{ tabId: 'dst', title: 'dst', isProduction: false }],
+        blocked: null
+      },
+      setBroadcastBlocked: k => {
+        blocked.push('set:' + k)
+        global.window.store.broadcast.blocked = k
+      },
+      clearBroadcastBlocked: () => {
+        blocked.push('clear')
+        global.window.store.broadcast.blocked = null
+      }
+    }
+    return { source, target, localSent, targetSent, blocked }
+  }
+
+  test('mirrors normal input to every target once', async () => {
+    const { source, localSent, targetSent } = await makeFanout()
+    source.sendToServer('l')
+    source.sendToServer('s')
+    source.sendToServer('\r')
+    assert.deepEqual(localSent, ['l', 's', '\r'], '主控本地照常发送')
+    assert.deepEqual(targetSent, ['l', 's', '\r'], '目标各收到一份，且无二次扇出')
+  })
+
+  test('password input is withheld, and Enter clears the gate', async () => {
+    const { source, targetSent, blocked } = await makeFanout()
+    source._passwordPromptDetected = true
+    try {
+      source.sendToServer('s')
+      source.sendToServer('e')
+      assert.deepEqual(targetSent, [], '密码字符不得离开主控')
+      assert.ok(blocked.includes('set:password'), '红条进入"已暂停"')
+      source.sendToServer('\r')
+      assert.deepEqual(targetSent, [], '提交密码的回车同样不镜像')
+      assert.equal(global.window.store.broadcast.blocked, null, '回车后闸门必须解除')
+      source.sendToServer('x')
+      assert.deepEqual(targetSent, ['x'], '密码结束后镜像恢复')
+    } finally {
+      source.dispose()
+    }
+  })
+
+  test('terminal replies (OSC/DCS) are never mirrored', async () => {
+    const { source, targetSent } = await makeFanout()
+    const esc = String.fromCharCode(27)
+    source.sendToServer(`${esc}]10;rgb:0000/0000/0000${String.fromCharCode(7)}`)
+    source.sendToServer(`${esc}P1$r0m${esc}\\`)
+    assert.deepEqual(targetSent, [], 'OSC/DCS 应答是终端内部协商，不得打到目标机')
+  })
+
+  test('a mirrored send does not fan out again (depth guard)', async () => {
+    const { target, targetSent } = await makeFanout()
+    // 模拟 mirrorInput 打到目标时的深度
+    target._broadcastDepth = 1
+    target.sendToServer('z')
+    assert.deepEqual(targetSent, ['z'], '目标本地只发一次')
+    assert.equal(targetSent.length, 1, '没有回环复制')
+  })
+})

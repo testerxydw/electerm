@@ -6,8 +6,7 @@ import {
   typeMap,
   isWin,
   isMac,
-  terminalSerialType,
-  paneMap
+  terminalSerialType
 } from '../../../common/constants.js'
 import getProxy from '../../../common/get-proxy.js'
 import { refs } from '../../common/ref.js'
@@ -215,7 +214,6 @@ export const socketMixin = {
     socket.onclose = this.oncloseSocket
     socket.onerror = this.onerrorSocket
     this.socket = socket
-    this.initSocketEvents()
     this.term = term
     socket.onopen = async () => {
       // attach addon is a dynamic import too — report a failed chunk fetch
@@ -284,40 +282,6 @@ export const socketMixin = {
       return
     }
     window.store.openBookmarkEdit(item)
-  },
-
-  initSocketEvents () {
-    const originalSend = this.socket.send
-    this.socket.send = (data) => {
-      // Call original send first
-      originalSend.call(this.socket, data)
-
-      // Broadcast to other terminals
-      this.broadcastSocketData(data)
-    }
-  },
-
-  canReceiveBroadcast (termRef) {
-    return (
-      termRef.socket &&
-      termRef.props?.tab.pane === paneMap.terminal
-    )
-  },
-
-  broadcastSocketData (data) {
-    if (!this.isActiveTerminal() || !this.props.broadcastInput) {
-      return
-    }
-
-    window.refs.forEach((termRef, refId) => {
-      if (
-        refId !== this.id &&
-        refId.startsWith('term-') &&
-        this.canReceiveBroadcast(termRef)
-      ) {
-        termRef.socket.send(data)
-      }
-    })
   },
 
   onerrorSocket (err) {

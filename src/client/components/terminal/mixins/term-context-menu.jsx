@@ -4,6 +4,7 @@ import { isWin, isMac, isMacJs, connectionMap } from '../../../common/constants.
 import iconsMap from '../../sys-menu/icons-map.jsx'
 import { refsStatic } from '../../common/ref.js'
 import AIIcon from '../../icons/ai-icon.jsx'
+import { ApartmentOutlined } from '@ant-design/icons'
 import { isAIDisabled } from '../../../common/ai-feature.js'
 import {
   getRightClickBehavior,
@@ -96,6 +97,14 @@ export const contextMenuMixin = {
         key: 'onRecord',
         icon: <iconsMap.PlayCircleFilled />,
         label: e('record')
+      },
+      {
+        // G1 广播输入：入口之一（顶栏图标 / 快捷键 / 本菜单同一路径）
+        key: 'onToggleBroadcast',
+        icon: <ApartmentOutlined />,
+        label: e('broadcastInput'),
+        disabled: !this.isShellTerminal(),
+        extra: this.getShortcut('terminal_toggleBroadcast')
       }
     ]
     if (isSerial) {
@@ -336,5 +345,15 @@ export const contextMenuMixin = {
   toggleSessionRecordShortcut (e) {
     e.stopPropagation()
     window.store.toggleSessionRecord(this.props.tab.id)
+  },
+
+  // G1 广播输入开关：与顶栏图标/右键菜单同一条 store 路径
+  onToggleBroadcast () {
+    window.store.toggleBroadcast()
+  },
+
+  toggleBroadcastShortcut (e) {
+    e.stopPropagation()
+    window.store.toggleBroadcast()
   }
 }

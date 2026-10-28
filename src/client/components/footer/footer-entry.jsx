@@ -30,6 +30,7 @@ import QmRunStatus from '../quick-commands/qm-run-status'
 import QmRunInTabs from '../quick-commands/qm-run-in-tabs'
 import QmRecordStatus from '../quick-commands/qm-record-status'
 import QmPrompt from '../quick-commands/qm-prompt'
+import BroadcastModal from '../session/broadcast-modal.jsx'
 
 const e = window.translate
 
@@ -368,6 +369,8 @@ export default auto(function FooterEntry (props) {
         <QmRunInTabs store={props.store} />
         <QmRecordStatus store={props.store} />
         <QmPrompt store={props.store} />
+        {/* G1 广播目标选择弹层：任入口（顶栏/右键/快捷键）都只置 store 标记 */}
+        <BroadcastModal />
         {inActiveTerminal && renderTriggers()}
         {inActiveTerminal && renderBatchInputs()}
         {inActiveTerminal && renderQuickCmdStrip()}

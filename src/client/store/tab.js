@@ -121,6 +121,8 @@ export default Store => {
     const batch = Number(tab.batch)
     const res = store.removeTabs({ id })
     store.autoClosePaneIfEmpty(batch)
+    // G1 广播：关掉主控/目标时同步收敛广播态（关目标不用等 socket 断开）
+    store.onBroadcastTabClosed?.(id)
     // 顶栏会话数据随 tab 移除 (common/session-bar-data.js)
     clearSessionInfo(id)
     return res
