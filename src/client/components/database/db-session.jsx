@@ -1927,8 +1927,8 @@ export default auto(function DbSession (props) {
   }
 
   // SQL 执行闸门：返回 true 才继续。
-  // redis 不经过本闸门（Redis 写操作不在 E1 范围）；只读模式下执行入口本就被编辑器禁用、
-  // 主进程白名单还会二次拦，这里不弹（验收 §6.5 第 5 条）
+  // 只读模式下执行入口本就被编辑器禁用、主进程白名单还会二次拦，这里不弹（验收 §6.5 第 5 条）。
+  // Redis 写操作走独立的 confirmRedisWrite（同机制，库名用当前 db index 充当）
   const confirmSqlRisk = async (sql, database) => {
     const risk = classifySql(sql, tab.dbType)
     const state = guardRef.current
@@ -1990,6 +1990,39 @@ export default auto(function DbSession (props) {
       statements: [{ text: payload.text, level: payload.level, firstKeyword: '' }],
       reasons: [payload.note],
       // 行级写同样要说清"为什么问你"：production 首次写 vs ddl 每次，用户的反应不一样
+      reason: verdict.reason,
+      allowMute: false
+    })
+    if (ok) {
+      markAsked(state, scope)
+    }
+    return ok
+  }
+
+  // Redis 类型化写 / 删除 / 改名 / 过期，在 production 连接上再过一道确认。
+  // 复用同一弹窗与判定（DbDangerConfirm + shouldConfirm）：Redis 没有"表"概念，
+  // 库名用当前选中的 db index 充当（Redis 的 database 就是数字 db index，
+  // 与生产 MySQL 输库名同语义）。非 production 直接放行，与 confirmRowWrite 同口径。
+  const confirmRedisWrite = async payload => {
+    if (!isProduction) {
+      return true
+    }
+    const state = guardRef.current
+    const scope = nextScope('redis')
+    const verdict = shouldConfirm({
+      level: payload.level,
+      production: true,
+      state,
+      connKey,
+      scope,
+      now: Date.now()
+    })
+    const ok = await askRiskConfirm({
+      level: payload.level,
+      requireDbName: verdict.requireDbName,
+      dbName: String(redisDb),
+      statements: [{ text: payload.text, level: payload.level, firstKeyword: '' }],
+      reasons: [payload.note],
       reason: verdict.reason,
       allowMute: false
     })
@@ -3016,14 +3049,23 @@ export default auto(function DbSession (props) {
     }
   }
 
-  const applyTtl = () => {
+  const applyTtl = async () => {
     if (!redisKey) {
+      return
+    }
+    const seconds = Number(ttlInput) || 0
+    const ok = await confirmRedisWrite({
+      level: 'write',
+      text: 'EXPIRE ' + redisKey + ' ' + seconds,
+      note: e('dbTtlUpdated')
+    })
+    if (!ok) {
       return
     }
     window.pre.runGlobalAsync('dbClientOp', tabId, 'expireKey', {
       dbIndex: redisDb,
       key: redisKey,
-      seconds: Number(ttlInput) || 0
+      seconds
     }).then(() => {
       message.success(e('dbTtlUpdated'))
       loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
@@ -3033,8 +3075,16 @@ export default auto(function DbSession (props) {
     })
   }
 
-  const delSelectedKey = () => {
+  const delSelectedKey = async () => {
     if (!redisKey) {
+      return
+    }
+    const ok = await confirmRedisWrite({
+      level: 'dangerous',
+      text: 'DEL ' + redisKey,
+      note: e('dbDeleted')
+    })
+    if (!ok) {
       return
     }
     window.pre.runGlobalAsync('dbClientOp', tabId, 'delKey', {
@@ -3073,9 +3123,11 @@ export default auto(function DbSession (props) {
   // ---- D 批：Redis 类型化写（T12） ----
 
   // 统一执行：成功/失败都刷新详情与键列表（redisWrite 纪律），这里只补
-  // 成功提示与失败 toast。返回 { ok } 而不 rethrow，调用方按 ok 决定收尾
-  const runRedisWrite = (op, params, successMsg) => {
-    return redisWrite(tabId, op, params, {
+  // 成功提示与失败 toast。返回 { ok } 而不 rethrow，调用方按 ok 决定收尾。
+  // gate 为 production 连接的生产闸门（{ level, text, note }）：非 production 时忽略，
+  // 命中则先弹 confirmRedisWrite，取消 = 零执行（{ ok: false }）
+  const runRedisWrite = (op, params, successMsg, gate) => {
+    const doWrite = () => redisWrite(tabId, op, params, {
       refresh: () => {
         selectRedisKey(redisKey)
         loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
@@ -3089,6 +3141,10 @@ export default auto(function DbSession (props) {
       showErrorModal({ error: err })
       return { ok: false }
     })
+    if (gate && isProduction) {
+      return confirmRedisWrite(gate).then(ok => (ok ? doWrite() : { ok: false }))
+    }
+    return doWrite()
   }
 
   const addHashField = () => {
@@ -3098,7 +3154,11 @@ export default auto(function DbSession (props) {
     }
     runRedisWrite('hashSetField', {
       dbIndex: redisDb, key: redisKey, field, value: redisAdd.value
-    }, e('saved')).then(r => {
+    }, e('saved'), {
+      level: 'write',
+      text: 'HSET ' + redisKey + ' ' + field,
+      note: e('saved')
+    }).then(r => {
       if (r.ok) {
         setRedisAdd(s => ({ ...s, field: '', value: '' }))
       }
@@ -3113,7 +3173,11 @@ export default auto(function DbSession (props) {
     if (redisDetail && redisDetail.type === 'zset') {
       runRedisWrite('zsetAdd', {
         dbIndex: redisDb, key: redisKey, score: redisAdd.score, member
-      }, e('saved')).then(r => {
+      }, e('saved'), {
+        level: 'write',
+        text: 'ZADD ' + redisKey + ' ' + redisAdd.score + ' ' + member,
+        note: e('saved')
+      }).then(r => {
         if (r.ok) {
           setRedisAdd(s => ({ ...s, member: '', score: '' }))
         }
@@ -3121,7 +3185,11 @@ export default auto(function DbSession (props) {
     } else {
       runRedisWrite('setAdd', {
         dbIndex: redisDb, key: redisKey, members: [member]
-      }, e('saved')).then(r => {
+      }, e('saved'), {
+        level: 'write',
+        text: 'SADD ' + redisKey + ' ' + member,
+        note: e('saved')
+      }).then(r => {
         if (r.ok) {
           setRedisAdd(s => ({ ...s, member: '' }))
         }
@@ -3135,7 +3203,11 @@ export default auto(function DbSession (props) {
     }
     runRedisWrite('listPush', {
       dbIndex: redisDb, key: redisKey, value: redisAdd.listValue, position
-    }, e('saved')).then(r => {
+    }, e('saved'), {
+      level: 'write',
+      text: (position === 'left' ? 'LPUSH ' : 'RPUSH ') + redisKey,
+      note: e('saved')
+    }).then(r => {
       if (r.ok) {
         setRedisAdd(s => ({ ...s, listValue: '' }))
       }
@@ -3147,7 +3219,11 @@ export default auto(function DbSession (props) {
     const value = redisEdit ? redisEdit.value : ''
     runRedisWrite('hashSetField', {
       dbIndex: redisDb, key: redisKey, field: record.field, value
-    }, e('saved')).then(r => {
+    }, e('saved'), {
+      level: 'write',
+      text: 'HSET ' + redisKey + ' ' + record.field,
+      note: e('saved')
+    }).then(r => {
       if (r.ok) {
         setRedisEdit(null)
       }
@@ -3159,7 +3235,11 @@ export default auto(function DbSession (props) {
     const score = redisEdit ? redisEdit.value : ''
     runRedisWrite('zsetAdd', {
       dbIndex: redisDb, key: redisKey, score, member: record.member
-    }, e('saved')).then(r => {
+    }, e('saved'), {
+      level: 'write',
+      text: 'ZADD ' + redisKey + ' ' + score + ' ' + record.member,
+      note: e('saved')
+    }).then(r => {
       if (r.ok) {
         setRedisEdit(null)
       }
@@ -3171,7 +3251,11 @@ export default auto(function DbSession (props) {
     const value = redisEdit ? redisEdit.value : ''
     runRedisWrite('listSetAt', {
       dbIndex: redisDb, key: redisKey, index: record.index, value
-    }, e('saved')).then(r => {
+    }, e('saved'), {
+      level: 'write',
+      text: 'LSET ' + redisKey + ' ' + record.index,
+      note: e('saved')
+    }).then(r => {
       if (r.ok) {
         setRedisEdit(null)
       }
@@ -3179,9 +3263,18 @@ export default auto(function DbSession (props) {
   }
 
   // set 成员编辑 = 删旧加新（成员是身份标识）：任一步失败都刷新详情
-  const editSetMember = (oldMember, newMember) => {
+  const editSetMember = async (oldMember, newMember) => {
     const nm = String(newMember || '').trim()
     if (!nm || nm === oldMember) {
+      setRedisEdit(null)
+      return
+    }
+    const ok = await confirmRedisWrite({
+      level: 'dangerous',
+      text: 'SREM ' + redisKey + ' ' + oldMember + ' / SADD ' + redisKey + ' ' + nm,
+      note: e('saved')
+    })
+    if (!ok) {
       setRedisEdit(null)
       return
     }
@@ -3204,9 +3297,17 @@ export default auto(function DbSession (props) {
 
   // 重命名键（RENAMENX，不覆盖）：成功后切到新键；冲突由后端抛含 newKey 的
   // 可读错误，经 toast 展示。键名变化，刷新走 keyList，详情在新键上重拉
-  const doRenameKeyNx = () => {
+  const doRenameKeyNx = async () => {
     const newKey = renameInput.trim()
     if (!newKey || newKey === redisKey) {
+      return
+    }
+    const ok = await confirmRedisWrite({
+      level: 'write',
+      text: 'RENAMENX ' + redisKey + ' ' + newKey,
+      note: e('dbRenamed')
+    })
+    if (!ok) {
       return
     }
     redisWrite(tabId, 'renameKeyNx', {
@@ -6108,7 +6209,15 @@ export default auto(function DbSession (props) {
               </Popconfirm>
             </>
           )}
-          onSave={v => {
+          onSave={async v => {
+            const ok = await confirmRedisWrite({
+              level: 'write',
+              text: 'SET ' + redisKey,
+              note: e('saved')
+            })
+            if (!ok) {
+              return
+            }
             window.pre.runGlobalAsync('dbClientOp', tabId, 'setKey', {
               dbIndex: redisDb,
               key: redisKey,
@@ -6145,7 +6254,11 @@ export default auto(function DbSession (props) {
                 width: 60,
                 render: (_, r) => redisRowOps(() => runRedisWrite('hashDelField', {
                   dbIndex: redisDb, key: redisKey, fields: [r.field]
-                }, e('dbDeleted')))
+                }, e('dbDeleted'), {
+                  level: 'dangerous',
+                  text: 'HDEL ' + redisKey + ' ' + r.field,
+                  note: e('dbDeleted')
+                }))
               }
             ]}
             dataSource={redisHashRows}
@@ -6179,7 +6292,11 @@ export default auto(function DbSession (props) {
                 width: 60,
                 render: (_, r) => redisRowOps(() => runRedisWrite('listRemAt', {
                   dbIndex: redisDb, key: redisKey, index: r.index
-                }, e('dbDeleted')))
+                }, e('dbDeleted'), {
+                  level: 'dangerous',
+                  text: '删除 ' + redisKey + '[' + r.index + ']',
+                  note: e('dbDeleted')
+                }))
               }
             ]}
             dataSource={redisListRows}
@@ -6212,7 +6329,11 @@ export default auto(function DbSession (props) {
                 width: 60,
                 render: (_, r) => redisRowOps(() => runRedisWrite('setRem', {
                   dbIndex: redisDb, key: redisKey, members: [r.member]
-                }, e('dbDeleted')))
+                }, e('dbDeleted'), {
+                  level: 'dangerous',
+                  text: 'SREM ' + redisKey + ' ' + r.member,
+                  note: e('dbDeleted')
+                }))
               }
             ]}
             dataSource={redisSetRows}
@@ -6257,7 +6378,11 @@ export default auto(function DbSession (props) {
                 width: 60,
                 render: (_, r) => redisRowOps(() => runRedisWrite('zsetRem', {
                   dbIndex: redisDb, key: redisKey, members: [r.member]
-                }, e('dbDeleted')))
+                }, e('dbDeleted'), {
+                  level: 'dangerous',
+                  text: 'ZREM ' + redisKey + ' ' + r.member,
+                  note: e('dbDeleted')
+                }))
               }
             ]}
             dataSource={redisZsetRows}
