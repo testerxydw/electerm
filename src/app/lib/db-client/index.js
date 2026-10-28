@@ -329,6 +329,32 @@ async function listColumnsCached (inst, adapter, args, opMs, onTimeout, connOver
 // 这里是"单表结构"、键到表，且带 TTL —— 结构会因 ALTER 变化，
 // 60s 是"刷新一次树就该看到新结构"与"别每点一次都打 catalog"之间的折中。
 const STRUCTURE_TTL = 60000
+// 老化阈值与条目上限：过期值不立即删，是为了查失败时还能兜住上次的成功结果；
+// 但"不删"不能等于"永久保留" —— 缓存挂在 tab 实例上，长会话里翻过几千张表，
+// 每张表的完整结构（列/索引/外键/注释）都会一直钉在内存里。真正长期存活的
+// 都是"很久没再点开的表"，这部分只占内存不产生收益。
+// 10 分钟没再成功查询过的条目直接丢弃；2000 条是单 tab 硬上限，超出按最后
+// 成功时间淘汰最旧（values 的 Map 插入序不会因重复 set 更新，不能当 LRU 用）。
+const STRUCTURE_STALE_MS = 10 * 60 * 1000
+const STRUCTURE_CACHE_MAX = 2000
+
+function pruneStructureCache (cache) {
+  const now = Date.now()
+  for (const [k, at] of cache.ts) {
+    if (now - at > STRUCTURE_STALE_MS) {
+      cache.ts.delete(k)
+      cache.values.delete(k)
+    }
+  }
+  if (cache.ts.size <= STRUCTURE_CACHE_MAX) {
+    return
+  }
+  const oldest = Array.from(cache.ts.entries()).sort((a, b) => a[1] - b[1])
+  for (let i = 0; i < oldest.length - STRUCTURE_CACHE_MAX; i++) {
+    cache.ts.delete(oldest[i][0])
+    cache.values.delete(oldest[i][0])
+  }
+}
 
 function structureKey (args) {
   const a = args || {}
@@ -365,6 +391,7 @@ async function structureCached (inst, adapter, args, opMs, onTimeout, connOverri
     res => {
       cache.values.set(key, res)
       cache.ts.set(key, Date.now())
+      pruneStructureCache(cache)
       cache.inflight.delete(key)
       return res
     },
