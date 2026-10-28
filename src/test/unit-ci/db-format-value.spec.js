@@ -7,11 +7,21 @@
 // 1) 默认关（mode !== 'os' 一律原样）—— 关掉时行为必须与改造前逐字节一致；
 // 2) 日期不猜 —— 长得像日期的普通字符串不得被改样子；
 // 3) 纯日期不跨时区漂移 —— '2024-01-05' 在负偏移时区不能显示成 01-04。
+//
+// 判据一律只比"数字序列"，不写死分隔符：分组符/小数点由 locale 决定（de 是 1.234,5、
+// en-IN 是 1,23,456），写死逗号等于把测试绑在跑它的那台机器的区域设置上。
 const { describe, test, beforeEach } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+
+const digits = s => String(s).replace(/[^0-9]/g, '')
+// 分组生效 = 数字序列没变 + 确实多了非数字字符。符号留给 locale，判据不碰它。
+const grouped = (text, wantDigits) => {
+  assert.equal(digits(text), wantDigits, '数字序列不能变: ' + text)
+  assert.notEqual(text, wantDigits, '要出现分组符: ' + text)
+}
 
 const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/client/common/db-format-value.js')
@@ -52,7 +62,7 @@ describe('db-format-value: 默认关闭时行为与原样一致', () => {
   test('类型未知时：number 照格式（驱动已定型），字符串不猜', () => {
     // 驱动返回 JS number 本身就说明该列是数值型 —— 这不是猜；
     // 猜语义指的是"字符串长得像数字/日期"的那种。
-    assert.equal(m.formatCellValue(1234, '', 'os'), '1,234')
+    grouped(m.formatCellValue(1234, '', 'os'), '1234')
     // 字符串 "00123" 在类型未知时必须原样 —— 千分位会把前导零问题掩盖掉
     assert.equal(m.formatCellValue('00123', '', 'os'), '00123')
     assert.equal(m.formatCellValue('2024-01-05', '', 'os'), '2024-01-05', '纯字符串不按日期解释')
@@ -63,10 +73,10 @@ describe('db-format-value: 数值', () => {
   let m
   beforeEach(() => { m = loadMod() })
 
-  test('number 类型 + os → 千分位', () => {
-    assert.equal(m.formatCellValue(1234567, 'int', 'os'), '1,234,567')
-    assert.equal(m.formatCellValue(-42, 'bigint', 'os'), '-42')
-    assert.equal(m.formatCellValue(3.5, 'decimal', 'os'), '3.5')
+  test('number 类型 + os → 分组', () => {
+    grouped(m.formatCellValue(1234567, 'int', 'os'), '1234567')
+    assert.equal(digits(m.formatCellValue(-42, 'bigint', 'os')), '42')
+    assert.equal(digits(m.formatCellValue(3.5, 'decimal', 'os')), '35')
   })
 
   test('非有限数原样（Infinity/NaN 不该被格式化成 "∞"/"NaN" 之外的东西）', () => {
@@ -75,7 +85,7 @@ describe('db-format-value: 数值', () => {
   })
 
   test('数值列里的数字字符串才格式化；非数字串原样', () => {
-    assert.equal(m.formatCellValue('1234', 'int', 'os'), '1,234')
+    grouped(m.formatCellValue('1234', 'int', 'os'), '1234')
     assert.equal(m.formatCellValue('abc', 'int', 'os'), 'abc')
     assert.equal(m.formatCellValue('', 'int', 'os'), '')
     assert.equal(m.formatCellValue('  ', 'int', 'os'), '  ', '纯空白不是数字，原样')
@@ -87,6 +97,70 @@ describe('db-format-value: 数值', () => {
     }
     for (const t of ['varchar', 'text', 'date', 'json', 'bool', '']) {
       assert.equal(m.isNumberType(t), false, t)
+    }
+  })
+})
+
+// H1a-3 实测（SQL 结果右对齐 + 本地化开关打开）暴露出来的缺陷：`Intl.NumberFormat()` 默认
+// 最大 3 位小数，且 format() 会把入参过一遍 Number。这两件事叠在一起，"打开本地化"就等于
+// 让网格里显示的 BIGINT 主键、DECIMAL 金额变成另一个数。
+describe('db-format-value: 分组不得动精度（H1a-3 实测发现）', () => {
+  let m
+  beforeEach(() => { m = loadMod() })
+
+  test('19 位 BIGINT 主键不得被 Number 四舍五入到最近的偶数', () => {
+    const raw = '9007199254740993'
+    const out = m.formatCellValue(raw, 'bigint', 'os')
+    assert.equal(digits(out), raw, '逐位保留: ' + out)
+    assert.notEqual(digits(out), digits(String(Number(raw))), 'Number 会把它变成 ...992')
+  })
+
+  test('超过 Number 安全整数范围的位数原样保留', () => {
+    const raw = '99999999999999999999'
+    assert.equal(digits(m.formatCellValue(raw, 'bigint', 'os')), raw)
+  })
+
+  test('DECIMAL 的有效位（含小数尾零）逐位保留', () => {
+    assert.equal(digits(m.formatCellValue('1234567.8901', 'decimal', 'os')), '12345678901')
+    assert.equal(digits(m.formatCellValue('0.10', 'decimal', 'os')), '010', '尾零是 DECIMAL 的 scale，不能被吃掉')
+    assert.equal(digits(m.formatCellValue('-0.75', 'numeric', 'os')), '075')
+  })
+
+  test('驱动直接给 JS number 时不再截到 3 位小数', () => {
+    for (const v of [0.123456, 1234567.8901, 3.14159265]) {
+      assert.equal(digits(m.formatCellValue(v, 'double', 'os')), digits(String(v)), String(v))
+    }
+  })
+
+  test('分组仍然生效（精度修了别把千分位一起修没）', () => {
+    grouped(m.formatCellValue('1234567', 'bigint', 'os'), '1234567')
+  })
+
+  test('非普通十进制形态回落 Number 分组', () => {
+    for (const v of ['1e5', '.5', ' 42 ', '+1000', '1E+3']) {
+      assert.equal(digits(m.formatCellValue(v, 'double', 'os')), digits(String(Number(v))), v)
+    }
+  })
+
+  test('极小值不能被显示成 0：宁可原样', () => {
+    const out = m.formatCellValue(1e-25, 'double', 'os')
+    assert.notEqual(digits(out), '0', '非零值显示成 0 比不打千分位更糟')
+    assert.equal(out, String(1e-25))
+  })
+
+  test('前导零归一是既有行为（数值列按数字看）', () => {
+    assert.equal(m.formatCellValue('007', 'year', 'os'), '7')
+  })
+
+  test('非数字串、空串、纯空白仍然一律原样', () => {
+    for (const v of ['abc', '', '  ', '12a34', 'NaN', 'Infinity', '1,234']) {
+      assert.equal(m.formatCellValue(v, 'decimal', 'os'), v, JSON.stringify(v))
+    }
+  })
+
+  test('关掉本地化时逐字节不变（精度修差不影响这条契约）', () => {
+    for (const v of ['9007199254740993', '0.10', 0.123456, 1e-25, '1234567.8901']) {
+      assert.equal(m.formatCellValue(v, 'decimal', 'none'), String(v))
     }
   })
 })

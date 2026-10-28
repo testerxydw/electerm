@@ -12,6 +12,11 @@
  * 3) **日期不猜**。只对"类型已知为日期/时间"或"值本身就是 Date 对象"的单元格做日期格式化；
  *    纯字符串值即使长得像日期也不动 —— 那会把一个本来要做子串匹配的字符串改掉样子，
  *    而用户根本不知道它被解释成了时间。
+ * 4) **分组不许动精度**。`Intl.NumberFormat()` 默认最大 3 位小数，且 `format()` 把入参过一遍
+ *    Number：19 位 BIGINT 主键会被四舍五入到最近的偶数、DECIMAL 的 `0.10` 会掉成 `0.1`、
+ *    `1234567.8901` 会变成 `1,234,567.89`。这类丢精度只出现在"显示"里，用户看不出问题，
+ *    然后拿着显示值去库里查/去比对 —— 所以整数部分用 BigInt 分组、小数位逐位原样带上，
+ *    只向 locale 借分隔符。
  */
 
 const DATE_TYPES = new Set([
@@ -79,7 +84,14 @@ export function isNumberType (dataType) {
 
 // 本地日期/时间格式化的缓存：Intl 构造不便宜，网格每格都新建一遍会被放大成
 // 虚拟渲染里的可见卡顿。key 固定为 'os'（本机区域），两个格式化器常驻即可。
-const numberFmt = new Intl.NumberFormat()
+// maximumFractionDigits 显式放开：默认 3 位就是上面第 4 条边界的来源。
+const numberFmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 20 })
+// 小数点符号只从格式化器读：写死 '.' 在 de/fr 等 locale 下会显示成错的符号
+const DECIMAL_SEP = (() => {
+  const parts = numberFmt.formatToParts(1.5)
+  const found = parts.find(p => p.type === 'decimal')
+  return found ? found.value : '.'
+})()
 const dateFmt = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
   month: '2-digit',
@@ -121,6 +133,36 @@ function formatDateString (s) {
   return null
 }
 
+// 普通十进制形态：可选符号 + 整数 + 可选小数。指数（1e5）、纯小数（.5）、带空格的都落不进来
+const PLAIN_DEC_RE = /^([+-]?)(\d+)(?:\.(\d+))?$/
+
+/**
+ * 精确分组一个十进制字符串：整数部分走 BigInt（不过 Number，19 位以上不丢），
+ * 小数位逐位原样接上（保住 DECIMAL 的 `0.10` 这类有效位），只向 locale 借分组符和小数点。
+ * @param {string} sign '+' | '-' | ''
+ * @param {string} intDigits 整数位数字串
+ * @param {string} [fracDigits] 小数位数字串
+ * @returns {string}
+ */
+function groupDecimal (sign, intDigits, fracDigits) {
+  const head = sign === '-' ? '-' : ''
+  return head + numberFmt.format(BigInt(intDigits)) + (fracDigits ? DECIMAL_SEP + fracDigits : '')
+}
+
+/**
+ * 只能过 Number 的形态（JS number、'1e5' 这类非普通十进制串）。
+ * 分组结果全是 0 而原值非 0 ⇒ 值被四舍五入没了，此时宁可原样：
+ * 把非零显示成 0 比不打千分位更糟。
+ * @param {number} num 数值
+ * @param {string} raw 回落用的原文
+ * @returns {string}
+ */
+function groupViaNumber (num, raw) {
+  const text = numberFmt.format(num)
+  const digits = text.replace(/[^0-9]/g, '')
+  return num !== 0 && digits.length > 0 && /^0+$/.test(digits) ? raw : text
+}
+
 /**
  * 格式化一个单元格值（展示层）。
  *
@@ -137,7 +179,7 @@ export function formatCellValue (value, dataType, mode) {
     return String(value)
   }
   if (typeof value === 'number') {
-    return Number.isFinite(value) ? numberFmt.format(value) : String(value)
+    return Number.isFinite(value) ? groupViaNumber(value, String(value)) : String(value)
   }
   if (typeof value !== 'string') {
     // 布尔、BigInt 等：不猜语义，原样
@@ -151,8 +193,15 @@ export function formatCellValue (value, dataType, mode) {
     }
     return formatDateString(value) || value
   }
-  if (isNumberType(dt) && value.trim() !== '' && Number.isFinite(Number(value))) {
-    return numberFmt.format(Number(value))
+  if (isNumberType(dt)) {
+    const s = value.trim()
+    const m = PLAIN_DEC_RE.exec(s)
+    if (m) {
+      return groupDecimal(m[1], m[2], m[3])
+    }
+    if (s !== '' && Number.isFinite(Number(s))) {
+      return groupViaNumber(Number(s), value)
+    }
   }
   return value
 }
