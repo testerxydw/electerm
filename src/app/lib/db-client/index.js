@@ -67,6 +67,8 @@ const OP_MAP = {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
     getKeyDetail: 'getKeyDetail',
+    // R1：hash/set 详情任意跳页（从 cursor=0 前向扫描到目标页）
+    scanDetailToPage: 'scanDetailToPage',
     setKey: 'setKey',
     delKey: 'delKey',
     expireKey: 'expireKey',
@@ -101,6 +103,8 @@ const OP_TIMEOUTS = {
   // EXPLAIN 属分析类：大表的计划生成同样可能超过 15s，跟随 executeSql 口径
   explainQuery: 120000,
   getPageData: 60000,
+  // R1：跳页前向扫描可能比单页慢（需步进多页），给足与 getPageData 同档的超时
+  scanDetailToPage: 60000,
   countRows: 60000
 }
 

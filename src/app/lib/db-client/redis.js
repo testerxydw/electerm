@@ -198,6 +198,10 @@ async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
 const DETAIL_PAGE_DEFAULT = 200
 const DETAIL_PAGE_MAX = 1000
 const DETAIL_SCAN_MAX_ROUNDS = 10
+// R1：跳页前向扫描安全上限（≈ pageSize × 5万 次迭代）。
+// SCAN 无 offset，跳到目标页必须从前向步进；超大键跳页 O(N) 扫描，
+// 此上限防止极端跳页（如跳到百万字段深处）把主进程卡死
+const DETAIL_JUMP_MAX_SKIP = 50000
 // string 详情预览软上限（字节）：超过只回传截断预览，防 IPC 克隆内存翻倍
 const MAX_STRING_PREVIEW_BYTES = 256 * 1024
 
@@ -281,6 +285,67 @@ async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
   }
   const ttl = await c.ttl(key).catch(() => -1)
   return { type, value, fields, rows, ttl, nextCursor, total }
+}
+
+// R1：Redis 任意跳页 —— SCAN 系列游标不透明（非 offset），跳到目标页必须从
+// cursor=0 前向步进跳过 skipPages 个迭代（每迭代 = 一页），再取一页。
+// 返回该页内容 + 起止游标，前端据此做内存缓存与回跳。超大键跳页是 O(N) 扫描，
+// 由前端负责阈值告警（见 db-session.jsx）；本函数只保证有安全上限不至于卡死。
+// 仅用于 hash（HSCAN）/ set（SSCAN）详情；list/zset/string 非游标分页，不走这里。
+async function scanDetailToPage (conn, { dbIndex, key, type, pageSize, skipPages }) {
+  const c = await useDb(conn, dbIndex)
+  const size = Math.min(Number(pageSize) || DETAIL_PAGE_DEFAULT, DETAIL_PAGE_MAX)
+  const t = type || await c.type(key)
+  const isHash = t === 'hash'
+  const total = isHash ? await c.hlen(key) : await c.scard(key)
+  const skip = Math.max(0, Math.min(Number(skipPages) || 0, DETAIL_JUMP_MAX_SKIP))
+  const doScan = cur => isHash
+    ? c.hscan(key, cur, 'COUNT', size)
+    : c.sscan(key, cur, 'COUNT', size)
+  let cursor = '0'
+  let scanned = 0
+  // 跳过 skip 个迭代，把游标推进到目标页起点
+  while (scanned < skip) {
+    const [next] = await doScan(cursor)
+    cursor = String(next)
+    scanned++
+    if (cursor === '0') {
+      // 已扫到末尾仍不到目标页：目标页不存在，返回空页（hasMore=false）
+      return {
+        type: t,
+        fields: [],
+        rows: isHash ? {} : [],
+        total,
+        nextCursor: '0',
+        hasMore: false,
+        startCursor: '0'
+      }
+    }
+  }
+  // 取目标页
+  const [next, list] = await doScan(cursor)
+  const nextCursor = String(next)
+  const items = list || []
+  const fields = []
+  let rows
+  if (isHash) {
+    rows = {}
+    for (let i = 0; i < items.length; i += 2) {
+      fields.push(items[i])
+      rows[items[i]] = items[i + 1]
+    }
+  } else {
+    rows = items
+  }
+  return {
+    type: t,
+    fields,
+    rows,
+    total,
+    nextCursor,
+    hasMore: nextCursor !== '0',
+    startCursor: cursor
+  }
 }
 
 function checkWritable (readOnly) {
@@ -500,5 +565,7 @@ module.exports = {
   renameKeyNx,
   closeRedisConnection,
   // 纯函数导出仅供单测（HSCAN/SSCAN 游标循环）
-  scanPage
+  scanPage,
+  // R1：hash/set 详情任意跳页（前向扫描到目标页）
+  scanDetailToPage
 }
