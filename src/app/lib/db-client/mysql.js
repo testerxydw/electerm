@@ -22,11 +22,33 @@ function sslOptions (conn) {
   return conn.dbSsl ? { ssl: { rejectUnauthorized: false } } : {}
 }
 
+// acquire 失败回滚：refs 在 acquire 入口就 +1，而 openDbTab 只在 acquire **成功**
+// 之后才置 acquired 标记、失败分支不会补 release —— 不回滚这次计数，失败一次就
+// 永久多一个"看不见的引用"，同签名连接池再也不会归零 end
+async function rollbackAcquire (key) {
+  const n = (refs.get(key) || 0) - 1
+  if (n > 0) {
+    refs.set(key, n)
+    return
+  }
+  refs.delete(key)
+  const pool = pools.get(key)
+  if (pool) {
+    pools.delete(key)
+    await pool.end().catch(() => {})
+  }
+}
+
 // openDbTab 时调用：计数 +1 并确保连接建立（失败上抛）
-function acquire (conn) {
+async function acquire (conn) {
   const key = sig(conn)
   refs.set(key, (refs.get(key) || 0) + 1)
-  return getPool(conn)
+  try {
+    return await getPool(conn)
+  } catch (e) {
+    await rollbackAcquire(key)
+    throw e
+  }
 }
 
 // closeDbTab 时调用：计数 -1，归零才 end pool

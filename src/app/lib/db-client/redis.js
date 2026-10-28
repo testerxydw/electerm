@@ -52,18 +52,48 @@ async function getClient (conn) {
     return clients.get(key)
   }
   const c = createClient(conn)
-  await c.connect()
+  try {
+    await c.connect()
+  } catch (e) {
+    // 建连失败的 client 不进 clients 表，但它的 socket 与状态机已经建立：
+    // 不主动 disconnect 就没人再持有它、也没人会关它
+    c.disconnect()
+    throw e
+  }
   clients.set(key, c)
   return c
+}
+
+// acquire 失败回滚：refs 在 acquire 入口就 +1，而 openDbTab 只在 acquire **成功**
+// 之后才置 acquired 标记、失败分支不会补 release —— 不回滚这次计数，失败一次就
+// 永久多一个"看不见的引用"，同签名连接再也不会归零断开（连上后 ping 失败可复现）
+function rollbackAcquire (key) {
+  const n = (refs.get(key) || 0) - 1
+  if (n > 0) {
+    refs.set(key, n)
+    return
+  }
+  refs.delete(key)
+  currentDbMap.delete(key)
+  const c = clients.get(key)
+  if (c) {
+    clients.delete(key)
+    c.disconnect()
+  }
 }
 
 // openDbTab 时调用：计数 +1，首次建立真实连接并 ping 验证（失败上抛）
 async function acquire (conn) {
   const key = sig(conn)
   refs.set(key, (refs.get(key) || 0) + 1)
-  const c = await getClient(conn)
-  await c.ping()
-  return c
+  try {
+    const c = await getClient(conn)
+    await c.ping()
+    return c
+  } catch (e) {
+    rollbackAcquire(key)
+    throw e
+  }
 }
 
 // closeDbTab 时调用：计数 -1，归零才 disconnect

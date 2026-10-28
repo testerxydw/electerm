@@ -229,7 +229,21 @@ async function openDbTab (dbBookmark, sshBookmark) {
       throw new Error('db tab closed while opening')
     }
     // acquire: 建立真实连接并验证（失败上抛，tab 打开即暴露连接问题）
-    await withTimeout(adapter.acquire(inst.conn), OVERALL_TIMEOUT, 'connection', evictOnTimeout)
+    // 超时只表示 openDbTab 不再等它：acquire 本身可能稍后仍然成功并占住一次引用计数，
+    // 而 pending.acquired 此时仍是 false（下面的 catch 不会 release）——
+    // 所以等它落地后立刻补一次 release，否则这次 +1 会永久占着连接
+    let acquireP = null
+    try {
+      acquireP = adapter.acquire(inst.conn)
+      await withTimeout(acquireP, OVERALL_TIMEOUT, 'connection', evictOnTimeout)
+    } catch (e) {
+      if (acquireP) {
+        Promise.resolve(acquireP)
+          .then(() => adapter.release(pending.conn))
+          .catch(() => {})
+      }
+      throw e
+    }
     pending.acquired = true
     log.debug('[db-client] openDbTab acquired', dbBookmark.id, 'aborted=', pending.aborted)
     if (pending.aborted) {

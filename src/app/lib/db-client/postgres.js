@@ -48,7 +48,14 @@ async function getClient (conn) {
   }
   const { Client } = require('pg')
   const c = new Client(clientOptions(conn))
-  await c.connect()
+  try {
+    await c.connect()
+  } catch (e) {
+    // 建连失败的 client 不进 clients 表：没人再持有它，必须在这里 end 掉，
+    // 否则失败的会话（含驱动内部状态）就永远不会被关闭
+    await c.end().catch(() => {})
+    throw e
+  }
   clients.set(key, c)
   return c
 }
@@ -81,13 +88,35 @@ async function rollbackTx (c) {
   }
 }
 
+// acquire 失败回滚：refs 在 acquire 入口就 +1，而 openDbTab 只在 acquire **成功**
+// 之后才置 acquired 标记、失败分支不会补 release —— 不回滚这次计数，失败一次就
+// 永久多一个"看不见的引用"，同签名连接再也不会归零 end（连上后 SELECT 1 失败可复现）
+async function rollbackAcquire (key) {
+  const n = (refs.get(key) || 0) - 1
+  if (n > 0) {
+    refs.set(key, n)
+    return
+  }
+  refs.delete(key)
+  const c = clients.get(key)
+  if (c) {
+    clients.delete(key)
+    await c.end().catch(() => {})
+  }
+}
+
 // openDbTab 时调用：计数 +1 并确保连接建立（SELECT 1 验证，失败上抛）
 async function acquire (conn) {
   const key = sig(conn)
   refs.set(key, (refs.get(key) || 0) + 1)
-  const c = await getClient(conn)
-  await c.query('SELECT 1')
-  return c
+  try {
+    const c = await getClient(conn)
+    await c.query('SELECT 1')
+    return c
+  } catch (e) {
+    await rollbackAcquire(key)
+    throw e
+  }
 }
 
 // closeDbTab 时调用：计数 -1，归零才 end client
