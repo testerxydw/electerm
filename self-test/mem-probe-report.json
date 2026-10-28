@@ -1,0 +1,961 @@
+{
+  "at": "2026-10-28T06:37:34.591Z",
+  "app": "electerm mem-probe",
+  "snaps": [
+    {
+      "label": "baseline",
+      "usedMB": 17.1,
+      "used": 17948892,
+      "nodes": 758,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 594,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 758,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 13429024,
+        "rss": 405553152,
+        "handles": 3
+      },
+      "at": 1793169352948
+    },
+    {
+      "label": "grid-400rows-8cols",
+      "usedMB": 25.5,
+      "used": 26703420,
+      "nodes": 2012,
+      "listeners": 634,
+      "docs": 1,
+      "dom": {
+        "all": 1423,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2012,
+        "jsEventListeners": 634
+      },
+      "main": {
+        "heap": 13438820,
+        "rss": 451252224,
+        "handles": 3
+      },
+      "at": 1793169356156,
+      "extra": {
+        "tab": "gVaZJhx_2026-10-28-14-35-52"
+      }
+    },
+    {
+      "label": "filter-cycle-3",
+      "usedMB": 27,
+      "used": 28311540,
+      "nodes": 2056,
+      "listeners": 634,
+      "docs": 1,
+      "dom": {
+        "all": 1463,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2056,
+        "jsEventListeners": 634
+      },
+      "main": {
+        "heap": 13441332,
+        "rss": 452911104,
+        "handles": 3
+      },
+      "at": 1793169357780,
+      "extra": {
+        "hits": 39
+      }
+    },
+    {
+      "label": "filter-cycle-6",
+      "usedMB": 27.3,
+      "used": 28601404,
+      "nodes": 2012,
+      "listeners": 634,
+      "docs": 1,
+      "dom": {
+        "all": 1423,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2012,
+        "jsEventListeners": 634
+      },
+      "main": {
+        "heap": 13442808,
+        "rss": 452911104,
+        "handles": 3
+      },
+      "at": 1793169359271,
+      "extra": {
+        "hits": 0
+      }
+    },
+    {
+      "label": "filter-cycle-9",
+      "usedMB": 27.6,
+      "used": 28921732,
+      "nodes": 2056,
+      "listeners": 634,
+      "docs": 1,
+      "dom": {
+        "all": 1463,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2056,
+        "jsEventListeners": 634
+      },
+      "main": {
+        "heap": 13444404,
+        "rss": 448741376,
+        "handles": 3
+      },
+      "at": 1793169360762,
+      "extra": {
+        "hits": 39
+      }
+    },
+    {
+      "label": "filter-cycle-12",
+      "usedMB": 27.5,
+      "used": 28881840,
+      "nodes": 2012,
+      "listeners": 634,
+      "docs": 1,
+      "dom": {
+        "all": 1423,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2012,
+        "jsEventListeners": 634
+      },
+      "main": {
+        "heap": 13445820,
+        "rss": 448741376,
+        "handles": 3
+      },
+      "at": 1793169362220,
+      "extra": {
+        "hits": 0
+      }
+    },
+    {
+      "label": "page-load-5",
+      "usedMB": 28.6,
+      "used": 30022620,
+      "nodes": 2030,
+      "listeners": 1206,
+      "docs": 1,
+      "dom": {
+        "all": 1432,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2030,
+        "jsEventListeners": 1206
+      },
+      "main": {
+        "heap": 13448152,
+        "rss": 451555328,
+        "handles": 3
+      },
+      "at": 1793169365229
+    },
+    {
+      "label": "page-load-10",
+      "usedMB": 28.7,
+      "used": 30137936,
+      "nodes": 2030,
+      "listeners": 1206,
+      "docs": 1,
+      "dom": {
+        "all": 1432,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2030,
+        "jsEventListeners": 1206
+      },
+      "main": {
+        "heap": 13450328,
+        "rss": 451391488,
+        "handles": 3
+      },
+      "at": 1793169368056
+    },
+    {
+      "label": "page-load-15",
+      "usedMB": 28.9,
+      "used": 30255412,
+      "nodes": 2030,
+      "listeners": 1206,
+      "docs": 1,
+      "dom": {
+        "all": 1432,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2030,
+        "jsEventListeners": 1206
+      },
+      "main": {
+        "heap": 13452420,
+        "rss": 451317760,
+        "handles": 3
+      },
+      "at": 1793169370988
+    },
+    {
+      "label": "page-load-20",
+      "usedMB": 29,
+      "used": 30424100,
+      "nodes": 2030,
+      "listeners": 1206,
+      "docs": 1,
+      "dom": {
+        "all": 1432,
+        "rows": 14,
+        "visRows": 9,
+        "kws": 93,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 2030,
+        "jsEventListeners": 1206
+      },
+      "main": {
+        "heap": 13454624,
+        "rss": 451579904,
+        "handles": 3
+      },
+      "at": 1793169373726
+    },
+    {
+      "label": "sql-30k-rows",
+      "usedMB": 88.7,
+      "used": 93004752,
+      "nodes": 21034,
+      "listeners": 5912,
+      "docs": 1,
+      "dom": {
+        "all": 10905,
+        "rows": 423,
+        "visRows": 18,
+        "kws": 4188,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 21034,
+        "jsEventListeners": 5912
+      },
+      "main": {
+        "heap": 9217748,
+        "rss": 446533632,
+        "handles": 3
+      },
+      "at": 1793169392172,
+      "extra": {
+        "rows": 30000
+      }
+    },
+    {
+      "label": "sql-result-replaced",
+      "usedMB": 87.8,
+      "used": 92048344,
+      "nodes": 20673,
+      "listeners": 5887,
+      "docs": 1,
+      "dom": {
+        "all": 10710,
+        "rows": 406,
+        "visRows": 1,
+        "kws": 4135,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 20673,
+        "jsEventListeners": 5887
+      },
+      "main": {
+        "heap": 9225360,
+        "rss": 446730240,
+        "handles": 3
+      },
+      "at": 1793169395413,
+      "extra": {
+        "sqlCalls": 2,
+        "lastSql": "select 1"
+      }
+    },
+    {
+      "label": "mysql-tab-closed",
+      "usedMB": 22.8,
+      "used": 23875552,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9227136,
+        "rss": 444489728,
+        "handles": 3
+      },
+      "at": 1793169398564
+    },
+    {
+      "label": "mysql-tab-closed-idle",
+      "usedMB": 22.8,
+      "used": 23875576,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9228272,
+        "rss": 437157888,
+        "handles": 3
+      },
+      "at": 1793169402097
+    },
+    {
+      "label": "redis-keys-1000",
+      "usedMB": 25,
+      "used": 26170088,
+      "nodes": 1130,
+      "listeners": 378,
+      "docs": 1,
+      "dom": {
+        "all": 856,
+        "rows": 12,
+        "visRows": 12,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1130,
+        "jsEventListeners": 378
+      },
+      "main": {
+        "heap": 9234840,
+        "rss": 449298432,
+        "handles": 3
+      },
+      "at": 1793169404417,
+      "extra": {
+        "visRows": 12
+      }
+    },
+    {
+      "label": "redis-key-jump-60",
+      "usedMB": 25.2,
+      "used": 26393816,
+      "nodes": 1132,
+      "listeners": 519,
+      "docs": 1,
+      "dom": {
+        "all": 858,
+        "rows": 12,
+        "visRows": 12,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1132,
+        "jsEventListeners": 519
+      },
+      "main": {
+        "heap": 9241688,
+        "rss": 450088960,
+        "handles": 3
+      },
+      "at": 1793169405717,
+      "extra": {
+        "jump": "ok",
+        "pageNo": "第 60 页"
+      }
+    },
+    {
+      "label": "redis-detail-more-5",
+      "usedMB": 27.8,
+      "used": 29165328,
+      "nodes": 1380,
+      "listeners": 855,
+      "docs": 1,
+      "dom": {
+        "all": 1013,
+        "rows": 22,
+        "visRows": 22,
+        "kws": 20,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1380,
+        "jsEventListeners": 855
+      },
+      "main": {
+        "heap": 9244588,
+        "rss": 449032192,
+        "handles": 3
+      },
+      "at": 1793169409675
+    },
+    {
+      "label": "redis-detail-more-10",
+      "usedMB": 28.4,
+      "used": 29753720,
+      "nodes": 1380,
+      "listeners": 855,
+      "docs": 1,
+      "dom": {
+        "all": 1013,
+        "rows": 22,
+        "visRows": 22,
+        "kws": 20,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1380,
+        "jsEventListeners": 855
+      },
+      "main": {
+        "heap": 9246872,
+        "rss": 439627776,
+        "handles": 3
+      },
+      "at": 1793169412882
+    },
+    {
+      "label": "redis-detail-more-15",
+      "usedMB": 29,
+      "used": 30390244,
+      "nodes": 1380,
+      "listeners": 855,
+      "docs": 1,
+      "dom": {
+        "all": 1013,
+        "rows": 22,
+        "visRows": 22,
+        "kws": 20,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1380,
+        "jsEventListeners": 855
+      },
+      "main": {
+        "heap": 9249100,
+        "rss": 439574528,
+        "handles": 3
+      },
+      "at": 1793169416028
+    },
+    {
+      "label": "redis-detail-switched",
+      "usedMB": 28.5,
+      "used": 29861876,
+      "nodes": 1374,
+      "listeners": 432,
+      "docs": 1,
+      "dom": {
+        "all": 1007,
+        "rows": 22,
+        "visRows": 22,
+        "kws": 20,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1374,
+        "jsEventListeners": 432
+      },
+      "main": {
+        "heap": 9250516,
+        "rss": 439595008,
+        "handles": 3
+      },
+      "at": 1793169417935
+    },
+    {
+      "label": "redis-tab-closed",
+      "usedMB": 23.3,
+      "used": 24465852,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9253328,
+        "rss": 447254528,
+        "handles": 3
+      },
+      "at": 1793169419850
+    },
+    {
+      "label": "tab-cycle-1",
+      "usedMB": 23.6,
+      "used": 24698836,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9258884,
+        "rss": 451489792,
+        "handles": 3
+      },
+      "at": 1793169422826
+    },
+    {
+      "label": "tab-cycle-2",
+      "usedMB": 23.8,
+      "used": 24912836,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9264216,
+        "rss": 451899392,
+        "handles": 3
+      },
+      "at": 1793169425823
+    },
+    {
+      "label": "tab-cycle-3",
+      "usedMB": 24,
+      "used": 25125112,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9271004,
+        "rss": 451854336,
+        "handles": 3
+      },
+      "at": 1793169428832
+    },
+    {
+      "label": "tab-cycle-4",
+      "usedMB": 24.1,
+      "used": 25262932,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9277652,
+        "rss": 452300800,
+        "handles": 3
+      },
+      "at": 1793169431845
+    },
+    {
+      "label": "tab-cycle-5",
+      "usedMB": 24.2,
+      "used": 25362868,
+      "nodes": 809,
+      "listeners": 310,
+      "docs": 1,
+      "dom": {
+        "all": 633,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 1
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 809,
+        "jsEventListeners": 310
+      },
+      "main": {
+        "heap": 9284664,
+        "rss": 455553024,
+        "handles": 3
+      },
+      "at": 1793169434847
+    },
+    {
+      "label": "term-flood-30k-lines-1",
+      "usedMB": 26.9,
+      "used": 28183216,
+      "nodes": 1457,
+      "listeners": 375,
+      "docs": 1,
+      "dom": {
+        "all": 1020,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 2
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1457,
+        "jsEventListeners": 375
+      },
+      "main": {
+        "heap": 9296064,
+        "rss": 447467520,
+        "handles": 3
+      },
+      "at": 1793169441093
+    },
+    {
+      "label": "term-flood-30k-lines-2",
+      "usedMB": 27,
+      "used": 28276828,
+      "nodes": 1459,
+      "listeners": 375,
+      "docs": 1,
+      "dom": {
+        "all": 1020,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 2
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1459,
+        "jsEventListeners": 375
+      },
+      "main": {
+        "heap": 9301548,
+        "rss": 442720256,
+        "handles": 3
+      },
+      "at": 1793169445309
+    },
+    {
+      "label": "term-flood-30k-lines-3",
+      "usedMB": 27,
+      "used": 28334756,
+      "nodes": 1461,
+      "listeners": 375,
+      "docs": 1,
+      "dom": {
+        "all": 1020,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 2
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1461,
+        "jsEventListeners": 375
+      },
+      "main": {
+        "heap": 9306948,
+        "rss": 442695680,
+        "handles": 3
+      },
+      "at": 1793169449599
+    },
+    {
+      "label": "term-flood-30k-lines-4",
+      "usedMB": 27.1,
+      "used": 28369300,
+      "nodes": 1463,
+      "listeners": 375,
+      "docs": 1,
+      "dom": {
+        "all": 1020,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 2
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1463,
+        "jsEventListeners": 375
+      },
+      "main": {
+        "heap": 9312544,
+        "rss": 446590976,
+        "handles": 3
+      },
+      "at": 1793169453862
+    },
+    {
+      "label": "final",
+      "usedMB": 27.1,
+      "used": 28369728,
+      "nodes": 1463,
+      "listeners": 375,
+      "docs": 1,
+      "dom": {
+        "all": 1020,
+        "rows": 0,
+        "visRows": 0,
+        "kws": 0,
+        "xterms": 2
+      },
+      "domCounters": {
+        "documents": 1,
+        "nodes": 1463,
+        "jsEventListeners": 375
+      },
+      "main": {
+        "heap": 9314044,
+        "rss": 454242304,
+        "handles": 3
+      },
+      "at": 1793169454591
+    }
+  ],
+  "allocTop": [],
+  "findings": [
+    {
+      "name": "grid virtualizes rows",
+      "ok": true,
+      "detail": {
+        "visRows": 9,
+        "totalRowsDom": 14,
+        "kwSpans": 93
+      }
+    },
+    {
+      "name": "keyword highlight spans present in grid",
+      "ok": true,
+      "detail": {
+        "kwSpans": 93
+      }
+    },
+    {
+      "name": "filter cycles heap stable",
+      "ok": true,
+      "detail": {
+        "firstMB": 27,
+        "lastMB": 27.5
+      }
+    },
+    {
+      "name": "page loads release old data",
+      "ok": true,
+      "detail": {
+        "firstMB": 28.6,
+        "lastMB": 29,
+        "growthMB": 0.4
+      }
+    },
+    {
+      "name": "sql big result kept in heap (expected, unbounded)",
+      "ok": true,
+      "detail": {
+        "heapMB": 88.7,
+        "deltaMB": 63.2,
+        "visRows": 18
+      }
+    },
+    {
+      "name": "replacing sql result releases big rows",
+      "ok": false,
+      "detail": {
+        "bigMB": 63.2,
+        "releasedMB": 0.9,
+        "replaceOk": true
+      }
+    },
+    {
+      "name": "closing db tab frees grid data",
+      "ok": true,
+      "detail": {
+        "backToMB": 22.8,
+        "baseMB": 25.5
+      }
+    },
+    {
+      "name": "detached DOM after tab close is reclaimed",
+      "ok": true,
+      "detail": {
+        "domNodes": 809,
+        "attached": 633,
+        "listenersDom": 310
+      }
+    },
+    {
+      "name": "redis key jump holds only cursors chain + page",
+      "ok": true,
+      "detail": {
+        "deltaMB": 0.2
+      }
+    },
+    {
+      "name": "redis detail load-more grows linearly (by design)",
+      "ok": true,
+      "detail": {
+        "firstMB": 27.8,
+        "lastMB": 29,
+        "growthMB": 1.2
+      }
+    },
+    {
+      "name": "switching redis key releases previous detail",
+      "ok": true,
+      "detail": {
+        "backToMB": 28.5
+      }
+    },
+    {
+      "name": "db tab open/close cycles do not leak",
+      "ok": true,
+      "detail": {
+        "firstMB": 23.6,
+        "lastMB": 24.2,
+        "growthMB": 0.6
+      }
+    },
+    {
+      "name": "terminal flood respects scrollback (heap plateau)",
+      "ok": true,
+      "detail": {
+        "firstMB": 26.9,
+        "lastMB": 27.1,
+        "growthMB": 0.2
+      }
+    },
+    {
+      "name": "final heap vs baseline",
+      "ok": true,
+      "detail": {
+        "baseMB": 17.1,
+        "finalMB": 27.1
+      }
+    }
+  ]
+}

@@ -186,8 +186,19 @@ const STUB = `
     if (name !== 'dbClientOp') return Promise.resolve(null)
     const op = a[1]
     const args = a[2] || {}
+    const tab = window.store.tabs.find(t => t.id === a[0]) || {}
+    const isRedis = tab.dbType === 'redis'
     window.__dbStubCalls.push(op)
+    if (op === 'getDbTxState') {
+      return Promise.resolve({ active: false, pendingCount: 0, statements: [], supported: !isRedis })
+    }
     if (op === 'getMetadata') {
+      if (isRedis) {
+        return Promise.resolve([
+          { name: 'db0', type: 'database', count: cfg.redisKeys },
+          { name: 'db1', type: 'database', count: 12 }
+        ])
+      }
       return Promise.resolve([{
         name: 'demo',
         type: 'database',
@@ -244,6 +255,7 @@ const STUB = `
     }
     if (op === 'executeSql') {
       cfg.sqlCalls++
+      cfg.lastSql = args.sql
       if (/big/i.test(args.sql || '')) {
         return Promise.resolve({ results: [{ rows: mkBig(cfg.bigRows), fields: ['id', 'a', 'b', 'c', 'd', 'e'] }] })
       }
@@ -267,6 +279,8 @@ window.__hidden = el => {
 window.__vis = el => !window.__hidden(el)
 window.__treeTitle = name => [...document.querySelectorAll('.ant-tree-title')]
   .filter(window.__vis).find(x => x.innerText.trim() === name)
+window.__treeDb = name => [...document.querySelectorAll('.db-tree-db-name')]
+  .filter(window.__vis).find(x => x.innerText.trim() === name)
 window.__visRows = () => [...document.querySelectorAll('.ant-table-row')].filter(window.__vis).length
 window.__clickText = (sel, re) => {
   const el = [...document.querySelectorAll(sel)].filter(window.__vis)
@@ -283,6 +297,19 @@ window.__setInput = (sel, value) => {
   el.dispatchEvent(new Event('input', { bubbles: true }))
   return 'ok'
 }
+window.__jumpRedis = (page) => {
+  const input = document.querySelector('.db-redis-area .db-grid-pager input.db-grid-jump')
+  if (!input) return 'no-input'
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  setter.call(input, String(page))
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  const btns = [...document.querySelectorAll('.db-redis-area .db-grid-pager button')].filter(window.__vis)
+  const go = btns[btns.length - 1]
+  if (!go) return 'no-go'
+  if (go.disabled) return 'go-disabled'
+  go.click()
+  return 'ok'
+}
 window.__clickPagerRight = () => {
   const btn = [...document.querySelectorAll('.db-grid-pager .anticon-right')]
     .map(i => i.closest('button')).filter(Boolean).filter(window.__vis)
@@ -295,6 +322,7 @@ window.__domStats = () => ({
   all: document.querySelectorAll('*').length,
   rows: document.querySelectorAll('.ant-table-row').length,
   visRows: window.__visRows(),
+  kws: document.querySelectorAll('.db-kw').length,
   xterms: document.querySelectorAll('.xterm').length
 })
 `
@@ -313,7 +341,7 @@ const openDbTab = (dbType) => `
     dbPassword: '',
     dbName: 'demo',
     dbSsl: false,
-    readOnly: true,
+    readOnly: ${dbType === 'redis'},
     production: false,
     batch: window.store.currentLayoutBatch
   }
@@ -344,6 +372,11 @@ class Metrics {
       m[it.name] = it.value
     }
     const dom = JSON.parse(await cdp.eval('JSON.stringify(window.__domStats ? window.__domStats() : {})') || '{}')
+    let domCounters = null
+    try {
+      const dc = await cdp.call('Memory.getDOMCounters')
+      domCounters = dc.result || null
+    } catch (e) {}
     let main = null
     if (this.mainCdp) {
       try {
@@ -361,6 +394,7 @@ class Metrics {
       listeners: m.JSEventListeners,
       docs: m.Documents,
       dom,
+      domCounters,
       main,
       at: Date.now(),
       extra
@@ -371,6 +405,7 @@ class Metrics {
       ' heap=' + String(row.usedMB + 'MB').padEnd(7) +
       ' nodes=' + String(row.nodes).padEnd(7) +
       ' listeners=' + String(row.listeners).padEnd(6) +
+      (domCounters ? ' domNodes=' + String(domCounters.nodes).padEnd(7) : '') +
       (dom.visRows !== undefined ? ' visRows=' + String(dom.visRows).padEnd(4) : '') +
       (main ? ' mainRSS=' + mb(main.rss) + 'MB' : '') +
       (extra ? ' ' + JSON.stringify(extra) : '')
@@ -517,38 +552,70 @@ const main = async () => {
   findings.push({ name: 'sql big result kept in heap (expected, unbounded)', ok: true, detail: { heapMB: s2.usedMB, deltaMB: mb(s2.used - s1.used), visRows: s2.dom.visRows } })
 
   // 小查询覆盖后应释放
+  const callsBefore = await cdp.eval('window.__MEM.sqlCalls')
   await cdp.eval("document.querySelector('.cm-content').focus()")
-  await cdp.call('Input.dispatchKeyEvent', { type: 'keyDown', modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 })
+  await cdp.call('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    modifiers: 2,
+    key: 'a',
+    code: 'KeyA',
+    windowsVirtualKeyCode: 65,
+    nativeVirtualKeyCode: 65,
+    commands: ['selectAll']
+  })
   await cdp.call('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 })
   await cdp.call('Input.insertText', { text: 'select 1' })
   await sleep(200)
-  await cdp.eval("(() => { const b = [...document.querySelectorAll('.db-sql-bar button')].filter(window.__vis)[0]; if (!b) return 0; b.click(); return 1 })()")
+  await cdp.eval("[...document.querySelectorAll('.db-sql-bar .ant-btn-primary')].filter(window.__vis)[0].click()")
+  try {
+    await waitFor(cdp, `window.__MEM.sqlCalls > ${callsBefore} && /select 1/.test(window.__MEM.lastSql || '')`, 10000, 'sql replace fired')
+  } catch (e) {
+    // 兜底：execCommand selectAll（CM6 会通过 DOM 观察同步选区）
+    await cdp.eval("(() => { const c = document.querySelector('.cm-content'); if (!c) return 0; c.focus(); document.execCommand('selectAll'); return 1 })()")
+    await cdp.call('Input.insertText', { text: 'select 1' })
+    await sleep(250)
+    await cdp.eval("[...document.querySelectorAll('.db-sql-bar .ant-btn-primary')].filter(window.__vis)[0].click()")
+  }
   await sleep(1200)
-  const s3 = await M.snap('sql-result-replaced')
+  const s3 = await M.snap('sql-result-replaced', {
+    sqlCalls: await cdp.eval('window.__MEM.sqlCalls'),
+    lastSql: await cdp.eval('window.__MEM.lastSql')
+  })
   const released = s2.used - s3.used
-  findings.push({ name: 'replacing sql result releases big rows', ok: released > (s2.used - s1.used) * 0.6, detail: { bigMB: mb(s2.used - s1.used), releasedMB: mb(released) } })
+  const replaceOk = await cdp.eval("(window.__MEM.sqlCalls > " + callsBefore + ") && /select 1/.test(window.__MEM.lastSql || '')")
+  findings.push({
+    name: 'replacing sql result releases big rows',
+    ok: !!replaceOk && released > (s2.used - s1.used) * 0.6,
+    detail: { bigMB: mb(s2.used - s1.used), releasedMB: mb(released), replaceOk: !!replaceOk }
+  })
 
   // 关掉 mysql tab
   await cdp.eval(`window.store.delTab('${dbTab.id}')`)
-  await sleep(1500)
+  await sleep(2500)
   const s4 = await M.snap('mysql-tab-closed')
-  findings.push({ name: 'closing db tab frees grid data', ok: (s4.used - s1.used) < 6 * 1024 * 1024, detail: { backToMB: s4.usedMB, baseMB: s1.usedMB } })
+  await sleep(3000)
+  const s4b = await M.snap('mysql-tab-closed-idle')
+  findings.push({ name: 'closing db tab frees grid data', ok: (s4b.used - s1.used) < 6 * 1024 * 1024, detail: { backToMB: s4b.usedMB, baseMB: s1.usedMB } })
+  findings.push({
+    name: 'detached DOM after tab close is reclaimed',
+    ok: !s4b.domCounters || s4b.domCounters.nodes < 3000,
+    detail: { domNodes: s4b.domCounters && s4b.domCounters.nodes, attached: s4b.dom.all, listenersDom: s4b.domCounters && s4b.domCounters.jsEventListeners }
+  })
 
   // ---------------------------------------------------------------- S3 Redis
   const redisTab = JSON.parse(await cdp.eval(openDbTab('redis')))
   await sleep(1000)
-  await waitFor(cdp, "!!window.__treeTitle('db0')", 20000, 'redis db nodes')
-  await cdp.eval("(() => { const d = window.__treeTitle('db0'); if (!d) return 0; d.click(); return 1 })()")
+  await waitFor(cdp, "!!window.__treeDb('db0')", 20000, 'redis db nodes')
+  await cdp.eval("(() => { const d = window.__treeDb('db0'); if (!d) return 0; d.click(); return 1 })()")
   await waitFor(cdp, "document.querySelectorAll('.db-redis-keys .ant-table-row').length > 0", 20000, 'redis keys')
   await sleep(500)
   const s5 = await M.snap('redis-keys-1000', { visRows: await cdp.eval('window.__visRows()') })
 
   // 跳页（R1）：第 60 页
-  await cdp.eval("window.__setInput('.db-redis-jump input', '60')")
-  await sleep(200)
-  await cdp.eval("(() => { const inputs = [...document.querySelectorAll('.db-redis-jump')]; const el = inputs[inputs.length - 1]; const btn = el && el.parentElement.querySelector('button'); if (!btn) return 0; btn.click(); return 1 })()")
-  await sleep(1200)
-  const s6 = await M.snap('redis-key-jump-60', { pageNo: await cdp.eval("(document.querySelector('.db-redis-area .db-grid-page-no') || {}).innerText || ''") })
+  const jumpRes = await cdp.eval('window.__jumpRedis(60)')
+  await waitFor(cdp, "(document.querySelector('.db-redis-area .db-grid-page-no') || {}).innerText !== '' && (document.querySelector('.db-redis-area .db-grid-page-no') || {}).innerText.includes('60')", 15000, 'redis jump page 60')
+  await sleep(600)
+  const s6 = await M.snap('redis-key-jump-60', { jump: jumpRes, pageNo: await cdp.eval("(document.querySelector('.db-redis-area .db-grid-page-no') || {}).innerText || ''") })
   findings.push({ name: 'redis key jump holds only cursors chain + page', ok: (s6.used - s5.used) < 4 * 1024 * 1024, detail: { deltaMB: mb(s6.used - s5.used) } })
 
   // 打开 hash 详情并"加载更多"
