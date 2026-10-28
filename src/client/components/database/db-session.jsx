@@ -17,6 +17,8 @@ import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
+import DbCellPreview, { useCellPreview, CELL_ELLIPSIS } from './db-cell-preview'
+import { fitColumnWidths } from '../../common/db-column-width'
 import { buildRefItems } from './db-ref-utils'
 import { isBinEnvelope } from './value-renderers'
 import RemoteFloatControl from '../common/remote-float-control'
@@ -3567,27 +3569,42 @@ export default auto(function DbSession (props) {
     return filterKw ? hlNode(node, filterKw, 'db-page-hit') : node
   }, [keywordPatterns, kw, themeConfig, formatLocale])
 
+  // H1a-1：长内容被截断时的悬停预览。整张网格共用一个预览卡（单例），
+  // 而不是每格挂一个浮层 —— 1 万行下后者会造出上万个观察者。
+  // 这里刻意不设 td 的原生 title，列也用 CELL_ELLIPSIS（ellipsis 但不带 title）：
+  // 1) 设 title 等于给每行的每个值都 JSON.stringify 一遍，而列 memo 的依赖里有
+  //    editValue（行内编辑每敲一个字符就重建一次）→ 200 行 × 30KB JSON 的重复
+  //    序列化会挂在编辑热路径上；文本改在悬停时算一次（show 里），代价只有一次鼠标悬停。
+  // 2) 原生 tooltip 和预览卡会叠着出现（悬停 1s 后两套同时显示），反而互相遮挡。
+  //    rc-table 在 ellipsis 为真时会自动给纯文本单元格补 title（CDP 实测确实触发了），
+  //    所以必须显式 showTitle: false，光"自己不写 title"不够。
+  // 键盘路径另有承接：Enter/单击 → selectCell 打开底部值面板看全文。
+  const cellPreview = useCellPreview()
+  // show/scheduleHide 来自 useCellPreview，本身稳定：hover 改 state 时不让
+  // previewProps 变引用，否则 5 处网格的列 memo 会在每次悬停时整表重建。
+  // JSX 侧三个 prop 直接解构成 handle*（react/jsx-handler-names），不包箭头函数：
+  // 包一层就是每轮渲染新引用，预览卡会反复摘挂 keydown/scroll 监听
+  const {
+    show: previewShow,
+    scheduleHide: handlePreviewLeave,
+    hide: handlePreviewHide,
+    cancelHide: handlePreviewEnter
+  } = cellPreview
+  const previewProps = useCallback((col, row) => ({
+    onMouseEnter: ev => previewShow(ev, col, row ? row[col] : null),
+    onMouseLeave: handlePreviewLeave
+  }), [previewShow, handlePreviewLeave])
+
   // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
   // （如"一般"）出现大片空白；虚拟渲染是 fixed 布局，必须显式给宽。
   // 采样单独 memo：输入查找/过滤时不必重新扫描 100 行 × 所有列。
-  const columnWidths = useMemo(() => {
-    if (!grid.rows.length) {
-      return {}
-    }
-    const sample = grid.rows.slice(0, 100)
-    const widths = {}
-    for (const k of Object.keys(grid.rows[0])) {
-      const maxLen = Math.max(
-        k.length,
-        ...sample.map(r => {
-          const v = r[k]
-          return v === null || v === undefined ? 4 : String(v).length
-        })
-      )
-      widths[k] = Math.min(360, Math.max(90, maxLen * 12 + 32))
-    }
-    return widths
-  }, [grid.rows])
+  // H1a-1：公式抽到 common/db-column-width（数据页与 SQL/Redis/结构页共用同一套
+  // 90~360 上下限）。唯一行为差异：JSON/对象列按真实文本量宽，原实现走
+  // String(v) 得到 "[object Object]"（15 字符），是量错了而不是刻意留窄
+  const columnWidths = useMemo(
+    () => (grid.rows.length ? fitColumnWidths(grid.rows, Object.keys(grid.rows[0])) : {}),
+    [grid.rows]
+  )
 
   // 列头排序箭头跟随 view.order（受控）：不写 sortOrder 的话，antd 会自己维护一份
   // 排序状态，chips 一改（比如重置）箭头就停在旧方向上
@@ -3742,7 +3759,11 @@ export default auto(function DbSession (props) {
       const comment = colCommentByName[String(k).toLowerCase()] || ''
       return {
         title: (
-          <span className='db-col-title'>
+          <span
+            className='db-col-title'
+            // H1a-1：操作提示挪到列头，td 不再被"提示语"占用（td 现在只负责悬停预览）
+            title={canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')}
+          >
             <span className='db-col-name'>{k}</span>
             {
               comment
@@ -3760,7 +3781,7 @@ export default auto(function DbSession (props) {
         dataIndex: k,
         key: k,
         width: widthOf(k),
-        ellipsis: true,
+        ellipsis: CELL_ELLIPSIS,
         sorter: true,
         sortOrder: sortOrderOf(k),
         // 单击选中 → 下方预览面板；双击命中区放在整个单元格（td）上：
@@ -3792,7 +3813,8 @@ export default auto(function DbSession (props) {
             }
           },
           className: 'db-cell-editable',
-          title: canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')
+          // H1a-1：截断时才弹预览卡（长内容既没 title 也没预览是本轮的根因）
+          ...previewProps(k, row)
         }),
         render: (v, row) => {
           if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
@@ -3818,7 +3840,7 @@ export default auto(function DbSession (props) {
         }
       }
     })
-    : []), [grid.rows, view, liveWidth, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn])
+    : []), [grid.rows, view, liveWidth, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn, previewProps])
 
   // SQL 结果网格列：优先 fields（列顺序稳定），否则从首行推断
   // A1：多结果集按 results 索引派生成「列数组的数组」，随 sqlResult.results 与
@@ -3834,11 +3856,13 @@ export default auto(function DbSession (props) {
         dataIndex: k,
         key: k,
         width: 220,
-        ellipsis: true,
+        ellipsis: CELL_ELLIPSIS,
+        // H1a-1：结果集此前既没有 title 也没有预览，长文本只能靠横向滚动撞运气
+        onCell: row => previewProps(k, row),
         render: renderCell
       }))
     }),
-    [sqlResult.results, renderCell]
+    [sqlResult.results, renderCell, previewProps]
   )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
@@ -4474,21 +4498,23 @@ export default auto(function DbSession (props) {
       dataIndex: k,
       key: k,
       width: 200,
-      ellipsis: true,
+      ellipsis: CELL_ELLIPSIS,
+      // H1a-1：注释/默认值这类长文本列此前悬停什么都看不到
+      onCell: row => previewProps(k, row),
       // PG 主键列显示 PK 徽标；MySQL 沿用 DESC 的 Key=PRI 文本
       render: k === 'is_primary_key'
         ? v => (v === true ? <Tag className='db-pk-tag'>PK</Tag> : '')
         : renderCell
     }))
-    : []), [structure.rows, renderCell])
+    : []), [structure.rows, renderCell, previewProps])
 
   // A1：Redis 键列表列定义（列头文案来自 e() → langCode 一并入依赖，
   // 切换界面语言时列头跟着变；其余仅依赖 renderCell）
   const redisKeyColumns = useMemo(() => [
-    { title: e('dbKey'), dataIndex: 'name', key: 'name', ellipsis: true, render: renderCell },
-    { title: e('type'), dataIndex: 'type', key: 'type', width: 90, render: renderCell },
-    { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, render: renderCell }
-  ], [renderCell, langCode])
+    { title: e('dbKey'), dataIndex: 'name', key: 'name', ellipsis: CELL_ELLIPSIS, onCell: row => previewProps('name', row), render: renderCell },
+    { title: e('type'), dataIndex: 'type', key: 'type', width: 90, ellipsis: CELL_ELLIPSIS, onCell: row => previewProps('type', row), render: renderCell },
+    { title: e('dbTtl'), dataIndex: 'ttl', key: 'ttl', width: 90, ellipsis: CELL_ELLIPSIS, onCell: row => previewProps('ttl', row), render: renderCell }
+  ], [renderCell, langCode, previewProps])
 
   // A2：Redis 键列表行键数组（依赖 keyList.rows），避免 SCAN 进度/详情加载等
   // 无关重渲触发 antd Table 全行重渲
@@ -6477,15 +6503,17 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: true, render: renderCell },
+              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: CELL_ELLIPSIS, onCell: r => previewProps('field', r), render: renderCell },
               {
                 title: e('dbValue'),
                 dataIndex: 'value',
                 key: 'value',
-                ellipsis: true,
+                ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 value 行内编辑（HSET 覆盖同字段）
+                // H1a-1：长 value 是 Redis 侧的主战场 —— 截断时弹预览卡看全文
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
+                  onDoubleClick: () => editRedisCell(r, 'value', r.value),
+                  ...previewProps('value', r)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveHashValue(r))
               },
@@ -6520,10 +6548,11 @@ export default auto(function DbSession (props) {
                 title: e('dbValue'),
                 dataIndex: 'value',
                 key: 'value',
-                ellipsis: true,
+                ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 value 行内编辑（LSET 按下标）
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
+                  onDoubleClick: () => editRedisCell(r, 'value', r.value),
+                  ...previewProps('value', r)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveListValue(r))
               },
@@ -6557,10 +6586,11 @@ export default auto(function DbSession (props) {
                 title: e('dbMember'),
                 dataIndex: 'member',
                 key: 'member',
-                ellipsis: true,
+                ellipsis: CELL_ELLIPSIS,
                 // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'member', r.member)
+                  onDoubleClick: () => editRedisCell(r, 'member', r.member),
+                  ...previewProps('member', r)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'member', v, () => editSetMember(r.member, redisEdit ? redisEdit.value : ''))
               },
@@ -6595,10 +6625,11 @@ export default auto(function DbSession (props) {
                 title: e('dbMember'),
                 dataIndex: 'member',
                 key: 'member',
-                ellipsis: true,
+                ellipsis: CELL_ELLIPSIS,
                 // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）
-                onCell: () => ({
-                  onDoubleClick: () => message.info(e('dbRedisMemberImmutable'))
+                onCell: r => ({
+                  onDoubleClick: () => message.info(e('dbRedisMemberImmutable')),
+                  ...previewProps('member', r)
                 }),
                 render: renderCell
               },
@@ -6607,9 +6638,11 @@ export default auto(function DbSession (props) {
                 dataIndex: 'score',
                 key: 'score',
                 width: 150,
+                ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'score', r.score)
+                  onDoubleClick: () => editRedisCell(r, 'score', r.score),
+                  ...previewProps('score', r)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'score', v, () => saveZsetScore(r), true)
               },
@@ -7435,6 +7468,15 @@ export default auto(function DbSession (props) {
             )
           : null
       }
+      {/* H1a-1：截断单元格的悬停预览卡。整个会话页只有一个实例，5 处网格共用 */}
+      <DbCellPreview
+        state={cellPreview.state}
+        patterns={keywordPatterns}
+        themeConfig={themeConfig}
+        onHide={handlePreviewHide}
+        onEnter={handlePreviewEnter}
+        onLeave={handlePreviewLeave}
+      />
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>

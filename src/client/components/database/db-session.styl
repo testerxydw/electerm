@@ -2232,3 +2232,72 @@ body.db-col-resizing
 .db-cell-summary-null
   margin-left 6px
   color var(--text-light, var(--text-dark))
+
+// ------------------------------------------------------------------ //
+// H1a-1：截断单元格的悬停预览卡（5 处网格共用一个单例）
+// ------------------------------------------------------------------ //
+// 锚点：跟随被截断单元格左下角的 fixed 元素，只给 Popover 当定位靶子，
+// 不能接事件（`pointer-events none`），否则挡在单元格上把 hover 自己挤掉。
+// 尺寸必须是 1px 而不是 0：rc-trigger 定位前先过 `isVisible(target)`
+// （@rc-component/util/es/Dom/isVisible.js），而 fixed 元素的 `offsetParent` 恒为
+// null，于是只剩"rect 宽或高非零"这一条活路；0×0 会被判成不可见 → `onAlign` 直接
+// return → 浮层永远停在 `-1000vw/-1000vh` 的待定位坐标（实测：卡片内容全对，
+// 但整张卡在屏幕外，肉眼什么都看不到）。1px 透明、不吃事件，视觉上等价于 0。
+.db-cell-preview-anchor
+  position fixed
+  width 1px
+  height 1px
+  pointer-events none
+
+.db-cell-preview
+  // 卡片本体由 antd Popover 负责底色/边框，这里只管尺寸与排版：
+  // 再套一层边框会出现双重描边
+  display flex
+  flex-direction column
+  gap 4px
+  max-width 520px
+  min-width 0
+
+.db-cell-preview-head
+  display flex
+  align-items center
+  gap 6px
+  min-width 0
+
+.db-cell-preview-col
+  // 列名可能很长：单独截断，不给它换行的机会（整卡高度要可控）
+  flex 0 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-weight 600
+  font-size 12px
+  color var(--text)
+
+.db-cell-preview-meta
+  flex none
+  font-size 11px
+  color var(--text-dark)
+
+.db-cell-preview-pre
+  margin 0
+  padding 6px 8px
+  // 等宽 + pre-wrap：长 JSON 不换行就等于看不全，这里必须折行
+  max-height 320px
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main)
+  color var(--text)
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  line-height 1.5
+  white-space pre-wrap
+  word-break break-all
+  // 预览卡的主要用途之一就是选中复制，不能被父级 user-select none 影响
+  user-select text
+
+.db-cell-preview-more
+  color var(--text-dark)
+  font-style italic
