@@ -132,8 +132,20 @@ const getDbPageSize = () => {
 // 但表格只渲染当前页，行键克隆也只做当前页 —— 整表渲染 + 全量克隆会让
 // 30k 行结果在堆上翻倍（实测 +17MB）并挂出上万 DOM 节点
 const SQL_RESULT_PAGE_SIZE = 50
-const sqlPageIndex = (page, total) => {
-  const pages = Math.max(1, Math.ceil(total / SQL_RESULT_PAGE_SIZE))
+// 结果页大小与数据页共用同一组候选；单独存 config.sqlResultPageSize，
+// 改结果行数不影响数据网格的取数页大小
+const DB_PAGE_OPTIONS = [10, 20, 50, 100, DB_PAGE_SIZE_MAX]
+const dbPageSizeOptions = () => DB_PAGE_OPTIONS.map(n => ({
+  value: n,
+  label: e('dbPerPage').replace('{n}', n)
+}))
+const getSqlResultPageSize = () => {
+  const v = Number(window.store._config && window.store._config.sqlResultPageSize)
+  return Number.isInteger(v) && v >= 10 ? Math.min(v, DB_PAGE_SIZE_MAX) : SQL_RESULT_PAGE_SIZE
+}
+const sqlPageIndex = (page, total, pageSize) => {
+  const size = pageSize >= 10 ? pageSize : SQL_RESULT_PAGE_SIZE
+  const pages = Math.max(1, Math.ceil(total / size))
   return Math.min(Math.max(1, page || 1), pages)
 }
 // A-7：SQL 补全关键字大小写（'lower' 默认 / 'upper'），非法值一律回落小写
@@ -692,6 +704,12 @@ export default auto(function DbSession (props) {
   })
   // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
   const [sqlPages, setSqlPages] = useState({})
+  // 页大小存 config（与数据页同一组候选），改后回第 1 页
+  const sqlPageSize = getSqlResultPageSize()
+  const changeSqlPageSize = v => {
+    window.store.setConfig({ sqlResultPageSize: v })
+    setSqlPages({})
+  }
   // 新结果（含失败清空）一到位就回第 1 页；翻页只切片，不重新执行
   useEffect(() => {
     setSqlPages({})
@@ -3788,14 +3806,14 @@ export default auto(function DbSession (props) {
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
   // A2：SQL 结果集行键数组提升到组件顶层 useMemo（依赖组件级 sqlResult.results），
   // 避免传输进度等无关重渲触发 antd Table 全行重渲。
-  // 分页后只克隆当前页的 50 行（__rowKey 用结果内的绝对下标，翻页不重复也不冲突）
+  // 分页后只克隆当前页的行（__rowKey 用结果内的绝对下标，翻页不重复也不冲突）
   const sqlResultRowMaps = useMemo(
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
-      const start = (sqlPageIndex(sqlPages[i], rows.length) - 1) * SQL_RESULT_PAGE_SIZE
-      return rows.slice(start, start + SQL_RESULT_PAGE_SIZE).map((x, j) => ({ ...x, __rowKey: start + j }))
+      const start = (sqlPageIndex(sqlPages[i], rows.length, sqlPageSize) - 1) * sqlPageSize
+      return rows.slice(start, start + sqlPageSize).map((x, j) => ({ ...x, __rowKey: start + j }))
     }),
-    [sqlResult.results, sqlPages]
+    [sqlResult.results, sqlPages, sqlPageSize]
   )
 
   const renderSqlResults = () => {
@@ -3805,14 +3823,14 @@ export default auto(function DbSession (props) {
     }
     const renderOne = (r, i) => {
       const rows = r.rows || []
-      // 结果不超过一页时不出分页器（单行结果保持原样）。
+      // 超过一页才出分页器（单行结果保持原样）。
       // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
-      const pager = rows.length > SQL_RESULT_PAGE_SIZE
+      const pager = rows.length > sqlPageSize
         ? (
           <Pagination
             size='small'
-            current={sqlPageIndex(sqlPages[i], rows.length)}
-            pageSize={SQL_RESULT_PAGE_SIZE}
+            current={sqlPageIndex(sqlPages[i], rows.length, sqlPageSize)}
+            pageSize={sqlPageSize}
             total={rows.length}
             showSizeChanger={false}
             showTotal={t => e('dbResultTotal').replace('{n}', t)}
@@ -3824,6 +3842,21 @@ export default auto(function DbSession (props) {
         <div key={i} className='db-sql-result-one'>
           <div className='db-sql-result-tools'>
             {pager}
+            {
+              rows.length
+                ? (
+                  <Select
+                    size='small'
+                    className='db-grid-pagesize'
+                    value={sqlPageSize}
+                    options={dbPageSizeOptions()}
+                    onChange={changeSqlPageSize}
+                    popupMatchSelectWidth={false}
+                    title={e('dbRowsPerPage')}
+                  />
+                  )
+                : null
+            }
             {
               rows.length
                 ? (
@@ -4090,10 +4123,7 @@ export default auto(function DbSession (props) {
   }
 
   // 每页行数切换：写 config.dbPageSize 并回第 1 页重新取数（mysql/redis 共用）
-  const pageSizeOptions = [10, 20, 50, 100, DB_PAGE_SIZE_MAX].map(n => ({
-    value: n,
-    label: e('dbPerPage').replace('{n}', n)
-  }))
+  const pageSizeOptions = dbPageSizeOptions()
   const changePageSize = (v) => {
     window.store.setConfig({ dbPageSize: v })
     if (isRedis) {

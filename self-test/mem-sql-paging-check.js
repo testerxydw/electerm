@@ -126,7 +126,21 @@ const snap = async (cdp, label) => {
     pagerTotal: (document.querySelector('.db-sql-result-one .ant-pagination-total-text') || {}).textContent || '',
     pagerItems: [...document.querySelectorAll('.db-sql-result-one .ant-pagination-item')].map(x => x.textContent),
     activePage: (document.querySelector('.db-sql-result-one .ant-pagination-item-active') || {}).textContent || '',
-    firstRow: ((document.querySelector('.db-sql-result-one .ant-table-row') || {}).innerText || '').replace(/\\n/g, ' | ').slice(0, 60)
+    firstRow: ((document.querySelector('.db-sql-result-one .ant-table-row') || {}).innerText || '').replace(/\\n/g, ' | ').slice(0, 60),
+    // 结果框边界：有边框且底边与快捷命令栏留有空隙，才看得出避让
+    resultBorder: (() => {
+      const el = document.querySelector('.db-sql-result-one .db-grid-table-wrap')
+      return el ? window.getComputedStyle(el).borderTopWidth : ''
+    })(),
+    resultGap: (() => {
+      const el = document.querySelector('.db-sql-result-one .db-grid-table-wrap')
+      const strip = document.querySelector('.quick-cmd-strip')
+      return el && strip ? Math.round(strip.getBoundingClientRect().top - el.getBoundingClientRect().bottom) : null
+    })(),
+    sizeLabel: (() => {
+      const el = document.querySelector('.db-sql-result-tools .db-grid-pagesize')
+      return el ? el.textContent.trim() : ''
+    })()
   })`) || '{}')
   console.log(label.padEnd(22), 'heap=' + (mb(heap.result.usedSize) + 'MB').padEnd(7), JSON.stringify(dom))
   return { heap: heap.result.usedSize, dom }
@@ -216,6 +230,41 @@ const main = async () => {
   await sleep(900)
   const page5 = await snap(cdp, 'sql-page-5')
 
+  // 2b) 结果页大小复用数据页候选：切 20 → 30000 行应变 1500 页；再切回 50
+  const sizeOf = () => cdp.eval(`(() => {
+    const last = [...document.querySelectorAll('.db-sql-result-one .ant-pagination-item')].pop()
+    const sel = document.querySelector('.db-sql-result-tools .db-grid-pagesize')
+    return (last ? last.textContent : '') + '|' + (sel ? sel.textContent.trim() : 'missing')
+  })()`)
+  await cdp.eval('window.store.setConfig({ sqlResultPageSize: 20 }); 1')
+  await sleep(500)
+  const size20 = await sizeOf()
+  await cdp.eval('window.store.setConfig({ sqlResultPageSize: 200 }); 1')
+  await sleep(500)
+  const size200 = await sizeOf()
+  await cdp.eval('window.store.setConfig({ sqlResultPageSize: 50 }); 1')
+  await sleep(500)
+  const size50 = await sizeOf()
+
+  // 2c) 走界面下拉：选项应与数据页一致（10/20/50/100/200），选 20 后分页变 1500 页
+  await cdp.eval(`(() => {
+    const sel = document.querySelector('.db-sql-result-tools .db-grid-pagesize')
+    sel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    return 1
+  })()`)
+  await sleep(400)
+  const options = await cdp.eval("JSON.stringify([...document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')].map(x => x.textContent.trim()))")
+  const pick = await cdp.eval(`(() => {
+    const opt = [...document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')].find(x => /^20\\b/.test(x.textContent.trim()))
+    if (!opt) return 'missing'
+    opt.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    return 'ok'
+  })()`)
+  await sleep(500)
+  const uiPick20 = await sizeOf()
+  await cdp.eval('window.store.setConfig({ sqlResultPageSize: 50 }); 1')
+  await sleep(400)
+
   // 3) 小结果覆盖：分页器消失
   await run('select 1')
   await waitFor(cdp, "document.querySelectorAll('.db-sql-result-one .ant-table-row').length === 1", 15000, 'small result')
@@ -261,6 +310,9 @@ const main = async () => {
   console.log('             p2=' + page2.dom.firstRow)
   console.log('             p5=' + page5.dom.firstRow)
   console.log('  pager items:', JSON.stringify(big.dom.pagerItems), 'total text:', big.dom.pagerTotal)
+  console.log('  size switch (lastPage|label): 20=' + size20 + ' 200=' + size200 + ' 50=' + size50)
+  console.log('  size dropdown options:', options, '| pick 20:', pick, '->', uiPick20)
+  console.log('  result frame border:', big.dom.resultBorder, '| gap to quick-cmd strip:', big.dom.resultGap + 'px')
   console.log('  small result pager gone:', small.dom.pager === false, 'rows=' + small.dom.sqlRows)
   console.log('  grid pageSize selector (config=1000):', pageSizeText)
   console.log('  grid rows rendered:', grid.dom.sqlRows, 'hidden-pane safe (all nodes):', grid.dom.all)
