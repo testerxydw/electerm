@@ -92,10 +92,13 @@ const DECIMAL_SEP = (() => {
   const found = parts.find(p => p.type === 'decimal')
   return found ? found.value : '.'
 })()
+// 纯日期专用：值按 UTC 午夜解释（见 DATE_ONLY_RE 分支），取日期部分就必须在 UTC 上取。
+// 用本地时区会把那一天再挪回去 —— 负偏移时区显示成前一天，正是当初要修的那个症状。
 const dateFmt = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
   month: '2-digit',
-  day: '2-digit'
+  day: '2-digit',
+  timeZone: 'utc'
 })
 const dateTimeFmt = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',

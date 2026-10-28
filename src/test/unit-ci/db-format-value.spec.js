@@ -15,6 +15,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const { execFileSync } = require('node:child_process')
 
 const digits = s => String(s).replace(/[^0-9]/g, '')
 // 分组生效 = 数字序列没变 + 确实多了非数字字符。符号留给 locale，判据不碰它。
@@ -44,6 +45,35 @@ function loadMod () {
   vm.runInContext(src + '\n;module.exports = ' + EXPORTS, sandbox, { filename: 'db-format-value.js' })
   return sandbox.module.exports
 }
+
+/**
+ * 在指定时区里跑一次格式化（子进程）。
+ * 时区是进程级、Intl 首用即定的东西：不另开进程就没法在同一份断言里同时覆盖
+ * UTC+8 与负偏移 —— 而"纯日期少一天"只在负偏移里现形，本机测不到。
+ * @param {string} tz IANA 时区名
+ * @param {string} value 单元格值
+ * @param {string} dataType 列类型
+ * @returns {string} 展示文本
+ */
+function formatInTz (tz, value, dataType) {
+  const script = `
+    const fs = require('node:fs'), vm = require('node:vm')
+    const src = fs.readFileSync(${JSON.stringify(MOD)}, 'utf8').replace(/^export /gm, '')
+    const sandbox = { Intl, Number, Date, String, console, module: { exports: {} } }
+    sandbox.module.exports = {}; sandbox.exports = sandbox.module.exports
+    vm.createContext(sandbox)
+    vm.runInContext(src + '\\n;module.exports = ({ formatCellValue })', sandbox)
+    process.stdout.write(sandbox.module.exports.formatCellValue(${JSON.stringify(value)}, ${JSON.stringify(dataType)}, 'os'))
+  `
+  return execFileSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    env: { ...process.env, TZ: tz }
+  })
+}
+
+// 只比"这一串里出现了哪几个数字段"，不比顺序与分隔符：2-digit 月日 + numeric 年
+// 在任何 locale 下都是这三段，顺序才是 locale 的事。
+const groups = s => String(s).match(/\d+/g).sort().join('|')
 
 describe('db-format-value: 默认关闭时行为与原样一致', () => {
   let m
@@ -184,6 +214,22 @@ describe('db-format-value: 日期', () => {
     const out = m.formatCellValue('2024-01-05', 'date', 'os')
     assert.ok(/2024/.test(out) && /01/.test(out) && /05/.test(out), '纯日期必须原样落到 01-05: ' + out)
     assert.ok(!/04/.test(out), '不得因时区少一天: ' + out)
+  })
+
+  test('纯日期在负偏移时区不得少一天（子进程钉 TZ 才真跑到那条分支）', () => {
+    // 本机 UTC+8：UTC 午夜与本地午夜同一天，这条判据在进程内永远是绿的 ——
+    // 少一天只在负偏移里现形，所以必须另开进程把时区钉住。
+    for (const tz of ['America/New_York', 'Pacific/Midway', 'Etc/GMT+11']) {
+      assert.equal(groups(formatInTz(tz, '2024-01-05', 'date')), '01|05|2024', tz)
+    }
+    assert.equal(groups(formatInTz('Asia/Shanghai', '2024-01-05', 'date')), '01|05|2024')
+  })
+
+  test('无时区的 datetime 在负偏移时区既不漂移时刻也不跨天', () => {
+    const out = formatInTz('Pacific/Midway', '2024-01-05 10:30:00', 'datetime')
+    const g = groups(out).split('|')
+    assert.ok(g.includes('2024') && g.includes('05'), '日期不得少一天: ' + out)
+    assert.ok(/10/.test(out) && /30/.test(out), '时刻必须还是 10:30: ' + out)
   })
 
   test('无时区的 datetime 按本地解释，不漂移', () => {
