@@ -128,6 +128,14 @@ const getDbPageSize = () => {
   const v = Number(window.store._config && window.store._config.dbPageSize)
   return v >= 10 ? Math.min(v, DB_PAGE_SIZE_MAX) : DB_PAGE_SIZE_DEFAULT
 }
+// SQL 结果分页：一次执行返回的行全部留在 sqlResult 里（导出/复制要用全量），
+// 但表格只渲染当前页，行键克隆也只做当前页 —— 整表渲染 + 全量克隆会让
+// 30k 行结果在堆上翻倍（实测 +17MB）并挂出上万 DOM 节点
+const SQL_RESULT_PAGE_SIZE = 50
+const sqlPageIndex = (page, total) => {
+  const pages = Math.max(1, Math.ceil(total / SQL_RESULT_PAGE_SIZE))
+  return Math.min(Math.max(1, page || 1), pages)
+}
 // A-7：SQL 补全关键字大小写（'lower' 默认 / 'upper'），非法值一律回落小写
 const getSqlKeywordCase = () => {
   const v = window.store._config && window.store._config.dbSqlKeywordCase
@@ -682,6 +690,12 @@ export default auto(function DbSession (props) {
     results: [],
     error: ''
   })
+  // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
+  const [sqlPages, setSqlPages] = useState({})
+  // 新结果（含失败清空）一到位就回第 1 页；翻页只切片，不重新执行
+  useEffect(() => {
+    setSqlPages({})
+  }, [sqlResult.results])
 
   // ---- E1 危险 SQL 分级 + 连接级安全带 ----
   // guard 状态放 ref：lowRiskMuted / bypass / asked 都是内存开关，只在事件回调里读写，
@@ -3773,10 +3787,15 @@ export default auto(function DbSession (props) {
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
   // A2：SQL 结果集行键数组提升到组件顶层 useMemo（依赖组件级 sqlResult.results），
-  // 避免传输进度等无关重渲触发 antd Table 全行重渲
+  // 避免传输进度等无关重渲触发 antd Table 全行重渲。
+  // 分页后只克隆当前页的 50 行（__rowKey 用结果内的绝对下标，翻页不重复也不冲突）
   const sqlResultRowMaps = useMemo(
-    () => (sqlResult.results || []).map(r => ((r && r.rows) || []).map((x, j) => ({ ...x, __rowKey: j }))),
-    [sqlResult.results]
+    () => (sqlResult.results || []).map((r, i) => {
+      const rows = (r && r.rows) || []
+      const start = (sqlPageIndex(sqlPages[i], rows.length) - 1) * SQL_RESULT_PAGE_SIZE
+      return rows.slice(start, start + SQL_RESULT_PAGE_SIZE).map((x, j) => ({ ...x, __rowKey: start + j }))
+    }),
+    [sqlResult.results, sqlPages]
   )
 
   const renderSqlResults = () => {
@@ -3784,48 +3803,64 @@ export default auto(function DbSession (props) {
     if (!results.length) {
       return null
     }
-    const renderOne = (r, i) => (
-      <div key={i} className='db-sql-result-one'>
-        <div className='db-sql-result-tools'>
+    const renderOne = (r, i) => {
+      const rows = r.rows || []
+      // 结果不超过一页时不出分页器（单行结果保持原样）
+      const pagination = rows.length > SQL_RESULT_PAGE_SIZE
+        ? {
+            current: sqlPageIndex(sqlPages[i], rows.length),
+            pageSize: SQL_RESULT_PAGE_SIZE,
+            total: rows.length,
+            size: 'small',
+            showSizeChanger: false,
+            showTotal: t => e('dbResultTotal').replace('{n}', t),
+            onChange: p => setSqlPages(prev => ({ ...prev, [i]: p }))
+          }
+        : false
+      return (
+        <div key={i} className='db-sql-result-one'>
+          <div className='db-sql-result-tools'>
+            {
+              rows.length
+                ? (
+                  <Dropdown
+                    menu={{
+                      items: [
+                        { key: 'csv', label: 'CSV' },
+                        { key: 'json', label: 'JSON' }
+                      ],
+                      // 导出始终是整份结果（不受当前页限制）
+                      onClick: ({ key }) => key === 'json'
+                        ? exportSqlJson(r, i)
+                        : exportSqlCsv(r, i)
+                    }}
+                  >
+                    <Tooltip title={e('dbExportCsv')}>
+                      <Button
+                        size='small'
+                        icon={<DownloadOutlined />}
+                      />
+                    </Tooltip>
+                  </Dropdown>
+                  )
+                : null
+            }
+          </div>
           {
-            (r.rows || []).length
-              ? (
-                <Dropdown
-                  menu={{
-                    items: [
-                      { key: 'csv', label: 'CSV' },
-                      { key: 'json', label: 'JSON' }
-                    ],
-                    onClick: ({ key }) => key === 'json'
-                      ? exportSqlJson(r, i)
-                      : exportSqlCsv(r, i)
-                  }}
-                >
-                  <Tooltip title={e('dbExportCsv')}>
-                    <Button
-                      size='small'
-                      icon={<DownloadOutlined />}
-                    />
-                  </Tooltip>
-                </Dropdown>
-                )
+            r.affected !== undefined
+              ? <div className='db-sql-affected'>{e('dbAffectedRows').replace('{n}', r.affected)}</div>
               : null
           }
+          <DbGridTable
+            size='small'
+            columns={sqlResultColumns[i] || []}
+            dataSource={sqlResultRowMaps[i]}
+            rowKey='__rowKey'
+            pagination={pagination}
+          />
         </div>
-        {
-          r.affected !== undefined
-            ? <div className='db-sql-affected'>{e('dbAffectedRows').replace('{n}', r.affected)}</div>
-            : null
-        }
-        <DbGridTable
-          size='small'
-          columns={sqlResultColumns[i] || []}
-          dataSource={sqlResultRowMaps[i]}
-          rowKey='__rowKey'
-          pagination={false}
-        />
-      </div>
-    )
+      )
+    }
     if (results.length === 1) {
       return renderOne(results[0], 0)
     }

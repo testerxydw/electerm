@@ -89,6 +89,8 @@ describe('多结果集：渲染分支', () => {
 
   test('下载按钮只在有行时渲染（现象判据：能看到按钮就说明数据回来了）', () => {
     const src = read(SESSION)
-    assert.match(src, /\(r\.rows \|\| \[\]\)\.length/)
+    // 分页后判断依据从 (r.rows || []).length 改为局部 rows，语义不变
+    assert.match(src, /const rows = r\.rows \|\| \[\]/)
+    assert.match(src, /^\s*rows\.length$/m)
   })
 })
