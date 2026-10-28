@@ -24,6 +24,7 @@ import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
+import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile, SQL_HISTORY_MAX } from '../../common/db-sql-history'
 // B 批：查询收藏（B-1~B-4）与 SQL 模板（B-3，同一份定义菜单/补全共用）
@@ -522,6 +523,15 @@ export default auto(function DbSession (props) {
   const [editValue, setEditValue] = useState('')
   // 单元格预览面板（点击选中；完整值 + 复制/编辑/保存）
   const [selectedCell, setSelectedCell] = useState(null)
+  // B3-1 列聚合：跟随"选中单元格所在列"算当前显示行的 count/sum/avg/min/max。
+  // 依赖 filteredRows（不是 grid.rows）—— 页内过滤后用户看到的行才是"这一屏"，
+  // 用原始页会给出与屏幕不一致的合计。selectedCell 为空时不显示。
+  const cellSummary = useMemo(
+    () => (selectedCell && selectedCell.col
+      ? summarizeColumn(filteredRows, selectedCell.col)
+      : null),
+    [filteredRows, selectedCell]
+  )
   // A-5：列补全用的列索引（由 listColumns 整成 {表名: 列[]}）
   const [sqlColumns, setSqlColumns] = useState({})
   // 面板值 = 选中单元格的原始值（编辑草稿在 DbValuePane 内部）。
@@ -4129,6 +4139,26 @@ export default auto(function DbSession (props) {
                       <span className='db-page-filter-count'>
                         {filteredRows.length} / {grid.rows.length}
                       </span>
+                      )
+                    : null
+                }
+                {
+                  // B3-1：选中单元格即显示该列聚合（本页 = 当前显示行）。
+                  // 只读展示，不写库、不发 SQL —— 需要全表聚合去 SQL 页签
+                  cellSummary
+                    ? (
+                      <Tooltip
+                        title={`${cellSummary.column} · ${e('dbAggHint')}`}
+                      >
+                        <span className='db-cell-summary'>
+                          {summaryText(cellSummary)}
+                          {
+                            cellSummary.nulls
+                              ? <span className='db-cell-summary-null'>NULL {cellSummary.nulls}</span>
+                              : null
+                          }
+                        </span>
+                      </Tooltip>
                       )
                     : null
                 }

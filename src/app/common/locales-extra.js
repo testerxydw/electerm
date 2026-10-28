@@ -240,6 +240,8 @@ const en = {
   dbViewDdl: 'View DDL',
   dbDdlNotFound: 'DDL not available for this object',
   // B2 树扩展：非表对象分组标题（组名是稳定英文 token，标题随语言）
+  // B3-1 列聚合（只算当前显示的行；全表聚合请用 SQL）
+  dbAggHint: 'Sum / Avg / Count of the rows currently shown (not the whole table)',
   dbRoutines: 'Procedures & Functions',
   dbTriggers: 'Triggers',
   dbEvents: 'Events',
@@ -804,6 +806,8 @@ const zhCn = {
   dbViewDdl: '查看 DDL',
   dbDdlNotFound: '该对象没有可用的 DDL',
   // B2 树扩展：非表对象分组标题（组名是稳定英文 token，标题随语言）
+  // B3-1 列聚合（只算当前显示的行；全表聚合请用 SQL）
+  dbAggHint: '当前显示行的合计 / 平均 / 计数（不是全表）',
   dbRoutines: '存储过程与函数',
   dbTriggers: '触发器',
   dbEvents: '事件',
