@@ -5,7 +5,7 @@
  */
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Pagination } from 'antd'
 import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -3805,21 +3805,25 @@ export default auto(function DbSession (props) {
     }
     const renderOne = (r, i) => {
       const rows = r.rows || []
-      // 结果不超过一页时不出分页器（单行结果保持原样）
-      const pagination = rows.length > SQL_RESULT_PAGE_SIZE
-        ? {
-            current: sqlPageIndex(sqlPages[i], rows.length),
-            pageSize: SQL_RESULT_PAGE_SIZE,
-            total: rows.length,
-            size: 'small',
-            showSizeChanger: false,
-            showTotal: t => e('dbResultTotal').replace('{n}', t),
-            onChange: p => setSqlPages(prev => ({ ...prev, [i]: p }))
-          }
-        : false
+      // 结果不超过一页时不出分页器（单行结果保持原样）。
+      // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
+      const pager = rows.length > SQL_RESULT_PAGE_SIZE
+        ? (
+          <Pagination
+            size='small'
+            current={sqlPageIndex(sqlPages[i], rows.length)}
+            pageSize={SQL_RESULT_PAGE_SIZE}
+            total={rows.length}
+            showSizeChanger={false}
+            showTotal={t => e('dbResultTotal').replace('{n}', t)}
+            onChange={p => setSqlPages(prev => ({ ...prev, [i]: p }))}
+          />
+          )
+        : null
       return (
         <div key={i} className='db-sql-result-one'>
           <div className='db-sql-result-tools'>
+            {pager}
             {
               rows.length
                 ? (
@@ -3856,7 +3860,7 @@ export default auto(function DbSession (props) {
             columns={sqlResultColumns[i] || []}
             dataSource={sqlResultRowMaps[i]}
             rowKey='__rowKey'
-            pagination={pagination}
+            pagination={false}
           />
         </div>
       )

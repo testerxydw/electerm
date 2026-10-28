@@ -12,6 +12,7 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const read = () => fs.readFileSync(JSX, 'utf8')
 
 // 跑真实源码里的页码夹取函数（不是拷贝）
@@ -64,19 +65,31 @@ describe('SQL 结果分页：接线契约', () => {
     assert.ok(!/\(r && r\.rows\) \|\| \[\]\)\.map\(/.test(code), 'full-result clone must not return')
   })
 
-  test('table pagination is wired to the per-result page state', () => {
+  test('pager is wired to the per-result page state', () => {
     const src = read()
-    assert.ok(src.includes('current: sqlPageIndex(sqlPages[i], rows.length)'), 'current page not wired')
-    assert.ok(src.includes('pageSize: SQL_RESULT_PAGE_SIZE'), 'page size not wired')
-    assert.ok(src.includes('total: rows.length'), 'total not wired')
-    assert.ok(src.includes('showSizeChanger: false'), 'page size must stay fixed')
-    assert.ok(src.includes('onChange: p => setSqlPages('), 'page change handler missing')
+    assert.ok(src.includes('current={sqlPageIndex(sqlPages[i], rows.length)}'), 'current page not wired')
+    assert.ok(src.includes('pageSize={SQL_RESULT_PAGE_SIZE}'), 'page size not wired')
+    assert.ok(src.includes('total={rows.length}'), 'total not wired')
+    assert.ok(src.includes('showSizeChanger={false}'), 'page size must stay fixed')
+    assert.ok(src.includes('onChange={p => setSqlPages('), 'page change handler missing')
   })
 
-  test('single-page results keep the plain table (no pager)', () => {
+  test('pager lives in the top tools row, not the table footer', () => {
     const src = read()
-    assert.ok(src.includes('const pagination = rows.length > SQL_RESULT_PAGE_SIZE'), 'pager threshold missing')
-    assert.ok(src.includes('pagination={pagination}'), 'pagination prop not passed to DbGridTable')
+    assert.ok(src.includes('const pager = rows.length > SQL_RESULT_PAGE_SIZE'), 'pager threshold missing')
+    // 表尾分页会被底部命令栏遮住 → 表格不再渲染自带底部分页器
+    assert.ok(src.includes('pagination={false}'), 'table must not render the footer pager')
+    const tools = src.match(/<div className='db-sql-result-tools'>[\s\S]*?\n\s{10}<\/div>/)
+    assert.ok(tools, 'tools row not found')
+    assert.ok(tools[0].includes('{pager}'), 'pager must render inside the tools row')
+  })
+
+  test('tools row aligns left (pager + export on the same row)', () => {
+    const styl = fs.readFileSync(STYL, 'utf8')
+    const block = styl.match(/\.db-sql-result-tools\n((?: {2}[^\n]*\n)+)/)
+    assert.ok(block, '.db-sql-result-tools rule not found')
+    assert.match(block[1], /^ {2}justify-content flex-start$/m, 'tools row must be left-aligned')
+    assert.ok(!/justify-content flex-end/.test(block[1]), 'right alignment must not return')
   })
 
   test('new result resets to page 1', () => {

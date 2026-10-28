@@ -1,7 +1,10 @@
 const http = require('node:http')
+const fs = require('node:fs')
+const path = require('node:path')
 const WebSocket = require('ws')
 
 const PORT = process.argv[2] || '9222'
+const SHOT_DIR = process.argv[3] || ''
 const getJson = url => new Promise((resolve, reject) => {
   http.get(url, res => {
     let body = ''
@@ -105,6 +108,11 @@ const STUB = `
 `
 
 const snap = async (cdp, label) => {
+  if (SHOT_DIR) {
+    fs.mkdirSync(SHOT_DIR, { recursive: true })
+    const shot = await cdp.call('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(path.join(SHOT_DIR, label + '.png'), Buffer.from(shot.result.data, 'base64'))
+  }
   await cdp.call('HeapProfiler.collectGarbage')
   await sleep(220)
   await cdp.call('HeapProfiler.collectGarbage')
