@@ -123,7 +123,10 @@ describe('B1 建连路径必须摊入 ssl/tls 选项', () => {
   })
 
   test('postgres: 客户端与测试连接都带 ssl', () => {
-    assert.match(fnBody(PG, 'getClient'), /\.\.\.sslOptions\(conn\)/)
+    // F2 起建连参数统一收口到 clientOptions（共享连接与事务专用连接共用），
+    // getClient 只是取用者 —— ssl 仍在唯一的建连参数构造函数里
+    assert.match(fnBody(PG, 'clientOptions'), /\.\.\.sslOptions\(conn\)/)
+    assert.match(fnBody(PG, 'getClient'), /clientOptions\(conn\)/)
     assert.match(fnBody(PG, 'testPostgresConnection'), /\.\.\.sslOptions\(conn\)/)
   })
 

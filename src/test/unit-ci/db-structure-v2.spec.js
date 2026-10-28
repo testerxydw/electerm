@@ -525,7 +525,8 @@ describe('F0 接线：op 注册与缓存', () => {
   test('结构缓存 60s + 同键并发去重 + executeSql 后失效', () => {
     assert.ok(/const STRUCTURE_TTL = 60000/.test(indexSrc), 'TTL must be 60s')
     // 2026-10-27 起带第 5 参 onTimeout：op 超时触发 adapter.evict 自愈（见 db-op-timeout-evict.spec.js）
-    assert.ok(indexSrc.includes('structureCached(inst, adapter, safeArgs, opMs, evictOnTimeout)'))
+    // F2 起追加第 6 参 opConn（事务钉住期间走专用连接）
+    assert.ok(/structureCached\(inst, adapter, safeArgs, opMs, evictOnTimeout/.test(indexSrc))
     assert.ok(/cache\.inflight\.has\(key\)/.test(indexSrc), 'concurrent same-key must dedupe')
     // getMetadata 刷新后两套缓存一起清
     const metaBlock = indexSrc.slice(indexSrc.indexOf("if (op === 'getMetadata')"))

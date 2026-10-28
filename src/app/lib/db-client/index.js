@@ -282,8 +282,9 @@ function resetColumnsCache (inst) {
 }
 
 // 同键并发去重：补全可能在同一个键上连发几次（编辑器重建 source 时），
-// 合并成一次查询；失败不缓存，下次输入会重试
-async function listColumnsCached (inst, adapter, args, opMs, onTimeout) {
+// 合并成一次查询；失败不缓存，下次输入会重试。
+// connOverride：F2 事务钉住期间传事务连接（否则默认 inst.conn 走共享池）
+async function listColumnsCached (inst, adapter, args, opMs, onTimeout, connOverride) {
   const key = columnsCacheKey(args)
   const cache = inst.columnsCache || resetColumnsCache(inst)
   if (cache.values.has(key)) {
@@ -292,7 +293,7 @@ async function listColumnsCached (inst, adapter, args, opMs, onTimeout) {
   if (cache.inflight.has(key)) {
     return cache.inflight.get(key)
   }
-  const p = withTimeout(adapter.listColumns(inst.conn, args), opMs, 'db op listColumns', onTimeout).then(
+  const p = withTimeout(adapter.listColumns(connOverride || inst.conn, args), opMs, 'db op listColumns', onTimeout).then(
     res => {
       cache.values.set(key, res)
       cache.inflight.delete(key)
@@ -325,8 +326,9 @@ function resetStructureCache (inst) {
   return inst.structureCache
 }
 
-// 同键并发去重：结构面板 + 表头提示可能同时问同一张表，合并成一次四条查询
-async function structureCached (inst, adapter, args, opMs, onTimeout) {
+// 同键并发去重：结构面板 + 表头提示可能同时问同一张表，合并成一次四条查询。
+// connOverride：F2 事务钉住期间传事务连接（否则默认 inst.conn 走共享池）
+async function structureCached (inst, adapter, args, opMs, onTimeout, connOverride) {
   const key = structureKey(args)
   const cache = inst.structureCache || resetStructureCache(inst)
   if (cache.values.has(key)) {
@@ -446,6 +448,20 @@ async function assertPageBoundary (inst, adapter, args, opMs, evictOnTimeout) {
 }
 
 async function dbClientOp (tabId, op, args) {
+  // F2 事务 op 不走适配器方法表：连接生命周期由本模块掌握，
+  // begin/commit/rollback 各自校验 tab 与 pinned 状态
+  if (op === 'beginDbTx') {
+    return beginDbTx(tabId)
+  }
+  if (op === 'commitDbTx') {
+    return commitDbTx(tabId)
+  }
+  if (op === 'rollbackDbTx') {
+    return rollbackDbTx(tabId)
+  }
+  if (op === 'getDbTxState') {
+    return getDbTxState(tabId)
+  }
   const inst = instances[tabId]
   if (!inst || inst.pending) {
     // pending 占位 = open 进行中，连接尚未可用
@@ -464,39 +480,87 @@ async function dbClientOp (tabId, op, args) {
     readOnly: inst.readOnly
   }
   const opMs = OP_TIMEOUTS[op] || OP_TIMEOUTS.default
+  const pinned = inst.pinned
+  if (pinned && pinned.closing) {
+    // 提交/回滚在途：此时新 op 若走共享连接会读到还没提交的快照，
+    // 明确拒绝比给出不一致结果好（前端在按钮 loading 期间不会发新语句）
+    throw new Error('transaction is closing')
+  }
+  // F2：事务钉住期间所有 op 走专用事务连接（一致读 + 写入同一事务）；
+  // 非事务 op 保持原连接，缓存与签名口径不变
+  const opConn = pinned
+    ? { ...inst.conn, __txClient: pinned.client }
+    : inst.conn
   // 断连自愈：db op 超时大概率是连接已被服务端静默断开（死 socket 挂起直到 withTimeout 拒绝）。
   // 触发时销毁该签名的连接池（adapter.evict），下次操作自动重建——重建后即恢复，无需手动关 tab。
   // mysql 适配器实现了 evict；postgres/redis 无池（单连接）超时属"慢查询/对端不响应"，
   // 不销毁（避免把正常慢查询误判成断连），但错误已带 ETIMEDOUT 交给前端触发重连提示。
+  // 事务连接不 evict：销毁签名池会连带杀掉池里钉住的连接，事务内超时按普通错误上抛。
   const evictOnTimeout = () => {
-    if (adapter && typeof adapter.evict === 'function') {
+    if (!pinned && adapter && typeof adapter.evict === 'function') {
       adapter.evict(inst.conn)
     }
   }
-  if (op === 'getMetadata') {
-    // 树刷新/切库后列与结构都可能已变，两套缓存必须跟着失效
-    resetColumnsCache(inst)
-    resetStructureCache(inst)
+  const runOp = async () => {
+    if (op === 'getMetadata') {
+      // 树刷新/切库后列与结构都可能已变，两套缓存必须跟着失效
+      resetColumnsCache(inst)
+      resetStructureCache(inst)
+    }
+    if (op === 'listColumns') {
+      return listColumnsCached(inst, adapter, safeArgs, opMs, evictOnTimeout, opConn)
+    }
+    if (op === 'getTableStructure') {
+      return structureCached(inst, adapter, safeArgs, opMs, evictOnTimeout, opConn)
+    }
+    if (op === 'getPageData' && DB_ADAPTER[inst.dbType] !== 'redis' &&
+      needsPageBoundary(safeArgs)) {
+      // redis 的 getPageData 是 SCAN 语义：没有 where、也没有 getTableStructure，
+      // 误走校验会抛 unsupported op（而不是"条件不合法"），故整类跳过
+      await assertPageBoundary(inst, adapter, safeArgs, opMs, evictOnTimeout, opConn)
+    }
+    if (op === 'executeSql') {
+      // 执行完就丢结构缓存：用户可能刚跑过 ALTER/DDL，
+      // 60s TTL 内还拿旧列会让表头与真实表对不上（DDL 不是高频操作，清空的代价可忽略）
+      return withTimeout(adapter[method](opConn, safeArgs), opMs, `db op ${op}`, evictOnTimeout)
+        .finally(() => resetStructureCache(inst))
+    }
+    return withTimeout(adapter[method](opConn, safeArgs), opMs, `db op ${op}`, evictOnTimeout)
   }
-  if (op === 'listColumns') {
-    return listColumnsCached(inst, adapter, safeArgs, opMs, evictOnTimeout)
+  if (!pinned) {
+    return runOp()
   }
-  if (op === 'getTableStructure') {
-    return structureCached(inst, adapter, safeArgs, opMs, evictOnTimeout)
+  // F2 事务内：串行排队（单连接不支持并发）+ 记变更清单 + 摸活（重置空闲回滚计时）
+  // 批量改值自管 START TRANSACTION，在手动事务里会把外层隐式提交 —— 直接拒绝
+  // （导入走 getDbTabContext，已在那边拦）
+  if (op === 'updateCells') {
+    throw new Error(`db op ${op} is not allowed inside a manual transaction (commit or rollback first)`)
   }
-  if (op === 'getPageData' && DB_ADAPTER[inst.dbType] !== 'redis' &&
-    needsPageBoundary(safeArgs)) {
-    // redis 的 getPageData 是 SCAN 语义：没有 where、也没有 getTableStructure，
-    // 误走校验会抛 unsupported op（而不是"条件不合法"），故整类跳过
-    await assertPageBoundary(inst, adapter, safeArgs, opMs, evictOnTimeout)
+  const startedAt = Date.now()
+  const text = txStatementText(op, safeArgs)
+  const next = pinned.queue.then(runOp, runOp)
+  pinned.queue = next.then(() => {}, () => {})
+  try {
+    const res = await next
+    recordTxStatement(pinned, {
+      at: startedAt,
+      ms: Date.now() - startedAt,
+      sql: text,
+      affectedRows: txAffected(res)
+    })
+    return res
+  } catch (e) {
+    recordTxStatement(pinned, {
+      at: startedAt,
+      ms: Date.now() - startedAt,
+      sql: text,
+      error: e && e.message ? e.message : String(e)
+    })
+    throw e
+  } finally {
+    pinned.lastActiveAt = Date.now()
+    armTxIdleTimer(inst)
   }
-  if (op === 'executeSql') {
-    // 执行完就丢结构缓存：用户可能刚跑过 ALTER/DDL，
-    // 60s TTL 内还拿旧列会让表头与真实表对不上（DDL 不是高频操作，清空的代价可忽略）
-    return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`, evictOnTimeout)
-      .finally(() => resetStructureCache(inst))
-  }
-  return withTimeout(adapter[method](inst.conn, safeArgs), opMs, `db op ${op}`, evictOnTimeout)
 }
 
 // 页面上切换只读模式：白名单以主进程实例为权威（渲染层传参不可信），
@@ -506,8 +570,257 @@ async function setDbReadOnly (tabId, readOnly) {
   if (!inst || inst.pending) {
     throw new Error('database tab not open')
   }
+  // F2：切只读前先回滚未提交事务（设计 §13.1）——只读白名单拦得住新语句，
+  // 拦不住已在事务里待提交的变更，必须先了结再切
+  if (readOnly !== false && inst.pinned) {
+    await forceEndTx(inst, 'readonly', true)
+  }
   inst.readOnly = readOnly !== false
   return { ok: true }
+}
+
+// ---------------------------------------------------------------- F2 事务安全带
+// 设计 §13：手动事务 = 连接钉住。beginDbTx 从池取专用连接并开启事务，
+// 期间该 tab 的所有 op 都走这条连接（一致读 + 写入同一事务）且串行执行；
+// commit/rollback 释放连接。三条强制收口：空闲 10 分钟自动回滚、
+// 关 tab/重连强制回滚（禁止静默提交）、开启只读前先回滚。
+// 明确不做：SAVEPOINT、嵌套事务、跨 tab 共享事务、分布式事务。
+const TX_IDLE_MS = 10 * 60 * 1000
+// 连接池 connectionLimit=4：钉住 1 条 + 常规并发仍需余量，最多 2 个 tab 同时开手动事务
+const TX_MAX_TABS = 2
+// 变更清单保留上限：超长事务（跑批）只留最近 N 条，防主进程内存被列表撑大
+const TX_STATEMENTS_KEEP = 500
+// 状态查询返回给前端的清单条数上限（IPC 负载口径）
+const TX_STATEMENTS_VIEW = 200
+
+function countPinnedTabs () {
+  return Object.values(instances).filter(i => i && i.pinned).length
+}
+
+// 变更清单里非 executeSql 的 op 用可读摘要（库名/表名），executeSql 用原文（截断）
+function txStatementText (op, args) {
+  const a = args || {}
+  if (op === 'executeSql') {
+    const s = String(a.sql || '')
+    return s.length > 500 ? s.slice(0, 500) + '…' : s
+  }
+  const target = [a.database, a.schema, a.table].filter(Boolean).join('.')
+  return target ? `${op} ${target}` : op
+}
+
+function txAffected (res) {
+  const pick = o => {
+    if (!o || typeof o !== 'object') {
+      return undefined
+    }
+    const n = o.affectedRows !== undefined
+      ? o.affectedRows
+      : o.affected !== undefined
+        ? o.affected
+        : o.rowCount
+    return typeof n === 'number' ? n : undefined
+  }
+  const direct = pick(res)
+  if (direct !== undefined) {
+    return direct
+  }
+  // executeSql 的影响行数在 results[0]（单语句场景，多条语句时取首条）
+  if (res && Array.isArray(res.results)) {
+    return pick(res.results[0])
+  }
+  return undefined
+}
+
+function recordTxStatement (pinned, st) {
+  pinned.total += 1
+  pinned.statements.push(st)
+  if (pinned.statements.length > TX_STATEMENTS_KEEP) {
+    pinned.statements.splice(0, pinned.statements.length - TX_STATEMENTS_KEEP)
+  }
+}
+
+// 摸活：begin 与每次事务内 op 完成都重置空闲回滚计时
+function armTxIdleTimer (inst) {
+  const pinned = inst.pinned
+  if (!pinned) {
+    return
+  }
+  if (pinned.idleTimer) {
+    clearTimeout(pinned.idleTimer)
+  }
+  pinned.idleTimer = setTimeout(() => {
+    // 主动回滚并通知：前端轮询 getDbTxState 时经 lastTx(auto=true) 感知
+    forceEndTx(inst, 'idle', true).catch(() => {})
+  }, TX_IDLE_MS)
+  // 主进程常驻无妨，但别让单测进程被这个 10 分钟 timer 挂着
+  if (typeof pinned.idleTimer.unref === 'function') {
+    pinned.idleTimer.unref()
+  }
+}
+
+// 强制收口（空闲超时/关 tab/切只读）：先摘除 pinned（新 op 不再入队、走共享连接），
+// 回滚排进既有 op 队列末尾 —— 已入队语句先在事务里跑完，再整体回滚，不会漏滚。
+// 等回滚真正结束才返回，closeDbTab 才能保证"先回滚后释放连接"。
+async function forceEndTx (inst, reason, auto) {
+  const pinned = inst.pinned
+  if (!pinned) {
+    return null
+  }
+  pinned.closing = true
+  inst.pinned = null
+  if (pinned.idleTimer) {
+    clearTimeout(pinned.idleTimer)
+  }
+  const summary = {
+    reason,
+    auto: !!auto,
+    at: Date.now(),
+    count: pinned.total
+  }
+  const adapter = getAdapter(inst.dbType)
+  const run = () => adapter.rollbackTx(pinned.client)
+  try {
+    await pinned.queue.then(run, run)
+  } catch (e) {
+    // rollbackTx 内部已兜底（失败销毁连接），这里只防队列拒绝穿透
+  }
+  inst.lastTx = summary
+  return summary
+}
+
+async function beginDbTx (tabId) {
+  const inst = instances[tabId]
+  if (!inst || inst.pending) {
+    throw new Error('database tab not open')
+  }
+  if (inst.pinned) {
+    throw new Error('transaction already active on this tab')
+  }
+  const adapter = getAdapter(inst.dbType)
+  if (typeof adapter.beginTx !== 'function') {
+    throw new Error(`transactions not supported for ${inst.dbType}`)
+  }
+  if (countPinnedTabs() >= TX_MAX_TABS) {
+    throw new Error(`manual transaction limit reached (max ${TX_MAX_TABS})`)
+  }
+  // 建连阶段超时同样按断连自愈口径销毁池（与 openDbTab 一致）
+  const evictOnTimeout = () => {
+    if (typeof adapter.evict === 'function') {
+      adapter.evict(inst.conn)
+    }
+  }
+  const client = await withTimeout(
+    adapter.beginTx(inst.conn), OVERALL_TIMEOUT, 'connection', evictOnTimeout
+  )
+  const pinned = {
+    client,
+    since: Date.now(),
+    lastActiveAt: Date.now(),
+    statements: [],
+    total: 0,
+    queue: Promise.resolve(),
+    idleTimer: null
+  }
+  inst.pinned = pinned
+  armTxIdleTimer(inst)
+  return { ok: true, since: pinned.since }
+}
+
+async function commitDbTx (tabId) {
+  const inst = instances[tabId]
+  if (!inst || inst.pending) {
+    throw new Error('database tab not open')
+  }
+  const pinned = inst.pinned
+  if (!pinned) {
+    throw new Error('no active transaction on this tab')
+  }
+  const adapter = getAdapter(inst.dbType)
+  // 保留 pinned（标 closing）直到提交结束：期间新 op 会被 dbClientOp 拒绝，
+  // 不会跑去共享连接读到未提交的快照
+  pinned.closing = true
+  if (pinned.idleTimer) {
+    clearTimeout(pinned.idleTimer)
+  }
+  // 提交排在既有 op 队列末尾：队列中语句先在事务里跑完，再整体提交
+  const run = () => adapter.commitTx(pinned.client)
+  try {
+    await pinned.queue.then(run, run)
+  } catch (e) {
+    if (inst.pinned === pinned) {
+      inst.pinned = null
+    }
+    inst.lastTx = {
+      reason: 'commit',
+      auto: false,
+      at: Date.now(),
+      count: pinned.total,
+      error: e && e.message ? e.message : String(e)
+    }
+    throw e
+  }
+  if (inst.pinned === pinned) {
+    inst.pinned = null
+  }
+  const summary = { reason: 'commit', auto: false, at: Date.now(), count: pinned.total }
+  inst.lastTx = summary
+  return { ok: true, ...summary, statements: pinned.statements }
+}
+
+async function rollbackDbTx (tabId) {
+  const inst = instances[tabId]
+  if (!inst || inst.pending) {
+    throw new Error('database tab not open')
+  }
+  const pinned = inst.pinned
+  if (!pinned) {
+    throw new Error('no active transaction on this tab')
+  }
+  const adapter = getAdapter(inst.dbType)
+  pinned.closing = true
+  if (pinned.idleTimer) {
+    clearTimeout(pinned.idleTimer)
+  }
+  // 回滚排在既有 op 队列末尾（与 forceEndTx 同序），失败由 rollbackTx 内部兜底不上抛
+  await pinned.queue.then(
+    () => adapter.rollbackTx(pinned.client),
+    () => adapter.rollbackTx(pinned.client)
+  )
+  if (inst.pinned === pinned) {
+    inst.pinned = null
+  }
+  const summary = { reason: 'rollback', auto: false, at: Date.now(), count: pinned.total }
+  inst.lastTx = summary
+  return { ok: true, ...summary, statements: pinned.statements }
+}
+
+// 渲染层轮询的事务状态（只读快照，不产生副作用）；
+// pinnedTabs 为全局计数，前端据此在达到上限时禁用「开启手动事务」开关
+function getDbTxState (tabId) {
+  const inst = instances[tabId]
+  if (!inst || inst.pending) {
+    return {
+      supported: false,
+      active: false,
+      statements: [],
+      pendingCount: 0,
+      pinnedTabs: 0,
+      maxTabs: TX_MAX_TABS,
+      lastTx: null
+    }
+  }
+  const pinned = inst.pinned
+  return {
+    supported: typeof getAdapter(inst.dbType).beginTx === 'function',
+    active: !!pinned,
+    since: pinned ? pinned.since : undefined,
+    idleMs: pinned ? Date.now() - pinned.lastActiveAt : undefined,
+    statements: pinned ? pinned.statements.slice(-TX_STATEMENTS_VIEW) : [],
+    pendingCount: pinned ? pinned.total : 0,
+    pinnedTabs: countPinnedTabs(),
+    maxTabs: TX_MAX_TABS,
+    lastTx: inst.lastTx || null
+  }
 }
 
 // ---------------------------------------------------------------- C 批：tab 上下文
@@ -521,6 +834,11 @@ function getDbTabContext (tabId) {
   const inst = instances[tabId]
   if (!inst || inst.pending) {
     throw new Error('database tab not open')
+  }
+  // F2：导入/导出绕过 op 分发表直接调适配器，拿到的 conn 不走事务连接，
+  // 既读不到未提交数据、insertRows 的 START TRANSACTION 还会把外层事务隐式提交
+  if (inst.pinned) {
+    throw new Error('import/export is not available inside a manual transaction (commit or rollback first)')
   }
   return {
     dbType: inst.dbType,
@@ -542,6 +860,11 @@ async function closeDbTab (tabId) {
   if (inst.pending) {
     inst.aborted = true
     return
+  }
+  // F2：关 tab 先强制回滚再释放（禁止静默提交）——release 归还的是池连接，
+  // 不回滚会把未提交变更留在会话里直到连接被复用
+  if (inst.pinned) {
+    await forceEndTx(inst, 'close', true)
   }
   try {
     await getAdapter(inst.dbType).release(inst.conn)
@@ -570,6 +893,11 @@ module.exports = {
   openDbTab,
   dbClientOp,
   setDbReadOnly,
+  // F2 事务安全带：渲染层经 dbClientOp 调用，同时导出便于单测直接驱动
+  beginDbTx,
+  commitDbTx,
+  rollbackDbTx,
+  getDbTxState,
   getDbTabContext,
   closeDbTab,
   closeAllDbTabs

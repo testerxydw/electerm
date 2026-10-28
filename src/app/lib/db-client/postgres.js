@@ -22,13 +22,9 @@ function sslOptions (conn) {
   return conn.dbSsl ? { ssl: { rejectUnauthorized: false } } : {}
 }
 
-async function getClient (conn) {
-  const key = sig(conn)
-  if (clients.has(key)) {
-    return clients.get(key)
-  }
-  const { Client } = require('pg')
-  const c = new Client({
+// F2：共享连接与事务专用连接共用一套建连参数
+function clientOptions (conn) {
+  return {
     host: conn.dbHost,
     port: conn.dbPort,
     user: conn.dbUser,
@@ -37,10 +33,52 @@ async function getClient (conn) {
     connectionTimeoutMillis: 8000,
     // B1：SSL/TLS 开关（覆盖内部自签场景，采用 rejectUnauthorized: false 跳过证书校验）
     ...sslOptions(conn)
-  })
+  }
+}
+
+async function getClient (conn) {
+  // F2：事务钉住期间 db-client 会注入 __txClient（beginTx 建立的专用连接），
+  // 此时 op 一律走事务连接，不再按签名取共享 client
+  if (conn && conn.__txClient) {
+    return conn.__txClient
+  }
+  const key = sig(conn)
+  if (clients.has(key)) {
+    return clients.get(key)
+  }
+  const { Client } = require('pg')
+  const c = new Client(clientOptions(conn))
   await c.connect()
   clients.set(key, c)
   return c
+}
+
+// F2 事务安全带：钉住事务用独立连接（不进 clients 共享池）——
+// 共享连接一旦被事务占用，其他 tab 的查询会被卷进同一事务
+async function beginTx (conn) {
+  const { Client } = require('pg')
+  const c = new Client(clientOptions(conn))
+  await c.connect()
+  await c.query('BEGIN')
+  return c
+}
+
+async function commitTx (c) {
+  try {
+    await c.query('COMMIT')
+  } finally {
+    await c.end().catch(() => {})
+  }
+}
+
+async function rollbackTx (c) {
+  try {
+    await c.query('ROLLBACK')
+  } catch (e) {
+    // 连接已死等场景：ROLLBACK 失败靠 end 兜底，服务端会话断开即回滚
+  } finally {
+    await c.end().catch(() => {})
+  }
 }
 
 // openDbTab 时调用：计数 +1 并确保连接建立（SELECT 1 验证，失败上抛）
@@ -1168,6 +1206,9 @@ module.exports = {
   testPostgresConnection,
   acquire,
   release,
+  beginTx,
+  commitTx,
+  rollbackTx,
   getMetadata,
   getObjectDdl,
   getPageData,

@@ -194,7 +194,8 @@ describe('OP_MAP 登记', () => {
   const idxSrc = fs.readFileSync(path.join(import.meta.dirname, '../../app/lib/db-client/index.js'), 'utf8')
   const mysqlBlock = idxSrc.slice(idxSrc.indexOf('mysql: {'), idxSrc.indexOf('postgres: {'))
   const postgresBlock = idxSrc.slice(idxSrc.indexOf('postgres: {'), idxSrc.indexOf('redis: {'))
-  const redisBlock = idxSrc.slice(idxSrc.indexOf('redis: {'))
+  // 截到 OP_MAP 结束（getAdapter 之前）：后面的 dbClientOp 分支也会提到 op 名，不能切到文件尾
+  const redisBlock = idxSrc.slice(idxSrc.indexOf('redis: {'), idxSrc.indexOf('function getAdapter'))
 
   test('mysql / postgres 各自登记 updateCells', () => {
     assert.match(mysqlBlock, /updateCells: 'updateCells'/)

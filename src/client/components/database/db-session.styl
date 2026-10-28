@@ -1541,6 +1541,67 @@ body.db-col-resizing
   color var(--text)
   font-size 12px
 
+// F2 手动事务条：开关 + 待提交计数 + 提交/回滚，贴着网格头部右侧控件排布
+.db-tx-bar
+  display inline-flex
+  align-items center
+  gap 6px
+  white-space nowrap
+
+.db-tx-switch
+  display inline-flex
+  align-items center
+  gap 6px
+
+.db-tx-switch-label
+  color var(--text)
+  font-size 12px
+
+// 待提交计数：链接式按钮，点击展开清单
+.db-tx-pending
+  font-variant-numeric tabular-nums
+
+// 待提交清单：四列（时间/耗时/影响行数/语句），语句列截断，错误跟在其后
+.db-tx-list
+  max-height 360px
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+
+.db-tx-row
+  display grid
+  grid-template-columns 100px 70px 70px minmax(0, 1fr)
+  gap 8px
+  align-items center
+  padding 4px 8px
+  font-size 12px
+  border-bottom 1px solid var(--border)
+
+  &:last-child
+    border-bottom none
+
+.db-tx-row-head
+  position sticky
+  top 0
+  z-index 1
+  background var(--surface-1)
+  color var(--text-dark)
+  font-weight 500
+
+.db-tx-sql
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--db-code-font, var(--font-mono))
+
+.db-tx-sql-err
+  color var(--error)
+
+.db-tx-empty
+  color var(--text-dark)
+  font-size 12px
+  margin 0
+
 // 命令面板（Ctrl/Cmd+K）：fixed 居中浮层 + 半透明遮罩。
 // 遮罩色与浮层背景/阴影全走 tokens（--mask/--surface-1/--shadow-3），
 // 跟随主题；z-index 高于本文件内其他浮层（5/2），低于 antd 弹层（1000+）——

@@ -1548,6 +1548,135 @@ export default auto(function DbSession (props) {
     .map(r => r.Field || r.column_name)[0] || ''
   const canEditCell = !isReadonly && !isRedis && !!pkColumn
 
+  // ---- F2 手动事务：连接钉住 + 待提交清单 ----
+  // 事务状态以主进程为权威（空闲超时/切只读/关 tab 都在主进程收口），前端只负责
+  // 轮询展示 + 操作入口；不轮询就感知不到空闲自动回滚，所以 active 时快轮、空闲时慢轮
+  const [txState, setTxState] = useState(null)
+  const [txBusy, setTxBusy] = useState(false)
+  const [txListOpen, setTxListOpen] = useState(false)
+  const txNotifiedAtRef = useRef(0)
+  const txSupported = !isRedis
+  const txActive = !!(txState && txState.active)
+  const txPending = (txState && txState.pendingCount) || 0
+
+  useEffect(() => {
+    if (!txSupported || !tabId) {
+      return undefined
+    }
+    let dead = false
+    const tick = () => {
+      window.pre.runGlobalAsync('dbClientOp', tabId, 'getDbTxState')
+        .then(st => {
+          if (!dead && st) {
+            setTxState(st)
+          }
+        })
+        .catch(() => {})
+    }
+    tick()
+    const timer = setInterval(tick, txActive ? 2000 : 5000)
+    return () => {
+      dead = true
+      clearInterval(timer)
+    }
+  }, [txSupported, tabId, txActive])
+
+  // 空闲自动回滚只提示一次（lastTx 带 at 时间戳去重）
+  useEffect(() => {
+    const lt = txState && txState.lastTx
+    if (!lt || !lt.auto || txNotifiedAtRef.current === lt.at) {
+      return
+    }
+    txNotifiedAtRef.current = lt.at
+    message.warning(e('dbTxAutoRolledBack').replace('{n}', String(lt.count || 0)))
+  }, [txState])
+
+  // 提交/回滚后当前页数据可能已变（回滚=改动作废），按当前条件重取
+  const afterTxEnd = (msgKey) => {
+    message.success(e(msgKey))
+    setTxListOpen(false)
+    setTxState(s => ({ ...(s || {}), active: false, pendingCount: 0, statements: [] }))
+    if (sel) {
+      loadWithCount(sel, grid.page)
+    }
+  }
+
+  const runTxOp = (op, onOk) => {
+    setTxBusy(true)
+    window.pre.runGlobalAsync('dbClientOp', tabId, op)
+      .then(onOk)
+      .catch(err => onOpError(err))
+      .finally(() => setTxBusy(false))
+  }
+
+  const beginTx = () => {
+    runTxOp('beginDbTx', () => {
+      message.success(e('dbTxBegun'))
+      setTxState(s => ({ ...(s || {}), active: true, pendingCount: 0, statements: [] }))
+    })
+  }
+
+  const commitTx = () => runTxOp('commitDbTx', () => afterTxEnd('dbTxCommitted'))
+  const rollbackTx = () => runTxOp('rollbackDbTx', () => afterTxEnd('dbTxRolledBack'))
+
+  const setManualTx = (on) => {
+    if (on) {
+      // 上限由主进程判定并报错，这里先按轮询到的全局计数给一次更早的提示
+      if (txState && txState.pinnedTabs >= txState.maxTabs) {
+        message.warning(e('dbTxLimit').replace('{max}', String(txState.maxTabs)))
+        return
+      }
+      Modal.confirm({
+        title: e('dbTxBeginTitle'),
+        content: e('dbTxBeginContent'),
+        okText: e('dbTxBegin'),
+        cancelText: e('cancel'),
+        onOk: beginTx
+      })
+      return
+    }
+    if (!txPending) {
+      rollbackTx()
+      return
+    }
+    Modal.confirm({
+      title: e('dbTxRollbackTitle'),
+      content: e('dbTxRollbackWarn').replace('{n}', String(txPending)),
+      okText: e('dbTxRollback'),
+      cancelText: e('cancel'),
+      okButtonProps: { danger: true },
+      onOk: rollbackTx
+    })
+  }
+
+  // 未提交时关 tab 必须确认（主进程无论如何都会先回滚，这里只防手滑丢数据）。
+  // delTab 是关闭标签的唯一入口（✕ / Ctrl+W / 会话列表），把守卫挂在那条路径上
+  useEffect(() => {
+    if (!txSupported || !tabId || !window.store) {
+      return undefined
+    }
+    const guards = window.store.txCloseGuards || (window.store.txCloseGuards = {})
+    guards[tabId] = () => new Promise(resolve => {
+      if (!txActive) {
+        resolve(true)
+        return
+      }
+      Modal.confirm({
+        title: e('dbTxCloseTitle'),
+        content: (txPending ? e('dbTxCloseWarn') : e('dbTxCloseEmpty'))
+          .replace('{n}', String(txPending)),
+        okText: e('dbTxRollback'),
+        cancelText: e('cancel'),
+        okButtonProps: { danger: true },
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false)
+      })
+    })
+    return () => {
+      delete guards[tabId]
+    }
+  }, [txSupported, tabId, txActive, txPending])
+
   const startEdit = (row, col) => {
     if (!canEditCell) {
       message.error(e('dbNoPrimaryKey'))
@@ -4664,6 +4793,62 @@ export default auto(function DbSession (props) {
             : null
         }
         {
+          // F2 手动事务：开关 + 待提交清单 + 提交/回滚。事务挂在连接上，
+          // 不依赖当前选中表；只读模式没有写入口，不展示
+          txSupported && !isReadonly
+            ? (
+              <span className='db-tx-bar'>
+                <Tooltip title={txActive ? e('dbTxManualHint') : e('dbTxAutoHint')}>
+                  <span className='db-tx-switch'>
+                    <Switch
+                      size='small'
+                      checked={txActive}
+                      loading={txBusy}
+                      onChange={setManualTx}
+                    />
+                    <span className='db-tx-switch-label'>
+                      {txActive ? e('dbTxManual') : e('dbTxAuto')}
+                    </span>
+                  </span>
+                </Tooltip>
+                {
+                  txActive
+                    ? (
+                      <>
+                        <Button
+                          size='small'
+                          className='db-tx-pending'
+                          onClick={() => setTxListOpen(true)}
+                        >
+                          {e('dbTxPending').replace('{n}', String(txPending))}
+                        </Button>
+                        <Button
+                          size='small'
+                          type='primary'
+                          className='db-tx-commit'
+                          loading={txBusy}
+                          onClick={commitTx}
+                        >
+                          {e('dbTxCommit')}
+                        </Button>
+                        <Button
+                          size='small'
+                          danger
+                          className='db-tx-rollback'
+                          loading={txBusy}
+                          onClick={() => setManualTx(false)}
+                        >
+                          {e('dbTxRollback')}
+                        </Button>
+                      </>
+                      )
+                    : null
+                }
+              </span>
+              )
+            : null
+        }
+        {
           // A1 复制为 SQL/JSON/TSV：有选中行 = 仅选中行；无选中 = 当前可见结果集
           sel && grid.rows.length
             ? (
@@ -6903,6 +7088,47 @@ export default auto(function DbSession (props) {
           onChange={ev => setRenameInput(ev.target.value)}
           onPressEnter={doRenameKeyNx}
         />
+      </Modal>
+      {/* F2 待提交清单：主进程记录，前端只读展示（新的在前）。提交/回滚后自动关闭 */}
+      <Modal
+        open={txListOpen}
+        title={e('dbTxStatementsTitle')}
+        onCancel={() => setTxListOpen(false)}
+        footer={null}
+        width={780}
+        destroyOnClose
+      >
+        {
+          txState && txState.statements && txState.statements.length
+            ? (
+              <div className='db-tx-list'>
+                <div className='db-tx-row db-tx-row-head'>
+                  <span>{e('dbTxColTime')}</span>
+                  <span>{e('dbTxColMs')}</span>
+                  <span>{e('dbTxColAffected')}</span>
+                  <span>{e('dbTxColSql')}</span>
+                </div>
+                {[...txState.statements].reverse().map((r, i) => (
+                  <div
+                    className='db-tx-row'
+                    key={`${r.at}-${i}`}
+                  >
+                    <span>{new Date(r.at).toLocaleTimeString()}</span>
+                    <span>{typeof r.ms === 'number' ? r.ms + 'ms' : ''}</span>
+                    <span>{typeof r.affectedRows === 'number' ? r.affectedRows : '-'}</span>
+                    <span
+                      className={r.error ? 'db-tx-sql db-tx-sql-err' : 'db-tx-sql'}
+                      title={r.error ? r.error : r.sql}
+                    >
+                      {r.sql}
+                      {r.error ? ' · ' + r.error : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              )
+            : <p className='db-tx-empty'>{e('dbTxEmpty')}</p>
+        }
       </Modal>
       {/* 分组管理弹窗：新建 / 重命名 / 删除 */}
       <Modal

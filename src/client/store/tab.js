@@ -99,10 +99,26 @@ export default Store => {
     window.store.tabs = list
   }
 
-  Store.prototype.delTab = function (id) {
+  // 关闭前的异步守卫：数据库 tab 未提交事务时要先确认（守卫由 db-session 注册）。
+  // 调用方不必 await —— 移除动作在守卫通过后才执行，未 await 的调用只是不等结果
+  Store.prototype.delTab = async function (id) {
     const { store } = window
     const tab = store.tabs.find(t => t.id === id)
-    const batch = tab ? Number(tab.batch) : undefined
+    if (!tab) {
+      return
+    }
+    const guards = store.txCloseGuards || {}
+    if (typeof guards[id] === 'function') {
+      const ok = await guards[id]()
+      if (!ok) {
+        return
+      }
+      // 守卫弹窗期间 tab 可能已被别的路径关掉（重复触发/批量关闭）
+      if (!store.tabs.some(t => t.id === id)) {
+        return
+      }
+    }
+    const batch = Number(tab.batch)
     const res = store.removeTabs({ id })
     store.autoClosePaneIfEmpty(batch)
     // 顶栏会话数据随 tab 移除 (common/session-bar-data.js)

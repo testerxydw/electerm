@@ -45,7 +45,28 @@ async function release (conn) {
   }
 }
 
+// F2：事务钉住期间 db-client 会注入 __txClient（池中取出的专用连接）。
+// 适配器内部既有 pool.query 也有 pool.getConnection()+c.release() 两种写法，
+// 直接返回 PoolConnection 会让后者抛 TypeError，而 release 还会把钉住的连接提前还回池
+// —— 这里把它包成"只有一条连接的池"，release 变成空操作（只能由 commit/rollback 归还）。
+function txPoolOf (c) {
+  const one = {
+    query: (...a) => c.query(...a),
+    execute: (...a) => c.execute(...a),
+    release: () => {},
+    destroy: () => c.destroy()
+  }
+  return {
+    query: (...a) => c.query(...a),
+    execute: (...a) => c.execute(...a),
+    getConnection: async () => one
+  }
+}
+
 async function getPool (conn) {
+  if (conn && conn.__txClient) {
+    return txPoolOf(conn.__txClient)
+  }
   const key = sig(conn)
   if (pools.has(key)) {
     return pools.get(key)
@@ -86,6 +107,43 @@ async function evict (conn) {
   if (pool) {
     pools.delete(key)
     await pool.end().catch(() => {})
+  }
+}
+
+// ---- F2 事务安全带：钉住事务的专用连接 ----
+// beginTx 从池中取一条专用连接（其余 tab 继续共享池里其他连接），
+// START TRANSACTION 后所有语句都在同一事务里；commit/rollback 后归还池。
+// 事务语义与 insertRows/updateCells 内部批次一致（原生 SQL 而非 beginTransaction API）
+async function beginTx (conn) {
+  const pool = await getPool(conn)
+  const c = await pool.getConnection()
+  try {
+    await c.query('START TRANSACTION')
+    return c
+  } catch (e) {
+    c.destroy()
+    throw e
+  }
+}
+
+async function commitTx (c) {
+  try {
+    await c.query('COMMIT')
+    c.release()
+  } catch (e) {
+    // 提交失败（连接死等）：坏连接不还池，直接销毁
+    c.destroy()
+    throw e
+  }
+}
+
+async function rollbackTx (c) {
+  try {
+    await c.query('ROLLBACK')
+    c.release()
+  } catch (e) {
+    // 连接已死等场景：ROLLBACK 失败销毁连接（服务端会话断开即回滚），不上抛
+    c.destroy()
   }
 }
 
@@ -615,7 +673,7 @@ SELECT k.CONSTRAINT_NAME AS fkName,
 function groupReferences (rows) {
   const map = new Map()
   for (const r of rows || []) {
-    const key = String(r.schema) + ' ' + String(r.table) + ' ' + String(r.fkName)
+    const key = String(r.schema) + '\u0000' + String(r.table) + '\u0000' + String(r.fkName)
     let entry = map.get(key)
     if (!entry) {
       entry = {
@@ -1311,6 +1369,9 @@ module.exports = {
   acquire,
   release,
   evict,
+  beginTx,
+  commitTx,
+  rollbackTx,
   getMetadata,
   getObjectDdl,
   getPageData,
