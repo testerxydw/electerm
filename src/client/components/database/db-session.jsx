@@ -3856,6 +3856,7 @@ export default auto(function DbSession (props) {
               : null
           }
           <DbGridTable
+            className='db-sql-result-grid'
             size='small'
             columns={sqlResultColumns[i] || []}
             dataSource={sqlResultRowMaps[i]}

@@ -84,6 +84,16 @@ describe('SQL 结果分页：接线契约', () => {
     assert.ok(tools[0].includes('{pager}'), 'pager must render inside the tools row')
   })
 
+  test('result grid has a visible frame (footer avoidance is obvious)', () => {
+    const src = read()
+    assert.ok(src.includes("className='db-sql-result-grid'"), 'grid frame class missing')
+    const styl = fs.readFileSync(STYL, 'utf8')
+    const block = styl.match(/\.db-grid-table-wrap\.db-sql-result-grid\n((?: {2}[^\n]*\n)+)/)
+    assert.ok(block, '.db-sql-result-grid rule not found')
+    assert.match(block[1], /^ {2}border 1px solid var\(--border\)$/m, 'grid frame border missing')
+    assert.match(block[1], /^ {2}border-radius var\(--radius-sm\)$/m, 'grid frame radius missing')
+  })
+
   test('tools row aligns left (pager + export on the same row)', () => {
     const styl = fs.readFileSync(STYL, 'utf8')
     const block = styl.match(/\.db-sql-result-tools\n((?: {2}[^\n]*\n)+)/)

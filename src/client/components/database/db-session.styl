@@ -836,6 +836,14 @@
   gap 8px
   min-height 24px
 
+// 结果网格的可见边框：与左侧树面板同款。同色背景下没有边界时，
+// 看不出结果区是否真的避开了底部快捷命令栏（2026-10-28 用户反馈）。
+// margin-bottom 与 .db-body 的 8px 内边距叠加，结果框与快捷命令栏之间留 12px
+.db-grid-table-wrap.db-sql-result-grid
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  margin-bottom 4px
+
 // S3-C：SQL 执行历史弹层
 // 尺寸由 JS 内联给（可拖拽 + 持久化），这里的 width/height 只是"JS 没给值"时的兜底
 .db-history-pop
