@@ -170,6 +170,13 @@ const REDIS_DETAIL_PAGE = 200
 // R1：键列表深跳阈值（页）。SCAN 无 offset，跳页要从 cursor=0 前向步进，
 // 深跳前先弹确认，避免误触后长时间等待
 const REDIS_KEY_JUMP_WARN_PAGES = 500
+// 键列表「共几页」换算：SCAN 游标不透明，光看游标答不出总页数，但无过滤时
+// INFO keyspace 的键数是现成的（左侧树已在用）。键数为 0 也算得出 1 页。
+const redisKeyPagesOf = (count, pageSize) => (
+  typeof count === 'number'
+    ? Math.max(1, Math.ceil(count / Math.max(1, pageSize)))
+    : 0
+)
 // B1 行选择列宽（与 db-session.styl 的 .ant-table-selection-column 同值）：
 // 必须同时给 antd rowSelection.columnWidth（决定 colgroup）与 CSS（内边距），
 // 只给 CSS 时表头那套 table 在列宽超容器后会把该列压成 1px
@@ -4185,7 +4192,8 @@ export default auto(function DbSession (props) {
   )
 
   // 页码快速跳转：totalRows 为服务端估算值，totalPages 同为近似
-  // （redis 为 SCAN 游标模式，无总页数概念，不渲染页码标签/跳页）
+  // （redis 走 SCAN 游标，没有服务端估算，总页数只在无过滤时按 INFO keyspace 键数
+  // 换算，见下面 redisKeyPagesOf 与键列表分页条）
   // 页大小同样以视角为准（视角里存过就用它），否则页码估算会与实际页大小脱节
   const dbPageSize = pageSizeOf(view)
   const estimatePages = sel && typeof grid.totalRows === 'number'
@@ -6773,6 +6781,23 @@ export default auto(function DbSession (props) {
     )
   }
 
+  // 键列表总页数：只有无过滤（match 为 *）时才给数字 —— 带 pattern 时命中数要
+  // 全库扫完才知道，宁可不显示也不给假数字；受管实例禁用 INFO 时后端不回 count，
+  // 同样回落到「第 N 页」。页大小与取数同源（Redis 用全局 dbPageSize，不走视角 pageSize）。
+  const redisKeyDb = redisDb < 0
+    ? null
+    : metadata.find(d => d && d.name === 'db' + redisDb)
+  const redisKeyTotal = redisKeyDb && (keyList.match || '*') === '*' && typeof redisKeyDb.count === 'number'
+    ? redisKeyDb.count
+    : undefined
+  const redisKeyPages = redisKeyPagesOf(redisKeyTotal, getDbPageSize())
+  // 到了真末页（hasMore=false）就以实测为准：INFO 是取元数据那一刻的快照，
+  // 之后键被删掉的话估算会偏大，出现「第 3 / 5 页」但下一页已禁用的自相矛盾
+  const redisKeyPageNo = keyList.stack.length + 1
+  const redisKeyPagesShow = redisKeyPages && !keyList.loading && !keyList.hasMore
+    ? redisKeyPageNo
+    : redisKeyPages
+
   const redisArea = (
     <div className='db-redis-area'>
       {
@@ -6811,7 +6836,19 @@ export default auto(function DbSession (props) {
                       )
                     }}
                   />
-                  <span className='db-grid-page-no'>{e('dbPageLabel').replace('{n}', keyList.stack.length + 1)}</span>
+                  <span
+                    className='db-grid-page-no'
+                    // 页数是按键数换算的，把键数挂上去说明依据（键会随并发写入变化）
+                    title={typeof redisKeyTotal === 'number' ? e('dbKeysTotal').replace('{n}', redisKeyTotal) : undefined}
+                  >
+                    {
+                      redisKeyPagesShow
+                        ? e('dbPageOfLabel')
+                          .replace('{n}', redisKeyPageNo)
+                          .replace('{m}', redisKeyPagesShow)
+                        : e('dbPageLabel').replace('{n}', redisKeyPageNo)
+                    }
+                  </span>
                   <Button
                     size='small'
                     icon={<RightOutlined />}
@@ -6827,7 +6864,7 @@ export default auto(function DbSession (props) {
                   <Input
                     size='small'
                     className='db-grid-jump'
-                    placeholder={e('dbPagePlaceholder')}
+                    placeholder={redisKeyPagesShow ? '1-' + redisKeyPagesShow : e('dbPagePlaceholder')}
                     value={keyJumpInput}
                     onChange={ev => setKeyJumpInput(ev.target.value)}
                     onPressEnter={() => jumpRedisKeysPage(keyJumpInput)}

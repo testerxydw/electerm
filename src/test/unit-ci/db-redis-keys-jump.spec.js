@@ -188,3 +188,61 @@ describe('R1：键列表跳页前端接线', () => {
     assert.ok(!locales.includes('dbJumpPagePlaceholder:'), 'duplicate jump placeholder key')
   })
 })
+
+// 键列表「共几页」：SCAN 答不出总数，但无过滤时 INFO keyspace 的键数是现成的，
+// 用它换算总页数；带 match 或拿不到 count 时必须退回只显示当前页
+describe('R1 补充：键列表总页数（无过滤时按 INFO keyspace 键数换算）', () => {
+  // 跑真实源码里的换算函数（不是拷贝），签名 (count, pageSize)
+  const loadPagesOf = () => {
+    const src = fs.readFileSync(JSX, 'utf8')
+    const m = src.match(/const redisKeyPagesOf = \(count, pageSize\) => \{?[\s\S]*?\n\)/)
+    assert.ok(m, 'redisKeyPagesOf not found in db-session.jsx')
+    const expr = m[0].slice(m[0].indexOf('(count, pageSize)'))
+    return vm.runInNewContext('(' + expr + ')', {})
+  }
+
+  test('换算：向上取整、空库仍算 1 页、count 缺失回 0（不显示总页数）', () => {
+    const pagesOf = loadPagesOf()
+    assert.equal(pagesOf(20, 10), 2)
+    assert.equal(pagesOf(21, 10), 3)
+    assert.equal(pagesOf(0, 10), 1)
+    assert.equal(pagesOf(5, 20), 1)
+    // 受管实例禁用 INFO → count 不是数字；pageSize 脏值不得除出 Infinity/NaN
+    assert.equal(pagesOf(undefined, 10), 0)
+    assert.equal(pagesOf(20, 0), 20)
+  })
+
+  test('接线：页码标签走 dbPageOfLabel，跳页框 placeholder 给 1-N', () => {
+    const src = fs.readFileSync(JSX, 'utf8')
+    const start = src.indexOf('const redisKeyDb =')
+    assert.notEqual(start, -1, 'redisKeyDb lookup missing')
+    const block = src.slice(start, src.indexOf('const redisArea =', start))
+    // 键数按 db 名匹配（树里 name = 'db' + index），不是按数组下标猜
+    assert.ok(block.includes("d.name === 'db' + redisDb"), 'count must be looked up by db name')
+    // 只在无过滤时用 count
+    assert.ok(block.includes("(keyList.match || '*') === '*'"), 'filtered match must not claim a total')
+    assert.ok(block.includes('typeof redisKeyDb.count'), 'missing-count fallback required')
+    // 页大小与取数同源：Redis 用全局 dbPageSize，不走视角 pageSize
+    assert.ok(block.includes('getDbPageSize()'), 'page size source drifted')
+    // 真末页以实测为准，不得出现「第 3 / 5 页」而下一页已禁用
+    assert.ok(block.includes('!keyList.hasMore'), 'last page must fall back to measured page count')
+    assert.ok(block.includes('redisKeyPagesShow'), 'display value must go through the last-page clamp')
+    const pager = src.slice(src.indexOf('const redisArea ='), src.indexOf('mainArea'))
+    assert.ok(pager.includes("e('dbPageOfLabel')"), 'pager label must switch to 第 N / M 页')
+    assert.ok(pager.includes("e('dbPageLabel')"), 'fallback label must stay')
+    assert.ok(pager.includes("'1-' + redisKeyPagesShow"), 'jump input must hint the page range')
+    assert.ok(pager.includes("e('dbKeysTotal')"), 'page label should expose the key count it derived from')
+    // 标签与跳页框必须用同一个钳制后的值，不能一处显示 3/5、另一处提示 1-3
+    assert.ok(!pager.includes("'1-' + redisKeyPages "), 'jump placeholder must use the clamped value')
+  })
+
+  test('新词条在 en / zh_cn 各出现一次', () => {
+    const locales = fs.readFileSync(LOCALES, 'utf8')
+    ;['dbPageOfLabel', 'dbKeysTotal'].forEach(key => {
+      const hits = locales.match(new RegExp('\\b' + key + ':', 'g')) || []
+      assert.equal(hits.length, 2, key + ' must exist in both en and zh_cn')
+    })
+    // 不重复造既有语义的键
+    assert.ok(!locales.includes('dbTotalPages:'), 'duplicate total pages key')
+  })
+})

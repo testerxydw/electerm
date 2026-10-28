@@ -160,6 +160,8 @@ const en = {
   // —— 数据库页文案（T8）——
   dbLoading: 'loading database...',
   dbPageLabel: 'page {n}',
+  dbPageOfLabel: 'page {n} / {m}',
+  dbKeysTotal: 'total {n} keys',
   dbPagePlaceholder: 'page#',
   dbGo: 'go',
   dbRowsPerPage: 'rows per page',
@@ -801,6 +803,8 @@ const zhCn = {
   // —— 数据库页文案（T8）——
   dbLoading: '正在加载数据库…',
   dbPageLabel: '第 {n} 页',
+  dbPageOfLabel: '第 {n} / {m} 页',
+  dbKeysTotal: '共 {n} 键',
   dbPagePlaceholder: '页码',
   dbGo: '跳转',
   dbRowsPerPage: '每页行数',
