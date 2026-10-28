@@ -90,12 +90,25 @@ test('planReplace：统计匹配数 / 跳过非字符串 / 丢弃缺主键', () 
   // 第 4 行 'manager' → 'mANAger'（不区分大小写时子串也命中）
   const mgr = plan.updates.find(u => u.pk === 4)
   assert.strictEqual(mgr.value, 'mANAger')
+  // 4 个文本单元格参与判断（第 3 行的 123 不算）→ 前端据此报"没匹配到"而不是"不是文本列"
+  assert.strictEqual(plan.textCells, 4)
 })
 
-test('planReplace：空查找串不发任何更新', () => {
+test('planReplace：整列非文本时 textCells=0（前端据此提示改用批量改值）', () => {
+  const r = [{ id: 51 }, { id: 52 }, { id: null }]
+  const plan = planReplace(r, { column: 'id', pkColumn: 'id', find: '51', replace: '50' })
+  assert.strictEqual(plan.textCells, 0)
+  assert.strictEqual(plan.matched, 0)
+  assert.strictEqual(plan.updates.length, 0)
+})
+
+test('planReplace：空查找串不发更新，但仍数得出文本单元格', () => {
+  // 弹窗刚打开时 find 为空：文本列此时必须报"没有可替换的内容"，
+  // 不能被 textCells=0 误判成"这一列不是文本"
   const plan = planReplace(rows(['a', 'b']), { column: 'name', pkColumn: 'id', find: '' })
   assert.strictEqual(plan.updates.length, 0)
   assert.strictEqual(plan.matched, 0)
+  assert.strictEqual(plan.textCells, 2)
 })
 
 test('escapeRegExp / sameCellValue / usableKey / previewKeyList 辅助', () => {

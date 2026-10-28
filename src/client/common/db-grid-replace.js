@@ -10,6 +10,8 @@
  * - 查找替换只处理字符串单元格。数值/日期列上的"替换"语义不明确
  *   （'1' → '2' 对 int 列是合法改值，但 '1' → 'x' 是非法改值，前端不该替用户猜），
  *   非字符串单元格直接跳过（要改数值列请用批量改值）。
+ *   跳过不等于"没有可替换的内容"：后者会让用户以为查找本身出了问题，
+ *   所以 planReplace 另外给出 textCells，让前端能明确说"这一列不是文本"。
  * - 主键值参与定位，主键为空的行无法安全定位，直接跳过。
  */
 
@@ -108,9 +110,11 @@ export function replaceText (text, find, replace, opts) {
 
 /**
  * 表内查找替换：在 rows 的 column 列上做字面替换。
- * 非字符串单元格（数值/二进制信封）不参与：数值列上的"替换"语义不明确，
+ * 非字符串单元格（数值/日期/二进制信封）不参与：数值列上的"替换"语义不明确，
  * 前端不该替用户猜（要改数值列请用批量改值）。
- * @returns {{ updates: {pk:any, value:string}[], matched: number, noKey: number }}
+ * @returns {{ updates: {pk:any, value:string}[], matched: number, noKey: number, textCells: number }}
+ *   textCells = 本列参与过替换判断的文本单元格数。前端用它把"这一整列都不是文本"
+ *   （提示改用批量改值）和"文本列但没匹配到"（无匹配）分开说。
  */
 export function planReplace (rows, opts) {
   const o = opts || {}
@@ -121,15 +125,20 @@ export function planReplace (rows, opts) {
   const updates = []
   let matched = 0
   let noKey = 0
-  if (!column || !pkColumn || typeof find !== 'string' || find === '') {
-    return { updates, matched, noKey }
-  }
+  let textCells = 0
+  // 查找串为空时一条都不规划，但 textCells 仍要数完：否则弹窗刚打开（还没输入）
+  // 就会把文本列报成"这一列不是文本"
+  const usable = !!column && !!pkColumn && typeof find === 'string' && find !== ''
   for (const row of list) {
     if (!row || typeof row !== 'object') {
       continue
     }
     const cur = row[column]
     if (typeof cur !== 'string') {
+      continue
+    }
+    textCells++
+    if (!usable) {
       continue
     }
     const next = replaceText(cur, find, o.replace, o)
@@ -144,7 +153,7 @@ export function planReplace (rows, opts) {
     }
     updates.push({ pk, value: next })
   }
-  return { updates, matched, noKey }
+  return { updates, matched, noKey, textCells }
 }
 
 // 确认弹窗里的主键清单：最多列 10 个，超出省略（与 deleteRows 的展示口径一致）

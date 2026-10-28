@@ -1957,6 +1957,16 @@ export default auto(function DbSession (props) {
     [structureV2.columns]
   )
 
+  // 下拉项标出类型（'id (int)'）：查找替换只作用于文本单元格，
+  // 选列时就该看得出这一列会不会参与，而不是等预览报"没有可替换的内容"
+  const columnOptions = useMemo(
+    () => writeColumns.map(c => ({
+      value: c.name,
+      label: c.type ? `${c.name} (${c.type})` : c.name
+    })),
+    [writeColumns]
+  )
+
   // 取出当前勾选的原始行（grid.rows 才含主键，filteredRows 是过滤后的展示副本）
   const selectedRows = useMemo(
     () => grid.rows.filter((_, i) => selectedRowKeys.includes(i)),
@@ -2048,6 +2058,27 @@ export default auto(function DbSession (props) {
       : (writeColumns[0] || {}).name || ''
     setRep({ open: true, col: def, find: '', text: '', matchCase: true, wholeCell: false })
   }
+
+  // 预览文案三分支：可改 → 报单元格数；整列没有文本值（数值/日期/JSON 对象等）→
+  // 说清"这列不参与替换"并指向批量改值/双击编辑；否则才是真的没匹配到。
+  // 判据用单元格实际类型而不是列声明类型：planReplace 就是按 typeof 跳过的，
+  // 声明类型和实际值在 JSON/二进制信封这类列上并不一致，按实际值说才不会反过来误导。
+  const repHint = useMemo(() => {
+    if (repPreview.updates.length) {
+      return {
+        text: e('dbReplacePreview').replace('{n}', String(repPreview.updates.length)),
+        warn: false
+      }
+    }
+    if (filteredRows.length && !repPreview.textCells) {
+      const t = (writeColumns.find(c => c.name === rep.col) || {}).type || rep.col
+      return {
+        text: e('dbReplaceNonTextColumn').replace('{type}', t),
+        warn: true
+      }
+    }
+    return { text: e('dbReplaceNone'), warn: false }
+  }, [repPreview, filteredRows, writeColumns, rep.col])
 
   const submitReplace = async () => {
     if (!sel || !pkColumn || !rep.col || !repPreview.updates.length) {
@@ -5230,7 +5261,7 @@ export default auto(function DbSession (props) {
                     showSearch
                     optionFilterProp='label'
                     onChange={col => setBulk(b => ({ ...b, col }))}
-                    options={writeColumns.map(c => ({ value: c.name, label: c.name }))}
+                    options={columnOptions}
                   />
                 </div>
                 <div className='db-bulk-row'>
@@ -5279,7 +5310,7 @@ export default auto(function DbSession (props) {
                     showSearch
                     optionFilterProp='label'
                     onChange={col => setRep(r => ({ ...r, col }))}
-                    options={writeColumns.map(c => ({ value: c.name, label: c.name }))}
+                    options={columnOptions}
                   />
                 </div>
                 <div className='db-replace-row'>
@@ -5314,14 +5345,12 @@ export default auto(function DbSession (props) {
                     {e('dbReplaceWholeCell')}
                   </Checkbox>
                 </div>
-                <div className='db-replace-preview'>
+                <div className={repHint.warn ? 'db-replace-preview is-warn' : 'db-replace-preview'}>
                   {e('dbReplaceScope').replace('{n}', String(filteredRows.length))}
                   {' · '}
-                  {repPreview.updates.length
-                    ? e('dbReplacePreview').replace('{n}', String(repPreview.updates.length))
-                    : e('dbReplaceNone')}
-                  {repPreview.skipped
-                    ? ` · ${repPreview.skipped} ${e('dbNeedSelection')}`
+                  {repHint.text}
+                  {repPreview.noKey
+                    ? ` · ${e('dbReplaceNoKey').replace('{n}', String(repPreview.noKey))}`
                     : ''}
                 </div>
               </div>

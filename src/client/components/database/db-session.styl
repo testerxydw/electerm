@@ -328,6 +328,9 @@
 .db-replace-preview
   color var(--text-dark)
   font-size 12px
+  // 非文本列的提示不是"没匹配到"，要用警示色区分，否则用户会以为是查找写错了
+  &.is-warn
+    color var(--warn)
 
 // A2 结构 tab 工具行 + DDL 弹窗等宽展示
 .db-struct-tools
