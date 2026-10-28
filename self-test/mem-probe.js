@@ -380,7 +380,7 @@ class Metrics {
     let main = null
     if (this.mainCdp) {
       try {
-        const mu = await this.mainCdp.eval("JSON.stringify({heap: process.memoryUsage().heapUsed, rss: process.memoryUsage().rss, handles: process._getActiveHandles ? process._getActiveHandles().length : -1})")
+        const mu = await this.mainCdp.eval('JSON.stringify({heap: process.memoryUsage().heapUsed, rss: process.memoryUsage().rss, handles: process._getActiveHandles ? process._getActiveHandles().length : -1})')
         main = JSON.parse(mu || 'null')
       } catch (e) {
         main = null
@@ -582,7 +582,7 @@ const main = async () => {
     lastSql: await cdp.eval('window.__MEM.lastSql')
   })
   const released = s2.used - s3.used
-  const replaceOk = await cdp.eval("(window.__MEM.sqlCalls > " + callsBefore + ") && /select 1/.test(window.__MEM.lastSql || '')")
+  const replaceOk = await cdp.eval(`(window.__MEM.sqlCalls > ${callsBefore}) && /select 1/.test(window.__MEM.lastSql || '')`)
   findings.push({
     name: 'replacing sql result releases big rows',
     ok: !!replaceOk && released > (s2.used - s1.used) * 0.6,
@@ -592,7 +592,7 @@ const main = async () => {
   // 关掉 mysql tab
   await cdp.eval(`window.store.delTab('${dbTab.id}')`)
   await sleep(2500)
-  const s4 = await M.snap('mysql-tab-closed')
+  await M.snap('mysql-tab-closed')
   await sleep(3000)
   const s4b = await M.snap('mysql-tab-closed-idle')
   findings.push({ name: 'closing db tab frees grid data', ok: (s4b.used - s1.used) < 6 * 1024 * 1024, detail: { backToMB: s4b.usedMB, baseMB: s1.usedMB } })
@@ -664,7 +664,7 @@ const main = async () => {
   }
 
   // ---------------------------------------------------------------- S5 终端高亮洪泛
-  let termSnaps = []
+  const termSnaps = []
   try {
     await cdp.eval("(() => { window.store.addTab({ type: 'local', batch: window.store.currentLayoutBatch }); return 1 })()")
     await waitFor(cdp, "!!document.querySelector('.xterm')", 20000, 'local terminal')

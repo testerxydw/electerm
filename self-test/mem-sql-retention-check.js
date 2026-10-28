@@ -113,7 +113,7 @@ const main = async () => {
   await cdp.call('HeapProfiler.enable')
 
   await waitFor(cdp, '!!(window.store && window.pre)', 30000, 'boot')
-  await cdp.eval(`window.store.tabs.filter(t => t.type === 'database').forEach(t => window.store.delTab(t.id)); 1`)
+  await cdp.eval('window.store.tabs.filter(t => t.type === "database").forEach(t => window.store.delTab(t.id)); 1')
   await sleep(800)
   await cdp.eval(`window.store.setConfig({ keywords: [
     { keyword: 'alice', color: 'red' },
@@ -174,7 +174,7 @@ const main = async () => {
   const d = await snap(cdp, 'replaced-small-idle5s')
   await cdp.eval(`window.store.delTab('${tabId}')`)
   await sleep(2500)
-  const e = await snap(cdp, 'tab-closed-2.5s')
+  await snap(cdp, 'tab-closed-2.5s')
   await sleep(5000)
   const f = await snap(cdp, 'tab-closed-idle5s')
 
