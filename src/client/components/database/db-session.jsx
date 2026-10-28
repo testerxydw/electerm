@@ -144,9 +144,9 @@ const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
 const CELL_SPLIT_KEY = 'electerm-db-cell-split'
 // Redis hash/set 详情每页条数（后端 HSCAN/SSCAN 游标分页）
 const REDIS_DETAIL_PAGE = 200
-// R1：超大键阈值（百万字段/成员）。超过后在详情区提示跳页将前向扫描全量，
-// 未加载区间跳页前弹确认告警，避免用户误触卡顿
-const REDIS_LARGE_KEY_THRESHOLD = 1000000
+// R1：键列表深跳阈值（页）。SCAN 无 offset，跳页要从 cursor=0 前向步进，
+// 深跳前先弹确认，避免误触后长时间等待
+const REDIS_KEY_JUMP_WARN_PAGES = 500
 // B1 行选择列宽（与 db-session.styl 的 .ant-table-selection-column 同值）：
 // 必须同时给 antd rowSelection.columnWidth（决定 colgroup）与 CSS（内边距），
 // 只给 CSS 时表头那套 table 在列宽超容器后会把该列压成 1px
@@ -698,16 +698,12 @@ export default auto(function DbSession (props) {
     stack: []
   })
   const [matchInput, setMatchInput] = useState('')
+  // R1：键列表跳页输入（页码，1 基）与过期请求令牌
+  const [keyJumpInput, setKeyJumpInput] = useState('')
+  const keyJumpTokenRef = useRef(0)
   const [redisKey, setRedisKey] = useState('')
   const [redisDetail, setRedisDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  // R1：Redis 详情任意跳页（hash/set 游标分页）。detailCache 缓存已加载页
-  // （pageIndex → { fields, rows, nextCursor, total, hasMore }），已访问区间回跳不重请求；
-  // 未加载区间跳转走 scanDetailToPage 前向扫描（O(N)）。detailPageIndex 为当前页（0 基）。
-  const [detailPageIndex, setDetailPageIndex] = useState(0)
-  const detailCacheRef = useRef(new Map())
-  const detailJumpTokenRef = useRef(0)
-  const [jumpInput, setJumpInput] = useState('')
   const [ttlInput, setTtlInput] = useState(undefined)
   // D 批：EXPLAIN 弹窗（对当前选区/整段语句做只读计划分析）
   const [explainOpen, setExplainOpen] = useState(false)
@@ -951,10 +947,6 @@ export default auto(function DbSession (props) {
       setRedisDb(dbIndex)
       setRedisKey('')
       setRedisDetail(null)
-      // R1：切库清空详情页缓存，避免跨库串页
-      detailCacheRef.current = new Map()
-      setDetailPageIndex(0)
-      setJumpInput('')
       loadRedisKeys(dbIndex, '0', matchInput)
       return
     }
@@ -2923,6 +2915,8 @@ export default auto(function DbSession (props) {
   // ---- Redis 键空间 ----
 
   const loadRedisKeys = (dbIndex, cursor, match, stack = []) => {
+    // 顺序翻页/过滤/刷新都会作废在途的跳页请求，避免旧跳页结果覆盖新页
+    keyJumpTokenRef.current++
     setKeyList(s => ({ ...s, loading: true }))
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
       dbIndex,
@@ -2946,107 +2940,99 @@ export default auto(function DbSession (props) {
     })
   }
 
-  // R1：Redis 详情页模型。每页 = 一次 HSCAN/SSCAN 迭代；detailCache 缓存已加载页，
-  // 支持已访问区间即时回跳；未加载区间（不连续）跳转走 scanDetailToPage 前向扫描。
-  // openRedisKey 打开新键（清空缓存、回到首页）；refreshCurrentDetail 写操作后刷新当前页
-  // （失效缓存 + 用上一页游标顺序重拉，避免 O(N) 扫描）；selectRedisKey 为兼容入口。
-  const openRedisKey = (key) => {
-    if (!key) {
+  // R1：键列表跳到第 N 页（1 基）。SCAN 游标不透明，后端从 cursor=0 前向步进
+  // target 次并回传沿途每页起始游标；用这条游标链重建 prev 栈，
+  // 之后 prev/next 仍是顺序推进（不重复扫描）。目标页超出遍历范围时停在末页后。
+  const jumpRedisKeysPage = (pageNo) => {
+    const n = Math.floor(Number(pageNo))
+    if (!Number.isInteger(n) || n < 1) {
+      setKeyJumpInput('')
       return
     }
-    setRedisKey(key)
-    detailCacheRef.current = new Map()
-    setDetailPageIndex(0)
-    setJumpInput('')
-    loadDetailPage(key, 0)
+    const target = n - 1
+    setKeyJumpInput('')
+    const doJump = () => {
+      const match = keyList.match || '*'
+      keyJumpTokenRef.current++
+      const token = keyJumpTokenRef.current
+      setKeyList(s => ({ ...s, loading: true }))
+      window.pre.runGlobalAsync('dbClientOp', tabId, 'scanKeysToPage', {
+        dbIndex: redisDb,
+        pageIndex: target,
+        pageSize: getDbPageSize(),
+        match
+      }).then(res => {
+        if (token !== keyJumpTokenRef.current) {
+          return
+        }
+        const cursors = (res && res.cursors) || ['0']
+        setKeyList({
+          loading: false,
+          rows: (res && res.rows) || [],
+          cursor: cursors[cursors.length - 1] || '0',
+          nextCursor: (res && res.nextCursor) || '0',
+          hasMore: !!(res && res.hasMore),
+          match,
+          stack: cursors.slice(0, -1)
+        })
+      }).catch(err => {
+        if (token !== keyJumpTokenRef.current) {
+          return
+        }
+        setKeyList(s => ({ ...s, loading: false }))
+        onOpError(err)
+      })
+    }
+    if (target > REDIS_KEY_JUMP_WARN_PAGES) {
+      Modal.confirm({
+        title: e('dbKeyJumpWarnTitle'),
+        content: e('dbKeyJumpWarn').replace('{n}', String(n)),
+        okText: e('dbGo'),
+        cancelText: e('cancel'),
+        onOk: doJump
+      })
+      return
+    }
+    doJump()
   }
 
-  const refreshCurrentDetail = () => {
-    if (!redisKey) {
-      return
-    }
-    // 捕获当前页上一页游标，失效缓存后仍能顺序重拉当前页（不触发前向扫描）
-    const prevCursor = detailPageIndex > 0
-      ? (detailCacheRef.current.get(detailPageIndex - 1) || {}).nextCursor
-      : '0'
-    detailCacheRef.current = new Map()
-    loadDetailPage(redisKey, detailPageIndex, { force: true, startCursor: prevCursor })
-  }
-
-  const loadDetailPage = (key, pageIndex, opts = {}) => {
-    if (!key) {
-      return
-    }
-    const cache = detailCacheRef.current
-    const cached = cache.get(pageIndex)
-    if (cached && !opts.force) {
-      // 已加载区间：缓存回跳，不发请求
-      setRedisDetail(cached)
-      setDetailPageIndex(pageIndex)
-      return
+  // cursor/append 供 hash/set 服务端分页：append 时把新一页合并进已加载详情，
+  // 不再把整个键一次性搬进内存
+  const selectRedisKey = (key, cursor = '0', append = false) => {
+    if (!append) {
+      setRedisKey(key)
     }
     setDetailLoading(true)
-    const args = { dbIndex: redisDb, key, pageSize: REDIS_DETAIL_PAGE }
-    let op = 'getKeyDetail'
-    if (pageIndex === 0) {
-      args.cursor = '0'
-    } else if (opts.startCursor) {
-      // 强制刷新：用捕获到的上一页游标顺序重拉
-      args.cursor = opts.startCursor
-    } else {
-      const prev = cache.get(pageIndex - 1)
-      if (prev) {
-        // 连续下一页：复用上一页游标（顺序推进）
-        args.cursor = prev.nextCursor
-      } else {
-        // 不连续跳转：从 cursor=0 前向扫描到目标页（O(N)）
-        op = 'scanDetailToPage'
-        args.skipPages = pageIndex
-        args.type = (redisDetail && redisDetail.type) || (cached && cached.type) || ''
-      }
-    }
-    const token = ++detailJumpTokenRef.current
-    window.pre.runGlobalAsync('dbClientOp', tabId, op, args).then(res => {
-      if (token !== detailJumpTokenRef.current) {
-        return // 过期请求（快速连续跳转）丢弃，避免错页覆盖
-      }
-      if (!res) {
-        setDetailLoading(false)
-        return
-      }
-      const page = {
-        type: res.type,
-        fields: res.fields || [],
-        rows: res.rows,
-        total: res.total,
-        nextCursor: res.nextCursor,
-        hasMore: res.hasMore !== false
-      }
-      cache.set(pageIndex, page)
-      setRedisDetail(page)
-      setDetailPageIndex(pageIndex)
-      // 仅 getKeyDetail（顺序页）回传 ttl；scanDetailToPage 不回传（ttl 是键级、跨页一致）
-      if (res.ttl !== undefined) {
-        setTtlInput(res.ttl > 0 ? res.ttl : undefined)
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getKeyDetail', {
+      dbIndex: redisDb,
+      key,
+      cursor: String(cursor || '0'),
+      pageSize: REDIS_DETAIL_PAGE
+    }).then(res => {
+      const next = res || null
+      setRedisDetail(prev => {
+        if (!append || !prev || !next) {
+          return next
+        }
+        return {
+          ...next,
+          fields: [...(prev.fields || []), ...(next.fields || [])],
+          rows: next.type === 'hash'
+            ? { ...(prev.rows || {}), ...(next.rows || {}) }
+            : [...(prev.rows || []), ...(next.rows || [])]
+        }
+      })
+      if (!append) {
+        setTtlInput(res && res.ttl > 0 ? res.ttl : undefined)
       }
       setDetailLoading(false)
     }).catch(err => {
-      if (token !== detailJumpTokenRef.current) {
-        return
+      if (!append) {
+        setRedisDetail(null)
       }
       setDetailLoading(false)
       showErrorModal({ error: err })
     })
-  }
-
-  // 兼容入口：写操作后刷新当前页（同键）、切库/改名打开新键（异键）。
-  // 既有调用点（runRedisWrite/applyTtl/editSetMember/setKey onSave/键点击/改名）无需改动。
-  const selectRedisKey = (key) => {
-    if (key && key !== redisKey) {
-      openRedisKey(key)
-    } else {
-      refreshCurrentDetail()
-    }
   }
 
   const applyTtl = async () => {
@@ -6030,84 +6016,23 @@ export default auto(function DbSession (props) {
     )
   }
 
-  // R1：hash/set 详情分页器（替代原"加载更多" append 模型）。
-  // 上一页/下一页/跳至第 N 页；已加载区间（detailCache）即时回跳不重请求，
-  // 未加载区间走 scanDetailToPage 前向扫描。超大键（>REDIS_LARGE_KEY_THRESHOLD）
-  // 给出扫描告警，未加载区间跳页前弹确认。
-  const renderDetailPager = (d) => {
-    const cache = detailCacheRef.current
-    const maxVisited = cache.size ? Math.max(...cache.keys()) : 0
-    const hasPrev = detailPageIndex > 0
-    const hasNext = detailPageIndex < maxVisited || (d && d.hasMore)
-    const total = d && typeof d.total === 'number' ? d.total : null
-    const largeKey = total !== null && total > REDIS_LARGE_KEY_THRESHOLD
-    const submitJump = () => {
-      const n = parseInt(jumpInput, 10)
-      if (!Number.isInteger(n) || n < 1) {
-        setJumpInput('')
-        return
-      }
-      const target = n - 1
-      setJumpInput('')
-      if (target <= maxVisited) {
-        loadDetailPage(redisKey, target) // 已加载区间：缓存回跳
-        return
-      }
-      // 未加载区间：需前向扫描（O(N)）
-      if (largeKey) {
-        Modal.confirm({
-          title: e('dbRedisLargeKeyWarnTitle'),
-          content: e('dbRedisLargeKeyWarn').replace('{n}', String(total)),
-          okText: e('dbJumpToPage'),
-          cancelText: e('cancel'),
-          onOk: () => loadDetailPage(redisKey, target)
-        })
-        return
-      }
-      loadDetailPage(redisKey, target)
+  // hash/set 详情「加载更多」：走服务端 HSCAN/SSCAN 游标，只拉下一页
+  const renderScanMore = (d) => {
+    if (!d || !d.nextCursor || d.nextCursor === '0') {
+      return null
     }
+    const loaded = d.type === 'hash' ? (d.fields || []).length : (d.rows || []).length
+    const left = typeof d.total === 'number' ? Math.max(0, d.total - loaded) : null
     return (
-      <div className='db-grid-pager db-redis-detail-pager'>
-        <Button
-          size='small'
-          icon={<LeftOutlined />}
-          disabled={!hasPrev || detailLoading}
-          onClick={() => loadDetailPage(redisKey, detailPageIndex - 1)}
-        />
-        <span className='db-grid-page-no'>{e('dbPageLabel').replace('{n}', detailPageIndex + 1)}</span>
-        <Button
-          size='small'
-          icon={<RightOutlined />}
-          disabled={!hasNext || detailLoading}
-          onClick={() => loadDetailPage(redisKey, detailPageIndex + 1)}
-        />
-        <Input
-          size='small'
-          className='db-redis-jump'
-          placeholder={e('dbJumpPagePlaceholder')}
-          value={jumpInput}
-          onChange={ev => setJumpInput(ev.target.value)}
-          onPressEnter={submitJump}
-        />
-        <Button
-          size='small'
-          disabled={detailLoading}
-          onClick={submitJump}
-        >
-          {e('dbJumpToPage')}
-        </Button>
-        {largeKey
-          ? (
-            <Alert
-              className='db-redis-large-warn'
-              type='warning'
-              showIcon
-              banner
-              message={e('dbRedisLargeKeyHint').replace('{n}', String(total))}
-            />
-            )
-          : null}
-      </div>
+      <Button
+        size='small'
+        className='db-redis-more'
+        loading={detailLoading}
+        onClick={() => selectRedisKey(redisKey, d.nextCursor, true)}
+      >
+        {e('dbLoadMore')}
+        {left === null ? '' : ` (${e('dbLeft').replace('{n}', left)})`}
+      </Button>
     )
   }
 
@@ -6264,7 +6189,7 @@ export default auto(function DbSession (props) {
             dataSource={redisHashRows}
             rowKey='__rowKey'
           />
-          {renderDetailPager(d)}
+          {renderScanMore(d)}
         </>
       )
     } else if (d.type === 'list') {
@@ -6339,7 +6264,7 @@ export default auto(function DbSession (props) {
             dataSource={redisSetRows}
             rowKey='__rowKey'
           />
-          {renderDetailPager(d)}
+          {renderScanMore(d)}
         </>
       )
     } else if (d.type === 'zset') {
@@ -6590,6 +6515,23 @@ export default auto(function DbSession (props) {
                       [...keyList.stack, keyList.cursor]
                     )}
                   />
+                  {/* R1：键列表任意跳页（SCAN 无 offset，后端前向步进到目标页） */}
+                  <Input
+                    size='small'
+                    className='db-grid-jump'
+                    placeholder={e('dbPagePlaceholder')}
+                    value={keyJumpInput}
+                    onChange={ev => setKeyJumpInput(ev.target.value)}
+                    onPressEnter={() => jumpRedisKeysPage(keyJumpInput)}
+                    disabled={keyList.loading}
+                  />
+                  <Button
+                    size='small'
+                    disabled={keyList.loading || !String(keyJumpInput).trim()}
+                    onClick={() => jumpRedisKeysPage(keyJumpInput)}
+                  >
+                    {e('dbGo')}
+                  </Button>
                 </div>
                 {/* 刷新放在翻页之后，与 MySQL 网格头一致 */}
                 <Button

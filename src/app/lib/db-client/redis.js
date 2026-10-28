@@ -160,6 +160,25 @@ async function getMetadata (conn) {
  * 用 (page-1)*pageSize 当游标会得到重复/遗漏的结果；
  * 因此这里回传 nextCursor 由前端推进，'0' 表示遍历结束。
  */
+// 一次 pipeline 取回所有键的 type/ttl（原先每键 2 次往返）
+async function buildKeyRows (c, keys) {
+  const p = c.pipeline()
+  for (const k of keys) {
+    p.type(k)
+    p.ttl(k)
+  }
+  const res = keys.length ? await p.exec() : []
+  return keys.map((k, i) => {
+    const t = res[i * 2]
+    const ttl = res[i * 2 + 1]
+    return {
+      name: k,
+      type: t && !t[0] ? t[1] : 'unknown',
+      ttl: ttl && !ttl[0] ? ttl[1] : -1
+    }
+  })
+}
+
 async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
   const c = await useDb(conn, dbIndex)
   const size = Math.min(Number(pageSize) || 100, 1000)
@@ -170,26 +189,53 @@ async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
     'COUNT',
     size
   )
-  // 一次 pipeline 取回所有键的 type/ttl（原先每键 2 次往返）
-  const p = c.pipeline()
-  for (const k of keys) {
-    p.type(k)
-    p.ttl(k)
-  }
-  const res = keys.length ? await p.exec() : []
-  const items = keys.map((k, i) => {
-    const t = res[i * 2]
-    const ttl = res[i * 2 + 1]
-    return {
-      name: k,
-      type: t && !t[0] ? t[1] : 'unknown',
-      ttl: ttl && !ttl[0] ? ttl[1] : -1
-    }
-  })
   return {
-    rows: items,
+    rows: await buildKeyRows(c, keys),
     nextCursor: String(next),
     hasMore: String(next) !== '0'
+  }
+}
+
+// 键列表任意跳页。SCAN 游标不透明（不是 offset），跳页只能从 cursor=0
+// 前向步进 pageIndex 次（每次 = 一页，与 getPageData 单次 SCAN 的页定义一致）。
+// 返回目标页 rows 与沿途每页的起始游标链：前端用它重建 prev 栈，
+// 之后 prev/next 仍是顺序推进，不重复扫描。
+// 页下标安全上限防极端跳页（如跳到百万页）把主进程卡死。
+const KEY_JUMP_MAX_PAGES = 20000
+
+async function scanKeysToPage (conn, { dbIndex, match, pageIndex, pageSize }) {
+  const c = await useDb(conn, dbIndex)
+  const size = Math.min(Number(pageSize) || 100, 1000)
+  const pattern = match || '*'
+  const target = Math.max(0, Math.min(Math.floor(Number(pageIndex) || 0), KEY_JUMP_MAX_PAGES))
+  const cursors = []
+  let cursor = '0'
+  let lastKeys = null
+  for (let i = 0; i < target; i++) {
+    cursors.push(cursor)
+    const [next, keys] = await c.scan(cursor, 'MATCH', pattern, 'COUNT', size)
+    lastKeys = keys || []
+    cursor = String(next)
+    if (cursor === '0') {
+      // 目标页超出末页：夹到真实末页（返回上一轮扫到的键），
+      // 与 MySQL 网格 goPage 的 min(p, totalPages) 同语义，避免页码显示末页却是空表
+      return {
+        rows: await buildKeyRows(c, lastKeys),
+        nextCursor: '0',
+        hasMore: false,
+        cursors,
+        pageIndex: cursors.length - 1
+      }
+    }
+  }
+  cursors.push(cursor)
+  const [next, keys] = await c.scan(cursor, 'MATCH', pattern, 'COUNT', size)
+  return {
+    rows: await buildKeyRows(c, keys),
+    nextCursor: String(next),
+    hasMore: String(next) !== '0',
+    cursors,
+    pageIndex: target
   }
 }
 
@@ -198,10 +244,6 @@ async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
 const DETAIL_PAGE_DEFAULT = 200
 const DETAIL_PAGE_MAX = 1000
 const DETAIL_SCAN_MAX_ROUNDS = 10
-// R1：跳页前向扫描安全上限（≈ pageSize × 5万 次迭代）。
-// SCAN 无 offset，跳到目标页必须从前向步进；超大键跳页 O(N) 扫描，
-// 此上限防止极端跳页（如跳到百万字段深处）把主进程卡死
-const DETAIL_JUMP_MAX_SKIP = 50000
 // string 详情预览软上限（字节）：超过只回传截断预览，防 IPC 克隆内存翻倍
 const MAX_STRING_PREVIEW_BYTES = 256 * 1024
 
@@ -285,67 +327,6 @@ async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
   }
   const ttl = await c.ttl(key).catch(() => -1)
   return { type, value, fields, rows, ttl, nextCursor, total }
-}
-
-// R1：Redis 任意跳页 —— SCAN 系列游标不透明（非 offset），跳到目标页必须从
-// cursor=0 前向步进跳过 skipPages 个迭代（每迭代 = 一页），再取一页。
-// 返回该页内容 + 起止游标，前端据此做内存缓存与回跳。超大键跳页是 O(N) 扫描，
-// 由前端负责阈值告警（见 db-session.jsx）；本函数只保证有安全上限不至于卡死。
-// 仅用于 hash（HSCAN）/ set（SSCAN）详情；list/zset/string 非游标分页，不走这里。
-async function scanDetailToPage (conn, { dbIndex, key, type, pageSize, skipPages }) {
-  const c = await useDb(conn, dbIndex)
-  const size = Math.min(Number(pageSize) || DETAIL_PAGE_DEFAULT, DETAIL_PAGE_MAX)
-  const t = type || await c.type(key)
-  const isHash = t === 'hash'
-  const total = isHash ? await c.hlen(key) : await c.scard(key)
-  const skip = Math.max(0, Math.min(Number(skipPages) || 0, DETAIL_JUMP_MAX_SKIP))
-  const doScan = cur => isHash
-    ? c.hscan(key, cur, 'COUNT', size)
-    : c.sscan(key, cur, 'COUNT', size)
-  let cursor = '0'
-  let scanned = 0
-  // 跳过 skip 个迭代，把游标推进到目标页起点
-  while (scanned < skip) {
-    const [next] = await doScan(cursor)
-    cursor = String(next)
-    scanned++
-    if (cursor === '0') {
-      // 已扫到末尾仍不到目标页：目标页不存在，返回空页（hasMore=false）
-      return {
-        type: t,
-        fields: [],
-        rows: isHash ? {} : [],
-        total,
-        nextCursor: '0',
-        hasMore: false,
-        startCursor: '0'
-      }
-    }
-  }
-  // 取目标页
-  const [next, list] = await doScan(cursor)
-  const nextCursor = String(next)
-  const items = list || []
-  const fields = []
-  let rows
-  if (isHash) {
-    rows = {}
-    for (let i = 0; i < items.length; i += 2) {
-      fields.push(items[i])
-      rows[items[i]] = items[i + 1]
-    }
-  } else {
-    rows = items
-  }
-  return {
-    type: t,
-    fields,
-    rows,
-    total,
-    nextCursor,
-    hasMore: nextCursor !== '0',
-    startCursor: cursor
-  }
 }
 
 function checkWritable (readOnly) {
@@ -564,8 +545,8 @@ module.exports = {
   listRemAt,
   renameKeyNx,
   closeRedisConnection,
+  // 键列表任意跳页（SCAN 从 0 前向步进 pageIndex 次）
+  scanKeysToPage,
   // 纯函数导出仅供单测（HSCAN/SSCAN 游标循环）
-  scanPage,
-  // R1：hash/set 详情任意跳页（前向扫描到目标页）
-  scanDetailToPage
+  scanPage
 }

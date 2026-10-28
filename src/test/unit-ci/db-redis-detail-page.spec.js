@@ -156,91 +156,15 @@ describe('批次 D：Redis 详情分页（后端）', () => {
   })
 })
 
-describe('R1：scanDetailToPage 前向扫描到目标页（后端）', () => {
-  test('skipPages=0 返回首页（第一页）', async () => {
-    const { mod } = loadRedis({
-      type: 'hash',
-      hscan: [['17', ['a', '1', 'b', '2']]],
-      hlen: 5
-    })
-    const res = await mod.scanDetailToPage(CONN, { dbIndex: 0, key: 'h', type: 'hash', pageSize: 2, skipPages: 0 })
-    assert.deepEqual([...res.fields], ['a', 'b'])
-    assert.equal(res.nextCursor, '17')
-    assert.equal(res.hasMore, true)
-    assert.equal(res.total, 5)
-    assert.equal(res.startCursor, '0')
-  })
-
-  test('skipPages=1 跳过一页后返回第二页', async () => {
-    const { mod } = loadRedis({
-      type: 'hash',
-      hscan: [['17', ['a', '1', 'b', '2']], ['0', ['c', '3']]],
-      hlen: 3
-    })
-    const res = await mod.scanDetailToPage(CONN, { dbIndex: 0, key: 'h', type: 'hash', pageSize: 2, skipPages: 1 })
-    assert.deepEqual([...res.fields], ['c'])
-    assert.equal(res.nextCursor, '0')
-    assert.equal(res.hasMore, false)
-    assert.equal(res.startCursor, '17')
-  })
-
-  test('跳到末尾之后返回空页（hasMore=false）', async () => {
-    const { mod } = loadRedis({
-      type: 'hash',
-      hscan: [['0', []]],
-      hlen: 0
-    })
-    const res = await mod.scanDetailToPage(CONN, { dbIndex: 0, key: 'h', type: 'hash', pageSize: 2, skipPages: 3 })
-    assert.deepEqual([...res.fields], [])
-    assert.equal(res.hasMore, false)
-    assert.equal(res.nextCursor, '0')
-  })
-
-  test('set（SSCAN）同样可前向跳页，返回成员与总数', async () => {
-    const { mod } = loadRedis({
-      type: 'set',
-      sscan: [['5', ['m1', 'm2']]],
-      scard: 7
-    })
-    const res = await mod.scanDetailToPage(CONN, { dbIndex: 0, key: 's', type: 'set', pageSize: 2, skipPages: 0 })
-    assert.deepEqual([...res.rows], ['m1', 'm2'])
-    assert.equal(res.nextCursor, '5')
-    assert.equal(res.hasMore, true)
-    assert.equal(res.total, 7)
-  })
-
-  test('超大 skipPages 不会无限循环（安全上限截断）', async () => {
-    const { mod } = loadRedis({
-      type: 'hash',
-      hscan: [['0', []]],
-      hlen: 0
-    })
-    const res = await mod.scanDetailToPage(CONN, { dbIndex: 0, key: 'h', type: 'hash', pageSize: 2, skipPages: 999999 })
-    assert.deepEqual([...res.fields], [])
-    assert.equal(res.hasMore, false)
-  })
-})
-
-describe('R1：Redis 详情任意跳页（前端接线）', () => {
+describe('批次 D：Redis 详情分页（前端接线）', () => {
   const src = fs.readFileSync(JSX, 'utf8')
 
-  test('页模型请求带页大小，跳页走 scanDetailToPage', () => {
+  test('请求带游标与页大小，加载更多按游标追加', () => {
+    assert.ok(src.includes('cursor: String(cursor || \'0\')'), 'cursor must be sent')
     assert.ok(src.includes('pageSize: REDIS_DETAIL_PAGE'), 'page size must be sent')
-    assert.ok(src.includes("op = 'scanDetailToPage'"), 'jump must use scanDetailToPage op')
-    assert.ok(src.includes('args.skipPages = pageIndex'), 'jump must pass skipPages')
-  })
-
-  test('详情缓存与当前页状态存在（已加载区间回跳）', () => {
-    assert.ok(src.includes('detailCacheRef'), 'detail cache must exist')
-    assert.ok(src.includes('detailPageIndex'), 'current page index state must exist')
-    assert.ok(src.includes('const cached = cache.get(pageIndex)'), 'cache hit must short-circuit')
-  })
-
-  test('跳页输入与超大键告警接线存在', () => {
-    assert.ok(src.includes('dbJumpToPage'), 'jump button label must use translate')
-    assert.ok(src.includes('REDIS_LARGE_KEY_THRESHOLD'), 'large key threshold must exist')
-    assert.ok(src.includes('dbRedisLargeKeyWarn'), 'large key warning text must use translate')
-    assert.ok(src.includes('Modal.confirm'), 'large key jump must confirm')
+    assert.ok(src.includes('selectRedisKey(redisKey, d.nextCursor, true)'), 'next page wiring missing')
+    assert.ok(src.includes('...(prev.fields'), 'hash fields must be appended')
+    assert.ok(src.includes('...(prev.rows'), 'rows must be appended')
   })
 
   test('hash/set 不再按 detailLimit 客户端切片', () => {
