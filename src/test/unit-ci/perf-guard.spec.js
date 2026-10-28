@@ -227,6 +227,20 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
     assert.ok(src.includes('DB_PAGE_SIZE_DEFAULT = 20'), 'default page size drifted')
   })
 
+  test('dbPageSize capped at 200 so one page cannot explode render cost', () => {
+    const src = loadSrc(DB_SESSION)
+    assert.ok(src.includes('DB_PAGE_SIZE_MAX = 200'), 'page size ceiling drifted')
+    assert.ok(
+      /return v >= 10 \? Math\.min\(v, DB_PAGE_SIZE_MAX\)/.test(src),
+      'config page size must clamp to the ceiling'
+    )
+    assert.ok(
+      /return Number\.isInteger\(n\) && n >= 10 \? Math\.min\(n, DB_PAGE_SIZE_MAX\)/.test(src),
+      'persisted view pageSize must clamp to the ceiling too'
+    )
+    assert.ok(!/300, 500, 1000/.test(src), 'selector must not offer pages above the ceiling')
+  })
+
   test('page size selector UI exists (mysql grid + redis bar)', () => {
     const src = loadSrc(DB_SESSION)
     assert.ok(src.includes('renderPageSizeSelect()'), 'page size selector must be rendered')

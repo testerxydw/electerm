@@ -25,7 +25,7 @@ const loadCalcScrollY = () => {
   const yMatch = fnMatch[0].match(/const y = (wrapH[^\n]+)$/m)
   assert.ok(yMatch, 'y derivation not found inside DbGridTable')
   // vm 而非 new Function：跑真实源码表达式，且过 standard 的 no-new-func
-  return vm.runInNewContext('(function (wrapH, headH) { return ' + yMatch[1] + ' })', {})
+  return vm.runInNewContext('(function (wrapH, headH, pagerH) { return ' + yMatch[1] + ' })', {})
 }
 
 // 在 styl 里取某个顶级选择器的块（到下一个顶级选择器为止；文件是 CRLF 行尾）
@@ -42,21 +42,26 @@ describe('DbGridTable: y derivation (real source)', () => {
   const calc = loadCalcScrollY()
 
   test('not measured yet (wrapH=0) -> no scroll.y, keeps outer scrolling', () => {
-    assert.equal(calc(0, 0), 0)
-    assert.equal(calc(0, 38), 0)
+    assert.equal(calc(0, 0, 0), 0)
+    assert.equal(calc(0, 38, 0), 0)
   })
 
   test('header not rendered yet (headH=0) -> no scroll.y', () => {
-    assert.equal(calc(702, 0), 0)
+    assert.equal(calc(702, 0, 0), 0)
   })
 
   test('definite wrap height -> y = wrapH - headH (real sizes from live test)', () => {
-    assert.equal(calc(702, 38), 664)
-    assert.equal(calc(563, 38), 525)
+    assert.equal(calc(702, 38, 0), 664)
+    assert.equal(calc(563, 38, 0), 525)
+  })
+
+  test('pagination row steals height from the body (SQL result paging)', () => {
+    assert.equal(calc(702, 38, 32), 632)
+    assert.equal(calc(702, 38, 100), 564)
   })
 
   test('degenerate tiny container (smaller than header) -> no scroll.y', () => {
-    assert.equal(calc(30, 38), 0)
+    assert.equal(calc(30, 38, 0), 0)
   })
 })
 

@@ -118,12 +118,15 @@ import './db-session.styl'
 const SqlCodeEditor = lazy(() => import('./db-sql-editor'))
 
 const e = window.translate
-// 每页行数：可经 config.dbPageSize 配置（10/20/50/100/500），默认 20；
-// 服务端上限 1000 不变（mysql.js/redis.js）
+// 每页行数：可经 config.dbPageSize 配置（10/20/50/100/200），默认 20；
+// 服务端上限 1000 不变（mysql.js/redis.js），渲染侧上限见 DB_PAGE_SIZE_MAX
 const DB_PAGE_SIZE_DEFAULT = 20
+// 渲染侧硬上限：一页 200 行 × 宽表列数已经是可视区能处理的量级，
+// 再大只是把 DOM/克隆成本线性放大（CDP 实测 1000 行/页是主要内存峰值来源之一）
+const DB_PAGE_SIZE_MAX = 200
 const getDbPageSize = () => {
   const v = Number(window.store._config && window.store._config.dbPageSize)
-  return v >= 10 ? Math.min(v, 1000) : DB_PAGE_SIZE_DEFAULT
+  return v >= 10 ? Math.min(v, DB_PAGE_SIZE_MAX) : DB_PAGE_SIZE_DEFAULT
 }
 // A-7：SQL 补全关键字大小写（'lower' 默认 / 'upper'），非法值一律回落小写
 const getSqlKeywordCase = () => {
@@ -227,6 +230,7 @@ function DbGridTable (props) {
   const measureRef = useRef(() => {})
   const [wrapH, setWrapH] = useState(0)
   const [headH, setHeadH] = useState(0)
+  const [pagerH, setPagerH] = useState(0)
   // ResizeObserver 只在挂载时建一次：原实现每次 render 都新建/断开，
   // 输入查找、过滤等高频状态变化会带来无谓的观察器与同步测量开销。
   useEffect(() => {
@@ -241,8 +245,28 @@ function DbGridTable (props) {
       // 用 getBoundingClientRect（小数）+ ceil：不放大可用高度
       const head = el.querySelector('.ant-table-header') ||
         el.querySelector('.ant-table-thead')
-      setWrapH(el.clientHeight)
-      setHeadH(head ? Math.ceil(head.getBoundingClientRect().height) : 0)
+      // 非激活页签里 clientHeight / rect 高度都是 0。写回 0 会把 y 置 0 →
+      // virtual=false → antd Table 退回全量渲染：3 万行页签切走后会挂出上万
+      // DOM 节点、堆上多占几十 MB（CDP 实测），所以量到 0 时保留上次实测值
+      const h = el.clientHeight
+      if (h > 0) {
+        setWrapH(h)
+      }
+      const hh = head ? Math.ceil(head.getBoundingClientRect().height) : 0
+      if (hh > 0) {
+        setHeadH(hh)
+      }
+      // 分页器占掉的纵向空间必须从 y 里扣掉，否则表体把分页器顶出可视区；
+      // 结果不足一页时是真没有分页器，要如实写回 0
+      const pager = el.querySelector('.ant-pagination')
+      if (!pager) {
+        setPagerH(0)
+      } else {
+        const ph = Math.ceil(pager.getBoundingClientRect().height)
+        if (ph > 0) {
+          setPagerH(ph)
+        }
+      }
     }
     measureRef.current = measure
     measure()
@@ -263,7 +287,7 @@ function DbGridTable (props) {
   useEffect(() => {
     measureRef.current()
   }, [rest.dataSource, rest.loading])
-  const y = wrapH > 0 && headH > 0 && wrapH > headH ? wrapH - headH : 0
+  const y = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0
   return (
     <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={style}>
       <Table
@@ -1194,7 +1218,7 @@ export default auto(function DbSession (props) {
   // 否则回落全局配置。下限 10 与 getDbPageSize 一致，防脏数据把页大小写成 1
   const pageSizeOf = (v) => {
     const n = v && v.pageSize
-    return Number.isInteger(n) && n >= 10 ? Math.min(n, 1000) : getDbPageSize()
+    return Number.isInteger(n) && n >= 10 ? Math.min(n, DB_PAGE_SIZE_MAX) : getDbPageSize()
   }
 
   // 空页回退：totalRows 来自 information_schema 估算，常偏大 → 尾部页可能无数据。
@@ -4026,7 +4050,7 @@ export default auto(function DbSession (props) {
   }
 
   // 每页行数切换：写 config.dbPageSize 并回第 1 页重新取数（mysql/redis 共用）
-  const pageSizeOptions = [10, 20, 50, 100, 300, 500, 1000].map(n => ({
+  const pageSizeOptions = [10, 20, 50, 100, DB_PAGE_SIZE_MAX].map(n => ({
     value: n,
     label: e('dbPerPage').replace('{n}', n)
   }))
