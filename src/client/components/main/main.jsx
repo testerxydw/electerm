@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import Layout from '../layout/layout'
 import FileInfoModal from '../sftp/file-info-modal'
 import FileCompareModal from '../sftp/file-compare-modal'
+import FilePreviewModal from '../sftp/file-preview-modal'
 import UpdateCheck from './upgrade'
 import SettingModal from '../setting-panel/setting-modal'
 import TextEditor from '../text-editor/text-editor-entry'
@@ -387,6 +388,7 @@ export default auto(function Index (props) {
         />
         <FileInfoModal />
         <FileCompareModal />
+        <FilePreviewModal />
         <SettingModal store={store} />
         <MoveItemModal store={store} />
         <div

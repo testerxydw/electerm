@@ -1,0 +1,104 @@
+// 远程文件只读预览（G3）：文本行号 + 查找高亮 / 图片 / 二进制 hex
+// 颜色全走 token，不新增硬编码色值（css 契约测试会点名非 includes 的 styl）
+
+.file-preview-modal
+  .ant-modal-body
+    padding 0 12px 12px
+
+.file-preview-title
+  font-weight bold
+  margin-right 8px
+
+.file-preview-meta
+  font-weight normal
+  font-size 12px
+  color var(--text-dark)
+
+.file-preview-find
+  display flex
+  align-items center
+  gap 8px
+  padding 4px 0 8px
+
+.file-preview-find-count
+  font-size 12px
+  color var(--text-dark)
+  white-space nowrap
+
+.file-preview-banner
+  display flex
+  align-items center
+  justify-content space-between
+  gap 8px
+  padding 4px 8px
+  margin-bottom 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--text-dark)
+
+.file-preview-body
+  height 60vh
+  min-height 240px
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+
+.file-preview-body-text
+  display flex
+  align-items flex-start
+
+.file-preview-body-image
+  display flex
+  align-items center
+  justify-content center
+  background var(--hover-bg)
+  img
+    max-width 100%
+    max-height 100%
+    object-fit contain
+
+// 行号与正文同一行高、同一字体，横向滚动由外层容器统一负责
+.file-preview-gutter
+  margin 0
+  padding 8px 8px 8px 12px
+  border-right 1px solid var(--border)
+  color var(--text-dark)
+  font-family var(--font-mono)
+  font-size 12px
+  line-height 18px
+  text-align right
+  user-select none
+  flex none
+
+.file-preview-pre
+  margin 0
+  padding 8px 12px
+  font-family var(--font-mono)
+  font-size 12px
+  line-height 18px
+  white-space pre
+  flex 1 1 auto
+
+.file-preview-hex
+  color var(--text)
+
+.file-preview-hint
+  padding 8px 12px 0
+  font-size 12px
+  color var(--text-dark)
+
+.file-preview-empty,
+.file-preview-error
+  padding 24px
+  text-align center
+  color var(--text-dark)
+
+.file-preview-error-msg
+  margin-top 8px
+  color var(--error)
+
+.file-preview-error-path
+  margin-top 4px
+  font-family var(--font-mono)
+  font-size 12px

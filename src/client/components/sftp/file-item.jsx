@@ -379,6 +379,14 @@ export default class FileSection extends React.Component {
     })
   }
 
+  previewFile = () => {
+    refsStatic.get('file-preview-modal')?.showFilePreviewModal({
+      file: this.state.file,
+      sftp: this.props.sftp,
+      onDownload: this.doTransfer
+    })
+  }
+
   getExt = (name = '') => {
     const parts = String(name).split('.')
     if (parts.length < 2) {
@@ -1119,6 +1127,14 @@ export default class FileSection extends React.Component {
         func: 'editFile',
         icon: 'EditOutlined',
         text: e('edit')
+      })
+    }
+    // 远程文件只读预览：大文件与二进制不必先进编辑器/先下载
+    if (isRemote && isRealFile) {
+      res.push({
+        func: 'previewFile',
+        icon: 'EyeOutlined',
+        text: e('filePreview')
       })
     }
     if (isRealFile) {
