@@ -98,11 +98,27 @@ export function selectRenderers (value, column = {}) {
   return { isBinary: isBin, envelope, renderers: items, defaultKey }
 }
 
-// 取二进制列的前 maxBytes 字节（信封已截断到 BIN_PREFIX_LIMIT，可直接 decode）
+// 取二进制列的前 maxBytes 字节（信封已截断到 BIN_PREFIX_LIMIT，可直接 decode）。
+// 这里不能用 Buffer：这是渲染进程，window.pre 之外的 Node 全局并不存在，
+// Buffer.from 直接 ReferenceError 把整个数据库页签打没（CDP 实测：点二进制格
+// 展开值面板 → 页签消失、结果区清空）
 export function binPreviewBytes (envelope) {
   if (!envelope || typeof envelope.b64 !== 'string') {
-    return Buffer.alloc(0)
+    return new Uint8Array(0)
   }
-  const buf = Buffer.from(envelope.b64, 'base64')
+  const bin = atob(envelope.b64)
+  const buf = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) {
+    buf[i] = bin.charCodeAt(i)
+  }
   return envelope.size > BIN_MAX_PREVIEW ? buf.subarray(0, BIN_MAX_PREVIEW) : buf
+}
+
+// Uint8Array 没有 Buffer 的 toString('hex')。渲染层只能用 Web API，这里自己拼
+export function bytesToHex (bytes) {
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) {
+    s += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16)
+  }
+  return s
 }

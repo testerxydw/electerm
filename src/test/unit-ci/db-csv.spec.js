@@ -13,7 +13,9 @@ const SRC = path.join(ROOT, 'src/client/common/db-csv.js')
 
 const loadFns = () => {
   const code = fs.readFileSync(SRC, 'utf8').replace(/^export /gm, '')
-  const ctx = { Buffer }
+  // 沙箱只给渲染进程真有的全局：Buffer 在渲染层不存在，塞进沙箱会把
+  // "实现用了 Buffer"这件事遮掉（真机上导出含二进制列的结果集直接 ReferenceError）
+  const ctx = { atob, btoa }
   vm.createContext(ctx)
   vm.runInContext(code, ctx)
   assert.equal(typeof ctx.csvEscape, 'function', 'csvEscape missing')

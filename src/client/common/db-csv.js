@@ -99,7 +99,13 @@ export function sqlQuoteVal (v, quote) {
         `含二进制大字段（${bin.size} 字节，已截断），请用 SQL 模式导出`
       )
     }
-    const hex = Buffer.from(bin.b64, 'base64').toString('hex')
+    // 渲染进程没有 Buffer（nodeIntegration 关闭），base64 只能用 atob 解
+    const bin64 = atob(bin.b64)
+    let hex = ''
+    for (let i = 0; i < bin64.length; i++) {
+      const h = bin64.charCodeAt(i).toString(16)
+      hex += h.length < 2 ? '0' + h : h
+    }
     return quote === 'double' ? `'\\x${hex}'` : `X'${hex}'`
   }
   const t = typeof v

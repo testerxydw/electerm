@@ -23,7 +23,11 @@ const loadMod = () => {
       if (/(^|[?&])[^=&]+=[^&]*/.test(text.trim()) && !/\s/.test(text.trim())) out.push({ key: 'url', label: 'URL' })
       return out
     },
-    Buffer,
+    // 故意不注入 Buffer：这是渲染进程模块，运行时里 Buffer 根本不存在。
+    // 上一版把 Buffer 塞进沙箱，binPreviewBytes 用了 Buffer.from 也照样绿，
+    // 真机一点二进制格就 ReferenceError 把整个数据库页签打没（CDP 实测）
+    atob,
+    Uint8Array,
     console
   }
   vm.createContext(ctx)
@@ -96,15 +100,40 @@ describe('value-renderers selectRenderers（文本）', () => {
   })
 })
 
-describe('value-renderers binPreviewBytes', () => {
-  const { binPreviewBytes } = loadMod()
-  test('小信封解码出完整字节', () => {
-    const bytes = binPreviewBytes({ size: 5, b64: Buffer.from('hello').toString('base64'), truncated: false })
-    assert.equal(bytes.toString('utf8'), 'hello')
+describe('value-renderers binPreviewBytes / bytesToHex', () => {
+  const { binPreviewBytes, bytesToHex } = loadMod()
+  test('小信封解码出完整字节（Uint8Array，不靠 Buffer）', () => {
+    const bytes = binPreviewBytes({ size: 5, b64: btoa('hello'), truncated: false })
+    assert.equal(bytes.length, 5)
+    assert.equal(bytesToHex(bytes), '68656c6c6f')
   })
   test('超限信封只给前 4KB 前缀', () => {
-    const big = Buffer.alloc(200 * 1024, 0x41)
-    const bytes = binPreviewBytes({ size: 200 * 1024, b64: big.toString('base64'), truncated: true })
+    // 测试侧用 Node 的 Buffer 造夹具没问题；被禁的是被测模块内部引用 Buffer
+    const big = Buffer.alloc(200 * 1024, 0x41).toString('base64')
+    const bytes = binPreviewBytes({ size: 200 * 1024, b64: big, truncated: true })
     assert.equal(bytes.length, 4096)
+  })
+  test('空/非串信封给空字节串而不是抛', () => {
+    assert.equal(binPreviewBytes(null).length, 0)
+    assert.equal(binPreviewBytes({ size: 0, b64: 42 }).length, 0)
+    assert.equal(bytesToHex(binPreviewBytes(null)), '')
+  })
+  test('hex 每个字节两位（0x0f 要补零，否则回读错位）', () => {
+    assert.equal(bytesToHex(new Uint8Array([0, 15, 16, 255])), '000f10ff')
+  })
+})
+
+describe('渲染层数据库模块不得使用 Buffer（渲染进程里没有这个全局）', () => {
+  const files = [
+    'src/client/components/database/value-renderers/index.js',
+    'src/client/components/database/db-value-pane.jsx',
+    'src/client/common/db-csv.js'
+  ]
+  files.forEach(f => {
+    test(f + ' 不引用 Buffer', () => {
+      const src = fs.readFileSync(path.join(ROOT, f), 'utf8')
+        .split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+      assert.ok(!/\bBuffer\b/.test(src), '改成 atob/Uint8Array：真机一点二进制格就 ReferenceError 吞掉整个页签')
+    })
   })
 })

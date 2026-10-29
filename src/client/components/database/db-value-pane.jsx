@@ -12,7 +12,7 @@ import { CopyOutlined, CloseOutlined, SwapOutlined } from '@ant-design/icons'
 import { copy } from '../../common/clipboard'
 import { formatValue } from './db-value-format'
 import { highlightValue } from './db-highlight'
-import { selectRenderers, isBinEnvelope, binPreviewBytes } from './value-renderers'
+import { selectRenderers, isBinEnvelope, binPreviewBytes, bytesToHex } from './value-renderers'
 
 const e = window.translate
 
@@ -60,7 +60,7 @@ function binPreviewText (value, key) {
   }
   const env = value.__bin
   if (key === 'hex') {
-    return binPreviewBytes(env).toString('hex')
+    return bytesToHex(binPreviewBytes(env))
   }
   if (key === 'base64' || key === 'raw') {
     return env.b64
@@ -106,7 +106,7 @@ function renderBinaryImage (env) {
 // 二进制 blob-info 呈现器：元数据卡 + 前若干字节 hex 预览
 function renderBlobInfo (env) {
   const bytes = binPreviewBytes(env)
-  const previewHex = bytes.subarray(0, 64).toString('hex')
+  const previewHex = bytesToHex(bytes.subarray(0, 64))
   return (
     <div className='db-value-pre db-value-pane-pre db-value-bin-info'>
       <div><b>{e('dbBinEnvelope')}</b></div>
