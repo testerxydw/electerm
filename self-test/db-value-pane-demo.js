@@ -9,8 +9,8 @@
  *
  * 本脚本在渲染层 IPC 边界注入桩 MySQL，真实走 db-session 的选表 → 选单元格 →
  * 编辑态，量真实布局高度：
- *   1) 有外键的表（值/关联双页签路径）：只读态面板撑满；编辑态 textarea 有高度
- *   2) 无外键的表（面板直挂 .db-split-pane-bottom）：编辑态同样有高度
+ *   1) 有外键的表（值/行/关联三页签路径）：只读态面板撑满；编辑态 textarea 有高度
+ *   2) 无外键的表（值/行双页签路径）：编辑态同样有高度
  *   3) Redis string 键的父级（.db-redis-detail，block + overflow auto）：
  *      用同款 DOM 量一遍，防止 height 100% 只修好 MySQL 一侧
  *
@@ -46,7 +46,7 @@ const getJson = url => new Promise((resolve, reject) => {
 
 const STUB = `
 (() => {
-  // 桩 MySQL：users 带外键（触发值/关联双页签），plain 无外键（面板直挂分区）
+  // 桩 MySQL：users 带外键（触发关联页签），plain 无外键（只有值/行两个页签）
   window.pre.runGlobalAsync = function (name, ...a) {
     if (name === 'dbClientOp') {
       const op = a[1]
@@ -322,11 +322,11 @@ const main = async () => {
   await cdp.eval('window.__clickTree("demo_db")')
   const expanded = await waitFor(cdp, 'window.__clickTree("users") === "ok"', 'db expanded')
 
-  // ---- 1) 有外键的表：值/关联双页签路径 ----
+  // ---- 1) 有外键的表：值/行/关联三页签路径 ----
   const usersOk = expanded && await openTable(cdp, 'users')
   check('选中带外键的表', usersOk)
   check('选中单元格后出现值面板', await clickCellAndEdit(cdp))
-  check('出现值/关联双页签', await waitFor(cdp, '!!window.__rect(".db-pane-tabs")', 'pane tabs'))
+  check('出现值/行/关联三页签', await waitFor(cdp, '!!window.__rect(".db-pane-tabs")', 'pane tabs'))
   const readM = await metrics(cdp)
   console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '1-read-tabs.png')))
   check('只读态：面板撑满下方分区（不是内容高）',
@@ -348,10 +348,17 @@ const main = async () => {
   check('编辑态：textarea 撑满面板剩余区', editM.text && editM.pane &&
     editM.text.h >= editM.pane.h - 40, { pane: editM.pane, text: editM.text })
 
-  // ---- 2) 无外键的表：面板直挂分区路径 ----
+  // ---- 2) 无外键的表：值/行双页签路径（H2 起"行"页签常驻，不再直挂面板） ----
   const plainOk = await openTable(cdp, 'plain')
-  check('选中无外键的表（不出现页签）', plainOk && await waitFor(cdp, '!window.__rect(".db-pane-tabs")', 'no pane tabs'))
   await clickCellAndEdit(cdp)
+  const plainTabs = plainOk && await waitFor(cdp, '!!window.__rect(".db-pane-tabs")', 'pane tabs (no fk)')
+  const plainTabLabels = JSON.parse(await cdp.eval(`
+    JSON.stringify([...document.querySelectorAll('.db-pane-tabs .ant-tabs-tab')]
+      .filter(window.__vis).map(x => x.innerText.replace(/\\s/g, '')))
+  `))
+  check('无外键的表：值/行双页签，不挂关联页签',
+    plainTabs && plainTabLabels.length === 2 && !plainTabLabels.some(t => /关联|Related/.test(t)),
+    plainTabLabels)
   const plainEdit = await cdp.eval('window.__clickEdit()')
   const plainShown = await waitFor(cdp, '!!window.__rect(".db-value-pane-text")', 'plain edit textarea')
   const plainM = await metrics(cdp)

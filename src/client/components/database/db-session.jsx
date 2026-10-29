@@ -25,7 +25,7 @@ import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
 import { DbGridPager, DbGridFilter } from './db-grid-pager'
 import { DbCellMenu } from './db-cell-menu'
 // H1：行详情（SQL 结果 Modal 承载；H2 数据网格底部"行"页签复用同一渲染体）
-import { DbRowDetailModal } from './db-row-detail'
+import { DbRowDetail, DbRowDetailModal } from './db-row-detail'
 import {
   fitColumnWidths,
   wideColumnWidth,
@@ -5384,32 +5384,55 @@ export default auto(function DbSession (props) {
       onClose={() => setSelectedCell(null)}
     />
   )
-  // F1：值 + 关联 双页签（showRefTab 为 false 时不挂关联页签）
+  // H2：底部"行"页签 —— 复用 H1 的行详情渲染体（DbRowDetail），与 SQL 结果的
+  // 行详情 Modal 同一份字段/折叠/复制逻辑。字段序与"复制整行"同源（rowColumnNames），
+  // 类型查 colTypeByName（小写键）。只读：改值仍走"值"页签里的编辑框
+  const selectedRow = selectedCell ? grid.rows[selectedCell.rowKey] : null
+  const rowPaneEl = selectedRow
+    ? (
+      <div className='db-row-tab'>
+        <DbRowDetail
+          columns={rowColumnNames(selectedRow)}
+          row={selectedRow}
+          types={colTypeByName}
+        />
+      </div>
+      )
+    : null
+  // 值 + 行（+ 关联）：showRefTab 为 false 时不挂关联页签
+  const detailTabItems = [
+    {
+      key: 'value',
+      label: e('dbTabValue'),
+      children: valuePaneEl
+    },
+    {
+      key: 'row',
+      label: e('dbTabRow'),
+      children: rowPaneEl
+    }
+  ]
+  if (showRefTab) {
+    detailTabItems.push({
+      key: 'refs',
+      label: e('dbTabRefs'),
+      children: (
+        <DbRefsPane
+          items={refItems}
+          dialect={dialect}
+          tabId={tabId}
+          degraded={refInfo.degraded}
+          loading={refInfo.loading}
+          onOpen={openRefTable}
+        />
+      )
+    })
+  }
   const refTabsEl = (
     <Tabs
       size='small'
       className='db-pane-tabs'
-      items={[
-        {
-          key: 'value',
-          label: e('dbTabValue'),
-          children: valuePaneEl
-        },
-        {
-          key: 'refs',
-          label: e('dbTabRefs'),
-          children: (
-            <DbRefsPane
-              items={refItems}
-              dialect={dialect}
-              tabId={tabId}
-              degraded={refInfo.degraded}
-              loading={refInfo.loading}
-              onOpen={openRefTable}
-            />
-          )
-        }
-      ]}
+      items={detailTabItems}
     />
   )
   const emptyPaneEl = (
@@ -5418,7 +5441,7 @@ export default auto(function DbSession (props) {
     </div>
   )
   const bottomEl = selectedCell && grid.rows[selectedCell.rowKey]
-    ? (showRefTab ? refTabsEl : valuePaneEl)
+    ? refTabsEl
     : emptyPaneEl
 
   const dataArea = (
