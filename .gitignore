@@ -138,6 +138,9 @@ ftp-root
 .lintcache
 .npmcache
 *.ncx
+# 真库凭据截图与"对着线上库跑验收"留下的截图都不入库：那些画面里就是生产数据
+# （例如操作日志参数列里的账号口令摘要、Redis 里的服务绑定键），一次提交就永久泄露
 真库配置.png
 mysql.png
 redis.png
+self-test/db-sql-value-realdb-shots/
