@@ -107,7 +107,7 @@ const FIXTURE = `
     if (isRedis) {
       if (op === 'getMetadata') {
         return Promise.resolve([
-          { name: 'db0', type: 'database', count: 2 },
+          { name: 'db0', type: 'database', count: 4 },
           { name: 'db1', type: 'database', count: 0 }
         ])
       }
@@ -115,7 +115,12 @@ const FIXTURE = `
         return Promise.resolve({
           rows: [
             { name: F.key, type: 'hash', ttl: -1 },
-            { name: 'k1', type: 'string', ttl: 100 }
+            { name: 'k1', type: 'string', ttl: 100 },
+            // 详情列宽按"键类型"分桶，所以夹具必须同时有 list / zset：
+            // hash 的 value 与 list 的 value 是同名字段，只有两种类型都在，
+            // "拖一处不该改另一处"才量得出来（只有一种类型时这条判据是空的）
+            { name: 'k2', type: 'list', ttl: -1 },
+            { name: 'k3', type: 'zset', ttl: -1 }
           ],
           cursors: ['0'], nextCursor: '0', hasMore: false, pageIndex: 0
         })
@@ -125,6 +130,26 @@ const FIXTURE = `
         // 不区分的话"换键后不残留上一格选中态"只能验到同一种类型，换类型的渲染路径没实测对象
         if (String(args.key || '') === 'k1') {
           return Promise.resolve({ type: 'string', value: 'v1', ttl: 100, total: 2 })
+        }
+        if (String(args.key || '') === 'k2') {
+          return Promise.resolve({
+            type: 'list',
+            // 列表这一列名字与 hash 的 value 相同、内容短得多：自适应宽应明显窄于 hash 那一张
+            rows: ['a', 'bb', 'ccc'],
+            ttl: -1,
+            nextCursor: '0',
+            total: 3
+          })
+        }
+        if (String(args.key || '') === 'k3') {
+          return Promise.resolve({
+            type: 'zset',
+            // zrange WITHSCORES 的扁平数组：[member, score, ...]
+            rows: ['mmmm-long-member-value', '1', 'n', '2'],
+            ttl: -1,
+            nextCursor: '0',
+            total: 2
+          })
         }
         return Promise.resolve({
           type: 'hash',
@@ -328,6 +353,38 @@ const HELPERS = `
       // Redis 详情的行内编辑容器与数据页不是同一个类名（Redis 走 db-redis-cell-edit）
       editors: p.querySelectorAll('.db-redis-cell-edit').length
     })
+  }
+  // Redis 详情网格的列头。__thList 铺满整个会话根，会把键列表那 3 个列头也量进来；
+  // 详情里"值"列与键列表的列也不是同一张表，判详情必须只看 .db-redis-detail 这一张
+  window.__redisDetailThs = () => JSON.stringify(
+    [...document.querySelectorAll('.db-redis-detail th')].filter(window.__vis).map(window.__thInfo)
+  )
+  window.__redisDetailThOf = (label) => {
+    const ths = [...document.querySelectorAll('.db-redis-detail th')].filter(window.__vis)
+    const nameOf = t => (((t.querySelector('.db-col-name') || {}).innerText || t.innerText || '').trim().split('\\n')[0])
+    const th = ths.find(t => nameOf(t).indexOf(label) === 0)
+    if (!th) {
+      return JSON.stringify({ found: 0, labels: ths.map(nameOf) })
+    }
+    return JSON.stringify(window.__thInfo(th))
+  }
+  // 值列拖到 480/720 后手柄会跑出详情区视口，拖之前先把那一列滚进来（同 __scrollColIntoView）
+  window.__scrollDetailColIntoView = (label) => {
+    const ths = [...document.querySelectorAll('.db-redis-detail th')].filter(window.__vis)
+    const nameOf = t => (((t.querySelector('.db-col-name') || {}).innerText || t.innerText || '').trim().split('\\n')[0])
+    const th = ths.find(t => nameOf(t).indexOf(label) === 0)
+    if (!th) {
+      return 'no-th'
+    }
+    th.scrollIntoView({ block: 'nearest', inline: 'end' })
+    const handle = th.querySelector('.db-col-resizer')
+    const hr = handle ? handle.getBoundingClientRect() : null
+    if (!hr) {
+      return 'no-handle'
+    }
+    return hr.left > 1 && hr.right < innerWidth - 1
+      ? 'in-view'
+      : 'still-off:' + Math.round(hr.left) + '/' + Math.round(hr.right) + '/vw=' + innerWidth
   }
   // 关掉 Redis 行内编辑：编辑条上没有 Esc 语义，取消是那只 × 按钮（最后一个按钮）
   window.__cancelRedisEdit = () => {
@@ -899,6 +956,39 @@ const tapHandle = async (cdp, label) => {
 // 右键列头出菜单 → 读一次菜单状态 → 可选点某一项（不点就交给调用方关）
 const colMenu = async (cdp, label, pickRe) => {
   const th = await thOf(cdp, label)
+  if (!th.found) {
+    return { th, info: { open: 0 }, picked: 'no-th' }
+  }
+  await cdp.rightClick(Math.round(th.left + Math.min(th.used, 40)), Math.round(th.top + 8))
+  await sleep(200)
+  const info = await menuInfo(cdp)
+  let picked = 'skip'
+  if (pickRe && info.open === 1) {
+    picked = await cdp.eval('window.__clickMenuItem(' + JSON.stringify(pickRe) + ')')
+    await sleep(200)
+  }
+  return { th, info, picked }
+}
+
+// Redis 详情网格的列头/拖拽/菜单：作用域收在 .db-redis-detail 里（见 __redisDetailThs）
+const detailThOf = async (cdp, label) => JSON.parse(await cdp.eval('window.__redisDetailThOf(' + JSON.stringify(label) + ')'))
+
+const dragDetailCol = async (cdp, label, dx) => {
+  const scrolled = await cdp.eval('window.__scrollDetailColIntoView(' + JSON.stringify(label) + ')')
+  await sleep(120)
+  const before = await detailThOf(cdp, label)
+  if (!before.found || !before.handleIsResizer) {
+    return { before, ok: false, scrolled }
+  }
+  const endX = await cdp.drag(before.handle.x, before.handle.y, dx, 6, 0)
+  await cdp.release(endX, before.handle.y)
+  await sleep(150)
+  const after = await detailThOf(cdp, label)
+  return { before, after, ok: true, scrolled }
+}
+
+const detailColMenu = async (cdp, label, pickRe) => {
+  const th = await detailThOf(cdp, label)
   if (!th.found) {
     return { th, info: { open: 0 }, picked: 'no-th' }
   }
@@ -1697,6 +1787,86 @@ const main = async () => {
   const redisBack = JSON.parse(await cdp.eval('window.__redisSplit()'))
   check('切回 hash 键后分区回到折叠（选中态没跟着键切回来）',
     redisBack.found === 1 && redisBack.collapsed === 1 && redisBack.selCount === 0, redisBack)
+
+  // ---------- Redis 详情列宽：5 张表接同一套手柄 / 菜单 / 四源优先级 ----------
+  // 量的是 .db-redis-detail 里那一张表（__thList 会把键列表 3 个列头一起量进来）
+  const detailHashThs = JSON.parse(await cdp.eval('window.__redisDetailThs()'))
+  check('Redis 详情 hash 表三列：两个数据列挂手柄、操作列不挂（与数据页同一规则）',
+    detailHashThs.length === 3 && detailHashThs[0].handleIsResizer === true &&
+      detailHashThs[1].handleIsResizer === true && detailHashThs[1].handle !== null &&
+      detailHashThs[2].handle === null && detailHashThs[2].label === '',
+    detailHashThs.map(t => [t.label, t.used, t.handleIsResizer]))
+  const hashValueLabel = detailHashThs[1].label
+  check('详情长 value 列按内容量宽（明显宽于字段列；原来写死 220 不看内容）',
+    detailHashThs[1].used > detailHashThs[0].used * 1.5,
+    detailHashThs.map(t => [t.label, t.used]))
+  const dMenu = await detailColMenu(cdp, hashValueLabel)
+  check('详情列头菜单标题用译文（不是内部键 value）',
+    dMenu.info.open === 1 && dMenu.info.head === hashValueLabel,
+    { head: dMenu.info.head, label: hashValueLabel, open: dMenu.info.open })
+  const dWide = await detailColMenu(cdp, hashValueLabel, '加宽到|widen')
+  const dWideAfter = await detailThOf(cdp, hashValueLabel)
+  // 详情表只有三列，720 的配置宽还不到容器宽 → 仍在摊宽态，屏幕上量不出 720。
+  // 这一档只判"菜单项写着内容算出的目标宽 + 点下去这一列吃掉大半张表"；
+  // 配置宽原样落到屏幕，留给下面把字段列拖到顶过容器之后再逐像素验证
+  check('详情"加宽到"项写着按内容算出的目标宽，点下去 value 列吃掉大半张表',
+    dWide.picked === 'ok' &&
+      dWide.info.items.some(t => t.indexOf(String(COL_W.wide)) >= 0) &&
+      dWideAfter.used > dWide.th.used * 1.1 && dWideAfter.used > dWideAfter.tableW * 0.75,
+    { items: dWide.info.items, before: dWide.th.used, after: dWideAfter.used, table: dWideAfter.tableW })
+  // 精确态：把字段列拖到顶过容器，此时 used 就是配置宽本体，value 的 720 才能逐像素验证
+  const dField = await dragDetailCol(cdp, detailHashThs[0].label, 800)
+  const dFieldAfter = await detailThOf(cdp, detailHashThs[0].label)
+  const fieldExpect = Math.min(COL_W.dragMax, Math.round(dField.before.used) + 800)
+  check('详情字段列可拖，拖到顶过容器后画到的就是拖出来的配置宽 ' + fieldExpect,
+    dField.ok && dFieldAfter.stretch === 0 && dFieldAfter.used === fieldExpect,
+    { from: dField.before.used, to: dFieldAfter.used, expect: fieldExpect, stretch: dFieldAfter.stretch })
+  const valuePrecise = await detailThOf(cdp, hashValueLabel)
+  check('精确态下 value 列画到的就是菜单写进去的 ' + COL_W.wide + '（加宽没停在菜单标签上）',
+    valuePrecise.stretch === 0 && valuePrecise.used === COL_W.wide,
+    { stretch: valuePrecise.stretch, used: valuePrecise.used })
+
+  // 同名 value 列跨键类型不能串：hash 加宽过，list 的自适应宽应还是内容宽
+  check('切到 list 键（同名 value 列的详情）',
+    await cdp.eval('window.__clickRedisKeyAt("k2")') === 'ok' &&
+      await waitFor(cdp, '!!window.__cellOf("bb")', 'redis list detail'))
+  const detailListThs = JSON.parse(await cdp.eval('window.__redisDetailThs()'))
+  check('Redis 详情 list 表：序号列不挂手柄（只有数据列可拖）',
+    detailListThs.length === 3 && detailListThs[0].label === '#' &&
+      detailListThs[0].handle === null && detailListThs[1].handleIsResizer === true,
+    detailListThs.map(t => [t.label, t.used, t.handleIsResizer]))
+  check('list 详情的同名 value 列不继承 hash 的 ' + COL_W.wide + '（详情列宽按键类型分桶）',
+    detailListThs[1].label === hashValueLabel &&
+      detailListThs[1].used < dWideAfter.used * 0.75,
+    { label: detailListThs[1].label, used: detailListThs[1].used, hashUsed: dWideAfter.used })
+  const dragL = await dragDetailCol(cdp, detailListThs[1].label, 80)
+  check('list 详情 value 列可拖（拖 +80 生效，改的是 list 自己那一桶）',
+    dragL.ok && grewBy(dragL.before, dragL.after, 80),
+    { from: dragL.before.used, to: dragL.after.used })
+  const listAll = await detailColMenu(cdp, detailListThs[1].label, '自适应全部列|auto-fit all')
+  const listAfterAll = await detailThOf(cdp, detailListThs[1].label)
+  check('详情"自适应全部列"把 list 这一桶清回自适应（回到拖之前那一档）',
+    listAll.picked === 'ok' && listAfterAll.used === detailListThs[1].used,
+    { picked: listAll.picked, used: listAfterAll.used, expect: detailListThs[1].used })
+  await cdp.eval('window.__clickRedisKey()')
+  check('切回 hash 详情网格', await waitFor(cdp, '!!window.__cellOf("PPPPPPPPPPPP")', 'redis hash back'))
+  const hashBackTh = await detailThOf(cdp, hashValueLabel)
+  const hashBackField = await detailThOf(cdp, detailHashThs[0].label)
+  check('切回 hash 后两列手动宽都还在（"自适应全部列"只清当前键类型那一桶）',
+    hashBackTh.used === valuePrecise.used && hashBackField.used === fieldExpect,
+    { value: hashBackTh.used, field: hashBackField.used, expectValue: valuePrecise.used, expectField: fieldExpect })
+
+  // zset：成员列是会变长的那一列，分数列是数字 —— 自适应宽必须体现这个差别
+  check('切到 zset 键', await cdp.eval('window.__clickRedisKeyAt("k3")') === 'ok' &&
+    await waitFor(cdp, '!!window.__cellOf("mmmm-long-member")', 'redis zset detail'))
+  const detailZsetThs = JSON.parse(await cdp.eval('window.__redisDetailThs()'))
+  check('Redis 详情 zset：member 列明显宽于 score 列（score 原来写死 150，member 反而不设宽）',
+    detailZsetThs.length === 3 && detailZsetThs[0].handleIsResizer === true &&
+      detailZsetThs[1].handleIsResizer === true &&
+      detailZsetThs[0].used > detailZsetThs[1].used * 1.5,
+    detailZsetThs.map(t => [t.label, t.used, t.handleIsResizer]))
+  await cdp.eval('window.__clickRedisKey()')
+  await waitFor(cdp, '!!window.__cellOf("PPPPPPPPPPPP")', 'redis hash back 2')
 
   // ---------- 浅色主题复查（值面板配色全部走 token） ----------
   const themeIds = JSON.parse(await cdp.eval("JSON.stringify((window.store.getItems('terminalThemes') || []).map(t => t.id))"))
