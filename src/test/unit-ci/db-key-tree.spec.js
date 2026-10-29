@@ -142,6 +142,38 @@ describe('H7a-2 buildRedisKeyTree：分层与形状', () => {
   })
 })
 
+describe('H7a-2 ancestorKeys：选中某个键时展开它那一支', () => {
+  test('按分隔符回连路径前缀（不遍历整棵树）', async () => {
+    const { ancestorKeys } = await load()
+    assert.deepEqual(ancestorKeys('a:b:c'), ['a', 'a:b'])
+    assert.deepEqual(ancestorKeys('a', ':'), [])
+    assert.deepEqual(ancestorKeys('a/b/c', '/'), ['a', 'a/b'])
+    assert.deepEqual(ancestorKeys('', ':'), [])
+    assert.deepEqual(ancestorKeys(null), [])
+  })
+
+  test('分隔符空/纯空白 = 不分层 = 没有祖先；不传则回落到默认 :', async () => {
+    const { ancestorKeys } = await load()
+    for (const sep of ['', '  ']) {
+      assert.deepEqual(ancestorKeys('a:b:c', sep), [], '分隔符「' + sep + '」不该有祖先')
+    }
+    // 与 buildRedisKeyTree 同口径：undefined = 没指定 = 默认 ':'，不是"不分层"
+    assert.deepEqual(ancestorKeys('a:b:c'), ['a', 'a:b'])
+  })
+
+  test('与建树产出的节点 key 对得上（展开后能真看到被选中的那一行）', async () => {
+    const { buildRedisKeyTree, ancestorKeys } = await load()
+    const { nodes } = buildRedisKeyTree(['ns:sub:key:deep'])
+    const path = 'ns:sub:key:deep'
+    const anc = ancestorKeys(path, ':')
+    const present = keysOf(nodes)
+    assert.ok(present.includes(path))
+    for (const a of anc) {
+      assert.ok(present.includes(a), '祖先 ' + a + ' 不是真实存在的节点 key')
+    }
+  })
+})
+
 describe('H7a-2 collectFolderKeys：默认展开', () => {
   test('默认只给第一层目录（上万键全展开会把 DOM 撑爆）', async () => {
     const { buildRedisKeyTree, collectFolderKeys } = await load()

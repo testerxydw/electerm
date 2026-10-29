@@ -5,7 +5,7 @@
  */
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented } from 'antd'
 import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -108,6 +108,13 @@ import DbWorkspaceHome from './db-workspace-home'
 import DbExplainDialog from './db-explain-tree'
 // D 批：Redis 类型化写接口层（写失败/成功都刷新详情，绝不本地假更新）
 import { redisWrite } from '../../common/db-redis-write'
+// H7a：Redis 键树（平铺键名 → 分层节点的纯函数，边界处理全在那一层）
+import {
+  buildRedisKeyTree,
+  collectFolderKeys,
+  ancestorKeys,
+  DEFAULT_SEPARATOR
+} from '../../common/db-key-tree'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
 import {
@@ -203,6 +210,30 @@ const REDIS_DETAIL_PAGE = 200
 // R1：键列表深跳阈值（页）。SCAN 无 offset，跳页要从 cursor=0 前向步进，
 // 深跳前先弹确认，避免误触后长时间等待
 const REDIS_KEY_JUMP_WARN_PAGES = 500
+// H7a：键树一次全量遍历的键数上限与每轮 SCAN 的 COUNT。
+// 上限存在的理由不是"怕慢"而是"不设上限时一个 500 万键的实例会把渲染进程整死"；
+// 到量就停手并明说被截断，比卡住让用户自己猜强。COUNT 取后端允许的 1000 上限：
+// 1 万键 = 10 轮 IPC，进度条也就有 10 格可跳。
+const REDIS_TREE_MAX_KEYS = 10000
+const REDIS_TREE_SCAN_COUNT = 1000
+// 默认展开的键库规模上限：超过它就不自动展开任何目录。
+// antd Tree 不传 height 时不是虚拟列表 —— 展开一个目录 = 把它的全部子节点一次性塞进 DOM，
+// 而"整库只共享一个业务前缀、前缀下面挂上万键"正是最常见的键空间形状。
+const REDIS_TREE_AUTO_EXPAND_KEYS = 500
+// 键名 → 树节点路径。选中态在列表/树两边是同一个 `redisKey`（按名字，不按行下标），
+// 树这边要知道"这个名字落在哪个节点"才能打勾并展开它那一支。
+// 一次遍历建索引，比每次渲染都走树便宜（1 万键时是每次点击都走一遍的区别）。
+const buildKeyPathIndex = (nodes) => {
+  const map = new Map()
+  const walk = (list) => {
+    for (const n of list || []) {
+      if (n.keyName) map.set(n.keyName, n.key)
+      if (n.children) walk(n.children)
+    }
+  }
+  walk(nodes)
+  return map
+}
 // 键列表「共几页」换算：SCAN 游标不透明，光看游标答不出总页数，但无过滤时
 // INFO keyspace 的键数是现成的（左侧树已在用）。键数为 0 也算得出 1 页。
 const redisKeyPagesOf = (count, pageSize) => (
@@ -900,6 +931,23 @@ export default auto(function DbSession (props) {
   // R1：键列表跳页输入（页码，1 基）与过期请求令牌
   const [keyJumpInput, setKeyJumpInput] = useState('')
   const keyJumpTokenRef = useRef(0)
+  // H7a：键树视图。列表走游标分页（一页一次 IPC），树必须看到全部键名，
+  // 所以是"渲染侧驱动的多轮 SCAN"（keysOnly 只要名字，不发 TYPE/TTL）。
+  // scanned 是进度（已收唯一键数），truncated 表示撞到 REDIS_TREE_MAX_KEYS 就停手。
+  const [redisView, setRedisView] = useState('list')
+  const [treeSep, setTreeSep] = useState(DEFAULT_SEPARATOR)
+  const [keyTree, setKeyTree] = useState({
+    loading: false,
+    scanned: 0,
+    total: 0,
+    truncated: false,
+    names: [],
+    match: '*'
+  })
+  const [treeExpanded, setTreeExpanded] = useState([])
+  // 同一把令牌管"取消 + 丢弃在途响应"：主进程没有 SCAN 中断通道（dbClientOp 只有
+  // 单次超时），能做的就是在渲染侧不再采纳这一轮之后的结果
+  const keyTreeTokenRef = useRef(0)
   const [redisKey, setRedisKey] = useState('')
   const [redisDetail, setRedisDetail] = useState(null)
   // Redis 详情四张表（hash/list/set/zset）"选中的那一格"：{ col, label, rowKey, rowNo }。
@@ -1230,7 +1278,13 @@ export default auto(function DbSession (props) {
       setRedisDb(dbIndex)
       setRedisKey('')
       setRedisDetail(null)
+      // 换 db = 换一整个键空间：在途的树抓取必须作废，否则旧 db 的键会混进新树
+      const wasTree = redisView === 'tree'
+      resetKeyTree()
       loadRedisKeys(dbIndex, '0', matchInput)
+      if (wasTree) {
+        loadRedisKeyTree(dbIndex, matchInput)
+      }
       return
     }
     if (!node.isLeaf) {
@@ -3532,6 +3586,185 @@ export default auto(function DbSession (props) {
     }
     doJump()
   }
+
+  // H7a：键树抓取。列表是"一页一次 IPC 的游标分页"，树必须看到全部键名才能分层，
+  // 所以这里是渲染侧驱动的多轮 SCAN（keysOnly：只要名字，一键盘不发 TYPE/TTL）。
+  // - 每轮 COUNT 1000，收完一段就更新 scanned —— 进度是真进度，不是转圈动画
+  // - 撞 REDIS_TREE_MAX_KEYS 立即停手并标 truncated：不设上限时 500 万键的实例
+  //   会把渲染进程整死，"截断但可用"好过"完整但卡住"
+  // - 取消 = 令牌 +1：主进程没有 SCAN 中断通道（dbClientOp 只有单次超时），
+  //   能做的是不再采纳这一轮之后的任何响应，最后一发请求自然跑完即弃
+  const loadRedisKeyTree = (dbIndex, match = '*', sep = treeSep) => {
+    keyTreeTokenRef.current++
+    const token = keyTreeTokenRef.current
+    const pattern = match || '*'
+    setKeyTree(s => ({
+      ...s, loading: true, scanned: 0, total: 0, truncated: false, match: pattern
+    }))
+    const names = []
+    const seen = new Set()
+    let cursor = '0'
+    let truncated = false
+    const finish = () => {
+      setKeyTree({
+        loading: false,
+        scanned: names.length,
+        total: names.length,
+        truncated,
+        names,
+        match: pattern
+      })
+    }
+    const step = () => {
+      if (token !== keyTreeTokenRef.current) {
+        return
+      }
+      window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
+        dbIndex,
+        cursor,
+        pageSize: REDIS_TREE_SCAN_COUNT,
+        match: pattern,
+        keysOnly: true
+      }).then(res => {
+        if (token !== keyTreeTokenRef.current) {
+          return
+        }
+        for (const r of (res && res.rows) || []) {
+          const name = r && r.name
+          // SCAN 只保证"至少一次"，重复键在这里先去重再计数，scanned 才是真实进度
+          if (!name || seen.has(name)) {
+            continue
+          }
+          seen.add(name)
+          names.push(name)
+        }
+        cursor = String((res && res.nextCursor) || '0')
+        setKeyTree(s => ({ ...s, scanned: names.length }))
+        if (cursor === '0') {
+          return finish()
+        }
+        if (names.length >= REDIS_TREE_MAX_KEYS) {
+          truncated = true
+          return finish()
+        }
+        step()
+      }).catch(err => {
+        if (token !== keyTreeTokenRef.current) {
+          return
+        }
+        setKeyTree(s => ({ ...s, loading: false }))
+        onOpError(err)
+      })
+    }
+    step()
+  }
+
+  const cancelKeyTree = () => {
+    keyTreeTokenRef.current++
+    setKeyTree(s => ({ ...s, loading: false }))
+  }
+
+  // 换 db / 关 tab 都要作废在途抓取：否则旧 db 的键会混进新 db 的树里
+  const resetKeyTree = () => {
+    keyTreeTokenRef.current++
+    setKeyTree({
+      loading: false,
+      scanned: 0,
+      total: 0,
+      truncated: false,
+      names: [],
+      match: '*'
+    })
+  }
+
+  // 树只在"抓取结束时"重算，改分隔符不该重扫一遍上万键
+  const keyTreeBuilt = useMemo(
+    () => buildRedisKeyTree(keyTree.names, { separator: treeSep }),
+    [keyTree.names, treeSep]
+  )
+  const keyPathIndex = useMemo(() => buildKeyPathIndex(keyTreeBuilt.nodes), [keyTreeBuilt])
+
+  // 进树视图 / 换分隔符 / 新一次抓取结束 → 重算展开集。
+  // 小键库默认把第一层目录摊开（省事）；大键库一个都不自动摊（见 REDIS_TREE_AUTO_EXPAND_KEYS）。
+  // 选中键那一支是例外：不展开就看不见被选中的那一行。
+  // 不跟 redisKey 走：用户在树里自己折叠过的，不该因为选了个键又被程序撑开。
+  useEffect(() => {
+    if (redisView !== 'tree') {
+      return
+    }
+    const auto = keyTreeBuilt.total <= REDIS_TREE_AUTO_EXPAND_KEYS
+      ? collectFolderKeys(keyTreeBuilt.nodes, 1)
+      : []
+    const exp = new Set(auto)
+    const path = redisKey ? keyPathIndex.get(redisKey) : null
+    if (path) {
+      for (const a of ancestorKeys(path, treeSep)) {
+        exp.add(a)
+      }
+    }
+    setTreeExpanded([...exp])
+  }, [redisView, keyTreeBuilt])
+
+  const switchRedisView = (v) => {
+    setRedisView(v)
+    if (v !== 'tree') {
+      return
+    }
+    // 已有结果且过滤条件没变 → 直接复用：来回切视图不该每次都把上万键重扫一遍
+    const pattern = keyList.match || matchInput || '*'
+    if (!keyTree.loading && (keyTree.match !== pattern || !keyTree.names.length)) {
+      loadRedisKeyTree(redisDb, pattern)
+    }
+  }
+
+  // 过滤条件两种视图共用（match 输入框只有一个）：在列表里改了过滤再切到树，
+  // 树必须按新条件重扫，否则输入框写着 user:*、树里装的还是全库键名。
+  // 树视图下按「过滤」同样要刷列表 —— 让两个视图的 match 始终一致，
+  // 视图来回切才谈得上"复用已抓的键名"。
+  const applyRedisFilter = () => {
+    loadRedisKeys(redisDb, '0', matchInput)
+    if (redisView === 'tree') {
+      loadRedisKeyTree(redisDb, matchInput)
+    }
+  }
+
+  const refreshRedisView = () => {
+    if (redisView === 'tree') {
+      loadRedisKeyTree(redisDb, keyTree.match || matchInput)
+    } else {
+      loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)
+    }
+  }
+
+  const redisTreeNodes = useMemo(() => {
+    const map = (list) => (list || []).map(n => ({
+      key: n.key,
+      title: n.title,
+      keyName: n.keyName,
+      count: n.count,
+      // 纯目录不可选：点了没键可加载，只该展开/收起
+      selectable: !!n.keyName,
+      children: n.children ? map(n.children) : undefined
+    }))
+    return map(keyTreeBuilt.nodes)
+  }, [keyTreeBuilt])
+
+  const onRedisTreeSelect = (keys, info) => {
+    const node = info && info.node
+    // 目录节点 selectable=false 走不到这里，但 antd 的取消选中回调也会进这里
+    if (!node || !node.keyName) {
+      return
+    }
+    selectRedisKey(node.keyName)
+  }
+
+  const redisTreeStatus = keyTree.loading
+    ? e('dbKeyTreeScanning').replace('{n}', keyTree.scanned)
+    : e('dbKeysTotal').replace('{n}', keyTree.total)
+
+  const redisTreeSelected = redisKey && keyPathIndex.has(redisKey)
+    ? [keyPathIndex.get(redisKey)]
+    : []
 
   // cursor/append 供 hash/set 服务端分页：append 时把新一页合并进已加载详情，
   // 不再把整个键一次性搬进内存
@@ -7923,84 +8156,171 @@ export default auto(function DbSession (props) {
           : (
             <>
               <div className='db-redis-bar'>
+                {/* H7a：同一份键空间两种看法。列表 = 游标分页（一页一次 IPC），
+                    键树 = 全量抓取后分层；切换只换视图，不改任何数据写路径 */}
+                <Segmented
+                  size='small'
+                  value={redisView}
+                  onChange={switchRedisView}
+                  options={[
+                    { label: e('dbRedisViewList'), value: 'list' },
+                    { label: e('dbRedisViewTree'), value: 'tree' }
+                  ]}
+                />
                 <Input
                   size='small'
                   placeholder={e('dbMatchPlaceholder')}
                   value={matchInput}
                   onChange={ev => setMatchInput(ev.target.value)}
-                  onPressEnter={() => loadRedisKeys(redisDb, '0', matchInput)}
+                  onPressEnter={applyRedisFilter}
                   className='db-redis-match'
                   allowClear
                 />
                 <Button
                   size='small'
-                  onClick={() => loadRedisKeys(redisDb, '0', matchInput)}
+                  onClick={applyRedisFilter}
                 >
                   {e('filter')}
                 </Button>
-                {/* H1a-4：分页条与数据页 / SQL 结果统一走 DbGridPager
-                    （SCAN 无 offset：上一页走游标栈回退，下一页前向步进） */}
-                <DbGridPager
-                  prevDisabled={keyList.stack.length === 0 || keyList.loading}
-                  onPrev={() => {
-                    const stack = keyList.stack
-                    loadRedisKeys(
-                      redisDb,
-                      stack[stack.length - 1],
-                      keyList.match,
-                      stack.slice(0, -1)
-                    )
-                  }}
-                  nextDisabled={!keyList.hasMore || keyList.loading}
-                  onNext={() => loadRedisKeys(
-                    redisDb,
-                    keyList.nextCursor,
-                    keyList.match,
-                    [...keyList.stack, keyList.cursor]
-                  )}
-                  pageNoText={redisPageNoText}
-                  // 页数是按键数换算的，把键数挂上去说明依据（键会随并发写入变化）
-                  pageNoTitle={typeof redisKeyTotal === 'number'
-                    ? e('dbKeysTotal').replace('{n}', redisKeyTotal)
-                    : undefined}
-                  // R1：键列表任意跳页（SCAN 无 offset，后端前向步进到目标页）
-                  jump={{
-                    numeric: false,
-                    value: keyJumpInput,
-                    onChange: ev => setKeyJumpInput(ev.target.value),
-                    onPressEnter: () => jumpRedisKeysPage(keyJumpInput),
-                    disabled: keyList.loading,
-                    placeholder: redisKeyPagesShow ? '1-' + redisKeyPagesShow : e('dbPagePlaceholder')
-                  }}
-                  goDisabled={keyList.loading || !String(keyJumpInput).trim()}
-                  onGo={() => jumpRedisKeysPage(keyJumpInput)}
-                />
-                {/* 刷新放在翻页之后，与 MySQL 网格头一致 */}
+                {
+                  redisView === 'tree'
+                    ? (
+                      <>
+                        {/* 分隔符可配：改一下只重分层，不会重扫上万键（树在 useMemo 里算） */}
+                        <span className='db-redis-tree-sep'>
+                          <span className='db-redis-tree-sep-label'>{e('dbKeyTreeSep')}</span>
+                          <Input
+                            size='small'
+                            className='db-redis-tree-sep-input'
+                            value={treeSep}
+                            maxLength={8}
+                            onChange={ev => setTreeSep(ev.target.value)}
+                          />
+                        </span>
+                        <span
+                          className={'db-redis-tree-status' + (keyTree.truncated ? ' is-truncated' : '')}
+                        >
+                          {redisTreeStatus}
+                          {
+                            keyTree.truncated
+                              ? ' · ' + e('dbKeyTreeTruncated').replace('{n}', REDIS_TREE_MAX_KEYS)
+                              : ''
+                          }
+                        </span>
+                        {
+                          keyTree.loading
+                            ? (
+                              <Button size='small' onClick={cancelKeyTree}>
+                                {e('cancel')}
+                              </Button>
+                              )
+                            : null
+                        }
+                      </>
+                      )
+                    : (
+                      <>
+                        {/* H1a-4：分页条与数据页 / SQL 结果统一走 DbGridPager
+                            （SCAN 无 offset：上一页走游标栈回退，下一页前向步进） */}
+                        <DbGridPager
+                          prevDisabled={keyList.stack.length === 0 || keyList.loading}
+                          onPrev={() => {
+                            const stack = keyList.stack
+                            loadRedisKeys(
+                              redisDb,
+                              stack[stack.length - 1],
+                              keyList.match,
+                              stack.slice(0, -1)
+                            )
+                          }}
+                          nextDisabled={!keyList.hasMore || keyList.loading}
+                          onNext={() => loadRedisKeys(
+                            redisDb,
+                            keyList.nextCursor,
+                            keyList.match,
+                            [...keyList.stack, keyList.cursor]
+                          )}
+                          pageNoText={redisPageNoText}
+                          // 页数是按键数换算的，把键数挂上去说明依据（键会随并发写入变化）
+                          pageNoTitle={typeof redisKeyTotal === 'number'
+                            ? e('dbKeysTotal').replace('{n}', redisKeyTotal)
+                            : undefined}
+                          // R1：键列表任意跳页（SCAN 无 offset，后端前向步进到目标页）
+                          jump={{
+                            numeric: false,
+                            value: keyJumpInput,
+                            onChange: ev => setKeyJumpInput(ev.target.value),
+                            onPressEnter: () => jumpRedisKeysPage(keyJumpInput),
+                            disabled: keyList.loading,
+                            placeholder: redisKeyPagesShow ? '1-' + redisKeyPagesShow : e('dbPagePlaceholder')
+                          }}
+                          goDisabled={keyList.loading || !String(keyJumpInput).trim()}
+                          onGo={() => jumpRedisKeysPage(keyJumpInput)}
+                        />
+                        {renderPageSizeSelect()}
+                        {/* H1a-2：键名列宽工具（长键名加宽后一键回到按内容自适应） */}
+                        {colFitAllBtn(redisKeysWidths)}
+                      </>
+                      )
+                }
+                {/* 刷新放在翻页之后，与 MySQL 网格头一致；两种视图共用这一个入口 */}
                 <Button
                   size='small'
                   icon={<ReloadOutlined />}
-                  loading={keyList.loading}
+                  loading={redisView === 'tree' ? keyTree.loading : keyList.loading}
                   title={e('refresh')}
-                  onClick={() => loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)}
+                  onClick={refreshRedisView}
                 />
-                {renderPageSizeSelect()}
-                {/* H1a-2：键名列宽工具（长键名加宽后一键回到按内容自适应） */}
-                {colFitAllBtn(redisKeysWidths)}
               </div>
               <DbSplitPane
                 storageKey={REDIS_SPLIT_KEY}
                 top={
-                  <DbGridTable
-                    className='db-redis-keys'
-                    size='small'
-                    loading={keyList.loading}
-                    columns={redisKeyColumns}
-                    dataSource={redisKeyRows}
-                    rowKey='__rowKey'
-                    pagination={false}
-                    onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
-                    rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
-                  />
+                  redisView === 'tree'
+                    ? (
+                      <div className='db-redis-tree'>
+                        {
+                          redisTreeNodes.length
+                            ? (
+                              <Tree
+                                blockNode
+                                selectable
+                                treeData={redisTreeNodes}
+                                expandedKeys={treeExpanded}
+                                onExpand={ks => setTreeExpanded(ks)}
+                                selectedKeys={redisTreeSelected}
+                                onSelect={onRedisTreeSelect}
+                                titleRender={node => (
+                                  <span
+                                    className='db-redis-tree-node'
+                                    title={node.keyName || node.title}
+                                  >
+                                    <span className='db-redis-tree-title'>{node.title}</span>
+                                    <span className='db-redis-tree-count'>{node.count}</span>
+                                  </span>
+                                )}
+                              />
+                              )
+                            : (
+                              <div className='db-redis-tree-empty'>
+                                <Empty description={keyTree.loading ? e('dbLoading') : e('noData')} />
+                              </div>
+                              )
+                        }
+                      </div>
+                      )
+                    : (
+                      <DbGridTable
+                        className='db-redis-keys'
+                        size='small'
+                        loading={keyList.loading}
+                        columns={redisKeyColumns}
+                        dataSource={redisKeyRows}
+                        rowKey='__rowKey'
+                        pagination={false}
+                        onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
+                        rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
+                      />
+                      )
                 }
                 bottom={
                   redisKey

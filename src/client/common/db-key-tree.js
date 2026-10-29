@@ -110,3 +110,21 @@ export function collectFolderKeys (nodes, depth = 1) {
   walk(nodes, 0)
   return out
 }
+
+/**
+ * 一个节点路径的全部祖先 key（从最外层到最近一层），用于"选中某个键时把它那一支展开"。
+ * 节点 key 就是分段用分隔符连起来的路径（见 buildRedisKeyTree），所以拆段再回连即可，
+ * 不必遍历整棵树 —— 1 万键时每次切换都要走一遍树是白干的活。
+ * 不分层（separator 空/空白）时没有祖先。
+ */
+export function ancestorKeys (path, separator) {
+  const raw = separator === undefined ? DEFAULT_SEPARATOR : String(separator)
+  const sep = raw.trim() === '' ? null : raw
+  if (!path || !sep) return []
+  const segs = String(path).split(sep)
+  const out = []
+  for (let i = 1; i < segs.length; i++) {
+    out.push(segs.slice(0, i).join(sep))
+  }
+  return out
+}

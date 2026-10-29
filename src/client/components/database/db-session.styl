@@ -837,6 +837,74 @@
   // S6：键列表数据面字体与终端统一
   font-family var(--db-code-font, var(--font-mono))
 
+// H7a-3：键树视图（与键列表同一块区域，两种视图互斥）
+// ⚠️ antd 的 blockNode 只给 .ant-tree-node-content-wrapper flex: auto，
+// flex 项默认 min-width auto —— 长键名会把行撑出横向滚动而不是截断，
+// 所以必须逐层补 min-width: 0 才能把 ellipsis 传下去
+.db-redis-tree
+  flex 1 1 0
+  min-height 0
+  overflow auto
+  // 键名是代码面文本，与键列表/终端同源
+  font-family var(--db-code-font, var(--font-mono))
+
+  .ant-tree-node-content-wrapper
+    display flex
+    align-items center
+    min-width 0
+
+  .ant-tree-title
+    display flex
+    align-items center
+    flex 0 1 auto
+    min-width 0
+
+.db-redis-tree-node
+  display flex
+  align-items center
+  gap 6px
+  width 100%
+  min-width 0
+
+.db-redis-tree-title
+  flex 0 1 auto
+  min-width 0
+  overflow hidden
+  white-space nowrap
+  text-overflow ellipsis
+
+// 计数是辅助信息：用 --text-muted 变色，不用 opacity（U2c 对比度契约）
+.db-redis-tree-count
+  flex none
+  color var(--text-muted)
+  font-variant-numeric tabular-nums
+
+.db-redis-tree-empty
+  display flex
+  align-items center
+  justify-content center
+  min-height 120px
+
+.db-redis-tree-sep
+  display flex
+  align-items center
+  gap 4px
+  flex none
+
+.db-redis-tree-sep-label
+  color var(--text-muted)
+
+.db-redis-tree-sep-input
+  width 64px
+
+.db-redis-tree-status
+  flex none
+  color var(--text-muted)
+
+  // 扫到上限=树只建了一部分，必须比"正常进度"更醒目
+  &.is-truncated
+    color var(--warn)
+
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane
   flex 1 1 0

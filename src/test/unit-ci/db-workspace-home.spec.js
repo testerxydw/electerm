@@ -125,7 +125,11 @@ describe('U1c 空态装配', () => {
     assert.match(body, /viewSeqRef\.current \+= 1/)
     assert.match(body, /return loadStructure\(next\)/, '要返回 promise')
     assert.match(body, /setSel\(next\)\s*return loadQuery\(next, 1\)/)
-    assert.match(src.slice(end, end + 900), /openTable\(\{ database, schema, table, nodeType: node\.nodeType \}\)/,
+    // 树点击那段单独取（onSelectTree 里 Redis 分支还会涨，别用固定字符窗口）
+    const treeAt = src.indexOf('const onSelectTree = ', end)
+    assert.notEqual(treeAt, -1, 'onSelectTree 未找到')
+    const treeClick = src.slice(treeAt, src.indexOf('\n  const ', treeAt + 10))
+    assert.match(treeClick, /openTable\(\{ database, schema, table, nodeType: node\.nodeType \}\)/,
       '树点击走同一条路径')
   })
 })
