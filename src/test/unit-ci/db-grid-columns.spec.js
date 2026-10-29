@@ -37,8 +37,10 @@ const jsxPlugin = ({ types: t }) => {
         const key = t.isJSXNamespacedName(attr.name)
           ? t.stringLiteral(attr.name.namespace.name + ':' + attr.name.name.name)
           : t.identifier(attr.name.name)
-        const val = attr.value == null ? t.booleanLiteral(true)
-          : t.isJSXExpressionContainer(attr.value) ? attr.value.expression
+        const val = attr.value == null
+          ? t.booleanLiteral(true)
+          : t.isJSXExpressionContainer(attr.value)
+            ? attr.value.expression
             : attr.value
         return t.objectProperty(key, val)
       }
@@ -50,7 +52,7 @@ const jsxPlugin = ({ types: t }) => {
   }
   return {
     visitor: {
-      JSXFragment: { exit(p) { p.replaceWith(t.callExpression(t.identifier('React.createElement'), [t.identifier('React.Fragment'), t.objectExpression([]), ...p.node.children])) } },
+      JSXFragment: { exit (p) { p.replaceWith(t.callExpression(t.identifier('React.createElement'), [t.identifier('React.Fragment'), t.objectExpression([]), ...p.node.children])) } },
       JSXElement: {
         exit (p) {
           const kids = p.node.children.map(c => t.isJSXText(c) ? t.stringLiteral(c.value) : c)
@@ -183,8 +185,11 @@ describe('类型映射 / 注释 / 数值右对齐', () => {
   test('无 typeMap：dataType 按空串处理，renderCell 收到空类型', () => {
     const r = makeRender()
     const cols = buildGridColumns({
-      keys: ['id'], wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: r
+      keys: ['id'],
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: r
     })
     cols[0].render('v1', row('r1', {}))
     assert.equal(r.calls[0].dt, '', '查不到类型必须给空串，不能给 undefined')
@@ -196,8 +201,10 @@ describe('类型映射 / 注释 / 数值右对齐', () => {
     const cols = buildGridColumns({
       keys: ['Name', 'Id'],
       typeMap: { name: 'varchar', id: 'int' },
-      wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: r
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: r
     })
     cols[0].render('x', row('r1', {}))
     assert.equal(r.calls[0].dt, 'varchar', "'Name' 必须命中小写键 name")
@@ -212,15 +219,21 @@ describe('类型映射 / 注释 / 数值右对齐', () => {
       keys: ['id'],
       commentMap: { id: '主键' },
       showComment: show,
-      wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: makeRender()
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     })[0].title
     assert.equal(mk(true).props.comment, '主键')
     assert.equal(mk(false).props.comment, undefined, 'showComment=false 不该把注释漏给表头')
     // commentMap 缺省 null 不得抛
     assert.doesNotThrow(() => buildGridColumns({
-      keys: ['id'], showComment: true,
-      wg: makeWg(), colMenu: makeColMenu(), selectCell: () => {}, renderCell: makeRender()
+      keys: ['id'],
+      showComment: true,
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     }))
   })
 })
@@ -231,11 +244,13 @@ describe('SQL 复合宽键（下标::列名）与表头菜单标题', () => {
     const cm = makeColMenu()
     const cols = buildGridColumns({
       keys: ['id'],
-      wg, colMenu: cm,
+      wg,
+      colMenu: cm,
       wideRows: [{ id: 'x' }],
       widthKeyOf: k => '0::' + k,
       headKeyOf: k => k,
-      selectCell: () => {}, renderCell: makeRender()
+      selectCell: () => {},
+      renderCell: makeRender()
     })
     assert.equal(cols[0].width, 222, '宽度必须按复合键取')
     assert.equal(cols[0].dataIndex, 'id', 'dataIndex 不能带前缀')
@@ -254,8 +269,12 @@ describe('SQL 复合宽键（下标::列名）与表头菜单标题', () => {
     const wg = makeWg({ id: 90 })
     const cm = makeColMenu()
     const cols = buildGridColumns({
-      keys: ['id'], wg, colMenu: cm, wideRows: [],
-      selectCell: () => {}, renderCell: makeRender()
+      keys: ['id'],
+      wg,
+      colMenu: cm,
+      wideRows: [],
+      selectCell: () => {},
+      renderCell: makeRender()
     })
     assert.equal(cols[0].width, 90)
     cols[0].onHeaderCell().onContextMenu({})
@@ -268,10 +287,12 @@ describe('排序：serverSort / clientSort 互斥能力', () => {
   test('serverSort：col.sorter=true + sortOrder 来自 sortOrderOf，ColHead 不接排序', () => {
     const cols = buildGridColumns({
       keys: ['a'],
-      wg: makeWg(), colMenu: makeColMenu(),
+      wg: makeWg(),
+      colMenu: makeColMenu(),
       serverSort: true,
       sortOrderOf: k => k === 'a' ? 'ascend' : null,
-      selectCell: () => {}, renderCell: makeRender()
+      selectCell: () => {},
+      renderCell: makeRender()
     })
     assert.equal(cols[0].sorter, true)
     assert.equal(cols[0].sortOrder, 'ascend')
@@ -283,11 +304,13 @@ describe('排序：serverSort / clientSort 互斥能力', () => {
     const seen = []
     const cols = buildGridColumns({
       keys: ['a', 'b'],
-      wg: makeWg(), colMenu: makeColMenu(),
+      wg: makeWg(),
+      colMenu: makeColMenu(),
       clientSort: true,
       sortOf: k => k === 'a' ? 'descend' : null,
       onSort: k => seen.push(k),
-      selectCell: () => {}, renderCell: makeRender()
+      selectCell: () => {},
+      renderCell: makeRender()
     })
     assert.ok(!('sorter' in cols[0]), '客户端排序不得给 antd 的 sorter 标记')
     assert.equal(cols[0].title.props.sort, 'descend')
@@ -302,8 +325,11 @@ describe('排序：serverSort / clientSort 互斥能力', () => {
 
   test('两个开关全关（SQL 之外的网格形态）：无 sorter，ColHead sort 为 null', () => {
     const cols = buildGridColumns({
-      keys: ['a'], wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: makeRender()
+      keys: ['a'],
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     })
     assert.ok(!('sorter' in cols[0]))
     assert.ok(!('sortOrder' in cols[0]))
@@ -321,7 +347,9 @@ describe('单元格交互（onCell）：选中 / 右键菜单 / 双击编辑', (
       cellBaseClass: 'db-cell-editable',
       selectedOf: (rw, k) => rw === r && k === 'a',
       selectCell: (rw, k) => picked.push([rw, k]),
-      wg: makeWg(), colMenu: makeColMenu(), renderCell: makeRender()
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      renderCell: makeRender()
     })
     const cell = cols[0].onCell(r)
     cell.onClick()
@@ -330,8 +358,11 @@ describe('单元格交互（onCell）：选中 / 右键菜单 / 双击编辑', (
     assert.equal(cell.className, 'db-cell-editable db-cell-num db-cell-selected')
     // 未选中时高亮 class 不出现
     const cols2 = buildGridColumns({
-      keys: ['a'], selectCell: () => {},
-      wg: makeWg(), colMenu: makeColMenu(), renderCell: makeRender()
+      keys: ['a'],
+      selectCell: () => {},
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      renderCell: makeRender()
     })
     assert.equal(cols2[0].onCell(r).className, '')
   })
@@ -341,15 +372,22 @@ describe('单元格交互（onCell）：选中 / 右键菜单 / 双击编辑', (
     const ev = {}
     const r = row('r1', { a: 1 })
     const on = buildGridColumns({
-      keys: ['a'], cellMenu: true,
+      keys: ['a'],
+      cellMenu: true,
       openCellMenu: (e, rw, k) => seen.push([e, rw, k]),
-      wg: makeWg(), colMenu: makeColMenu(), selectCell: () => {}, renderCell: makeRender()
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     })[0].onCell(r)
     on.onContextMenu(ev)
     assert.deepEqual(seen, [[ev, r, 'a']])
     const off = buildGridColumns({
-      keys: ['a'], wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: makeRender()
+      keys: ['a'],
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     })[0].onCell(r)
     assert.ok(!('onContextMenu' in off), '关掉 cellMenu 不得挂右键')
   })
@@ -358,9 +396,14 @@ describe('单元格交互（onCell）：选中 / 右键菜单 / 双击编辑', (
     const starts = []
     const r = row('r1', { a: 1 })
     const mk = (canEdit) => buildGridColumns({
-      keys: ['a'], editable: true, canEditCell: canEdit,
+      keys: ['a'],
+      editable: true,
+      canEditCell: canEdit,
       startEdit: (rw, k) => starts.push([rw, k]),
-      wg: makeWg(), colMenu: makeColMenu(), selectCell: () => {}, renderCell: makeRender()
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     })[0].onCell(r)
     mk(true).onDoubleClick()
     assert.deepEqual(starts, [[r, 'a']], '可编辑表双击必须进编辑')
@@ -368,8 +411,11 @@ describe('单元格交互（onCell）：选中 / 右键菜单 / 双击编辑', (
     assert.equal(starts.length, 1, '只读表双击不得进编辑')
     // editable 关（SQL 只读）：连 onDoubleClick 都不挂
     const ro = buildGridColumns({
-      keys: ['a'], wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: makeRender()
+      keys: ['a'],
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: makeRender()
     })[0].onCell(r)
     assert.ok(!('onDoubleClick' in ro))
     assert.ok(!('tabIndex' in ro), '只读网格不做键盘可达')
@@ -391,11 +437,15 @@ describe('键盘可达（keyboardAccessible）', () => {
   const mkCols = (canEdit) => {
     const log = { select: [], edit: [], clear: 0 }
     const cols = buildGridColumns({
-      keys: ['a'], keyboardAccessible: true, canEditCell: canEdit,
+      keys: ['a'],
+      keyboardAccessible: true,
+      canEditCell: canEdit,
       selectCell: () => log.select.push(1),
       startEdit: () => log.edit.push(1),
       onClearSelection: () => { log.clear++ },
-      wg: makeWg(), colMenu: makeColMenu(), renderCell: makeRender()
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      renderCell: makeRender()
     })
     return { cell: cols[0].onCell(row('r1', { a: 1 })), log }
   }
@@ -437,9 +487,12 @@ describe('编辑态 render 分支（editable + editing）', () => {
     keys: ['a'],
     editable: true,
     canEditCell: true,
-    wg: makeWg(), colMenu: makeColMenu(),
+    wg: makeWg(),
+    colMenu: makeColMenu(),
     selectCell: () => {},
-    startEdit: () => {}, cancelEdit: () => {}, submitEdit: () => {},
+    startEdit: () => {},
+    cancelEdit: () => {},
+    submitEdit: () => {},
     onEditValueChange: () => {}
   }
   const r1 = row('r1', { a: 1 })
@@ -489,9 +542,13 @@ describe('编辑态 render 分支（editable + editing）', () => {
   test('editable=false 时 editing 即便传入也不生效（SQL 只读的兜底）', () => {
     const r = makeRender()
     const col = buildGridColumns({
-      keys: ['a'], editing: { rowKey: 'r1', col: 'a' }, editValue: '草稿',
-      wg: makeWg(), colMenu: makeColMenu(),
-      selectCell: () => {}, renderCell: r
+      keys: ['a'],
+      editing: { rowKey: 'r1', col: 'a' },
+      editValue: '草稿',
+      wg: makeWg(),
+      colMenu: makeColMenu(),
+      selectCell: () => {},
+      renderCell: r
     })[0]
     const el = col.render('x', r1)
     assert.equal(r.calls[0].v, 'x', '未开 editable 不得渲染编辑框')
