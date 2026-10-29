@@ -7,7 +7,7 @@
  *   · 渲染层用了 Buffer（渲染进程没有 Buffer 全局）——只有真实 BLOB 查询会把
  *     __bin 信封送进值面板，桩里的信封是我手写的，形态对不对全看驱动；
  *   · 展开态重跑后 bottom 挂着半屏空气 —— 需要"重新执行一次真实查询"才触发。
- * 这一份跑的就是真实链路：主进程 mysql2 取数 → IPC 结构化克隆 → 网格/工具条/面板/弹窗。
+ * 这一份跑的就是真实链路：主进程 mysql2 取数 → IPC 结构化克隆 → 网格/值面板。
  *
  * 对生产库的护栏（本脚本对自己的硬约束，不是产品的闸门）：
  *   只发单条 SELECT。任何含写关键字、分号拼接多语句的文本在 node 侧就抛错，
@@ -36,7 +36,6 @@ const {
 const PORT = process.argv[2] || '9225'
 const SHOT_DIR = process.argv[3] || path.join(__dirname, 'db-sql-value-realdb-shots')
 const SPLIT_KEY = 'electerm-db-sql-value-split'
-const PREVIEW_MAX = 4000
 const BIG_LEN = 30000
 const ROWS_WANTED = 500
 const PAGE_SIZE = 200
@@ -209,13 +208,20 @@ const runSql = async (cdp, sql, readyExpr, label) => {
 
 const main = async () => {
   // ---------- P) 前置：凭据纪律 + 护栏自证 ----------
-  const missing = Object.entries(ENV).filter(([k, v]) => !v).map(([k]) => k)
+  // 口令允许是"真的没有口令"（这台 MariaDB 的 root 就没设密码），但**必须显式给**：
+  // 只有环境变量被 export 成空串才算数，压根没定义就是漏配 —— 所以按 undefined 判，
+  // 不按真假值判（!v 会把空口令误报成"凭据缺失"，然后整轮真库测直接不跑）
+  const missing = Object.entries(ENV)
+    .filter(([, v]) => v === undefined || v === null || v === '')
+    .filter(([k]) => k !== 'pass' && k !== 'redisPass')
+    .map(([k]) => k)
+  const passGiven = ENV.pass !== undefined && ENV.redisPass !== undefined
   const src = fs.readFileSync(__filename, 'utf8')
   const hasSecret = [ENV.pass, ENV.redisPass].filter(Boolean).some(p => src.includes(p))
   check('P1 凭据全部来自环境变量、脚本正文不含口令',
-    missing.length === 0 && !hasSecret,
-    { missing, hasSecret })
-  if (missing.length || hasSecret) {
+    missing.length === 0 && passGiven && !hasSecret,
+    { missing, passGiven, hasSecret })
+  if (missing.length || !passGiven || hasSecret) {
     console.log('用法: RDB_MYSQL_HOST/PORT/USER/PASS/DB + RDB_REDIS_HOST/PORT/PASS node ' + path.basename(__filename))
     return 1
   }
@@ -339,7 +345,7 @@ const main = async () => {
   check('R1 合成查询真跑通：1 行 × 4 列，列名由驱动给出',
     run1.ok && g1.domRows === 1 && heads1.join(',') === 'amount,dt,payload,blob_col',
     { run1: pick(run1, ['ok', 'clicked', 'ready']), heads1 })
-  check('R2 未选中时是折叠分区（bottom 空、无 resizer、无工具条）',
+  check('R2 未选中时是折叠分区（bottom 空、无 resizer、无面板）',
     g1.pane === 1 && g1.collapsed === 1 && g1.resizer === 0 && g1.bar === 0 && g1.valPane === 0 && g1.selCount === 0, g1)
   const binType = await cdp.eval(`(() => {
     const td = window.__tdOf('blob_col', 0)
@@ -355,10 +361,10 @@ const main = async () => {
   const sel1 = await clickCell(cdp, 'payload', 0)
   const bar1 = await cdp.jeval('window.__bar()')
   const g1b = await cdp.jeval('window.__geom()')
-  check('R5 真库单击选中 → 工具条出现，且网格高度不塌',
-    sel1.ok && bar1.exists === 1 && g1b.gridH > 300 && g1b.bar === 1 && g1b.collapsed === 1,
+  check('R5 真库单击一格 → 直接展开完整值面板（网格仍可读）',
+    sel1.ok && bar1.exists === 1 && g1b.gridH > 100 && g1b.valPane === 1 && g1b.collapsed === 0 && g1b.selCount === 1,
     { sel: pick(sel1, ['ok']), bar: pick(bar1, ['exists', 'h', 'meta']), gridH: g1b.gridH })
-  check('R6 工具条标题是「列名 · 第 N 行」（真行号，不是数组下标错觉）',
+  check('R6 面板标题是「列名 · 第 N 行」（真行号，不是数组下标错觉）',
     /payload/.test(bar1.title || '') && rowRe(1).test(bar1.title || ''), { title: bar1.title })
   const metaOk = String(bar1.meta || '').replace(/[\s,]/g, '') === BIG_LEN + 'chars'
   check('R7 长值 meta 报的是字符数 30000（阈值 60 生效、单位没写错）', metaOk, { meta: bar1.meta })
@@ -367,6 +373,8 @@ const main = async () => {
   const barB = await cdp.jeval('window.__bar()')
   check('R8 真实二进制格 meta 走字节数分支（8 bytes），不是按字符串数出来',
     selBlob.ok && /^8\s*bytes$/i.test(String(barB.meta || '').trim()), { meta: barB.meta, exists: barB.exists })
+  await cdp.eval('window.__closePane()')
+  await sleep(400)
 
   const numMeta = await cdp.jeval('window.__colMeta("amount")')
   const dtMeta = await cdp.jeval('window.__colMeta("dt")')
@@ -404,22 +412,20 @@ const main = async () => {
     !/T\d\d:\d\d:\d\d/.test(dtOs.texts[0] || ''),
     { swInfo: pick(swInfo, ['found', 'checked']), swAfter, amount: numOs.texts[0], dt: dtOs.texts[0] })
 
-  // ---------- S) 展开面板：真值全文、只读、复制 ----------
-  // 选中格换回 payload（R8 把选中留在了二进制格），并把鼠标移出网格：
-  // 悬停预览卡还开着时会盖住工具条，点 bar 就成了点卡片
+  // ---------- S) 面板：真值全文、只读、复制 ----------
+  // R8 之后面板已收起；点 payload 一格就直接展开（新交互），不需要再点工具条
   const selPay = await clickCell(cdp, 'payload', 0)
   await cdp.move(5, 5)
-  await sleep(400)
+  await sleep(500)
   const barS = await cdp.jeval('window.__bar()')
-  if (!selPay.ok || !barS.exists || !barS.center) {
-    check('S0 工具条就位可点（拿不到坐标就无法展开）', false, { selPay, bar: pick(barS, ['exists', 'h']) })
+  if (!selPay.ok || !barS.exists) {
+    check('S0 点一格后面板就位（拿不到就无法继续）', false, { selPay, bar: pick(barS, ['exists', 'h']) })
     return finish()
   }
-  await cdp.click(barS.center.x, barS.center.y)
-  await sleep(700)
+  await sleep(300)
   const paneP = await cdp.jeval('window.__pane()')
   const g2 = await cdp.jeval('window.__geom()')
-  check('S1 真库展开：面板全文 30000 字符且与那一格的全文逐字符同哈希',
+  check('S1 真库点一格：面板全文 30000 字符且与那一格的全文逐字符同哈希',
     paneP.exists === 1 && paneP.preLen === BIG_LEN && paneP.preHash === cellPayload.hash &&
     g2.valPane === 1 && g2.collapsed === 0,
     { pane: pick(paneP, ['exists', 'preLen', 'preHash', 'h']), cellHash: cellPayload.hash, geom: pick(g2, ['valPane', 'collapsed', 'topH', 'bottomH']) })
@@ -454,41 +460,30 @@ const main = async () => {
     clipBack.ok === 1 && clipBack.len === BIG_LEN && clipBack.hash === cellPayload.hash,
     { ok: clipBack.ok, len: clipBack.len, hash: clipBack.hash, error: clipBack.error })
 
-  // 二进制格展开：本轮 Buffer 崩溃就发生在这里（渲染层没有 Buffer 全局）
-  // 先收回面板 → 点 blob 格 → 再展开
-  const paneNow = await cdp.jeval('window.__pane()')
-  const paneBtns = paneNow.btns || []
-  const xBtn = paneBtns.find(b => /×|close|收起|关闭/i.test(b.t + ' ' + b.title)) || null
-  if (xBtn) {
-    await cdp.click(xBtn.x, xBtn.y)
-    await sleep(400)
-  }
+  // 二进制格：本轮 Buffer 崩溃就发生在这里（渲染层没有 Buffer 全局）
+  // 点 blob 格就直接换成二进制面板（不需要先收起再点工具条）
   const selB2 = await clickCell(cdp, 'blob_col', 0)
-  const barB2 = await cdp.jeval('window.__bar()')
-  await cdp.click(barB2.center.x, barB2.center.y)
-  await sleep(700)
+  await sleep(600)
   const paneBin = await cdp.jeval('window.__pane()')
   const hexHit = await cdp.jeval('window.__paneHas("0001020304050607")')
   const aliveAfterBin = await cdp.jeval('window.__geom()')
-  check('S5 真实 BLOB 展开值面板：hex 预览命中且不崩（渲染层 Buffer 回归）',
+  check('S5 真实 BLOB 点开值面板：hex 预览命中且不崩（渲染层 Buffer 回归）',
     selB2.ok && paneBin.exists === 1 && hexHit.has === 1 &&
     aliveAfterBin.valPane === 1 && aliveAfterBin.selCount === 1,
     { pane: pick(paneBin, ['exists', 'preLen', 'h']), hexHit, geom: pick(aliveAfterBin, ['valPane', 'selCount', 'gridH', 'domRows']) })
 
-  // 面板 × 是"收回工具条"，不是"取消选中"
-  const paneBinBtns = (paneBin.btns || []).find(b => /×|close|收起|关闭/i.test(b.t + ' ' + b.title))
-  if (paneBinBtns) {
-    await cdp.click(paneBinBtns.x, paneBinBtns.y)
+  // 面板 × 取消选中、网格重新占满
+  const paneBinXBtns = (paneBin.btns || []).find(b => /×|close|收起|关闭/i.test(b.t + ' ' + b.title))
+  if (paneBinXBtns) {
+    await cdp.click(paneBinXBtns.x, paneBinXBtns.y)
     await sleep(500)
   }
   const g3 = await cdp.jeval('window.__geom()')
-  const barAfterClose = await cdp.jeval('window.__bar()')
-  check('S6 面板 × 收回为工具条（选中仍在、网格重新占满）',
-    g3.collapsed === 1 && g3.valPane === 0 && g3.selCount === 1 && g3.bar === 1 && g3.gridH > 300 &&
-    barAfterClose.exists === 1, pick(g3, ['collapsed', 'valPane', 'selCount', 'bar', 'gridH']))
+  check('S6 面板 × 取消选中、网格重新占满',
+    g3.collapsed === 1 && g3.valPane === 0 && g3.selCount === 0 && g3.gridH > 300,
+    pick(g3, ['collapsed', 'valPane', 'selCount', 'bar', 'gridH']))
 
-  // ---------- T) hover 预览卡 → 查看完整 → 弹窗复制（真值 30000） ----------
-  const pre4000 = await cdp.jeval('window.__cellPre("payload", 0, ' + PREVIEW_MAX + ')')
+  // ---------- T) 悬停不再出预览卡（真值 30000） ----------
   const xyP = await cdp.jeval('window.__cellXY("payload", 0)')
   await cdp.move(5, 5)
   await sleep(200)
@@ -497,42 +492,31 @@ const main = async () => {
   await cdp.move(Math.round(xyP.x + 8), xyP.y)
   await sleep(900)
   const card = await cdp.jeval('window.__card()')
-  check('T1 真值 hover 预览卡：只给前 4000 且与全文前 4000 同哈希 + 截断标记',
-    card.open === 1 && card.len === PREVIEW_MAX && card.hash === pre4000.hash && card.more === 1 && card.cards === 1,
-    pick(card, ['open', 'cards', 'len', 'hash', 'more']))
-  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '1-realdb-preview-card.png')))
-  if (!card.full) {
-    check('T2 预览卡有「查看完整」（拿不到按钮无法验弹窗）', false, card)
-    return finish()
-  }
-  await cdp.click(card.full.x, card.full.y)
+  check('T1 真值悬停截断格不再产生任何预览卡浮层（资源不再被浮层消耗）',
+    card.open === 0 && card.cards === 0, pick(card, ['open', 'cards']))
+  // 点一格：面板直接给全文，与格内全文同哈希
+  await cdp.click(xyP.x, xyP.y)
   await sleep(700)
-  const modal = await cdp.jeval('window.__modal()')
-  check('T3 「查看完整」弹窗给全文 30000（与格内全文同哈希）、等宽、可选中',
-    modal.open === 1 && modal.len === BIG_LEN && modal.hash === cellPayload.hash && modal.mono && modal.selectable,
-    pick(modal, ['open', 'len', 'hash', 'mono', 'selectable', 'wrap', 'title']))
-  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '2-realdb-full-text-modal.png')))
-  const mCopy = (modal.btns || []).find(b => /复制|copy/i.test(b.k + ' ' + b.title))
-  if (!mCopy) {
-    check('T4 弹窗有复制按钮', false, { btns: (modal.btns || []).map(b => b.k) })
+  const paneT = await cdp.jeval('window.__pane()')
+  check('T2 点一格：面板全文 30000 且与格内全文同哈希',
+    paneT.exists === 1 && paneT.preLen === BIG_LEN && paneT.preHash === cellPayload.hash,
+    pick(paneT, ['exists', 'preLen', 'preHash', 'meta']))
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '1-realdb-value-pane.png')))
+  const paneCopy = (paneT.btns || []).find(b => /复制|copy/i.test(b.t + ' ' + b.title))
+  if (!paneCopy) {
+    check('T3 面板有复制按钮', false, { btns: (paneT.btns || []).map(b => b.t) })
   } else {
     await cdp.eval('window.__clip = []')
-    await cdp.click(mCopy.x, mCopy.y)
+    await cdp.click(paneCopy.x, paneCopy.y)
     await sleep(500)
     const clipM = JSON.parse(await cdp.eval('window.__clipLog()'))
-    check('T4 弹窗复制发出全文（30000 且同哈希）',
+    check('T3 面板复制发出全文（30000 且同哈希）',
       clipM.length === 1 && clipM[0].len === BIG_LEN && clipM[0].hash === cellPayload.hash,
       pick(clipM[0] || {}, ['len', 'hash']))
   }
-  // 关掉弹窗
-  const mClose = await cdp.eval(`(() => {
-    const b = [...document.querySelectorAll('.ant-modal-close')].filter(window.__vis)[0]
-    if (!b) return 'no-close'
-    b.click()
-    return 'ok'
-  })()`)
-  await sleep(500)
-  check('T5 弹窗可关闭且不残留', mClose === 'ok' && (await cdp.jeval('window.__modal()')).open === 0, { mClose })
+  const tClosed = await cdp.eval('window.__closePane()')
+  await sleep(400)
+  check('T4 面板 × 收起且不留残层', tClosed === 'ok' && (await cdp.jeval('window.__pane()')).exists === 0, { tClosed })
 
   // ---------- U) 真表 500 行：分页、虚拟化、绝对行号、重跑不留半屏空气 ----------
   const run2 = await runSql(cdp, SQL_BIG,
@@ -575,23 +559,16 @@ const main = async () => {
     check('U5 第 2 页首行的行号是绝对下标（第 201 行，不是页内 1）',
       sel2.ok && rowRe(PAGE_SIZE + 1).test(bar2.title || ''), { title: bar2.title, exists: bar2.exists })
     const cellP = await cdp.jeval('window.__cellText("parameter", 0)')
-    // 工具条的 meta 必须在展开之前读：展开后 bottom 渲染的是面板，bar 已不在 DOM 里
-    check('U7 生产长值按阈值给字符数（工具条与面板口径一致，都不是"看着像"）',
+    check('U7 生产长值按阈值给字符数（面板头部与正文口径一致）',
       /^\d+\s*chars$/i.test(String(bar2.meta || '').trim()) &&
       cellP.exists === 1 && String(bar2.meta).replace(/[\s,]/g, '') === cellP.len + 'chars',
       { barMeta: bar2.meta, cellLen: cellP.len })
-    await cdp.click(bar2.center.x, bar2.center.y)
-    await sleep(700)
     const paneP2 = await cdp.jeval('window.__pane()')
     check('U6 生产表长文本格：面板全文与单元格逐字符同哈希（真值不走样）',
       cellP.exists === 1 && paneP2.exists === 1 && paneP2.preLen === cellP.len && paneP2.preHash === cellP.hash,
       { pane: pick(paneP2, ['exists', 'preLen', 'preHash']), paneMeta: paneP2.meta })
-    // 收回，避免下一步重跑时还挂着面板
-    const xBtn2 = (paneP2.btns || []).find(b => /×|close|收起|关闭/i.test(b.t + ' ' + b.title))
-    if (xBtn2) {
-      await cdp.click(xBtn2.x, xBtn2.y)
-      await sleep(400)
-    }
+    await cdp.eval('window.__closePane()')
+    await sleep(400)
   } else {
     check('U4 翻到第 2 页：首行换人且不是同一批行（真分页换数据）', false, pg)
   }
@@ -610,14 +587,12 @@ const main = async () => {
     postRerun.domRows > 5,
     { set: pick(setAgain, ['ok']), clickedAgain, reran, pre: pick(preRerun, ['valPane', 'collapsed', 'gridH']), post: pick(postRerun, ['selCount', 'bar', 'valPane', 'collapsed', 'bottomH', 'gridH', 'domRows']) })
 
-  // 选中 → 展开 → 拖高 → 记忆
+  // 点一格 → 面板直接展开 → 拖高 → 记忆
   const selU = await clickCell(cdp, 'parameter', 0)
-  const barU = await cdp.jeval('window.__bar()')
-  await cdp.click(barU.center.x, barU.center.y)
-  await sleep(700)
+  await sleep(600)
   const rz = await cdp.jeval('window.__resizerXY()')
   if (!rz.found) {
-    check('U9 展开后有可拖的分隔条', false, rz)
+    check('U9 点一格后面板展开、有可拖的分隔条', false, rz)
   } else {
     const beforeDrag = await cdp.jeval('window.__geom()')
     await cdp.dragY(rz.x, rz.y, -160)
@@ -627,21 +602,16 @@ const main = async () => {
     check('U9 拖动分隔条改高度并写进 localStorage（真库挂载下也记住）',
       selU.ok && afterDrag.bottomH > beforeDrag.bottomH + 60 && lsVal !== 'null' && Number(lsVal) > 0,
       { lsVal, before: pick(beforeDrag, ['bottomH', 'topH']), after: pick(afterDrag, ['bottomH', 'topH']) })
-    // 收回再展开：不能跳回 50%
-    const paneU = await cdp.jeval('window.__pane()')
-    const xU = (paneU.btns || []).find(b => /×|close|收起|关闭/i.test(b.t + ' ' + b.title))
-    if (xU) {
-      await cdp.click(xU.x, xU.y)
-      await sleep(500)
-    }
-    const barU2 = await cdp.jeval('window.__bar()')
-    await cdp.click(barU2.center.x, barU2.center.y)
-    await sleep(700)
+    // 收起再点一格：不能跳回 50%
+    await cdp.eval('window.__closePane()')
+    await sleep(500)
+    const selU2 = await clickCell(cdp, 'parameter', 0)
+    await sleep(600)
     const reopened = await cdp.jeval('window.__geom()')
-    check('U10 收回再展开仍是拖过的比例（同一次挂载内不跳回 50%）',
-      Math.abs(reopened.bottomH - afterDrag.bottomH) <= 40,
+    check('U10 收起后重新点开仍是拖过的比例（同一次挂载内不跳回 50%）',
+      selU2.ok && Math.abs(reopened.bottomH - afterDrag.bottomH) <= 40,
       { dragged: afterDrag.bottomH, reopened: reopened.bottomH })
-    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3-realdb-value-pane.png')))
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '2-realdb-value-pane.png')))
   }
 
   // ---------- V) 浅色主题下的真库呈现 ----------
@@ -653,19 +623,15 @@ const main = async () => {
     await sleep(1200)
     const selV = await clickCell(cdp, 'operator', 1)
     await cdp.move(5, 5)
-    await sleep(300)
-    const barV = await cdp.jeval('window.__bar()')
-    if (barV.center) {
-      await cdp.click(barV.center.x, barV.center.y)
-      await sleep(600)
-    }
+    await sleep(500)
     // __selCells 返回的是数组本体（不是 JSON 串），jeval 会把它读成 [object Object]
     const selInfo = JSON.parse(await cdp.eval('JSON.stringify(window.__selCells())'))
     const paneV = await cdp.jeval('window.__pane()')
-    check('V1 浅色下选中格仍有可见描边、面板仍在位',
-      selV.ok && selInfo.length === 1 && /inset/.test(String(selInfo[0].shadow || '')) && paneV.exists === 1,
+    check('V1 浅色下点一格直接展开、选中格仍有可见描边、面板在位',
+      selV.ok && selInfo.length === 1 && /inset/.test(String(selInfo[0].shadow || '')) &&
+      paneV.exists === 1 && (await cdp.jeval('window.__geom()')).valPane === 1,
       { shadow: selInfo[0] && selInfo[0].shadow, pane: pick(paneV, ['exists', 'preLen']) })
-    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '4-realdb-light-pane.png')))
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3-realdb-light-pane.png')))
     await cdp.eval('window.store.setTheme(' + JSON.stringify(cfg0.theme) + ')')
     await sleep(800)
   }

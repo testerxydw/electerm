@@ -17,11 +17,11 @@ import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
-import DbCellPreview, { useCellPreview, CELL_ELLIPSIS } from './db-cell-preview'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
 import {
   fitColumnWidths,
-  wideColumnWidth
+  wideColumnWidth,
+  cellText
 } from '../../common/db-column-width'
 import { buildRefItems } from './db-ref-utils'
 import { isBinEnvelope } from './value-renderers'
@@ -116,7 +116,7 @@ import {
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
 import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
-// H1：SQL 结果工具行的派生链（过滤 → 排序 → 切页）抽成纯函数，便于单测
+// H1：SQL 结果工具行的派生链（过滤 → 切页）抽成纯函数，便于单测
 import { filterRowIndexes, sqlViewOf, patchSqlView, SQL_FILTER_DEBOUNCE } from '../../common/db-sql-result'
 import './db-session.styl'
 
@@ -126,6 +126,10 @@ import './db-session.styl'
 const SqlCodeEditor = lazy(() => import('./db-sql-editor'))
 
 const e = window.translate
+// 截断列的公共配置。showTitle: false 是刻意的：rc-table 在 ellipsis 为真时会把
+// 格子里显示的那段文本塞进原生 title，等于给每格的每个值多一份字符串副本；
+// 长内容改由"单击格子 → 下方完整值面板"承接，悬停不再弹任何浮层。
+const CELL_ELLIPSIS = { showTitle: false }
 // 每页行数：可经 config.dbPageSize 配置（10/20/50/100/200），默认 20；
 // 服务端上限 1000 不变（mysql.js/redis.js），渲染侧上限见 DB_PAGE_SIZE_MAX
 const DB_PAGE_SIZE_DEFAULT = 20
@@ -620,10 +624,17 @@ export default auto(function DbSession (props) {
     const c = (structureV2.columns || []).find(col => col && col.name === selectedCell.col)
     return c || {}
   }, [selectedCell, structureV2.columns])
-  // 元信息描述：二进制信封显示字节数，否则按字符长度
-  const panelMeta = isBinEnvelope(panelValue)
-    ? (panelValue.__bin.size + ' bytes')
-    : (typeof panelValue === 'string' ? panelValue.length + ' chars' : '')
+  // 元信息描述：二进制信封显示字节数，其余按字符长度。对象值（JSON 列）先转文本，
+  // 与网格量宽同一来源；挂在选中值上 memo，避免每次重渲都序列化一遍大 JSON
+  const panelMeta = useMemo(() => {
+    if (isBinEnvelope(panelValue)) {
+      return panelValue.__bin.size + ' bytes'
+    }
+    if (panelValue === null || panelValue === undefined) {
+      return ''
+    }
+    return cellText(panelValue).length + ' chars'
+  }, [panelValue])
 
   // ---- F1 外键引用侧栏（设计 §8） ----
   // 反向引用（"哪些表指向本表"）按 表+列 懒拉取并缓存：
@@ -724,7 +735,7 @@ export default auto(function DbSession (props) {
   })
   // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
   const [sqlPages, setSqlPages] = useState({})
-  // H1：每个结果集各自的视图状态（本页过滤，排序/列显隐随后接在同一份状态上）。
+  // H1：每个结果集各自的视图状态（过滤 + 排序，列显隐随后接在同一份状态上）。
   // 与 sqlPages 同层、按 results 下标存 —— 多结果集分栏时"结果 1 筛过的词"
   // 不该影响"结果 2"
   const [sqlViews, setSqlViews] = useState({})
@@ -759,9 +770,6 @@ export default auto(function DbSession (props) {
   // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
   // SQL 结果是只读视图：不做行内编辑，也不写回
   const [sqlCell, setSqlCell] = useState(null)
-  // 折叠（一条工具条）/ 展开（完整值面板）。刻意 sticky：展开过一次后，
-  // 点下一格又被自动缩回去只是多余的抖动
-  const [sqlPaneOpen, setSqlPaneOpen] = useState(false)
   // 页大小存 config（与数据页同一组候选），改后回第 1 页
   const sqlPageSize = getSqlResultPageSize()
   const changeSqlPageSize = v => {
@@ -770,7 +778,7 @@ export default auto(function DbSession (props) {
   }
   // 新结果（含失败清空）一到位就回第 1 页；翻页只切片，不重新执行
   // H1a-4：同时清掉选中单元格 —— 老结果的行下标对新结果集没有意义（指错行比
-  // 面板空着更糟）；展开/折叠偏好不清，用户下次执行还是他习惯的那一档
+  // 面板空着更糟）；面板跟着选中一起收起，不留半屏空气
   // H1：过滤也一起清 —— 老结果的筛词对新结果集基本等于"看起来空了"，
   // 而且输入框留着旧词会让人以为新结果真的只有这么几行
   useEffect(() => {
@@ -3630,52 +3638,17 @@ export default auto(function DbSession (props) {
     return filterKw ? hlNode(node, filterKw, 'db-page-hit') : node
   }, [keywordPatterns, kw, themeConfig, formatLocale])
 
-  // H1a-1：长内容被截断时的悬停预览。整张网格共用一个预览卡（单例），
-  // 而不是每格挂一个浮层 —— 1 万行下后者会造出上万个观察者。
-  // 这里刻意不设 td 的原生 title，列也用 CELL_ELLIPSIS（ellipsis 但不带 title）：
-  // 1) 设 title 等于给每行的每个值都 JSON.stringify 一遍，而列 memo 的依赖里有
-  //    editValue（行内编辑每敲一个字符就重建一次）→ 200 行 × 30KB JSON 的重复
-  //    序列化会挂在编辑热路径上；文本改在悬停时算一次（show 里），代价只有一次鼠标悬停。
-  // 2) 原生 tooltip 和预览卡会叠着出现（悬停 1s 后两套同时显示），反而互相遮挡。
-  //    rc-table 在 ellipsis 为真时会自动给纯文本单元格补 title（CDP 实测确实触发了），
-  //    所以必须显式 showTitle: false，光"自己不写 title"不够。
-  // 键盘路径另有承接：Enter/单击 → selectCell 打开底部值面板看全文。
-  const cellPreview = useCellPreview()
-  // show/scheduleHide 来自 useCellPreview，本身稳定：hover 改 state 时不让
-  // previewProps 变引用，否则 5 处网格的列 memo 会在每次悬停时整表重建。
-  // JSX 侧三个 prop 直接解构成 handle*（react/jsx-handler-names），不包箭头函数：
-  // 包一层就是每轮渲染新引用，预览卡会反复摘挂 keydown/scroll 监听
-  const {
-    show: previewShow,
-    scheduleHide: handlePreviewLeave,
-    hide: handlePreviewHide,
-    cancelHide: handlePreviewEnter
-  } = cellPreview
-  const previewProps = useCallback((col, row) => ({
-    onMouseEnter: ev => previewShow(ev, col, row ? row[col] : null),
-    onMouseLeave: handlePreviewLeave
-  }), [previewShow, handlePreviewLeave])
+  // 长内容不再有悬停预览：悬停浮层在大结果上要维护观察者与高亮文本，
+  // 实际使用里又经常挡住相邻格子。数据页保持"单击 → 下方值面板"，
+  // SQL 结果改成同一套（点击格直接展开，不再先出现折叠工具条）。
+  // 列仍用 CELL_ELLIPSIS（ellipsis 但不带 native title）：title 等于给每行每个值
+  // 多一份字符串副本，而完整内容在下方面板里随时可看。
 
-  // H1a-4：预览卡只渲染前 4000 字符，"查看完整"把全文交给一个弹窗。
-  // 挂在这里（而不是各网格自己接）是因为预览卡本身是全站单例，5 处网格共用同一份
-  // state —— 弹窗同理，一份就够。数据页另有值面板，但那是"看这一格"，
-  // 这里是"看这段被截断的全文"，两件事不冲突。
-  const [fullText, setFullText] = useState(null)
-  const openFullText = useCallback((s) => {
-    if (!s) {
-      return
-    }
-    setFullText({ col: s.col, text: s.text })
-    // 卡片不关的话会带着旧坐标浮在弹窗上（切页签那条同款问题：浮层不会自己让位）
-    handlePreviewHide()
-  }, [handlePreviewHide])
-
-  // H1a-2：列头右键菜单也是全站单例（和预览卡同一个理由：每列挂一个浮层，
-  // 200 列的数据页每次列 memo 重建都要挂/卸上百个 Trigger）。
+  // H1a-2：列头右键菜单是全站单例：给每列各挂一个 Dropdown 的话，
+  // 200 列的数据页每次列 memo 重建都要挂/卸上百个 Trigger。
   // 各网格只负责在 onHeaderCell 里把"哪一列 + 属于哪个宽度状态 + 加宽到多少"报过来
   const colMenu = useColMenu()
-  // JSX 侧解构成 handle*（与预览卡同一约定：包一层箭头就是每轮新引用，
-  // 浮层会反复摘挂 pointerdown/keydown/scroll 监听）
+  // JSX 侧解构成 handle*（包一层箭头就是每轮新引用，浮层会反复摘挂监听）
   const { target: colMenuTarget, hide: handleColMenuHide } = colMenu
 
   // 列宽按内容自适应（采样前 100 行取最长值）：固定 220 会让短值列
@@ -3887,9 +3860,7 @@ export default auto(function DbSession (props) {
               setEditing(null)
             }
           },
-          className: numCls ? 'db-cell-editable ' + numCls : 'db-cell-editable',
-          // H1a-1：截断时才弹预览卡（长内容既没 title 也没预览是本轮的根因）
-          ...previewProps(k, row)
+          className: numCls ? 'db-cell-editable ' + numCls : 'db-cell-editable'
         }),
         render: (v, row) => {
           if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
@@ -3915,7 +3886,7 @@ export default auto(function DbSession (props) {
         }
       }
     })
-    : []), [grid.rows, view, dataLive, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn, previewProps])
+    : []), [grid.rows, view, dataLive, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn])
 
   // 结果集的列名：优先 fields（列顺序稳定），否则从首行推断。
   // 量宽的 memo 与列定义 memo 必须用同一个来源，否则"量的列"和"渲染的列"会错位
@@ -4008,17 +3979,15 @@ export default auto(function DbSession (props) {
               wide: wideColumnWidth(rows, k)
             })
           }),
-          // H1a-1：结果集此前既没有 title 也没有预览，长文本只能靠横向滚动撞运气
-          // H1a-3：数值列右对齐（与数据页同一条判定）
-          // H1a-4：单击选中 → 底部完整值面板。只标"当前面板在看的那一格"，
+          // H1a-4：单击选中 → 底部完整值面板（与数据页同一套：点一格就展开面板，
+          // 不再先出现"单击展开"的折叠工具条）。只标"当前面板在看的那一格"，
           // 不做键盘可达（SQL 结果只读，Enter 没有下一步动作），也不给双击编辑
           onCell: row => ({
             onClick: () => setSqlCell({ rs: i, col: k, rowKey: row.__rowKey }),
             className: (sqlCell && sqlCell.rs === i &&
               sqlCell.col === k && sqlCell.rowKey === row.__rowKey)
               ? (numCls + ' db-cell-selected').trim()
-              : numCls,
-            ...previewProps(k, row)
+              : numCls
           }),
           // H1a-3：以前这里直接写 `render: renderCell`，antd 传的 (值, 整行, 下标)
           // 会把**行下标**当成 dataType —— 结果就是"看起来没格式化"其实是格式化了
@@ -4028,7 +3997,7 @@ export default auto(function DbSession (props) {
         }
       })
     }),
-    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, previewProps, sqlColTypeMaps, sqlCell]
+    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, sqlColTypeMaps, sqlCell]
   )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
@@ -4218,45 +4187,9 @@ export default auto(function DbSession (props) {
     }
   }, [sqlCell, sqlResult.results, sqlColTypeMaps])
 
-  // 折叠态工具条：整条可点 = 展开；右侧 × = 取消选中（stopPropagation，
-  // 否则点 × 会先冒泡成"展开"）
-  const sqlValueBar = sqlCellInfo
-    ? (
-      <div
-        className='db-sql-value-bar'
-        title={e('dbSqlValueBarHint')}
-        onClick={() => setSqlPaneOpen(true)}
-      >
-        <span
-          className='db-sql-value-bar-col'
-          title={sqlCellInfo.title}
-        >
-          {sqlCellInfo.title}
-        </span>
-        {
-          sqlCellInfo.meta
-            ? <span className='db-sql-value-bar-meta'>{sqlCellInfo.meta}</span>
-            : null
-        }
-        <span className='db-sql-value-bar-hint'>{e('dbSqlValueBarHint')}</span>
-        <Button
-          className='db-sql-value-bar-close'
-          size='small'
-          type='text'
-          icon={<CloseOutlined />}
-          title={e('dbSqlValueBarClose')}
-          onClick={ev => {
-            ev.stopPropagation()
-            setSqlCell(null)
-          }}
-        />
-      </div>
-      )
-    : null
-
   // 展开态：复用数据页那个 DbValuePane（editable=false → 没有编辑/保存入口，
-  // 但格式切换、高亮、复制、选区右键复制都还在）。面板的 × 是"收回工具条"而不是
-  // "取消选中"：用户下一格还想用同一个面板，也不想丢掉已经拖好的高度
+  // 但格式切换、高亮、复制、选区右键复制都还在）。× = 取消选中、面板收起，
+  // 与数据页点击打开下方预览框的交互对齐（点一格就展开，不再先出一行提示条）
   const sqlValuePane = sqlCellInfo
     ? (
       <DbValuePane
@@ -4267,16 +4200,14 @@ export default auto(function DbSession (props) {
         patterns={keywordPatterns}
         themeConfig={themeConfig}
         editable={false}
-        onClose={() => setSqlPaneOpen(false)}
+        onClose={() => setSqlCell(null)}
       />
       )
     : null
 
-  // "展开"要真的有东西可展：重新执行会清掉选中（sqlCellInfo 变 null），而展开偏好
-  // 是故意留着的 —— 于是面板开着、内容没了，bottom 挂着半屏空气，网格被压成一小条
-  // （CDP 实测：展开后重跑 → top 186px / bottom 503px 空白，网格只剩 5 行）。
-  // 折叠只看"展开偏好 + 有没有选中"：偏好不清，但没选中时回到折叠，网格占满
-  const sqlPaneShown = sqlPaneOpen && !!sqlCellInfo
+  // "展开"要真的有东西可展：重新执行会清掉选中（sqlCellInfo 变 null），
+  // 此时 bottom 必须是 null，否则半屏空容器会把网格压成一小条
+  const sqlPaneShown = !!sqlCellInfo
 
   // T2/T3：树过滤只作用于已加载的 metadata，不重新请求后端。
   // 递归支持 PG 的「库 → schema → 表」：节点自身命中时保留全部子节点，
@@ -4843,13 +4774,12 @@ export default auto(function DbSession (props) {
         })
       }),
       // H1a-1：注释/默认值这类长文本列此前悬停什么都看不到
-      onCell: row => previewProps(k, row),
       // PG 主键列显示 PK 徽标；MySQL 沿用 DESC 的 Key=PRI 文本
       render: k === 'is_primary_key'
         ? v => (v === true ? <Tag className='db-pk-tag'>PK</Tag> : '')
         : renderCell
     }))
-    : []), [structure.rows, renderCell, structFitted, structColWidths, structLive, previewProps])
+    : []), [structure.rows, renderCell, structFitted, structColWidths, structLive])
 
   // A1：Redis 键列表列定义（列头文案来自 e() → langCode 一并入依赖，
   // 切换界面语言时列头跟着变；其余仅依赖 renderCell）
@@ -4877,7 +4807,6 @@ export default auto(function DbSession (props) {
           wide: wideColumnWidth(keyList.rows || [], 'name')
         })
       }),
-      onCell: row => previewProps('name', row),
       render: v => renderCell(v)
     },
     {
@@ -4901,7 +4830,6 @@ export default auto(function DbSession (props) {
           wide: wideColumnWidth(keyList.rows || [], 'type')
         })
       }),
-      onCell: row => previewProps('type', row),
       render: v => renderCell(v)
     },
     {
@@ -4925,10 +4853,9 @@ export default auto(function DbSession (props) {
           wide: wideColumnWidth(keyList.rows || [], 'ttl')
         })
       }),
-      onCell: row => previewProps('ttl', row),
       render: v => renderCell(v)
     }
-  ], [renderCell, langCode, redisKeysFitted, redisColWidths, redisKeysLive, previewProps, keyList.rows])
+  ], [renderCell, langCode, redisKeysFitted, redisColWidths, redisKeysLive, keyList.rows])
 
   // A2：Redis 键列表行键数组（依赖 keyList.rows），避免 SCAN 进度/详情加载等
   // 无关重渲触发 antd Table 全行重渲
@@ -6629,20 +6556,20 @@ export default auto(function DbSession (props) {
         }
         <Spin spinning={sqlResult.loading}>
           {
-            // H1a-4：选中一格后，网格下面挂一条工具条（折叠）或完整值面板（展开）。
+            // H1a-4：选中一格就在网格下面打开完整值面板（与数据页点击打开下方
+            // 预览框同一交互，没有中间提示条）。
             // 没有结果时不套 DbSplitPane：空态下多一层 flex 容器只会添乱。
             // 有结果时**永远**套着（哪怕没选中），配合 collapsed 保持网格在 DOM
             // 里的位置不变 —— 换树形会让表格整块重挂，虚拟滚动的滚动位置全丢。
-            // collapsed 看 sqlPaneShown（展开偏好 且 有选中）：拿 sqlValuePane（=有没有
-            // 选中）单独当条件，单击的一瞬间就会切成 50/50 分区、工具条孤零零挂在半个
-            // 空容器里；只看 sqlPaneOpen 则重跑清掉选中后半屏是空气
+            // collapsed 看 sqlPaneShown（= 有没有选中）：重新执行清掉选中后半屏
+            // 是空气，必须回到占满
             (sqlResult.results || []).length
               ? (
                 <DbSplitPane
                   storageKey={SQL_VALUE_SPLIT_KEY}
                   collapsed={!sqlPaneShown}
                   top={renderSqlResults()}
-                  bottom={sqlPaneShown ? sqlValuePane : sqlValueBar}
+                  bottom={sqlValuePane}
                 />
                 )
               : renderSqlResults()
@@ -6950,17 +6877,15 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: CELL_ELLIPSIS, onCell: r => previewProps('field', r), render: v => renderCell(v) },
+              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: CELL_ELLIPSIS, render: v => renderCell(v) },
               {
                 title: e('dbValue'),
                 dataIndex: 'value',
                 key: 'value',
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 value 行内编辑（HSET 覆盖同字段）
-                // H1a-1：长 value 是 Redis 侧的主战场 —— 截断时弹预览卡看全文
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'value', r.value),
-                  ...previewProps('value', r)
+                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveHashValue(r))
               },
@@ -6998,8 +6923,7 @@ export default auto(function DbSession (props) {
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 value 行内编辑（LSET 按下标）
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'value', r.value),
-                  ...previewProps('value', r)
+                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveListValue(r))
               },
@@ -7036,8 +6960,7 @@ export default auto(function DbSession (props) {
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'member', r.member),
-                  ...previewProps('member', r)
+                  onDoubleClick: () => editRedisCell(r, 'member', r.member)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'member', v, () => editSetMember(r.member, redisEdit ? redisEdit.value : ''))
               },
@@ -7074,9 +6997,8 @@ export default auto(function DbSession (props) {
                 key: 'member',
                 ellipsis: CELL_ELLIPSIS,
                 // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）
-                onCell: r => ({
-                  onDoubleClick: () => message.info(e('dbRedisMemberImmutable')),
-                  ...previewProps('member', r)
+                onCell: () => ({
+                  onDoubleClick: () => message.info(e('dbRedisMemberImmutable'))
                 }),
                 render: v => renderCell(v)
               },
@@ -7088,8 +7010,7 @@ export default auto(function DbSession (props) {
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）
                 onCell: r => ({
-                  onDoubleClick: () => editRedisCell(r, 'score', r.score),
-                  ...previewProps('score', r)
+                  onDoubleClick: () => editRedisCell(r, 'score', r.score)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'score', v, () => saveZsetScore(r), true)
               },
@@ -7917,54 +7838,7 @@ export default auto(function DbSession (props) {
             )
           : null
       }
-      {/* H1a-1：截断单元格的悬停预览卡。整个会话页只有一个实例，5 处网格共用 */}
-      <DbCellPreview
-        state={cellPreview.state}
-        patterns={keywordPatterns}
-        themeConfig={themeConfig}
-        onHide={handlePreviewHide}
-        onEnter={handlePreviewEnter}
-        onLeave={handlePreviewLeave}
-        onFullText={openFullText}
-      />
-      {
-        // H1a-4：预览卡只渲染前 4000 字符，"查看完整"把全文交给弹窗
-        // （A2 DDL 弹窗同款：等宽 pre + 复制 + 关闭）。不截断、可选中，
-        // 3 万字符的 JSON 也能一口气看全
-        fullText
-          ? (
-            <Modal
-              open={!!fullText}
-              title={`${e('dbViewFullText')} - ${fullText.col}`}
-              onCancel={() => setFullText(null)}
-              footer={[
-                <Button
-                  key='copy'
-                  size='small'
-                  onClick={() => copy(fullText.text)}
-                >
-                  {e('copy')}
-                </Button>,
-                <Button
-                  key='close'
-                  size='small'
-                  type='primary'
-                  onClick={() => setFullText(null)}
-                >
-                  {e('ok')}
-                </Button>
-              ]}
-              width={720}
-            >
-              <div className='db-full-text-meta'>
-                {e('dbCellChars').replace('{n}', fullText.text.length)}
-              </div>
-              <pre className='db-full-text-pre'>{fullText.text}</pre>
-            </Modal>
-            )
-          : null
-      }
-      {/* H1a-2：列宽菜单。同样全站单例，5 处网格共用这一份浮层 */}
+      {/* H1a-2：列宽菜单。全站单例，5 处网格共用这一份浮层 */}
       <DbColMenu
         target={colMenuTarget}
         onHide={handleColMenuHide}

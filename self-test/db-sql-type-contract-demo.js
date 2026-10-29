@@ -891,15 +891,17 @@ const main = async () => {
     ['id', 'amount'].every(l => isRight(byLabel(dmOff, l))),
     Object.fromEntries(['id', 'amount'].map(l => [l, of(byLabel(dmOff, l))])))
 
-  // ---------- E) H1a-1/H1a-2 共存回归（右对齐是 td class，不该碰事件） ----------
+  // ---------- E) 网格共存回归（右对齐是 td class，不该碰事件） ----------
   await cdp.eval('window.__clickTab("数据|Data")')
   await sleep(300)
   const cellLong = await cdp.eval('window.__cellXY("TTTTTTTTTTTT")')
   const cinfo = JSON.parse(cellLong)
   await cdp.move(cinfo.x, cinfo.y)
-  await sleep(500)
-  check('长文本悬停仍出预览卡（H1a-1 未回归）',
-    await waitFor(cdp, 'window.__cards().length === 1', 'preview card'))
+  await sleep(120)
+  await cdp.move(cinfo.x + 2, cinfo.y)
+  await sleep(800)
+  const hoverCards = await cdp.eval('window.__cards().length')
+  check('长文本悬停不再出预览卡（悬停预览已整体移除）', hoverCards === 0, { cards: hoverCards })
   await cdp.move(5, 5)
   await sleep(400)
   const xyNote = JSON.parse(await cdp.eval('window.__cellXY("note-2")'))

@@ -1,15 +1,16 @@
 // H1a-4 · SQL 结果完整查看（设计 §1A.6 / §1A.11）
 //
-// 这一批只做"看得全"：单击结果网格的一格 → 底部挂完整值面板（只读），
-// 预览卡超过 4000 字符时"查看完整" → 弹窗给全文。不改执行语义、不做行内编辑。
+// 这一批只做"看得全"：单击结果网格的一格 → 底部挂完整值面板（只读）。
+// 2026-10-29 按用户反馈改成交互：去掉悬停预览卡与"单击展开"的折叠工具条，
+// 点一格就展开面板，与数据页点格打开下方预览框对齐。不改执行语义、不做行内编辑。
 //
 // 这里钉的是**接线契约**（真实源码抽取，不放拷贝实现）：
-// 1) 折叠/展开走 DbSplitPane 的 collapsed，且**网格在 DOM 里的位置不变** ——
+// 1) 展开/收起走 DbSplitPane 的 collapsed，且**网格在 DOM 里的位置不变** ——
 //    折叠时不渲染 DbSplitPane 会让表格整块重挂，虚拟滚动的滚动位置全丢；
 // 2) 选中三元组 (rs, rowKey, col) 用的是结果内的绝对下标，翻页不指错行；
 //    行取不到就当没选中，不留一个指向空气的面板；
 // 3) 面板 editable=false 且不传 onSave —— SQL 结果是只读视图；
-// 4) 全文弹窗挂在唯一那份预览卡上（5 处网格共用），并且开弹窗要先把卡片收掉。
+// 4) 5 处数据库网格都不再挂悬停预览卡（没有 DbCellPreview 这个组件了）。
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -19,6 +20,7 @@ const vm = require('node:vm')
 const ROOT = path.join(__dirname, '../../..')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const SPLIT = path.join(ROOT, 'src/client/components/database/db-split-pane.jsx')
+const PREVIEW = path.join(ROOT, 'src/client/components/database/db-cell-preview.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
@@ -84,25 +86,21 @@ describe('DbSplitPane：collapsed 是"同一条 DOM 链路"的折叠', () => {
   })
 })
 
-describe('SQL 结果区：选中一格才出现下方面板', () => {
+describe('SQL 结果区：选中一格就展开下方面板', () => {
   test('有结果时永远套 DbSplitPane，且用本批自己的持久化键', () => {
     const src = codeOf(jsx())
     assert.match(src, /const SQL_VALUE_SPLIT_KEY = 'electerm-db-sql-value-split'/)
     assert.match(src, /storageKey=\{SQL_VALUE_SPLIT_KEY\}/)
     assert.match(src, /\(sqlResult\.results \|\| \[\]\)\.length/)
-    // 折叠判据 = "展开偏好 且 有选中格"，两个都不能少：
-    // - 只看"有没有选中"：单击的一瞬间就切进 50/50 分区，而下面只有一条工具条，
-    //   网格凭空矮一半
-    // - 只看"展开偏好"：重新执行会清掉选中，面板还开着但内容没了 —— bottom 挂着
-    //   半屏空气把网格压成一小条（CDP 实测 top 186 / bottom 503 空白）
-    assert.match(src, /const sqlPaneShown = sqlPaneOpen && !!sqlCellInfo/)
+    // 折叠判据 = "有没有选中格"。重新执行会清掉选中，面板跟着收起；
+    // 只看"展开偏好"的话，重跑后 bottom 挂着半屏空气把网格压成一小条
+    // （CDP 实测 top 186 / bottom 503 空白）
+    assert.match(src, /const sqlPaneShown = !!sqlCellInfo/)
     assert.match(src, /collapsed=\{!sqlPaneShown\}/)
-    assert.ok(!/collapsed=\{!sqlValuePane\}/.test(src),
-      'collapsed 不能只由"有没有选中"驱动，否则工具条态会占掉半个结果区')
-    assert.ok(!/collapsed=\{!sqlPaneOpen\}/.test(src),
-      'collapsed 不能只由"展开偏好"驱动，否则重跑清掉选中后半屏是空气')
-    // 折叠态与展开态共用同一个 bottom 表达式位：展开出面板，否则出工具条
-    assert.match(src, /bottom=\{sqlPaneShown \? sqlValuePane : sqlValueBar\}/)
+    assert.ok(!/sqlPaneOpen/.test(src), '不再有"折叠/展开"中间态：点一格直接展开')
+    assert.ok(!/sqlValueBar/.test(src), '折叠提示条已删除')
+    // bottom 只有一种内容：完整值面板（无选中时由 collapsed 收起）
+    assert.match(src, /bottom=\{sqlValuePane\}/)
   })
 
   test('单击选中：三元组用绝对行下标；不给双击编辑', () => {
@@ -194,68 +192,54 @@ describe('sqlCellInfo：面板数据取自结果集与类型契约（真实源�
 describe('完整值面板：只读复用 DbValuePane', () => {
   test('editable=false 且不传 onSave（SQL 结果不写回）', () => {
     const src = jsx()
-    const m = /<DbValuePane[\s\S]*?onClose=\{\(\) => setSqlPaneOpen\(false\)\}/.exec(src)
+    const m = /<DbValuePane[\s\S]*?onClose=\{\(\) => setSqlCell\(null\)\}/.exec(src)
     assert.ok(m, 'SQL 侧的 DbValuePane 挂载点没找到')
     assert.match(m[0], /editable=\{false\}/)
     assert.ok(!/onSave/.test(m[0]), '只读面板不该有保存回调')
     assert.match(m[0], /column=\{sqlCellInfo\.column\}/)
   })
 
-  test('面板的 × 是"收回工具条"，不是清选中（还想用同一个面板）', () => {
-    assert.match(codeOf(jsx()), /onClose=\{\(\) => setSqlPaneOpen\(false\)\}/)
-  })
-
-  test('工具条 × 取消选中且不冒泡成展开', () => {
-    const src = codeOf(jsx())
-    const m = /className='db-sql-value-bar-close'[\s\S]*?\n {10}\/>/.exec(src)
-    assert.ok(m, '工具条的关闭按钮没找到')
-    assert.match(m[0], /ev\.stopPropagation\(\)/)
-    assert.match(m[0], /setSqlCell\(null\)/)
+  test('面板的 × 直接取消选中（与数据页关闭预览框同一语义）', () => {
+    assert.match(codeOf(jsx()), /onClose=\{\(\) => setSqlCell\(null\)\}/)
   })
 })
 
-describe('预览卡「查看完整」→ 全文弹窗', () => {
-  test('onFullText 挂在唯一那份预览卡上（5 处网格共用一个入口）', () => {
+describe('悬停预览卡已移除（全部数据库网格）', () => {
+  test('组件文件已删除，渲染器里也不再引用', () => {
+    assert.ok(!fs.existsSync(PREVIEW), 'db-cell-preview.jsx 应已删除')
     const src = jsx()
-    assert.equal((src.match(/<DbCellPreview/g) || []).length, 1)
-    assert.match(src, /onFullText=\{openFullText\}/)
+    assert.ok(!/DbCellPreview|useCellPreview|previewProps/.test(src), 'db-session 里不该再有预览卡接线')
+    assert.ok(!/openFullText|db-full-text/.test(src), '"查看完整"弹窗随预览卡一起删除')
   })
 
-  test('开弹窗前先收卡片：否则浮层带着旧坐标压在弹窗上', () => {
-    const src = codeOf(jsx())
-    const m = /const openFullText = useCallback\(\(s\) => \{([\s\S]*?)\n {2}\}, \[handlePreviewHide\]\)/.exec(src)
-    assert.ok(m, 'openFullText 结构变了')
-    assert.match(m[1], /setFullText\(\{ col: s\.col, text: s\.text \}\)/)
-    assert.match(m[1], /handlePreviewHide\(\)/)
+  test('单元格截断仍关闭原生 title（保留单一路径的悬停观感）', () => {
+    assert.match(codeOf(jsx()), /const CELL_ELLIPSIS = \{ showTitle: false \}/)
   })
 
-  test('弹窗给全文不截断，带字符数与复制（A2 DDL 弹窗同款）', () => {
-    const src = codeOf(jsx())
-    assert.match(src, /<pre className='db-full-text-pre'>\{fullText\.text\}<\/pre>/)
-    assert.match(src, /onClick=\{\(\) => copy\(fullText\.text\)\}/)
-    assert.match(src, /\{e\('dbCellChars'\)\.replace\('\{n\}', fullText\.text\.length\)\}/)
-    assert.ok(!/fullText\.text\.slice/.test(src), '弹窗是全文出口，不该再截断')
-  })
-
-  test('CSS：全文区等宽、可滚动、可选中复制', () => {
-    const css = /\.db-full-text-pre\n((?: {2}.*\n)+)/.exec(styl())
-    assert.ok(css, '.db-full-text-pre 未定义')
-    for (const want of ['white-space pre-wrap', 'word-break break-all', 'user-select text',
-      'max-height 60vh', 'overflow auto', 'font-family var(--db-code-font']) {
-      assert.ok(css[1].includes(want), '缺 ' + want)
+  test('CSS：预览卡与折叠工具条样式一并清掉', () => {
+    const css = styl()
+    for (const cls of ['db-cell-preview', 'db-sql-value-bar', 'db-full-text-pre', 'db-full-text-meta']) {
+      assert.ok(!css.includes(cls), cls + ' 样式应已删除')
     }
-    assert.ok(!/#[0-9a-f]{3,6}/i.test(css[1]), '配色必须走 token')
   })
 })
 
 describe('词条与既有呈现一致', () => {
-  test('本批新增词条中英成对', () => {
+  test('本批保留词条中英成对', () => {
     const src = fs.readFileSync(LOCALES, 'utf8')
-    for (const k of ['dbRowN', 'dbSqlValueBarHint', 'dbSqlValueBarClose']) {
+    for (const k of ['dbRowN']) {
       assert.equal((src.match(new RegExp('\\n\\s*' + k + ':', 'g')) || []).length, 2, k + ' 必须中英各一条')
     }
     assert.match(src, /dbRowN: 'row \{n\}'/)
     assert.match(src, /dbRowN: '第 \{n\} 行'/)
+  })
+
+  test('预览卡/工具条词条随组件一起删除', () => {
+    const src = fs.readFileSync(LOCALES, 'utf8')
+    for (const k of ['dbCellChars', 'dbCellTruncated', 'dbViewFullText',
+      'dbSqlValueBarHint', 'dbSqlValueBarClose']) {
+      assert.ok(!new RegExp('\\n\\s*' + k + ':').test(src), k + ' 已无引用，应删除')
+    }
   })
 
   test('数据页标题不再出现裸英文 " - row "（与 SQL 面板同一套文案）', () => {

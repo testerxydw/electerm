@@ -10,6 +10,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dropdown, Input } from 'antd'
 import { CopyOutlined, CloseOutlined, SwapOutlined } from '@ant-design/icons'
 import { copy } from '../../common/clipboard'
+// 对象值的文本形态（JSON 列）：与网格量宽/单元格同一来源，避免 "[object Object]"
+import { cellText } from '../../common/db-column-width'
 import { formatValue } from './db-value-format'
 import { highlightValue } from './db-highlight'
 import { selectRenderers, isBinEnvelope, binPreviewBytes, bytesToHex } from './value-renderers'
@@ -134,12 +136,15 @@ export default function DbValuePane (props) {
     extra,
     editDisabledTitle = ''
   } = props
+  const isEnv = isBinEnvelope(value)
+  // 预览/编辑草稿统一在这里取"文本形态"：JSON 列的值是对象，直接 String() 会得到
+  // "[object Object]"。二进制信封仍按原对象交给呈现器，不在这里转文本
+  const text = isEnv ? '' : cellText(value)
   const [formatKey, setFormatKey] = useState('raw')
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
+  const [draft, setDraft] = useState(text)
   // 预览区选中右键菜单：复制选中片段 / 编辑 / 替换
   const [menu, setMenu] = useState(null)
-  // 替换动作：进编辑态后要把该范围预选到 textarea 上
   const [pendingRange, setPendingRange] = useState(null)
   const preRef = useRef(null)
   const textRef = useRef(null)
@@ -147,13 +152,12 @@ export default function DbValuePane (props) {
   // 值变化（换单元格/切键/保存后刷新）→ 退出编辑态、回落原文视图
   useEffect(() => {
     setEditing(false)
-    setDraft(value)
+    setDraft(text)
     setFormatKey('raw')
-  }, [value])
+  }, [text])
 
-  const isEnv = isBinEnvelope(value)
   // F3 §9.2：用注册表统一选取可用呈现器（文本 / 二进制），默认项按注册表决定
-  const selection = useMemo(() => selectRenderers(value, column), [value, column])
+  const selection = useMemo(() => selectRenderers(isEnv ? value : text, column), [isEnv, value, text, column])
   const active = selection.renderers.find(r => r.key === formatKey) ||
     selection.renderers[0] || { key: 'raw', readonly: false, label: 'raw' }
   const activeKey = active.key
@@ -166,17 +170,17 @@ export default function DbValuePane (props) {
   // 二进制按呈现器解码预览文本；image/blob-info 单独渲染，这里给占位
   const shown = isEnv
     ? binPreviewText(value, activeKey)
-    : (activeKey === 'raw' ? String(value) : formatValue(String(value), activeKey))
+    : (activeKey === 'raw' ? text : formatValue(text, activeKey))
   const highlighted = useMemo(
     () => highlightValue(shown, patterns, themeConfig, { maxLength, maxHits }),
     [shown, patterns, themeConfig, maxLength, maxHits]
   )
-  const dirty = editing && draft !== value
+  const dirty = editing && draft !== text
   const startEdit = () => {
     if (readOnlyRenderer) {
       return
     }
-    setDraft(value)
+    setDraft(text)
     setEditing(true)
   }
   const toggleFormat = () => {
@@ -270,7 +274,7 @@ export default function DbValuePane (props) {
           size='small'
           icon={<CopyOutlined />}
           title={e('copy')}
-          onClick={() => copy(isEnv ? value.__bin.b64 : value)}
+          onClick={() => copy(isEnv ? value.__bin.b64 : text)}
         />
         {
           selection.renderers.length > 1

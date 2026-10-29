@@ -59,12 +59,15 @@ const region = (src, name) => {
   return body
 }
 
-// 列 memo 的依赖数组就是这一块里最后一个 [...]（依赖总在 memo 收尾处）
+// 列 memo 的依赖数组就是这一块里最后一个 [...]（依赖总在 memo 收尾处）。
+// 先摘掉整行注释：memo 与下一个 const 之间可能夹着说明文字，里面的 `[]`/`[i]`
+// 会把 lastIndexOf 带到注释里
 const depsOf = (body) => {
-  const s = body.lastIndexOf('[')
-  const e = body.indexOf(']', s)
+  const code = body.replace(/^\s*\/\/.*$/gm, '')
+  const s = code.lastIndexOf('[')
+  const e = code.indexOf(']', s)
   assert.ok(s > 0 && e > s, 'deps array not found')
-  return body.slice(s + 1, e).split(',').map(x => x.trim()).filter(Boolean)
+  return code.slice(s + 1, e).split(',').map(x => x.trim()).filter(Boolean)
 }
 
 describe('cellText：悬停预览与原生 title 的唯一文本来源', () => {
@@ -339,7 +342,7 @@ describe('H1a-2 列宽决策：拖拽夹取、四源优先级、手动宽增删'
   })
 })
 
-describe('H1a-1 接线契约：5 处网格都走同一套宽度 + 悬停预览（不带原生 title）', () => {
+describe('H1a-1 接线契约：5 处网格都走同一套宽度（长内容走值面板，无原生 title）', () => {
   test('数据页列宽改为委托 fitColumnWidths，原 String(v) 采样实现下线', () => {
     const src = read()
     // 多行 import 也要认（H1a-2 往同一行里加了 wideColumnWidth）
@@ -354,61 +357,30 @@ describe('H1a-1 接线契约：5 处网格都走同一套宽度 + 悬停预览�
     assert.ok(memo[0].includes('[grid.rows]'), 'sampling must stay memoized on rows only')
   })
 
-  test('previewProps 是 useCallback，且只依赖悬停 handler 本身', () => {
+  test('单元格不设原生 title：长内容只在值面板里给全文', () => {
     const src = read()
-    const fn = src.match(/const previewProps = useCallback\([\s\S]*?\n {2}\}\), \[[^\]]*\]\)/)
-    assert.ok(fn, 'previewProps useCallback not found')
-    assert.ok(fn[0].includes('onMouseEnter:'), 'hover show not wired')
-    assert.ok(fn[0].includes('onMouseLeave:'), 'hover hide not wired')
-    const deps = fn[0].slice(fn[0].lastIndexOf(', ['))
-    assert.ok(!deps.includes('cellPreview'), 'deps must not include the whole hook object (unstable → 列 memo 每次悬停重建)')
-    // 依赖必须正好是 handler 体里引用的那两个标识符，改名也不漏
-    const enter = fn[0].match(/onMouseEnter: ev => (\w+)\(/)
-    const leave = fn[0].match(/onMouseLeave: (\w+)/)
-    assert.ok(enter && leave, 'hover handlers not wired to stable locals')
-    assert.ok(deps.includes(enter[1]) && deps.includes(leave[1]), 'deps drifted: ' + deps)
+    // rc-table 在 ellipsis 为真时会给纯字符串格自动补 title（实测长达数千字符），
+    // 所以光"自己不写 title"不够，必须显式 showTitle: false；同时格子里不做
+    // per-render 的文本序列化（列 memo 依赖含 editValue，会在编辑热路径上重复算）
+    assert.ok(/const CELL_ELLIPSIS = \{ showTitle: false \}/.test(src), 'CELL_ELLIPSIS must disable rc-table title')
+    const cell = src.match(/onCell: row => \(\{[\s\S]*?\n {8}\}\)/)
+    assert.ok(cell, 'data grid onCell not found')
+    // 序列化只允许出现在"选中一格"后的值面板元信息里（cellText 挂在选中值上 memo），
+    // 绝不能进 onCell —— 列 memo 依赖含 editValue，行内编辑每敲一个字符都会重算
+    assert.ok(!/cellText/.test(cell[0]), 'onCell 不做文本序列化（编辑热路径）')
+    assert.ok(!/onMouseEnter|onMouseLeave/.test(cell[0]), '悬停浮层已撤，onCell 不该再挂鼠标进出')
   })
 
-  test('单元格不设原生 title：全文只在悬停时序列化一次', () => {
-    // 列 memo 的依赖里有 editValue（行内编辑每敲一个字符重建一次），给每格算
-    // cellText 会把 200 行 × 30KB JSON 的序列化挂在编辑热路径上；
-    // 且原生 tooltip 与预览卡会同时弹出互相遮挡
+  test('4 处 memo 化网格的列依赖：列宽三态一个都不能漏', () => {
     const src = read()
-    const fn = src.match(/const previewProps = useCallback\([\s\S]*?\n {2}\}\), \[[^\]]*\]\)/)
-    assert.ok(!/title:/.test(fn[0]), 'cell must not carry a per-render title')
-    assert.ok(!src.includes('import { cellText'), 'cellText must not be imported by the grid (只在预览卡内用)')
-  })
-
-  test('5 处网格全部挂上 previewProps', () => {
-    const src = read()
-    // 1 数据页主网格（与行内编辑/键盘处理合并进同一个 onCell）
-    assert.ok(src.includes('...previewProps(k, row)'), 'data grid missing')
-    // 2 SQL 结果
-    assert.ok(region(src, 'sqlResultColumns').includes('previewProps(k, row)'), 'sql result missing')
-    // 3 表结构
-    assert.ok(region(src, 'structColumns').includes('previewProps(k, row)'), 'struct grid missing')
-    // 4 Redis 键列表（三列都要）
-    const rk = region(src, 'redisKeyColumns')
-    for (const c of ['name', 'type', 'ttl']) {
-      assert.ok(rk.includes("previewProps('" + c + "', row)"), 'redis keys column ' + c + ' missing')
-    }
-    // 5 Redis 详情四张表（hash field/value、list value、set member、zset member/score）
-    const detail = src.slice(src.indexOf('{ title: e(\'dbField\')'))
-    for (const c of ['field', 'value', 'member', 'score']) {
-      assert.ok(detail.includes("previewProps('" + c + "'"), 'redis detail column ' + c + ' missing')
-    }
-  })
-
-  test('4 处 memo 化网格的列依赖：previewProps 与列宽三态一个都不能漏', () => {
-    const src = read()
-    // 漏 previewProps → 悬停永远用旧 handler；漏列宽三态（拖拽中 live / 手动宽 /
-    // 自适应 fitted）→ 拖完列不动、菜单点了没反应，而且是 memo 吞掉的静默失效
+    // 漏列宽三态（拖拽中 live / 手动宽 / 自适应 fitted）→ 拖完列不动、菜单点了
+    // 没反应，而且是 memo 吞掉的静默失效
     const grids = [
-      ['sqlResultColumns', ['previewProps', 'sqlLive', 'sqlColWidths', 'sqlFitted']],
-      ['structColumns', ['previewProps', 'structLive', 'structColWidths', 'structFitted']],
-      ['redisKeyColumns', ['previewProps', 'redisKeysLive', 'redisColWidths', 'redisKeysFitted']],
+      ['sqlResultColumns', ['sqlLive', 'sqlColWidths', 'sqlFitted']],
+      ['structColumns', ['structLive', 'structColWidths', 'structFitted']],
+      ['redisKeyColumns', ['redisKeysLive', 'redisColWidths', 'redisKeysFitted']],
       // 数据页的手动宽住在持久化视角里，所以那一源就是 view
-      ['columns', ['previewProps', 'dataLive', 'view', 'grid.rows']]
+      ['columns', ['dataLive', 'view', 'grid.rows']]
     ]
     for (const [name, need] of grids) {
       const deps = depsOf(region(src, name))
@@ -425,35 +397,20 @@ describe('H1a-1 接线契约：5 处网格都走同一套宽度 + 悬停预览�
     }
   })
 
-  test('Redis 详情保留原有编辑回调：previewProps 走展开合并且放最后', () => {
+  test('Redis 详情保留原有编辑回调：双击编辑不被列宽接线挤掉', () => {
     const src = read()
     for (const c of ['value', 'member', 'score']) {
-      const cell = src.match(new RegExp("onCell: r => \\(\\{[\\s\\S]{0,200}?\\.\\.\\.previewProps\\('" + c + "', r\\)"))
-      assert.ok(cell, 'redis detail ' + c + ' must merge into the existing onCell object')
-      assert.ok(/onDoubleClick/.test(cell[0]), 'redis detail ' + c + ' lost its double-click handler')
+      const cell = src.match(new RegExp("onDoubleClick: \\(\\) => editRedisCell\\(r, '" + c + "'"))
+      assert.ok(cell, 'redis detail ' + c + ' lost its double-click handler')
+      const block = src.slice(Math.max(0, src.indexOf(cell[0]) - 120), src.indexOf(cell[0]) + cell[0].length)
+      assert.ok(/onCell: r => \(\{/.test(block), 'redis detail ' + c + ' must keep an onCell object')
     }
   })
 
-  test('预览卡单例：整个会话只挂一处 DbCellPreview', () => {
-    const src = read()
-    const mounts = (src.match(/<DbCellPreview/g) || []).length
-    assert.equal(mounts, 1, 'DbCellPreview must mount exactly once (单例，不随行数增长)')
-    const mount = src.match(/<DbCellPreview[\s\S]*?\/>/)
-    assert.ok(mount[0].includes('state={cellPreview.state}'), 'state not wired')
-    assert.ok(mount[0].includes('patterns={keywordPatterns}'), 'keyword highlight not wired')
-    // 三个 handler 走解构出来的稳定引用（包箭头函数 = 每轮渲染新引用，预览卡反复摘挂监听）
-    assert.ok(mount[0].includes('onHide={handlePreviewHide}'), 'close not wired')
-    assert.ok(mount[0].includes('onEnter={handlePreviewEnter}'), 'grace on enter not wired')
-    assert.ok(mount[0].includes('onLeave={handlePreviewLeave}'), 'leave not wired')
-    for (const n of ['handlePreviewHide', 'handlePreviewEnter', 'handlePreviewLeave']) {
-      assert.ok(src.includes(n), n + ' must come from useCellPreview destructuring')
-    }
-  })
-
-  test('操作提示让给列头：td 不再被提示语占用，悬停只看内容预览', () => {
+  test('操作提示让给列头：td 不再被提示语占用', () => {
     const src = read()
     assert.ok(src.includes('className=\'db-col-title\''), 'header hint span missing')
-    const cell = src.match(/onCell: row => \(\{[\s\S]*?\.\.\.previewProps\(k, row\)[\s\S]*?\n {8}\}\)/)
+    const cell = src.match(/onCell: row => \(\{[\s\S]*?\n {8}\}\)/)
     assert.ok(cell, 'data grid onCell not found')
     assert.ok(!/title: e\('dbPreview/.test(cell[0]), 'old td hint must not return')
   })

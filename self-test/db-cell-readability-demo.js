@@ -1,28 +1,26 @@
 #!/usr/bin/env node
 /**
- * H1a-1 / H1a-2 · 网格可读性统一层 —— CDP 实机回归（桩数据，无需真 MySQL/Redis）
+ * 数据库网格可读性 + 列宽回归 —— CDP 实机验证（桩数据，无需真 MySQL/Redis）
  *
- * 要证明的是"落地效果"，不是"代码写了"：
+ * 悬停预览卡已整体移除，"预览"只保留点击后展开的下方值面板。这里要证明的是：
  *   1) 5 处网格（数据页 / 表结构页 / SQL 结果 / Redis 键列表 / Redis 详情）
- *      截断单元格悬停真的出预览卡；
- *   2) 没被截断的格子不弹（否则鼠标扫过整表就是洪泛）；
- *   3) 预览卡是单例：DOM 里永远只有 1 个锚点，不随行数/格数增长；
- *   4) 复制拿到的是全文（不是 4000 字符裁剪后的预览）；>4000 出截断提示；
- *   5) 关闭时机：指针移开（缓冲后）、滚动、Esc；
- *   6) 不改数据链路：单击开值面板、双击行内编辑、编辑框 Esc 退出都仍在。
- *   —— 以下是 H1a-2（列宽可控）——
- *   7) 宽度按列内容量出来（短列≠长列，长列封顶 360），不再写死 220/200；
- *   8) 拖拽：起点是"实测宽"（不跳回配置宽）、拖幅生效、上下限夹到 [60,1200]、
+ *      悬停截断单元格不再渲染任何预览浮层（卡片与 popover 都为 0）；
+ *   2) 鼠标扫过多格也不会冒出浮层（没有"悬停洪泛"可防了）；
+ *   3) 数据页与 SQL 结果对齐：单击数据格直接展开下方值面板，
+ *      中间不再出现提示条；SQL 面板给的是全文（6000 字符逐字符同哈希）；
+ *   4) 不改数据链路：数据页双击仍进行内编辑、Esc 退出编辑；
+ *   5) 列宽按内容量出来（短列≠长列，长列封顶 360），不再写死 220/200；
+ *   6) 拖拽：起点是"实测宽"（不跳回配置宽）、拖幅生效、上下限夹到 [60,1200]、
  *      只按下不移动不留手动宽、过程中不掉帧（200 行/页慢拖 1s 采样）；
- *   9) 列头菜单：画在视口内且命中得到、三项齐全、标题显示这一列（译文）、
+ *   7) 列头菜单：画在视口内且命中得到、三项齐全、标题显示这一列（译文）、
  *      Esc/滚动/在别处按下都能关；
- *  10) 落点分层：数据页手动宽写进表视角（切表不串味、切回来还在），
+ *   8) 落点分层：数据页手动宽写进表视角（切表不串味、切回来还在），
  *      SQL / 表结构 / Redis 键列表只在内存里；
- *  11) 保留与重置：翻页保留列宽；SQL 重新执行才回到自适应；
- *  12) 工具行"自适应全部列"：有手动宽才可点，点完全部回自适应并重新置灰。
+ *   9) 保留与重置：翻页保留列宽；SQL 重新执行才回到自适应；
+ *  10) 工具行"自适应全部列"：有手动宽才可点，点完全部回自适应并重新置灰。
  *
  * 用法：
- *   1) npm run compile && cp -r src/app/common/locales-extra.js work/app/common/locales-extra.js
+ *   1) npm run compile && rsync -a src/app/ work/app/
  *      （compile 不同步 src/app，词条没进 work/app 时运行时会拿到 undefined）
  *   2) Xvfb :130 -nolisten tcp &
  *      DISPLAY=:130 HOME=/tmp/electerm-h1a-tmp/home \
@@ -67,17 +65,15 @@ const FIXTURE = `
   }
   F.paramText = JSON.stringify(F.param)
   window.__dbStubCalls = []
-  window.__copied = null
-  // H1a-2 要验"拖完切表回来还在"，所以视角读写必须真的往返：这里做一个进程内
+  // 要验"拖完切表回来还在"，所以视角读写必须真的往返：这里做一个进程内
   // 的 view store（list 回 map、get 回单条、save/remove 改 map），
   // 换成写死 null 的话持久化路径全程空转，那条断言就是假的
   window.__viewStore = {}
-  // copy() 最终走 window.pre.writeClipboard：截下来才能验证"复制的是全文"
+  // 复制不做 UI 断言，但仍拦截，避免测试过程污染系统剪贴板
   try {
-    window.pre.writeClipboard = s => { window.__copied = s }
-    window.__copySpied = true
+    window.pre.writeClipboard = () => {}
   } catch (e) {
-    window.__copySpied = 'blocked:' + e.message
+    // 拦截失败不影响被测行为
   }
   const real = window.pre.runGlobalAsync.bind(window.pre)
   window.realRunGlobalAsync = real
@@ -230,34 +226,10 @@ const HELPERS = `
   }
   window.__vis = el => !window.__hidden(el)
   // 当前会话根节点：多开数据库页签时非激活的那份 DOM 还在（display:none），
-  // 预览卡是"每会话一个实例"，所以单例/归属判断都以可见的会话根为准。
-  // 根类名是 db-session-wrap（db-session 这个类不存在，写错了会静默退化成 document，
-  // 跨页签计数就再也不是"当前会话内"的判据了 —— 实测踩过）
+  // 所有"当前会话内"的判据都按可见根取，跨页签计数才不会串味。
+  // 根类名是 db-session-wrap（db-session 这个类不存在，写错了会静默退化成 document）
   window.__sessionRoot = () => [...document.querySelectorAll('.db-session-wrap')]
     .find(window.__vis) || document
-  // 诊断：卡片关不掉时，先分清"指针离开的事件根本没来"还是"事件来了但 state 没清"
-  window.__evlog = []
-  window.__ev = tag => {
-    if (window.__evlog.length < 60) window.__evlog.push(tag)
-  }
-  document.addEventListener('mouseout', ev => {
-    const cell = ev.target && ev.target.closest ? ev.target.closest('.ant-table-cell') : null
-    const card = ev.target && ev.target.closest ? ev.target.closest('.db-cell-preview') : null
-    if (cell) {
-      window.__ev('cell-out rel=' + (ev.relatedTarget ? (ev.relatedTarget.className || ev.relatedTarget.tagName) : 'null'))
-    } else if (card) {
-      window.__ev('card-out rel=' + (ev.relatedTarget ? (ev.relatedTarget.className || ev.relatedTarget.tagName) : 'null'))
-    }
-  }, true)
-  document.addEventListener('mouseover', ev => {
-    const cell = ev.target && ev.target.closest ? ev.target.closest('.ant-table-cell') : null
-    const card = ev.target && ev.target.closest ? ev.target.closest('.db-cell-preview') : null
-    if (cell) {
-      window.__ev('cell-in ' + cell.innerText.trim().substring(0, 6))
-    } else if (card) {
-      window.__ev('card-in')
-    }
-  }, true)
   window.__clickTree = text => {
     const nodes = [...document.querySelectorAll('.db-tree .ant-tree-node-content-wrapper')]
       .filter(n => window.__vis(n) && n.innerText.trim().indexOf(text) >= 0)
@@ -285,22 +257,12 @@ const HELPERS = `
       textLen: c.innerText.trim().length
     })
   }
-  window.__cards = () => [...document.querySelectorAll('.db-cell-preview')].filter(window.__vis)
-  // 锚点按"可见"计数：多开一个数据库页签就多一个 DbCellPreview 实例（每个会话
-  // 一张卡），非激活页签的锚点在 display:none 的 pane 里。单例契约说的是
-  // "当前会话内不随行数/格数增长"，所以必须只看可见的那个。
-  window.__anchors = () => [...window.__sessionRoot().querySelectorAll('.db-cell-preview-anchor')].filter(window.__vis).length
-  // 锚点的内联 left 直接来自 state（state ? x : -1）：用它区分"state 没清"
-  // 和"state 清了但浮层没收"——后者是 antd 动画/portal 的问题，前者才是逻辑问题
-  window.__anchorLeft = () => {
-    const a = [...window.__sessionRoot().querySelectorAll('.db-cell-preview-anchor')].find(window.__vis)
-    return a ? a.style.left : 'no-anchor'
-  }
-  window.__popCls = () => {
-    const card = window.__cards()[0]
-    const pop = card && card.closest ? card.closest('.ant-popover') : null
-    return pop ? pop.className + ' | display=' + getComputedStyle(pop).display : 'no-popover'
-  }
+  // 预览卡已整体移除：悬停不再产生任何浮层。判据分两层 —— DOM 里没有预览卡，
+  // 且当前可见的 ant-popover 为 0（列宽菜单不用时也不该有残留浮层）。
+  window.__previewDiag = () => JSON.stringify({
+    cards: document.querySelectorAll('.db-cell-preview').length,
+    popovers: [...document.querySelectorAll('.ant-popover')].filter(window.__vis).length
+  })
   // 值面板没开时的分层判据：是"根本没渲染"（点击没生效 / rowKey 找不到行）、
   // 还是"渲染了但不可见"（分屏被压扁）—— 两种修法完全不同
   window.__paneDiag = () => {
@@ -315,73 +277,38 @@ const HELPERS = `
       editor: document.querySelectorAll('.db-cell-editor').length
     })
   }
-  window.__cardInfo = () => {
-    const card = window.__cards()[0]
-    if (!card) {
-      return JSON.stringify({
-        open: 0,
-        anchors: window.__anchors(),
-        anchorLeft: window.__anchorLeft(),
-        popovers: document.querySelectorAll('.ant-popover').length
-      })
+  window.__hash = s => {
+    let h = 5381
+    for (let i = 0; i < s.length; i++) {
+      h = ((h * 33) ^ s.charCodeAt(i)) >>> 0
     }
-    const pre = card.querySelector('.db-cell-preview-pre')
+    return String(h)
+  }
+  // 点击数据格后直接读下方值面板：标题、字符数标注、正文长度与哈希。
+  // bar 恒为 0 是"没有中间提示条"的回归判据（旧实现会先出一条 db-sql-value-bar）。
+  window.__paneInfo = () => {
+    const pane = [...document.querySelectorAll('.db-value-pane')].filter(window.__vis)[0]
+    if (!pane) {
+      return JSON.stringify({ open: 0, bar: document.querySelectorAll('.db-sql-value-bar').length })
+    }
+    const pre = pane.querySelector('.db-value-pane-pre')
     const txt = pre ? pre.innerText : ''
     return JSON.stringify({
-      open: window.__cards().length,
-      anchors: window.__anchors(),
-      anchorLeft: window.__anchorLeft(),
-      pop: window.__popCls(),
-      col: (card.querySelector('.db-cell-preview-col') || {}).innerText,
-      meta: (card.querySelector('.db-cell-preview-meta') || {}).innerText,
-      bodyLen: txt.trim().length,
-      head: txt.trim().substring(0, 12),
-      hasMore: !!card.querySelector('.db-cell-preview-more'),
-      // 卡内正文的实际排版宽度：预览 <pre> 是 pre-wrap，宽度不够就换行而不是
-      // 横向溢出，所以 sw===cw，不能用它判断"有没有被截"
-      bodyW: pre ? Math.round(pre.clientWidth) : 0,
-      copyable: !!window.__copySpied
+      open: 1,
+      title: (pane.querySelector('.db-grid-title') || {}).innerText || '',
+      meta: (pane.querySelector('.db-grid-total') || {}).innerText || '',
+      preLen: txt.length,
+      preHash: window.__hash(txt),
+      bar: document.querySelectorAll('.db-sql-value-bar').length
     })
   }
-  // "看得见"的判据，不是"在不在 DOM"：rc-trigger 定位前把浮层停在
-  // inset: -1000vh/-1000vw（useOffsetStyle.js），只要 isVisible(锚点) 判假就永远
-  // 停在那儿 —— DOM 有卡、文本对、opacity 1，屏幕上一个像素都没有。所以必须
-  // 量真实矩形在不在视口内，并用 elementFromPoint 确认那个位置画的确实是卡片。
-  window.__cardOnScreen = () => {
-    const card = window.__cards()[0]
-    if (!card) {
-      return JSON.stringify({ onScreen: false, why: 'no-card' })
-    }
-    const pop = card.closest('.ant-popover')
-    const anchor = [...window.__sessionRoot().querySelectorAll('.db-cell-preview-anchor')].find(window.__vis)
-    const ar = anchor ? anchor.getBoundingClientRect() : null
-    const r = card.getBoundingClientRect()
-    const cx = Math.round(r.left + Math.min(r.width, 30) / 2)
-    const cy = Math.round(r.top + Math.min(r.height, 30) / 2)
-    const hit = document.elementFromPoint(cx, cy)
-    return JSON.stringify({
-      inViewport: r.width > 0 && r.height > 0 &&
-        r.left >= 0 && r.top >= 0 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1,
-      hitIsCard: !!hit && card.contains(hit),
-      onScreen: r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 &&
-        r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1 && !!hit && card.contains(hit),
-      rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
-      // 锚点尺寸单独回传：0×0 是"卡看不见"的根因（fixed 元素 offsetParent 恒 null，
-      // isVisible 只剩宽或高非零这一条活路），要能在失败时一眼看到
-      anchorVisible: !!ar && ar.width > 0 && ar.height > 0,
-      anchorRect: ar ? { w: Math.round(ar.width), h: Math.round(ar.height) } : null,
-      popInset: pop ? pop.style.inset || 'css' : 'no-pop',
-      hit: hit ? hit.tagName + '.' + String(hit.className).substring(0, 30) : 'none',
-      viewport: { w: innerWidth, h: innerHeight }
-    })
-  }
-  window.__clickCopy = () => {
-    const card = window.__cards()[0]
-    if (!card) return 'no-card'
-    const btn = [...card.querySelectorAll('button')].find(b =>
-      /复制|copy/i.test((b.getAttribute('title') || '') + ' ' + b.innerText))
-    if (!btn) return 'no-copy-btn'
-    btn.click()
+  window.__closePane = () => {
+    const pane = [...document.querySelectorAll('.db-value-pane')].filter(window.__vis)[0]
+    if (!pane) return 'no-pane'
+    const b = [...pane.querySelectorAll('.db-value-pane-head button')]
+      .find(x => x.querySelector('.anticon-close'))
+    if (!b) return 'no-close'
+    b.click()
     return 'ok'
   }
   // 注意两点：1) 这里是模板字符串里的源码，正则里的反斜杠要写两层，少写一层就
@@ -525,7 +452,7 @@ const HELPERS = `
     return JSON.stringify(window.__thInfo(th))
   }
   window.__menus = () => document.querySelectorAll('.db-col-menu').length
-  // 与 __anchors 同规则：多开一个数据库页签就多挂一份 DbColMenu（每个会话一份），
+  // 多开一个数据库页签就多挂一份 DbColMenu（每个会话一份），
   // 单例契约是"当前会话内不随列数增长"，所以按当前会话根 + 可见性计数
   window.__menuAnchors = () => [...window.__sessionRoot().querySelectorAll('.db-col-menu-anchor')].filter(window.__vis).length
   // 滚轮到底滚没滚：拿落点元素的最近可纵向滚动祖先，读它的 scrollTop。
@@ -823,7 +750,6 @@ const check = (name, ok, detail) => {
   results.push({ name, ok: !!ok, detail })
   console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail === undefined ? '' : ' :: ' + JSON.stringify(detail)))
 }
-const cardInfo = async cdp => JSON.parse(await cdp.eval('window.__cardInfo()'))
 const cellInfo = async (cdp, prefix) => JSON.parse(await cdp.eval('window.__cellInfo(' + JSON.stringify(prefix) + ')'))
 const thOf = async (cdp, label) => JSON.parse(await cdp.eval('window.__thOf(' + JSON.stringify(label) + ')'))
 const menuInfo = async cdp => JSON.parse(await cdp.eval('window.__menuInfo()'))
@@ -923,102 +849,84 @@ const grewBy = (before, after, dx) => after.stretch === 0
 // （stretch===0 时配置宽原样落到屏幕上）。
 const notBlownUp = (th) => th.tableW <= th.wrapW + 2 && th.used <= th.wrapW * 0.75
 
-// 悬停并等卡片出现。两步 prime：
-// 1) 先把指针挪到网格外（Chromium 冷启动的首个 mousemove 只定位指针、不派生 hover）；
-// 2) 再从外移进目标格 —— 只有"命中目标变了"才派发 mouseover/mouseenter。在同一个
-//    格子里挪 1px 不算变化，预览卡因此一直不开（实测首轮就是这么红的）。
-// 再用 waitFor 等开卡缓冲过去：固定 sleep 在冷启动首轮会假失败。
-// 整轮最多两次：实测同一份代码在不同轮次里"首个格子"会偶发不出卡（第二轮才出，
-// 后续格子全绿），是 CDP 指针冷启动的抖动而不是产品行为 —— 真人第一次移动鼠标
-// 时系统早就有指针位置了。重试只补偿测试环境，不放宽"截断格必须出卡"这条判据。
-const hoverCard = async (cdp, x, y, budget = 3000) => {
-  let card = null
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    await cdp.move(5, 5)
-    await sleep(60)
-    await cdp.move(x, y)
-    await sleep(80)
-    await cdp.move(x + 2, y)
-    // 探针一律返回 JSON 字符串，所以判据要先 parse（直接 .open 取到 undefined，等满预算再判假）
-    const opened = await waitFor(cdp, 'JSON.parse(window.__cardInfo()).open === 1', 'card open', budget)
-    card = await cardInfo(cdp)
-    if (opened && card.open === 1) {
-      return { opened, card, attempts: attempt }
-    }
+// 悬停一个"必然截断"的格子，等过旧实现的开卡缓冲时长，再断言"没有任何浮层"。
+// 指针先移到网格外再移进目标格：Chromium 冷启动的首个 mousemove 只定位指针、
+// 不派生 hover，直接在格子内微移可能连 mouseenter 都不派发。
+const expectNoPreview = async (cdp, label, prefix, shot) => {
+  await cdp.move(5, 5)
+  await sleep(60)
+  const cell = await cellInfo(cdp, prefix)
+  check(label + '：长内容单元格存在且被截断（悬停对象有效）',
+    !cell.error && cell.truncated === true, cell)
+  if (cell.error) {
+    return cell
   }
-  return { opened: false, card, attempts: 2 }
+  await cdp.move(cell.x, cell.y)
+  await sleep(120)
+  await cdp.move(cell.x + 2, cell.y)
+  // 旧实现是 200ms 缓冲 + 开卡动画；留足时间仍为 0，才能说明这段逻辑真的没了
+  await sleep(800)
+  const diag = JSON.parse(await cdp.eval('window.__previewDiag()'))
+  check(label + '：悬停不渲染预览浮层（卡片 0、可见 popover 0）',
+    diag.cards === 0 && diag.popovers === 0, diag)
+  if (shot) {
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, shot)))
+  }
+  await cdp.move(5, 5)
+  await sleep(120)
+  return cell
 }
 
-// 悬停一个"必然截断"的格子 → 出卡；再悬停一个短格子 → 不出卡
-const hoverCase = async (cdp, label, longPrefix, shortPrefix, opts = {}) => {
-  await cdp.eval('window.__copied = null')
-  const cell = await cellInfo(cdp, longPrefix)
-  check(label + '：长内容单元格确实被截断', !cell.error && cell.truncated, cell)
+// 点击一个格子 → 下方值面板直接展开（没有"先出提示条、再点提示展开"那一步）
+const clickOpenPane = async (cdp, prefix) => {
+  const cell = await cellInfo(cdp, prefix)
+  if (cell.error) {
+    return { cell, opened: false, pane: { open: 0 } }
+  }
+  await cdp.move(cell.x, cell.y)
+  await sleep(80)
+  await cdp.click(cell.x, cell.y)
+  const opened = await waitFor(cdp,
+    '[...document.querySelectorAll(".db-value-pane")].filter(window.__vis).length === 1',
+    'value pane', 3000)
+  await sleep(150)
+  return { cell, opened, pane: JSON.parse(await cdp.eval('window.__paneInfo()')) }
+}
+
+// 点一个"必然截断"的格子 → 下方值面板直接展开（与数据页同一交互），
+// 正文给全文、标题带列名与行号；收起后面板不留残层
+const paneCase = async (cdp, label, prefix, opts = {}) => {
+  const { cell, opened, pane } = await clickOpenPane(cdp, prefix)
+  check(label + '：长内容单元格存在且被截断（点击对象有效）',
+    !cell.error && cell.truncated === true, cell)
   if (cell.error) {
     return
   }
-  // 原生 title 已刻意不设（每格序列化 + 与预览卡叠两层 tooltip）
-  check(label + '：单元格没有原生 title 属性', cell.title === null, { title: cell.title })
-  const { opened, card } = await hoverCard(cdp, cell.x, cell.y)
-  check(label + '：悬停出预览卡', opened === true && card.open === 1, card)
-  // DOM 里有卡 ≠ 看得见：必须真的画在视口里（见 __cardOnScreen 注释）
-  // 等一等再量：开卡那一刻 antd 的 zoom-big appear 还在跑（appear-start 是 scale(0)，
-  // 量到 0×0）。首轮冷启动要等浏览器把大表格首帧画完，动画才推进到 appear-active，
-  // 所以预算给到 5 秒 —— 卡位真错时（-1000vw）等多久都不会绿，不会掩盖问题
-  await waitFor(cdp, 'JSON.parse(window.__cardOnScreen()).onScreen === true', 'card paint', 5000)
-  const onScreen = JSON.parse(await cdp.eval('window.__cardOnScreen()'))
-  check(label + '：卡片真的画在视口内且指针命中（不是 -1000vw 待定位）',
-    onScreen.onScreen === true, { ...onScreen, pop: card.pop })
-  check(label + '：锚点非 0 尺寸（rc-trigger isVisible 判据）', onScreen.anchorVisible === true, onScreen)
-  check(label + '：锚点单例（DOM 恒 1 个）', card.anchors === 1, { anchors: card.anchors })
-  check(label + '：卡内正文与单元格内容同源', card.head === longPrefix.substring(0, 12), { head: card.head })
-  if (opts.fullLen) {
-    check(label + '：预览渲染全文 ' + opts.fullLen + ' 字符（未触发裁剪）',
-      card.bodyLen === opts.fullLen && card.hasMore === false,
-      { bodyLen: card.bodyLen, hasMore: card.hasMore })
-  }
-  if (opts.clipOver) {
-    check(label + '：超 4000 只渲染前缀并给截断提示',
-      card.bodyLen >= 4000 && card.bodyLen <= 4100 && card.hasMore === true,
-      { bodyLen: card.bodyLen, hasMore: card.hasMore })
+  check(label + '：单击直接展开值面板（没有中间提示条）', opened === true && pane.bar === 0, pane)
+  check(label + '：面板标题带列名与行号', /·/.test(String(pane.title)), pane.title)
+  if (opts.len !== undefined) {
+    check(label + '：面板给的是全文 ' + opts.len + ' 字符', pane.preLen === opts.len, { preLen: pane.preLen })
   }
   if (opts.metaLen) {
-    check(label + '：字符数标注用全文长度而非预览长度',
-      String(card.meta || '').indexOf(String(opts.metaLen)) >= 0, card.meta)
-    // 词条没落地时这里会露出 DbCellChars / undefined，肉眼在截图里也难发现
-    check(label + '：字符数标注是翻译后的文案（不是裸 key）',
-      !/DbCellChars|undefined/i.test(String(card.meta || '')), card.meta)
+    // 词条没落地时这里会露出裸 key / undefined，肉眼在截图里也难发现。
+    // "chars/字符"两态都算译文（语言随环境变），只禁裸 key 与 undefined
+    check(label + '：字符数标注用全文长度',
+      String(pane.meta).indexOf(String(opts.metaLen)) >= 0 &&
+        /\d\s*(chars|字符)/i.test(String(pane.meta)) &&
+        !/dbCell|undefined/i.test(String(pane.meta)),
+      pane.meta)
   }
   if (opts.shot) {
     console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, opts.shot)))
   }
-  if (opts.copyLen) {
-    const c = await cdp.eval('window.__clickCopy()')
-    await sleep(120)
-    const copied = await cdp.eval('(window.__copied || "").length')
-    check(label + '：复制得到完整 ' + opts.copyLen + ' 字符', c === 'ok' && copied === opts.copyLen, { click: c, copied })
-  }
-  await cdp.eval('window.__evlog = []')
-  await cdp.move(5, 5)
-  // 关闭要经历"200ms 缓冲 + antd 关闭动画（约 200ms）"，所以断言"最终会关"并记下
-  // 实际耗时：掐固定 sleep 会把正常关闭判成失败（第一轮 340ms 全红就是这个坑）
-  const t0 = Date.now()
-  const gone = await waitFor(cdp, 'window.__cards().length === 0', 'card close after leave', 2000)
-  check(label + '：指针移开后卡片关闭（缓冲 + 关闭动画）', gone,
-    { ms: Date.now() - t0, evlog: JSON.parse(await cdp.eval('JSON.stringify(window.__evlog)')) })
-  if (shortPrefix) {
-    const short = await cellInfo(cdp, shortPrefix)
-    if (short.error) {
-      check(label + '：短内容单元格存在', false, short)
-      return
-    }
-    check(label + '：短内容单元格没被截断', short.truncated === false, short)
-    await cdp.move(short.x, short.y)
-    await sleep(220)
-    check(label + '：未截断的格子不弹卡（防悬停洪泛）', (await cardInfo(cdp)).open === 0)
-    await cdp.move(5, 5)
-    await sleep(340)
-  }
+  const beforeHover = JSON.parse(await cdp.eval('window.__paneInfo()'))
+  await expectNoPreview(cdp, label, prefix)
+  const afterHover = JSON.parse(await cdp.eval('window.__paneDiag()'))
+  const closed = await cdp.eval('window.__closePane()')
+  check(label + '：面板 × 收起',
+    closed === 'ok' &&
+      await waitFor(cdp, 'JSON.parse(window.__paneInfo()).open === 0', 'pane close', 1500),
+    { closed, beforeHover: beforeHover.open, afterHover })
 }
 
 const openTab = (cfg) => `
@@ -1076,11 +984,12 @@ const main = async () => {
 
   await cdp.eval(FIXTURE)
   await cdp.eval(HELPERS)
-  check('复制调用已劫持（能验全文复制）', await cdp.eval('window.__copySpied === true'),
-    await cdp.eval('String(window.__copySpied)'))
+  check('探针装上（值面板 / 预览浮层计数）',
+    await cdp.eval("typeof window.__paneInfo === 'function' && typeof window.__previewDiag === 'function'"))
   // 每页行数是全局 config，实测会写进真实配置目录（HOME 隔离没生效，落在 ~/.config/electerm）：
   // 先记原值，跑完还原。上一轮遗留的 200 曾把"下一页"合法置灰，让翻页那条检查失去对象
   const cfgPageSize0 = await cdp.eval('window.store._config && window.store._config.dbPageSize')
+  const cfgSqlPageSize0 = await cdp.eval('window.store._config && window.store._config.sqlResultPageSize')
 
   // ---------- MySQL 会话 ----------
   MYSQL_TAB.batch = await cdp.eval('window.store.currentLayoutBatch')
@@ -1092,59 +1001,26 @@ const main = async () => {
       await waitFor(cdp, '!!window.__cellOf("DDDDDDDDDDDD")', 'data grid long cell'),
     { mysqlId })
 
-  // 1) 数据页：5000 字符 text 列（>4000 → 预览裁剪 + 复制全文）
-  await hoverCase(cdp, '数据页 detail(5000)', 'DDDDDDDDDDDD', 'short one', {
-    copyLen: 5000, metaLen: 5000, clipOver: true, shot: '1-data-long-text-dark.png'
+  // 1) 数据页：5000 字符 text 列（值面板直接给全文）
+  await paneCase(cdp, '数据页 detail(5000)', 'DDDDDDDDDDDD', {
+    len: 5000, metaLen: 5000, shot: '1-data-long-text-dark.png'
   })
 
-  // 2) 数据页：JSON 列（网格里只显示 200 字符前缀，卡片给全）
+  // 2) 数据页：JSON 列（网格里只显示 200 字符前缀，面板给全）
   const paramLen = await cdp.eval('window.__fixture.paramText.length')
-  await hoverCase(cdp, '数据页 parameter(JSON)', '{"uid":1001,', 'ok', {
-    copyLen: paramLen, metaLen: paramLen, shot: '2-data-json-dark.png'
+  await paneCase(cdp, '数据页 parameter(JSON)', '{"uid":1001,', {
+    len: paramLen, metaLen: paramLen, shot: '2-data-json-dark.png'
   })
 
-  // 关闭时机：滚动 / Esc
-  const jsonCell = await cellInfo(cdp, '{"uid":1001,')
-  await cdp.move(jsonCell.x, jsonCell.y)
-  await sleep(200)
-  check('重新悬停能再次开卡', (await hoverCard(cdp, jsonCell.x, jsonCell.y)).card.open === 1)
-  await cdp.wheel(jsonCell.x, jsonCell.y + 4, 120)
-  check('滚动时卡片立即关闭（不会停在原地指向别的格）',
-    await waitFor(cdp, 'window.__cards().length === 0', 'card close on scroll', 1500))
-  // 滚回原处：虚拟滚动只渲染视口内的行，滚下去之后目标行已经不在 DOM 里，
-  // 按老坐标悬停/点击会打在别的行上。反向前滚同样量，比找滚动容器的类名稳
-  // （antd6 虚拟表的容器类名不在产物里，靠类名反查是猜）
-  await cdp.wheel(jsonCell.x, jsonCell.y + 4, -120)
-  await sleep(300)
-  const jsonCell2 = await cellInfo(cdp, '{"uid":1001,')
-  check('滚回顶部后目标单元格重新可见', !jsonCell2.error && jsonCell2.truncated, jsonCell2)
-  check('再次开卡（Esc 前置条件）', (await hoverCard(cdp, jsonCell2.x, jsonCell2.y)).card.open === 1)
-  await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
-  check('Esc 关闭卡片',
-    await waitFor(cdp, 'window.__cards().length === 0', 'card close on Esc', 1500))
+  // 3) 悬停洪泛：旧实现的卡片是悬停触发的，现在扫过去应该一个浮层都不冒
+  await expectNoPreview(cdp, '数据页 detail(悬停)', 'DDDDDDDDDDDD')
 
-  // 切页签：指针没动 → 不会有 mouseout，只有"源格消失"的兜底能抓到。
-  // 少了这条，卡片会带着上一个页签的内容浮在新页签上（portal 不在被隐藏的 pane 里）
-  // 先移开再移回来：指针一直在同一格上不会重新派发 mouseover，React 也就不会
-  // 再触发 onMouseEnter，前置条件会假失败（后面那条也跟着假通过）
-  await cdp.move(5, 5)
-  await sleep(300)
-  const preSwitch = (await hoverCard(cdp, jsonCell2.x, jsonCell2.y)).card
-  check('切页签前卡片是开着的（前置）', preSwitch.open === 1, preSwitch)
-  const toStruct = await cdp.eval('window.__clickTab("表结构|Structure")')
-  check('切页签后卡片自动关闭（display:none 走 ResizeObserver 兜底）',
-    preSwitch.open === 1 && toStruct === 'ok' &&
-      await waitFor(cdp, 'window.__cards().length === 0', 'card close on pane hide', 1500),
-    { toStruct, diag: JSON.parse(await cdp.eval('window.__cardInfo()')) })
-
-  // 3) 表结构页：长注释列
+  // 3b) 表结构页：长注释列悬停同样不出浮层（结构表没有选中/值面板这条路）
   check('切到表结构页签', await cdp.eval('window.__clickTab("表结构|Structure")') === 'ok' &&
     await waitFor(cdp, '!!window.__cellOf("CCCCCCCCCCCC")', 'struct long comment cell'))
-  await hoverCase(cdp, '表结构 Comment(900)', 'CCCCCCCCCCCC', null, {
-    copyLen: 900, fullLen: 900, shot: '3-structure-dark.png'
-  })
+  await expectNoPreview(cdp, '表结构 Comment(900)', 'CCCCCCCCCCCC', '3-structure-dark.png')
 
-  // 4) SQL 结果页：6000 字符结果
+  // 4) SQL 结果页：悬停不出浮层；单击直接展开下方值面板，正文是全文
   check('切到 SQL 页签', await cdp.eval('window.__clickTab("^SQL$")') === 'ok' &&
     await waitFor(cdp, '!!document.querySelector(".db-sql-area .cm-content")', 'sql editor'))
   check('SQL 编辑器可用', await cdp.eval('window.__typeSql()') === 'focused')
@@ -1153,11 +1029,33 @@ const main = async () => {
   const runClicked = await cdp.eval('window.__clickRunSql()')
   check('点击执行按钮', runClicked === 'ok', runClicked)
   check('SQL 结果网格出长单元格', await waitFor(cdp, '!!window.__cellOf("QQQQQQQQQQQQ")', 'sql long cell'))
-  await hoverCase(cdp, 'SQL 结果 big_text(6000)', 'QQQQQQQQQQQQ', 'tiny', {
-    copyLen: 6000, metaLen: 6000, clipOver: true, shot: '4-sql-result-dark.png'
-  })
+  await expectNoPreview(cdp, 'SQL 结果 big_text(6000)', 'QQQQQQQQQQQQ', '4-sql-result-dark.png')
+  const sqlClick = await clickOpenPane(cdp, 'QQQQQQQQQQQQ')
+  check('SQL 结果单击数据格直接展开值面板（与数据页对齐，没有提示条）',
+    sqlClick.opened && sqlClick.pane.open === 1 && sqlClick.pane.bar === 0 &&
+      sqlClick.pane.title.indexOf('big_text') === 0,
+    sqlClick.pane)
+  check('SQL 结果面板给出全文 6000 字符并标注字符数',
+    sqlClick.pane.preLen === 6000 && /6000\s*chars/i.test(String(sqlClick.pane.meta || '')),
+    { preLen: sqlClick.pane.preLen, meta: sqlClick.pane.meta })
+  const sqlCellHash = await cdp.eval(`(() => {
+    const c = window.__cellOf('QQQQQQQQQQQQ')
+    return c ? window.__hash(c.innerText.trim()) : ''
+  })()`)
+  check('SQL 面板正文与单元格内容逐字符同哈希（真值不走样）',
+    !!sqlCellHash && sqlCellHash === sqlClick.pane.preHash,
+    { cellHash: sqlCellHash, paneHash: sqlClick.pane.preHash })
+  const closedSql = await cdp.eval('window.__closePane()')
+  await sleep(300)
+  check('SQL 面板 × 收起后网格重新占满（底部不再留半屏）',
+    closedSql === 'ok' &&
+      await cdp.eval('[...document.querySelectorAll(".db-value-pane")].filter(window.__vis).length === 0') &&
+      await cdp.eval(`(() => {
+        const b = [...document.querySelectorAll('.db-split-pane-bottom')].filter(window.__vis)[0]
+        return !b || b.getBoundingClientRect().height < 8
+      })()`))
 
-  // 5) 数据链路回归：单击开值面板、双击进编辑、Esc 退出
+  // 5) 数据链路回归：短内容单击同样直接开面板；双击仍进编辑、Esc 退出
   const backToData = await cdp.eval('window.__clickTab("数据|Data")')
   const scrolled = await cdp.eval('window.__scrollTop("short one")')
   await sleep(250)
@@ -1165,13 +1063,14 @@ const main = async () => {
   check('切回数据页并能定位短内容单元格', backToData === 'ok' && !noteCell.error,
     { backToData, scrolled, noteCell })
   if (!noteCell.error) {
+    const noteClick = await clickOpenPane(cdp, 'short one')
+    check('数据页单击短内容也直接开面板（与长内容同一路径）',
+      noteClick.opened && noteClick.pane.open === 1 && noteClick.pane.bar === 0,
+      noteClick.pane)
+    await cdp.eval('window.__closePane()')
+    await sleep(200)
     await cdp.move(noteCell.x, noteCell.y)
-    await sleep(150)
-    await cdp.click(noteCell.x, noteCell.y)
-    const paneAfterClick = await waitFor(cdp,
-      '!![...document.querySelectorAll(".db-value-pane")].find(window.__vis)', 'value pane')
-    check('单击单元格仍能打开值面板（预览卡没抢事件）', paneAfterClick,
-      JSON.parse(await cdp.eval('window.__paneDiag()')))
+    await sleep(100)
     await cdp.click(noteCell.x, noteCell.y, 2)
     const edited = await waitFor(cdp, '!!document.querySelector(".db-cell-editor")', 'inline editor')
     check('双击单元格仍进入行内编辑', edited, JSON.parse(await cdp.eval('window.__paneDiag()')))
@@ -1180,27 +1079,22 @@ const main = async () => {
     await cdp.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
     await sleep(300)
     check('Esc 退出编辑', await cdp.eval('!document.querySelector(".db-cell-editor")'))
+    await cdp.eval('window.__closePane()')
+    await sleep(200)
   }
 
-  // 6) 洪泛检查：指针扫过多格，锚点数不变
-  await cdp.move(noteCell.x, noteCell.y)
-  await sleep(150)
+  // 6) 指针扫过多格：没有"悬停洪泛"可防，但也不能冒出任何浮层
+  await cdp.move(5, 5)
+  await sleep(100)
   const sweep = JSON.parse(await cdp.eval(`
     (() => {
       const cells = [...document.querySelectorAll('.ant-table-cell')].filter(window.__vis).slice(0, 40)
       cells.forEach(c => c.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-      return JSON.stringify({
-        visited: cells.length,
-        anchors: window.__anchors(),
-        cards: window.__cards().length
-      })
+      return JSON.stringify(Object.assign({ visited: cells.length }, JSON.parse(window.__previewDiag())))
     })()
   `))
-  check('扫过 40 格后 DOM 仍只有 1 个锚点（单例不随格数增长）', sweep.anchors === 1, sweep)
+  check('扫过几十格后仍无任何预览浮层', sweep.visited >= 20 && sweep.cards === 0 && sweep.popovers === 0, sweep)
   await cdp.move(5, 5)
-  check('移开后没有残留卡片',
-    await waitFor(cdp, 'window.__cards().length === 0', 'no residual card', 1500),
-    await cdp.eval('JSON.stringify({ anchors: window.__anchors(), popovers: document.querySelectorAll(".ant-popover").length })'))
 
   // ---------- H1a-2 列宽可控（数据页） ----------
   // 宽度有两套真相，判据必须分开用（详见 __thInfo 注释）：
@@ -1459,24 +1353,39 @@ const main = async () => {
   await cdp.wheel(sx, sy, -120)
   await sleep(200)
 
+  // 门杠是相对的：本机是共享 Xvfb + 软件合成，别的进程一忙（实测 load≈14）整页
+  // 帧率会从 55 掉到 20 上下，绝对阈值会把环境噪声判成列宽回归。先量一段空闲
+  // 帧率当基线，再看这次拖拽把帧率压掉了多少。
+  await cdp.eval('window.__fpsStart()')
+  await sleep(900)
+  const idleFps = JSON.parse(await cdp.eval('window.__fpsStop()'))
   await cdp.eval('window.__fpsStart()')
   await dragCol(cdp, 'detail', 240, { steps: 24, sleepMs: 40 })
   const fps = JSON.parse(await cdp.eval('window.__fpsStop()'))
-  // 门杠打在"平均帧率 + p95 帧距"上，最差帧只报不判：本机是 Xvfb + 软件合成，
-  // 单次 180~190ms 的毛刺来自合成而不是列宽计算（同一份代码三轮量到 133/183ms），
-  // 拿它当回归线会天天红；持续掉帧（平均 <24fps 或 p95 >120ms）才是真信号
-  check('拖拽过程不掉帧（' + rows + ' 行 × 慢拖 ~1s：平均 ' + fps.fps + 'fps，p95 帧距 ' + fps.p95Gap + 'ms，最差 ' + fps.worstGap + 'ms）',
-    fps.fps >= 24 && fps.p95Gap < 120, { rows, ...fps })
+  // 最差帧只报不判：单次 180~190ms 的毛刺来自合成而不是列宽计算。持续掉帧才是
+  // 真信号：拖拽期平均帧率不低于空闲基线的 70%，p95 帧距不超基线 p95 的 2 倍
+  // （下限 120ms）。基线本身采不到帧时退回原绝对阈值。
+  const baseOk = idleFps.frames >= 8 && idleFps.fps > 0
+  const fpsFloor = baseOk ? Math.max(1, Math.round(idleFps.fps * 0.7)) : 24
+  const p95Ceil = baseOk ? Math.max(120, idleFps.p95Gap * 2) : 120
+  check('拖拽过程不掉帧（' + rows + ' 行 × 慢拖 ~1s：平均 ' + fps.fps + 'fps（空闲基线 ' + idleFps.fps + 'fps），p95 帧距 ' + fps.p95Gap + 'ms（上限 ' + p95Ceil + 'ms），最差 ' + fps.worstGap + 'ms）',
+    fps.fps >= fpsFloor && fps.p95Gap < p95Ceil,
+    { rows, idle: idleFps, fpsFloor, p95Ceil, ...fps })
 
-  // 9) 不改数据链路：手柄吃了 mousedown，但单元格的单击/悬停/双击都还在
+  // 9) 不改数据链路：手柄吃了 mousedown，但单元格的悬停/单击都还在
   const detailCell = await cellInfo(cdp, 'DDDDDDDDDDDD')
-  const afterDragCard = (await hoverCard(cdp, detailCell.x, detailCell.y)).card
-  check('拖过之后悬停仍出预览卡（手柄没挡住单元格事件）', afterDragCard.open === 1, afterDragCard)
-  await cdp.move(5, 5)
-  await sleep(300)
+  await cdp.move(detailCell.x, detailCell.y)
+  await sleep(600)
+  const dragDiag = JSON.parse(await cdp.eval('window.__previewDiag()'))
+  check('拖过之后悬停仍不出浮层（手柄没让预览逻辑复活）',
+    dragDiag.cards === 0 && dragDiag.popovers === 0, dragDiag)
   await cdp.click(detailCell.x, detailCell.y)
   check('拖过之后单击仍打开值面板',
-    await cdp.eval('!![...document.querySelectorAll(".db-value-pane")].find(window.__vis)') === true)
+    await waitFor(cdp,
+      '[...document.querySelectorAll(".db-value-pane")].filter(window.__vis).length === 1',
+      'pane after drag'))
+  await cdp.eval('window.__closePane()')
+  await sleep(250)
   await cdp.eval('window.__clickTab("表结构|Structure")')
   await sleep(400)
   // 结构页的列头是 Field/Type/…（值里才有 id），按列头名取列
@@ -1548,6 +1457,19 @@ const main = async () => {
   check('SQL 结果列可拖（拖 +200 生效）',
     dragS.ok && grewBy(dragS.before, dragS.after, 200), dragS.after)
   const sqlSaved = dragS.after.used
+  // 翻页得先有"下一页"：SQL 结果的每页行数也是全局 config（sqlResultPageSize），
+  // 上一轮遗留 200 时 200 行正好一页、分页器合法不渲染，这条就没有实测对象。
+  // 用产品自己的下拉钉回 20 —— 顺带验一次"换结果页大小不丢手动宽"
+  const sqlPsOpen = await cdp.eval('window.__openPageSize()')
+  await sleep(350)
+  const sqlPsPick = await cdp.eval('window.__pickPageSize(20)')
+  await sleep(800)
+  const sqlPsText = await cdp.eval('window.__pageSizeText()')
+  const sqlSavedAfterPs = await thOf(cdp, 'big_text')
+  check('SQL 翻页前置：结果每页钉回 20（分页器出现）且手动宽不丢',
+    sqlPsOpen === 'ok' && sqlPsPick === 'ok' && String(sqlPsText).indexOf('20 ') === 0 &&
+      sqlSavedAfterPs.used === sqlSaved,
+    { sqlPsOpen, sqlPsPick, sqlPsText, used: sqlSavedAfterPs.used, expect: sqlSaved })
   const sqlPage = await cdp.eval('window.__clickPage(2)')
   await sleep(500)
   const sqlPage2 = await thOf(cdp, 'big_text')
@@ -1579,12 +1501,7 @@ const main = async () => {
     'redis tab'))
   check('选中 db0 后键列表出长键名', await cdp.eval('window.__clickTree("db0")') === 'ok' &&
     await waitFor(cdp, '!!window.__cellOf("session:user")', 'redis key list'))
-  const redisKeyLen = await cdp.eval('window.__fixture.key.length')
-  await hoverCase(cdp, 'Redis 键列表 name', 'session:user', 'k1', {
-    copyLen: redisKeyLen,
-    metaLen: redisKeyLen,
-    shot: '6-redis-keys-dark.png'
-  })
+  await expectNoPreview(cdp, 'Redis 键列表 name', 'session:user', '6-redis-keys-dark.png')
   // H1a-2：Redis 键列表（列头是译文，菜单标题必须跟着显示译文而不是内部键名）。
   // 手动宽同样只在内存里 —— 判据是"相对量 + 回到拖之前那一档"
   const rkThs = JSON.parse(await cdp.eval('window.__thList()'))
@@ -1611,36 +1528,43 @@ const main = async () => {
 
   check('点开一个 hash 键（详情网格出长 value）', await cdp.eval('window.__clickRedisKey()') === 'ok' &&
     await waitFor(cdp, '!!window.__cellOf("PPPPPPPPPPPP")', 'redis hash value'))
-  await hoverCase(cdp, 'Redis 详情 hash value(6500)', 'PPPPPPPPPPPP', 'short', {
-    copyLen: 6500, metaLen: 6500, clipOver: true, shot: '7-redis-hash-dark.png'
-  })
+  await expectNoPreview(cdp, 'Redis 详情 hash value(6500)', 'PPPPPPPPPPPP', '7-redis-hash-dark.png')
 
-  // ---------- 浅色主题复查（卡片配色全部走 token） ----------
+  // ---------- 浅色主题复查（值面板配色全部走 token） ----------
   const themeIds = JSON.parse(await cdp.eval("JSON.stringify((window.store.getItems('terminalThemes') || []).map(t => t.id))"))
   const lightId = themeIds.find(id => /light/i.test(String(id))) || themeIds.find(id => id !== 'default')
   check('存在可切换的浅色系主题', !!lightId, themeIds)
   if (lightId) {
     await cdp.eval('window.store.setTheme(' + JSON.stringify(lightId) + ')')
     await sleep(800)
-    const dark = await cdp.eval('window.store._config && window.store._config.theme')
+    const themeNow = await cdp.eval('window.store._config && window.store._config.theme')
     await cdp.eval('window.store.changeActiveTabId(' + JSON.stringify(mysqlId) + ')')
     await cdp.eval('window.__clickTab("^SQL$")')
     await sleep(600)
     const sqlCell = await cellInfo(cdp, 'QQQQQQQQQQQQ')
-    const lightCard = (await hoverCard(cdp, sqlCell.x, sqlCell.y)).card
-    check('浅色主题下 SQL 结果仍出预览卡', lightCard.open === 1, lightCard)
+    await cdp.move(sqlCell.x, sqlCell.y)
+    await sleep(120)
+    await cdp.move(sqlCell.x + 2, sqlCell.y)
+    await sleep(700)
+    const lightDiag = JSON.parse(await cdp.eval('window.__previewDiag()'))
+    check('浅色主题下 SQL 结果悬停仍无浮层',
+      lightDiag.cards === 0 && lightDiag.popovers === 0, lightDiag)
+    const lightClick = await clickOpenPane(cdp, 'QQQQQQQQQQQQ')
+    check('浅色下单击仍直接展开面板且给出全文',
+      lightClick.opened && lightClick.pane.open === 1 && lightClick.pane.preLen === 6000,
+      lightClick.pane)
     const colors = JSON.parse(await cdp.eval(`
       (() => {
-        const card = window.__cards()[0]
-        if (!card) return '{}'
-        const pre = card.querySelector('.db-cell-preview-pre')
+        const pre = [...document.querySelectorAll('.db-value-pane-pre')].filter(window.__vis)[0]
+        if (!pre) return '{}'
         const s = getComputedStyle(pre)
-        return JSON.stringify({ color: s.color, bg: s.backgroundColor, border: s.borderTopColor, mono: /mono|Consolas|Menlo|monospace/i.test(s.fontFamily) })
+        return JSON.stringify({ color: s.color, bg: s.backgroundColor, mono: /mono|Consolas|Menlo|monospace/i.test(s.fontFamily) })
       })()
     `))
-    check('浅色下预览正文有对比度（前景≠背景）',
-      !!colors.color && colors.color !== colors.bg && colors.mono === true, { theme: dark, colors })
+    check('浅色下面板正文有对比度（前景≠背景）',
+      !!colors.color && colors.color !== colors.bg && colors.mono === true, { theme: themeNow, colors })
     console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '8-sql-result-light.png')))
+    await cdp.eval('window.__closePane()')
     await cdp.move(5, 5)
     await sleep(340)
   }
@@ -1648,6 +1572,10 @@ const main = async () => {
   // 还原每页行数：没设过就回到产品默认 20，设过就原样还回去
   const backPs = Number(cfgPageSize0) >= 10 ? Number(cfgPageSize0) : 20
   await cdp.eval('window.store.setConfig({ dbPageSize: ' + backPs + ' })')
+  // SQL 结果的每页行数是另一条 config（sqlResultPageSize），同样要还原：
+  // 它留着 20 会让下一轮真库测的分页判据跑在别的页大小上
+  const backSqlPs = Number(cfgSqlPageSize0) >= 10 ? Number(cfgSqlPageSize0) : 20
+  await cdp.eval('window.store.setConfig({ sqlResultPageSize: ' + backSqlPs + ' })')
   await sleep(300)
 
   const fail = results.filter(r => !r.ok)

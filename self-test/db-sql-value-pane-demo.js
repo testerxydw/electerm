@@ -3,22 +3,20 @@
  * H1a-4 · SQL 结果「一整格看全」—— CDP 实机验收（桩数据，无需真 MySQL）
  *
  * 设计文档 §1A.6 承诺的效果，逐条在真实渲染层里量，看落地不看代码：
- *   A) 单击选中 → 网格下方出现一条工具条（列名 · 第 N 行 + 字符数/字节数 + 提示），
- *      **此刻网格高度不能塌**：折叠判据必须是「面板是否展开」，不是「有没有选中」。
- *      （本轮实测前抓出来的真缺陷：写成 collapsed={!sqlValuePane} 时，单击的一瞬间
- *        就切进 50/50 分区，工具条孤零零挂在半个空容器里，网格凭空矮一半。）
- *   B) 工具条点开 → 复用数据页的 DbValuePane，但 editable=false：全文在 <pre> 里、
- *      有复制、没有任何编辑入口；面板 × 是「收回工具条」不是「取消选中」。
+ *   A) 单击一格 → **直接**在网格下方展开完整值面板（与数据页点格打开下方预览框
+ *      对齐；2026-10-29 起不再经过"悬停预览卡 / 折叠提示条"两跳）。面板标题是
+ *      「列名 · 第 N 行」，长值给字符数、二进制给字节数。
+ *   B) 展开不能打断网格：虚拟化不退化、网格节点不重挂、表体滚动位置不丢；
+ *      面板 × 取消选中并让网格重新占满。
  *   C) 分区高度记忆（localStorage electerm-db-sql-value-split）：拖完写盘，
- *      同一次挂载内展开/收回不跳回 50%，空结果重挂后仍按记忆值分配。
- *   D) 3 万字符的值：hover 预览卡只给前 4000 + 「已截断」→ 点「查看完整」→
- *      弹窗 pre 与夹具原文逐字符相等 → 复制按钮写进剪贴板的确实是全文
- *      （既拦 writeClipboard 看发出的串，也用 readClipboard 读回真实剪贴板）。
- *   E) 与 H1a-1/2/3 共存：右对齐、列宽拖拽、预览卡单例、本地化分组都不回归；
- *      虚拟化不退化（网格节点不重挂 + DOM 行数远小于本页行数 + 展开后滚动位置不丢）。
+ *      换选中格不跳回 50%，空结果重挂后仍按记忆值分配。
+ *   D) 3 万字符的值：面板里直接是全文（等宽、可选中），复制按钮写进剪贴板的
+ *      确实是全文（既拦 writeClipboard 看发出的串，也用 readClipboard 读回真实剪贴板）。
+ *   E) 与既有能力共存：右对齐、列宽拖拽、本地化分组、多结果集集号都不回归；
+ *      **悬停不再产生任何预览卡浮层**（省掉浮层与观察者开销）。
  *
  * 不验但已在单测锁住的：sqlCellInfo 取不到行时返回 null、locale 词条成对、
- * collapsed 分支的 hook 顺序。真库 MySQL 实测 = 待环境（本机无容器运行时）。
+ * 预览卡组件已删除。真库 MySQL 实测见 db-sql-value-pane-realdb.js。
  *
  * 用法：
  *   1) npm run compile
@@ -33,22 +31,21 @@
 const path = require('node:path')
 const {
   getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker,
-  rowRe, rsRe, isCharsMeta, hexOk, clickCell
+  rowRe, rsRe, isCharsMeta, hexOk, clickCell, clearDbTabs
 } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9225'
 const SHOT_DIR = process.argv[3] || path.join(__dirname, 'db-sql-value-shots')
 const SPLIT_KEY = 'electerm-db-sql-value-split'
 const BIG = 30000
-const PREVIEW_MAX = 4000
 
 const HELPERS = buildHelpers(SPLIT_KEY)
 const { results, check } = makeChecker()
 
 // 桩数据要点：
 // - payload 是 30000 字符的 JSON **文本**（500 行共用同一个串，不是 500 份拷贝）：
-//   网格按 CSS 省略号裁、预览卡按 PREVIEW_MAX 裁、面板与弹窗给全文，三档必须在同一个值上分开
-// - blob_col 走 __bin 信封：工具条 meta 必须是 bytes 而不是 chars，面板走二进制只读呈现器
+//   网格按 CSS 省略号裁、面板给全文 —— 两档必须在同一个值上分开
+// - blob_col 走 __bin 信封：面板 meta 必须是 bytes 而不是 chars，走二进制只读呈现器
 // - amount 是字符串 + decimal 类型：H1a-3 的右对齐/分组判据顺带回归
 // - 500 行 > 每页 200：既造出分页器（行号得是绝对下标），也让「DOM 行数 << 本页行数」可测
 const FIXTURE = `
@@ -386,19 +383,15 @@ const main = async () => {
   await sleep(300)
 
   MYSQL_TAB.batch = await cdp.eval('window.store.currentLayoutBatch')
-  const stale = JSON.parse(await cdp.eval(
-    "JSON.stringify((window.store.tabs || []).filter(t => t.type === 'database' && /demo_db|probe_db/.test(String(t.dbName))).map(t => t.id))"
-  ))
-  for (const id of stale) {
-    await cdp.eval('(async () => { await window.store.delTab(' + JSON.stringify(id) + ') })()')
-  }
-  if (stale.length) {
-    await sleep(600)
-  }
+  // 必须等持久化页签恢复完再删：恢复是异步的，删早了它会回来并抢走 activeTabId，
+  // 于是夹具在自己的页签里跑、判据在上一轮的网格上读
+  const cleared = await clearDbTabs(cdp)
+  check('清掉上一轮遗留的数据库页签（等恢复完成再删，避免夹具跑在别人的网格上）',
+    cleared.left.length === 0, cleared)
   // 开页签前最后一次确认：桩掉了就会真的去连 3306，报 ECONNREFUSED 而不是走桩
   const stub2 = await ensureStub(cdp)
   check('开页签前桩仍在位', stub2.ok, stub2)
-  await cdp.eval(`
+  const ownTab = await cdp.eval(`
     (() => {
       window.store.addTab(${JSON.stringify(MYSQL_TAB)})
       const t = window.store.tabs[window.store.tabs.length - 1]
@@ -406,6 +399,8 @@ const main = async () => {
       return t.id
     })()
   `)
+  check('自己的页签打开且确实是活动页签（判据不会读到别人的网格）',
+    String(await cdp.eval('window.store.activeTabId')) === String(ownTab), { ownTab })
   check('数据库页签打开', await waitFor(cdp, '!!document.querySelector(".db-tree")', 'tree'))
   check('展开库节点并选中表',
     await cdp.eval('window.__clickTree("demo_db")') === 'ok' &&
@@ -428,7 +423,7 @@ const main = async () => {
   check('本页确实按 200 行分页（DOM 只渲染可视区，远少于 200）',
     g0.virtual === 1 && g0.domRows < 150, { domRows: g0.domRows, virtual: g0.virtual })
 
-  // ---------- A) 单击选中 → 折叠工具条，且网格不能塌 ----------
+  // ---------- A) 单击一格 → 直接展开完整值面板 ----------
   check('A1 未选中时是折叠分区（bottom 空、无 resizer）',
     g0.pane === 1 && g0.collapsed === 1 && g0.resizer === 0 && g0.bar === 0 && g0.valPane === 0 && g0.selCount === 0, g0)
   // 虚拟化表体是 overflow:hidden + 自绘滚动条：native scrollTop 恒为 0，
@@ -453,60 +448,69 @@ const main = async () => {
 
   const payXY = await cdp.jeval('window.__cellXY("payload", 2)')
   await cdp.click(payXY.x, payXY.y)
-  await sleep(400)
+  await sleep(600)
   await cdp.move(5, 5)
   await sleep(300)
   const g1 = await cdp.jeval('window.__geom()')
   const sel1 = await cdp.jeval('JSON.stringify(window.__selCells())')
-  const bar1 = await cdp.jeval('window.__bar()')
-  check('A4 单击出选中且只有一格被标（面板还没展开）',
-    g1.selCount === 1 && g1.bar === 1 && g1.valPane === 0, g1)
+  const pane1 = await cdp.jeval('window.__pane()')
+  check('A4 单击一格就直接展开完整值面板（与数据页对齐，没有中间提示条）',
+    g1.selCount === 1 && g1.valPane === 1 && g1.collapsed === 0 && g1.resizer === 1 && g1.bar === 1, g1)
   check('A5 选中格落在被点的那一格（文本对得上）',
     sel1.length === 1 && sel1[0].text.indexOf('{"rows"') === 0 && /db-cell-selected/.test(sel1[0].cls), sel1)
-  check('A6 工具条标题是「列名 · 第 N 行」，行号按绝对下标',
-    bar1.exists === 1 && /^payload · /.test(bar1.title) && rowRe(3).test(bar1.title), bar1)
-  check('A7 工具条 meta 报字符数（30000 chars）', isCharsMeta(bar1.meta, BIG), bar1)
-  check('A8 工具条提示语在位', /展开|click/i.test(bar1.hint), bar1)
-  check('A9 折叠判据看的是"是否展开"：选中后网格高度不塌',
-    g1.collapsed === 1 && g1.resizer === 0 && Math.abs(g1.gridH - g0.gridH) < 60, { g0h: g0.gridH, g1h: g1.gridH })
-  check('A10 工具条按内容高（一条，不是半屏）', bar1.h > 8 && bar1.h < 60, { h: bar1.h })
+  check('A6 面板标题是「列名 · 第 N 行」，行号按绝对下标',
+    /^payload · /.test(pane1.title) && rowRe(3).test(pane1.title), pane1)
+  check('A7 面板 meta 报字符数（30000 chars）', isCharsMeta(pane1.meta, BIG), pane1.meta)
+  check('A8 面板正文是完整 30000 字符且与夹具逐字符相等',
+    pane1.preLen === BIG && pane1.preSame === 1, { preLen: pane1.preLen, same: pane1.preSame })
+  check('A9 只读：没有 textarea、没有编辑/保存入口',
+    pane1.textarea === 0 && !pane1.btns.some(b => /编辑|保存|edit|save/i.test(b.t + ' ' + b.title)), pane1.btns)
+  check('A10 只读面板仍有复制，且关闭 × 只有一个',
+    pane1.btns.filter(b => /复制|copy/i.test(b.t + ' ' + b.title)).length >= 1 &&
+    pane1.btns.filter(b => /关闭|close/i.test(b.t + ' ' + b.title)).length === 1, pane1.btns)
+  check('A10b 网格节点没被重挂（wrap 与表体探针都在）',
+    await cdp.eval('window.__probeAlive()') === JSON.stringify({ wrap: 1, body: 1 }),
+    await cdp.jeval('window.__probeAlive()'))
 
-  const noteXY = await cdp.jeval('window.__cellXY("note", 4)')
+  // 悬停截断格：预览卡已整体移除，浮层不该再为任何单元格出现
+  const hoverXY = await cdp.jeval('window.__cellXY("payload", 1)')
+  await cdp.move(hoverXY.x, hoverXY.y)
+  await sleep(900)
+  const cardH = await cdp.jeval('window.__card()')
+  check('A10c 悬停截断格不再出预览卡（省掉浮层与观察者的开销）',
+    cardH.cards === 0 && cardH.open === 0, cardH)
+  await cdp.move(5, 5)
+  await sleep(200)
+
+  const noteXY = await cdp.jeval('window.__cellXY("note", 3)')
   await cdp.click(noteXY.x, noteXY.y)
-  await sleep(400)
-  const bar2 = await cdp.jeval('window.__bar()')
+  await sleep(500)
+  const pane2 = await cdp.jeval('window.__pane()')
   const g2 = await cdp.jeval('window.__geom()')
-  check('A11 再点别格：选中仍恰 1，标题跟着换',
-    g2.selCount === 1 && /^note · /.test(bar2.title) && rowRe(5).test(bar2.title), { bar2, sel: g2.selCount })
-  check('A12 短值列没有 meta（不硬凑字符数）', bar2.meta === '', bar2)
+  check('A11 再点别格：选中仍恰 1，面板标题跟着换',
+    g2.selCount === 1 && /^note · /.test(pane2.title) && rowRe(4).test(pane2.title), { title: pane2.title, sel: g2.selCount })
+  check('A12 短值列没有 meta（不硬凑字符数）', pane2.meta === '', pane2.meta)
 
   // 分页后行号必须是绝对下标：面板指着"第 201 行"却显示第 1 行的值是假的
-  check('A13 翻到第 2 页（首行 id 变成 201）',
+  const paneClose0 = await cdp.eval('window.__closePane()')
+  await sleep(500)
+  check('A13 面板 × 收起面板并取消选中（网格重新占满）',
+    paneClose0 === 'ok' && (await cdp.jeval('window.__geom()')).selCount === 0)
+  check('A13b 翻到第 2 页（首行 id 变成 201）',
     await cdp.eval('window.__gotoPage(2)') === 'ok' &&
     await waitFor(cdp, 'JSON.parse(window.__cellXY("id", 0)).text === "201"', 'page 2 rows'))
   const p2 = await cdp.jeval('window.__cellXY("id", 0)')
   await cdp.click(p2.x, p2.y)
-  await sleep(400)
+  await sleep(500)
   const bar3 = await cdp.jeval('window.__bar()')
   check('A14 第 2 页首格的行号是绝对下标（第 201 行）',
     /^id · /.test(bar3.title) && rowRe(201).test(bar3.title), bar3)
-
-  // × 取消选中：不能先展开（stopPropagation）
-  const bar4 = await cdp.jeval('window.__bar()')
-  await cdp.click(bar4.closeXY.x, bar4.closeXY.y)
+  await cdp.eval('window.__closePane()')
   await sleep(400)
-  const g3 = await cdp.jeval('window.__geom()')
-  check('A15 工具条 × 取消选中（且没有先闪出面板）',
-    g3.bar === 0 && g3.valPane === 0 && g3.selCount === 0 && g3.collapsed === 1, g3)
   await cdp.eval('window.__gotoPage(1)')
   await sleep(500)
 
-  // ---------- B) 展开完整值面板（只读） ----------
-  const pay2 = await cdp.jeval('window.__cellXY("payload", 2)')
-  await cdp.click(pay2.x, pay2.y)
-  await sleep(350)
-  await cdp.move(5, 5)
-  await sleep(250)
+  // ---------- B) 展开面板不打断网格：虚拟化、节点身份、滚动位置 ----------
   const beforeExpand = await cdp.jeval('window.__geom()')
   // 先把表体滚下去：展开面板不能把滚动位置甩回顶部
   const bp2 = await cdp.jeval('window.__bodyPoint()')
@@ -517,55 +521,36 @@ const main = async () => {
       before: beforeExpand.firstId, after: scrolled.firstId, innerTY: scrolled.innerTY
     })
 
-  const b5 = await cdp.jeval('window.__bar()')
-  await cdp.click(b5.center.x, b5.center.y)
+  const pay2 = await cdp.jeval('window.__cellXY("payload", 2)')
+  await cdp.click(pay2.x, pay2.y)
   await sleep(600)
+  await cdp.move(5, 5)
+  await sleep(200)
   const g4 = await cdp.jeval('window.__geom()')
-  check('B1 点工具条展开面板：分区切到展开态并给 resizer',
-    g4.collapsed === 0 && g4.resizer === 1 && g4.valPane === 1 && g4.bar === 0, g4)
+  check('B1 点一格面板展开：分区切到展开态并给 resizer',
+    g4.collapsed === 0 && g4.resizer === 1 && g4.valPane === 1, g4)
   check('B2 展开后网格仍可读、虚拟化不退化',
     g4.gridH > 120 && g4.domRows > 4 && g4.virtual === 1, { gridH: g4.gridH, domRows: g4.domRows, before: beforeExpand.domRows })
-  check('B3 网格节点没被重挂（wrap 与表体探针都在）',
-    await cdp.eval('window.__probeAlive()') === JSON.stringify({ wrap: 1, body: 1 }),
-    await cdp.jeval('window.__probeAlive()'))
   const g4b = await cdp.jeval('window.__geom()')
-  check('B4 展开面板后表体滚动位置没被甩回顶部（首行仍是滚到那一行）',
+  check('B3 展开面板后表体滚动位置没被甩回顶部（首行仍是滚到那一行）',
     g4b.firstId === scrolled.firstId && g4b.innerTY > 0, {
       before: scrolled.firstId, after: g4b.firstId, innerTY: g4b.innerTY
     })
 
-  const pane1 = await cdp.jeval('window.__pane()')
-  check('B5 面板正文是完整 30000 字符且与夹具逐字符相等',
-    pane1.preLen === BIG && pane1.preSame === 1, { preLen: pane1.preLen, same: pane1.preSame })
-  check('B6 面板标题与工具条一致', pane1.title === b5.title, { pane: pane1.title, bar: b5.title })
-  check('B7 面板 meta 是 30000 chars', isCharsMeta(pane1.meta, BIG), pane1.meta)
-  check('B8 只读：没有 textarea、没有编辑/保存入口',
-    pane1.textarea === 0 && !pane1.btns.some(b => /编辑|保存|edit|save/i.test(b.t + ' ' + b.title)), pane1.btns)
-  check('B9 只读面板仍有复制，且关闭 × 只有一个',
-    pane1.btns.filter(b => /复制|copy/i.test(b.t + ' ' + b.title)).length >= 1 &&
-    pane1.btns.filter(b => /关闭|close/i.test(b.t + ' ' + b.title)).length === 1, pane1.btns)
-
-  const closeBtn = pane1.btns.find(b => /关闭|close/i.test(b.t + ' ' + b.title))
-  await cdp.click(closeBtn.x, closeBtn.y)
+  const pClose = await cdp.eval('window.__closePane()')
   await sleep(500)
-  // 选中行可能已被虚拟滚动回收（不在 DOM 里就没有 .db-cell-selected 节点），
-  // 先把表体滚回顶部再验高亮，否则"没亮"是回收的假象不是缺陷
-  const bp3 = await cdp.jeval('window.__bodyPoint()')
-  await cdp.wheel(bp3.x, bp3.y, -1200)
   const g5 = await cdp.jeval('window.__geom()')
-  const b6 = await cdp.jeval('window.__bar()')
-  check('B10 面板 × 收回工具条，选中格与标题都留着',
-    g5.collapsed === 1 && g5.valPane === 0 && g5.bar === 1 && g5.selCount === 1 && b6.title === b5.title,
-    { g5, bar: b6.title, firstId: g5.firstId })
-
-  await cdp.click(b6.center.x, b6.center.y)
-  await sleep(500)
-  const g6 = await cdp.jeval('window.__geom()')
-  check('B11 收回后能再展开', g6.valPane === 1 && g6.collapsed === 0, g6)
+  check('B4 面板 × 收起后选中清空、网格重新占满',
+    pClose === 'ok' && g5.valPane === 0 && g5.selCount === 0 && g5.collapsed === 1 &&
+    g5.gridH > g4.gridH, { pClose, g4h: g4.gridH, g5h: g5.gridH })
 
   // ---------- C) 分区高度记忆 ----------
+  // B4 收起了面板；先点一格重新展开（新交互：点一格即展开）
+  const payC = await cdp.jeval('window.__cellXY("payload", 2)')
+  await cdp.click(payC.x, payC.y)
+  await sleep(600)
   const rz = await cdp.jeval('window.__resizerXY()')
-  check('C0 resizer 在面板上沿、可命中', rz.found === 1, rz)
+  check('C0 点一格后面板展开、resizer 在面板上沿可命中', rz.found === 1, rz)
   await cdp.dragY(rz.x, rz.y, -160)
   await sleep(500)
   const lsVal = await cdp.eval('window.__ls()')
@@ -577,8 +562,20 @@ const main = async () => {
   const p7 = await cdp.jeval('window.__pane()')
   check('C3 拖矮之后面板仍装着全文（高度变化不影响内容）', p7.preSame === 1, { preLen: p7.preLen })
 
-  // 换选中格：先在展开态点二进制列，看高度不被重置、meta 换成字节数
-  const blobClick = await clickCell(cdp, 'blob_col', 1)
+  // 换选中格：先在展开态点二进制列，看高度不被重置、meta 换成字节数。
+  // 先把表体滚回顶部：C2 把面板拖到 73% 高，网格只剩 ~150px，虚拟表仍把缓冲区行
+  // 留在 DOM 里，第一条 DOM 行的坐标落在网格外面 —— 照着点会点到工具条上，
+  // 面板停在上一格、判据却以为"换格没生效"。点之前要求坐标真的在网格可视区内。
+  const bp3 = await cdp.jeval('window.__bodyPoint()')
+  let topId = null
+  for (let i = 0; i < 6; i++) {
+    topId = (await cdp.jeval('window.__geom()')).firstId
+    if (topId === '1') break
+    await cdp.wheel(bp3.x, bp3.y, -600)
+    await sleep(250)
+  }
+  check('C3a 表体滚回顶部后再点（坐标一定落在网格里）', topId === '1', { topId })
+  const blobClick = await clickCell(cdp, 'blob_col', 0)
   check('C3b 二进制格可点（夹具到位：拿得到那一格的坐标）', blobClick.ok, blobClick)
   const g9 = await cdp.jeval('window.__geom()')
   check('C4 换选中格不重置已拖好的高度',
@@ -589,20 +586,14 @@ const main = async () => {
   check('C5 二进制列 meta 报字节数（8 bytes，不是 chars）',
     /bytes/.test(p8.meta) && /8/.test(p8.meta), { meta: p8.meta, g9 })
   check('C6 二进制列面板走只读呈现器，不是 30000 字符正文',
-    p8.preLen !== BIG && rowRe(2).test(p8.title) && p8.textarea === 0, { preLen: p8.preLen, title: p8.title })
-
-  // 工具条在展开态是不渲染的（分区折叠才显示），所以先收起来再读它的 meta：
-  // 上一版直接在展开态读 .db-sql-value-bar，读到 exists:0，红的是夹具不是产品
+    p8.preLen !== BIG && rowRe(1).test(p8.title) && p8.textarea === 0,
+    { preLen: p8.preLen, title: p8.title, expectRow: 1 })
   const paneClose = p8.btns.find(b => /关闭|close/i.test(b.t + ' ' + b.title))
-  check('C5b 面板关闭按钮在位', !!paneClose, p8.btns)
+  check('C6b 面板关闭按钮在位', !!paneClose, p8.btns)
   if (paneClose) {
     await cdp.click(paneClose.x, paneClose.y)
     await sleep(500)
   }
-  const b7 = await cdp.jeval('window.__bar()')
-  check('C5c 折叠后工具条同一口径报字节数',
-    b7.exists === 1 && /bytes/.test(b7.meta) && /8/.test(b7.meta) && rowRe(2).test(b7.title),
-    { b7, events: cdp.tail() })
 
   // 真正的写语句会被 confirmSqlRisk 弹窗拦下（那是产品该有的安全带）；
   // 验收要用桩的形态切换来造场景，doc 始终留同一条 SELECT
@@ -625,81 +616,43 @@ const main = async () => {
   const payClick = await clickCell(cdp, 'payload', 0)
   check('C8b 重挂后那一格仍可点', payClick.ok, payClick)
   const b8 = await cdp.jeval('window.__bar()')
-  check('C8c 重挂后单击出工具条（可点开展开）', b8.exists === 1, b8)
-  if (b8.exists === 1) {
-    await cdp.click(b8.center.x, b8.center.y)
-    await sleep(600)
-  }
+  check('C8c 重挂后单击直接展开面板', b8.exists === 1 && (await cdp.jeval('window.__geom()')).valPane === 1, b8)
   const g12 = await cdp.jeval('window.__geom()')
   check('C9 新挂载按 localStorage 记忆分配高度（不再跳回 50%）',
     Math.abs(g12.topH / (g12.topH + g12.bottomH) * 100 - pct) <= 3, { pct, topH: g12.topH, bottomH: g12.bottomH })
 
-  // ---------- D) 3 万字符：预览卡截断 → 查看完整 → 复制全文 ----------
-  // D 组要悬停第 6 行的 payload，前提是网格重新变高（C9 把面板展开了，
-  // 网格只渲染得出 5 行，第 6 行压根不在 DOM 里）+ 表体滚回顶部。
-  // 这两步是夹具，不做到判据里，D0 就只能红着报"没这一行"。
-  const p9 = await cdp.jeval('window.__pane()')
-  const paneClose9 = p9.btns && p9.btns.find(b => /关闭|close/i.test(b.t + ' ' + b.title))
-  if (paneClose9) {
-    await cdp.click(paneClose9.x, paneClose9.y)
-    await sleep(500)
-  }
-  const bp4 = await cdp.jeval('window.__bodyPoint()')
-  await cdp.wheel(bp4.x, bp4.y, -2000)
-  await sleep(400)
-  const n1 = await cdp.jeval('window.__cellXY("note", 1)')
-  const payXY2 = await cdp.jeval('window.__cellXY("payload", 5)')
-  check('D0 预览夹具到位（note 与 payload 两格都在 DOM 里）',
-    !n1.error && !payXY2.error, { n1: n1.error || 'ok', pay: payXY2.error || 'ok', dump: await cdp.jeval('window.__dump()') })
-  if (n1.error || payXY2.error) {
-    return finish(results)
-  }
-  await cdp.click(n1.x, n1.y)
-  await sleep(300)
-  await cdp.move(payXY2.x, payXY2.y)
-  await sleep(800)
-  const card1 = await cdp.jeval('window.__card()')
-  check('D1 悬停截断格出预览卡，且只给前 4000 字符 + 已截断标记',
-    card1.open === 1 && card1.len === PREVIEW_MAX && card1.more === 1, card1)
-  check('D2 预览卡带「查看完整」按钮', !!card1.full && /查看完整|view full/i.test(card1.full.text), card1.full)
-  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '1-dark-preview-card.png')))
-  if (!card1.full) {
-    check('D2b 没有「查看完整」按钮，后续 D 组无法继续', false, { card: card1, events: cdp.tail() })
-    return finish(results)
-  }
-  await cdp.click(card1.full.x, card1.full.y)
-  await sleep(700)
-  const card2 = await cdp.jeval('window.__card()')
-  const modal1 = await cdp.jeval('window.__modal()')
-  check('D3 弹窗打开时预览卡已让位（浮层不叠在弹窗上）',
-    modal1.open === 1 && card2.open === 0, { modal: modal1.open, card: card2.open })
-  check('D4 弹窗正文完整 30000 字符且与夹具原文逐字符相等',
-    modal1.len === BIG && modal1.same === 1, { len: modal1.len, same: modal1.same, head: modal1.head, tail: modal1.tail })
-  check('D5 弹窗标题带列名、头部标注字符数',
-    /payload/.test(modal1.title) && isCharsMeta(modal1.meta, BIG), { title: modal1.title, meta: modal1.meta })
-  check('D6 弹窗正文等宽 + 可选中 + 换行（长 JSON 要能整段读）',
-    modal1.mono === true && modal1.selectable === true && /pre-wrap/.test(modal1.wrap),
-    { mono: modal1.mono, selectable: modal1.selectable, wrap: modal1.wrap })
-  const copyBtn = modal1.btns.find(b => /复制|copy/i.test(b.k + ' ' + b.title))
-  check('D7 弹窗有复制按钮', !!copyBtn, modal1.btns)
+  // ---------- D) 3 万字符：点一格面板直接给全文 → 复制 ----------
+  // C9 点开的就是第 1 行的 payload，面板还开着、正文就是全文
+  const paneD = await cdp.jeval('window.__pane()')
+  check('D1 单击截断格，面板里直接是完整 30000 字符（不再经过预览卡/弹窗两跳）',
+    paneD.exists === 1 && paneD.preLen === BIG && paneD.preSame === 1,
+    { exists: paneD.exists, preLen: paneD.preLen, same: paneD.preSame })
+  check('D2 面板标题带列名与行号、头部标注字符数',
+    /payload/.test(paneD.title) && rowRe(1).test(paneD.title) && isCharsMeta(paneD.meta, BIG),
+    { title: paneD.title, meta: paneD.meta })
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '1-dark-value-pane.png')))
+  const copyBtn = (paneD.btns || []).find(b => /复制|copy/i.test(b.t + ' ' + b.title))
+  check('D3 面板有复制按钮', !!copyBtn, (paneD.btns || []).map(b => b.t))
   if (!copyBtn) {
     return finish(results)
   }
+  await cdp.eval('window.__clip = []')
   await cdp.click(copyBtn.x, copyBtn.y)
   await sleep(500)
   const clip = JSON.parse(await cdp.eval('window.__clipLog()'))
   const last = clip[clip.length - 1] || {}
-  check('D8 复制发出去的确实是全文（writeClipboard 收到 30000 字符且等值）',
+  check('D4 复制发出去的确实是全文（writeClipboard 收到 30000 字符且等值）',
     last.len === BIG && last.same === 1, clip.slice(-2))
   const real = await cdp.jeval('window.__readClip()')
-  check('D9 真实剪贴板里就是全文（readClipboard 读回 30000 且等值）',
+  check('D5 真实剪贴板里就是全文（readClipboard 读回 30000 且等值）',
     real.ok === 1 && real.len === BIG && real.same === 1, real)
-  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '2-dark-full-text-modal.png')))
-  await cdp.eval("(() => { const b=document.querySelector('.ant-modal'); const x=b&&b.querySelector('.ant-modal-close'); if (x) x.click() })()")
+  const dClosed = await cdp.eval('window.__closePane()')
   await sleep(500)
-  check('D10 弹窗可关闭且不留残层', (await cdp.jeval('window.__modal()')).open === 0)
+  check('D6 面板 × 收起且不留残层',
+    dClosed === 'ok' && (await cdp.jeval('window.__pane()')).exists === 0,
+    { dClosed, pane: (await cdp.jeval('window.__pane()')).exists })
 
-  // ---------- E) 与 H1a-1/2/3 共存 ----------
+  // ---------- E) 与既有能力共存 ----------
   const idMeta = await cdp.jeval('window.__colMeta("id")')
   const payMeta = await cdp.jeval('window.__colMeta("payload")')
   check('E1 数值列右对齐、长文本列不右对齐（H1a-3 未回归）',
@@ -720,7 +673,7 @@ const main = async () => {
     await sleep(500)
   }
   const cardN = await cdp.jeval('window.__card()')
-  check('E4 预览卡是单例（连悬三格后 DOM 里仍只有一张）', cardN.cards === 1, cardN)
+  check('E4 连悬三格也没有任何预览卡浮层（全部数据库网格都不再渲染）', cardN.cards === 0, cardN)
   await cdp.move(5, 5)
   await sleep(400)
 
@@ -744,12 +697,12 @@ const main = async () => {
   await sleep(500)
   const xy2 = await cdp.jeval('window.__cellXY("id", 0)')
   if (xy2.error) {
-    check('E7 多结果集的工具条标题带集号', false, xy2)
+    check('E7 多结果集的面板标题带集号', false, xy2)
   } else {
     await cdp.click(xy2.x, xy2.y)
-    await sleep(400)
+    await sleep(500)
     const barT = await cdp.jeval('window.__bar()')
-    check('E7 多结果集的工具条标题带集号（第 2 个结果集 · id · 第 1 行）',
+    check('E7 多结果集的面板标题带集号（第 2 个结果集 · id · 第 1 行）',
       rsRe(2).test(barT.title) && /^.* · id · /.test(barT.title) && rowRe(1).test(barT.title), barT)
   }
   await cdp.eval('window.__clickResultTab("1|1")')
@@ -770,17 +723,14 @@ const main = async () => {
     afterRerun.pane === 1 && afterRerun.collapsed === 1,
     { reselect, before: beforeRerun, run3, reran, after: afterRerun, dump: await cdp.jeval('window.__dump()') })
 
-  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3-dark-collapsed-bar.png')))
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3-dark-no-selection.png')))
   const pay3 = await cdp.jeval('window.__cellXY("payload", 0)')
   await cdp.click(pay3.x, pay3.y)
-  await sleep(300)
-  await cdp.move(5, 5)
-  const b9 = await cdp.jeval('window.__bar()')
-  await cdp.click(b9.center.x, b9.center.y)
   await sleep(600)
+  await cdp.move(5, 5)
   console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '4-dark-value-pane.png')))
   const geoFinal = await cdp.jeval('window.__geom()')
-  check('E9 深色终态：面板展开、全文在位',
+  check('E9 深色终态：单击直接展开、全文在位',
     geoFinal.valPane === 1 && geoFinal.collapsed === 0 && (await cdp.jeval('window.__pane()')).preSame === 1, geoFinal)
 
   // ---------- F) 浅色主题复查（工具条/选中态/面板配色全走 token） ----------
@@ -828,20 +778,17 @@ const main = async () => {
     await waitFor(cdp, 'window.__rows().length > 5', 'light rerun')
     const payXY3 = await cdp.jeval('window.__cellXY("payload", 1)')
     await cdp.move(payXY3.x, payXY3.y)
-    await sleep(800)
+    await sleep(700)
     const c = await cdp.jeval('window.__card()')
-    check('F3 浅色下截断格仍出预览卡（前 4000 + 已截断）',
-      c.open === 1 && c.len === PREVIEW_MAX && c.more === 1, c)
-    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '6-light-preview-card.png')))
-    if (c.full) {
-      await cdp.click(c.full.x, c.full.y)
-      await sleep(700)
-      const m = await cdp.jeval('window.__modal()')
-      check('F4 浅色下全文弹窗仍是完整 30000 字符', m.open === 1 && m.len === BIG && m.same === 1, { open: m.open, len: m.len })
-      console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '7-light-full-text-modal.png')))
-      await cdp.eval("(() => { const b=document.querySelector('.ant-modal'); const x=b&&b.querySelector('.ant-modal-close'); if (x) x.click() })()")
-      await sleep(400)
-    }
+    check('F3 浅色下悬停同样不出预览卡', c.cards === 0 && c.open === 0, c)
+    await cdp.click(payXY3.x, payXY3.y)
+    await sleep(700)
+    const paneL = await cdp.jeval('window.__pane()')
+    const gL = await cdp.jeval('window.__geom()')
+    check('F4 浅色下单击直接展开面板、全文在位',
+      gL.valPane === 1 && paneL.preSame === 1 && isCharsMeta(paneL.meta, BIG),
+      { exists: paneL.exists, preSame: paneL.preSame, meta: paneL.meta })
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '6-light-value-pane.png')))
   }
 
   return finish(results)

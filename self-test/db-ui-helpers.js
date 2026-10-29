@@ -84,9 +84,15 @@ const buildHelpers = splitKey => `
     const td = tr.children[idx]
     if (!td) return JSON.stringify({ error: 'no-td' })
     const r = td.getBoundingClientRect()
+    const g = window.__grid().getBoundingClientRect()
+    const x = Math.round(r.left + Math.min(r.width / 2, 60))
+    const y = Math.round(r.top + r.height / 2)
     return JSON.stringify({
-      x: Math.round(r.left + Math.min(r.width / 2, 60)),
-      y: Math.round(r.top + r.height / 2),
+      x,
+      y,
+      // 虚拟表会把视口外的缓冲行也留在 DOM 里，它们的坐标落在网格外面；
+      // 照着点下去只会点到别的东西（曾经点到工具条上，判据却当成"点了那一格"）
+      inView: x > g.left && x < g.right && y > g.top && y < g.bottom,
       cls: String(td.className || ''),
       w: Math.round(r.width),
       text: td.innerText.trim().substring(0, 24)
@@ -154,7 +160,7 @@ const buildHelpers = splitKey => `
       gridH: g ? Math.round(g.getBoundingClientRect().height) : -1,
       domRows: window.__rows().length,
       virtual: g ? (g.querySelector('.ant-table-tbody-virtual') ? 1 : 0) : -1,
-      bar: window.__one('.db-sql-value-bar') ? 1 : 0,
+      bar: window.__one('.db-split-pane-bottom .db-value-pane') ? 1 : 0,
       valPane: window.__one('.db-split-pane-bottom .db-value-pane') ? 1 : 0,
       selCount: window.__selCells().length,
       scrollTop: -1,
@@ -210,7 +216,7 @@ const buildHelpers = splitKey => `
     rows: window.__rows().length,
     grid: !!window.__grid(),
     pane: window.__one('.db-split-pane') ? 1 : 0,
-    bar: window.__one('.db-sql-value-bar') ? 1 : 0,
+    bar: window.__one('.db-split-pane-bottom .db-value-pane') ? 1 : 0,
     valPane: window.__one('.db-split-pane-bottom .db-value-pane') ? 1 : 0,
     firstId: window.__firstId(),
     lastSql: String(window.__lastSql),
@@ -225,23 +231,27 @@ const buildHelpers = splitKey => `
     })()
   })
 
+  // 选中格的面板头部（2026-10-29 起点一格就直接展开面板，不再有折叠工具条）：
+  // 标题/字符数/关闭按钮都量自 .db-split-pane-bottom .db-value-pane
   window.__bar = () => {
-    const bar = window.__one('.db-sql-value-bar')
-    if (!bar) return JSON.stringify({ exists: 0 })
+    const pane = window.__one('.db-split-pane-bottom .db-value-pane')
+    if (!pane) return JSON.stringify({ exists: 0 })
+    const head = pane.querySelector('.db-value-pane-head')
+    if (!head) return JSON.stringify({ exists: 0 })
     const xy = el => {
       const r = el.getBoundingClientRect()
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
     }
-    const col = bar.querySelector('.db-sql-value-bar-col')
-    const meta = bar.querySelector('.db-sql-value-bar-meta')
-    const hint = bar.querySelector('.db-sql-value-bar-hint')
-    const close = bar.querySelector('.db-sql-value-bar-close')
-    const r = bar.getBoundingClientRect()
+    const col = head.querySelector('.db-grid-title')
+    const meta = head.querySelector('.db-grid-total')
+    const close = [...head.querySelectorAll('button')].find(b =>
+      b.querySelector('.anticon-close') || /关闭|close/i.test(b.getAttribute('title') || ''))
+    const r = pane.getBoundingClientRect()
     return JSON.stringify({
       exists: 1,
       title: ((col && col.innerText) || '').trim(),
       meta: ((meta && meta.innerText) || '').trim(),
-      hint: ((hint && hint.innerText) || '').trim(),
+      hint: '',
       h: Math.round(r.height),
       center: { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) },
       closeXY: close ? xy(close) : null
@@ -290,75 +300,13 @@ const buildHelpers = splitKey => `
     return String(window.localStorage.getItem(${JSON.stringify(splitKey)}))
   }
 
-  // 预览卡（H1a-1）：单例、截断标记、"查看完整"按钮坐标
-  window.__card = () => {
-    const c = window.__one('.db-cell-preview')
-    const all = document.querySelectorAll('.db-cell-preview').length
-    if (!c) return JSON.stringify({ open: 0, cards: all })
-    const pre = c.querySelector('.db-cell-preview-pre')
-    // 正文长度要绕开截断提示：那个 span 就嵌在 .db-cell-preview-pre 里面，
-    // 直接取 textContent 会把"已截断"的提示字数算进正文，4000 会被读成 4016
-    let bodyLen = -1
-    let bodyText = ''
-    if (pre) {
-      bodyLen = 0
-      for (const n of Array.from(pre.childNodes)) {
-        if (n.nodeType === 1 && n.classList.contains('db-cell-preview-more')) {
-          continue
-        }
-        bodyLen += String(n.textContent || '').length
-        bodyText += String(n.textContent || '')
-      }
-    }
-    const b = [...c.querySelectorAll('button')].find(x => /查看完整|view full/i.test(x.innerText.replace(/\\s+/g, '')))
-    let full = null
-    if (b) {
-      const r = b.getBoundingClientRect()
-      full = { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), text: b.innerText.trim() }
-    }
-    return JSON.stringify({
-      open: 1,
-      cards: all,
-      len: bodyLen,
-      hash: window.__hash(bodyText),
-      more: c.querySelector('.db-cell-preview-more') ? 1 : 0,
-      col: ((c.querySelector('.db-cell-preview-col') || {}).innerText || '').trim(),
-      full
-    })
-  }
-  window.__modal = () => {
-    const pre = window.__one('.db-full-text-pre')
-    if (!pre) return JSON.stringify({ open: 0 })
-    const box = pre.closest('.ant-modal')
-    const meta = box ? box.querySelector('.db-full-text-meta') : null
-    const s = getComputedStyle(pre)
-    const btns = box ? [...box.querySelectorAll('.ant-modal-footer button')].map(b => {
-      const r = b.getBoundingClientRect()
-      // antd 会在两个汉字的按钮里插一个空格（"复 制"），按原文匹配按钮名会漏
-      return {
-        t: b.innerText.trim(),
-        k: b.innerText.replace(/\\s+/g, ''),
-        title: b.getAttribute('title') || '',
-        x: Math.round(r.left + r.width / 2),
-        y: Math.round(r.top + r.height / 2)
-      }
-    }) : []
-    const txt = pre.textContent
-    return JSON.stringify({
-      open: 1,
-      len: txt.length,
-      hash: window.__hash(txt),
-      same: window.__fixture && txt === window.__fixture.big ? 1 : 0,
-      head: txt.slice(0, 12),
-      tail: txt.slice(-12),
-      title: ((box && box.querySelector('.ant-modal-title')) || {}).innerText || '',
-      meta: ((meta && meta.innerText) || '').trim(),
-      mono: /mono|Consolas|Menlo/i.test(s.fontFamily),
-      selectable: /text/.test(s.userSelect + ' ' + s.webkitUserSelect),
-      wrap: s.whiteSpace,
-      btns
-    })
-  }
+  // 悬停预览卡已整体移除（2026-10-29）：这两支探针留着只会让旧脚本"看起来还在测"，
+  // 所以换成"页面上到底还有没有预览卡"的直接读数。产品若把卡片加回来，这里会红。
+  window.__card = () => JSON.stringify({
+    open: 0,
+    cards: document.querySelectorAll('.db-cell-preview').length,
+    popovers: [...document.querySelectorAll('.ant-popover')].filter(window.__vis).length
+  })
   // 读回真实剪贴板。两条硬约束：
   //   1) 真库跑没有 window.__fixture（页面里没有我们注入的原文可比），
   //      same 用 -1 表示"没有可比对的原文"，与 0"比对不相等"区分开；
@@ -486,16 +434,23 @@ const buildHelpers = splitKey => `
     const tr = window.__rows()[rowIdx || 0]
     return tr ? (tr.children[idx] || null) : null
   }
-  // 单元格的"全文"量度：CSS 省略号只裁视觉，textContent 仍是完整值 ——
-  // 这一条正是"网格裁 / 预览卡裁 4000 / 面板给全文"三档分开的基准
+  // 关闭值面板（= 取消选中）。点面板头部的 ×，走真人路径
+  window.__closePane = () => {
+    const pane = window.__one('.db-split-pane-bottom .db-value-pane')
+    if (!pane) return 'no-pane'
+    const b = [...pane.querySelectorAll('.db-value-pane-head button')].find(x =>
+      x.querySelector('.anticon-close') || /关闭|close/i.test(x.getAttribute('title') || ''))
+    if (!b) return 'no-close'
+    b.click()
+    return 'ok'
+  }
+
   window.__cellText = (label, rowIdx) => {
     const td = window.__tdOf(label, rowIdx)
     if (!td) return JSON.stringify({ exists: 0, reason: 'no-cell:' + label + '/' + rowIdx })
     const t = String(td.textContent || '')
     return JSON.stringify({ exists: 1, len: t.length, hash: window.__hash(t) })
   }
-  // 预览卡只给前 PREVIEW_MAX 个字符：要证明"卡片里的就是全文的前 4000"，
-  // 比的就是"全文切前 4000 的哈希"，而不是把内容取回 node
   window.__cellPre = (label, rowIdx, n) => {
     const td = window.__tdOf(label, rowIdx)
     if (!td) return JSON.stringify({ exists: 0, reason: 'no-cell:' + label + '/' + rowIdx })
@@ -517,11 +472,6 @@ const buildHelpers = splitKey => `
     if (!pane) return JSON.stringify({ exists: 0 })
     const t = String((pane.textContent || ''))
     return JSON.stringify({ exists: 1, has: t.indexOf(String(needle)) >= 0 ? 1 : 0 })
-  }
-  window.__modalHas = needle => {
-    const pre = window.__one('.db-full-text-pre')
-    if (!pre) return JSON.stringify({ exists: 0 })
-    return JSON.stringify({ exists: 1, has: String(pre.textContent || '').indexOf(String(needle)) >= 0 ? 1 : 0 })
   }
   // 树节点按"整名相等"点：真库的表名都以库名前缀开头（tgfsom 库里 tgfsom_xxx 满屏），
   // indexOf 版会点错节点
@@ -729,6 +679,38 @@ const hexOk = (a, b) => {
   return p(a).slice(0, 3).join(',') !== p(b).slice(0, 3).join(',')
 }
 
+// 关掉全部数据库页签，给桩版夹具一个确定起点。
+// Page.reload 之后持久化页签是**异步**恢复的：删早了，恢复过程会把刚删掉的页签
+// 再挂回来，并顺手把 activeTabId 改成它自己 —— 夹具在自己的页签里跑，
+// 判据却在上一轮的网格上读（列名/字符数全对不上），红的全是假案。
+// 所以先等页签列表稳定，再删，并用多轮确认真的删干净。
+const clearDbTabs = async (cdp, { settleMs = 1200, maxWait = 15000, passes = 3 } = {}) => {
+  let prev = ''
+  const t0 = Date.now()
+  while (Date.now() - t0 < maxWait) {
+    const sig = await cdp.eval('JSON.stringify((window.store.tabs || []).map(t => t.id))')
+    if (sig === prev) break
+    prev = sig
+    await sleep(settleMs)
+  }
+  const closed = []
+  for (let p = 0; p < passes; p++) {
+    const ids = JSON.parse(await cdp.eval(
+      'JSON.stringify((window.store.tabs || []).filter(t => t.type === "database").map(t => t.id))'
+    ))
+    if (!ids.length) break
+    for (const id of ids) {
+      await cdp.eval('(async () => { await window.store.delTab(' + JSON.stringify(id) + ') })()')
+      closed.push(id)
+    }
+    await sleep(400)
+  }
+  const left = JSON.parse(await cdp.eval(
+    'JSON.stringify((window.store.tabs || []).filter(t => t.type === "database").map(t => t.id))'
+  ))
+  return { closed, left }
+}
+
 // 点一格：坐标只能来自那一格自己的矩形。拿不到矩形就明确报告，
 // 绝不能把 undefined 当 0 传给 CDP —— 那样等于在 (0,0) 乱点，
 // 把"夹具没到位"演成"产品没选中"，红的全是假案
@@ -736,6 +718,9 @@ const clickCell = async (cdp, label, rowIdx) => {
   const xy = await cdp.jeval('window.__cellXY(' + JSON.stringify(label) + ', ' + rowIdx + ')')
   if (xy.error || typeof xy.x !== 'number') {
     return { ok: false, reason: 'cellXY:' + (xy.error || 'no-coord'), dump: await cdp.jeval('window.__dump()') }
+  }
+  if (xy.inView === false) {
+    return { ok: false, reason: 'out-of-view', xy, dump: await cdp.jeval('window.__dump()') }
   }
   await cdp.click(xy.x, xy.y)
   await sleep(350)
@@ -755,5 +740,6 @@ module.exports = {
   rsRe,
   isCharsMeta,
   hexOk,
-  clickCell
+  clickCell,
+  clearDbTabs
 }
