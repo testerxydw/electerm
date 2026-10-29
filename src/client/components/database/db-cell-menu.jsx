@@ -81,9 +81,11 @@ export function DbCellMenu (props) {
       }
     >
       {/* 锚点尺寸规则同列宽菜单：fixed 元素 offsetParent 恒为 null，0×0 会被
-          rc-trigger 判成"不可见"，浮层就永远停在 -1000vw/-1000vh 待定位坐标 */}
+          rc-trigger 判成"不可见"，浮层就永远停在 -1000vw/-1000vh 待定位坐标。
+          类名独立于 .db-col-menu-anchor —— 可读性回归按后者数"列宽菜单单例"，
+          两个组件共用会让计数恒为 2 */}
       <span
-        className='db-col-menu-anchor'
+        className='db-cell-menu-anchor'
         style={{ left: target ? target.x : -1, top: target ? target.y : -1 }}
       />
     </Popover>

@@ -2387,6 +2387,14 @@ body.db-col-resizing
   height 1px
   pointer-events none
 
+// 单元格右键菜单的锚点：规则与列宽菜单完全一致，类名分开是为了让
+// "列宽菜单单例"的回归判据（数 .db-col-menu-anchor）不被另一个组件污染
+.db-cell-menu-anchor
+  position fixed
+  width 1px
+  height 1px
+  pointer-events none
+
 // SQL 结果单元格右键菜单：与列宽菜单同一套外观（单例浮层、12px 项、token 上色）
 .db-cell-menu
   display flex
