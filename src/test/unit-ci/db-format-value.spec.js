@@ -27,7 +27,7 @@ const grouped = (text, wantDigits) => {
 const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/client/common/db-format-value.js')
 
-const EXPORTS = '({ FORMAT_LOCALE_KEY, readFormatLocale, isDateType, isNumberType, formatCellValue })'
+const EXPORTS = '({ FORMAT_LOCALE_KEY, readFormatLocale, isDateType, isNumberType, isBinaryType, formatCellValue })'
 
 function loadMod () {
   const src = fs.readFileSync(MOD, 'utf8').replace(/^export /gm, '')
@@ -262,6 +262,39 @@ describe('db-format-value: 日期', () => {
       assert.equal(m.formatCellValue('2024-01-05', t, 'os'), '2024-01-05', t)
       assert.equal(m.formatCellValue('2024-01-05 10:30:00', t, 'os'), '2024-01-05 10:30:00', t)
     }
+  })
+})
+
+// H1a-4：SQL 结果的完整值面板要把类型契约交给 DbValuePane 的呈现器选取
+// （column.isBinary）。词表必须与 H1a-3 归一器吐出的名字同源，否则二进制列
+// 会走文本呈现器、把 __bin 信封之外的 hex 串当普通文本显示
+describe('db-format-value: isBinaryType（值面板的呈现器选型）', () => {
+  let m
+  beforeEach(() => { m = loadMod() })
+
+  test('mysql 的二进制族全部命中（含四个 BLOB 尺寸档）', () => {
+    for (const t of ['binary', 'varbinary', 'tinyblob', 'blob', 'mediumblob', 'longblob']) {
+      assert.equal(m.isBinaryType(t), true, t)
+    }
+  })
+
+  test('pg 的 bytea 命中，且大小写不敏感', () => {
+    assert.equal(m.isBinaryType('bytea'), true)
+    assert.equal(m.isBinaryType('BLOB'), true)
+    assert.equal(m.isBinaryType('VARBINARY'), true)
+  })
+
+  test('文本/数值/日期/JSON 都不算二进制（否则值面板只给 hex/base64）', () => {
+    for (const t of ['text', 'varchar', 'char', 'json', 'jsonb', 'int', 'decimal',
+      'date', 'datetime', 'timestamp with time zone', 'vector', 'geometry', '']) {
+      assert.equal(m.isBinaryType(t), false, t)
+    }
+  })
+
+  test('缺参数/非字符串不抛', () => {
+    assert.equal(m.isBinaryType(), false)
+    assert.equal(m.isBinaryType(null), false)
+    assert.equal(m.isBinaryType(undefined), false)
   })
 })
 

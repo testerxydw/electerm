@@ -141,8 +141,13 @@ describe('SQL 结果分页：接线契约', () => {
 
   test('new result resets to page 1', () => {
     const src = read()
-    const reset = src.match(/useEffect\(\(\) => \{\s*setSqlPages\(\{\}\)\s*\}, \[sqlResult\.results\]\)/)
-    assert.ok(reset, 'page reset effect missing')
+    // 钉的是"结果一变就回第 1 页"这条动作还在。同一个 effect 从 H1a-4 起还顺手清了
+    // 选中单元格（老行下标对新结果集没有意义），所以按函数体取出来分别断言，
+    // 而不是把整段源码写死成一条正则
+    const eff = /useEffect\(\(\) => \{([\s\S]*?)\}, \[sqlResult\.results\]\)/.exec(src)
+    assert.ok(eff, 'page reset effect missing')
+    assert.ok(/setSqlPages\(\{\}\)/.test(eff[1]), 'must reset to page 1')
+    assert.ok(/setSqlCell\(null\)/.test(eff[1]), 'must clear the selected cell (H1a-4)')
   })
 
   test('export still exports the whole result, not the current page', () => {

@@ -82,6 +82,28 @@ export function isNumberType (dataType) {
   return NUMBER_TYPES.has(String(dataType || '').toLowerCase())
 }
 
+// 二进制列类型名（两套引擎口径都在内）：值本身已是 __bin 信封时其实用不到它，
+// 但 DbValuePane 的呈现器选取同时看 column.isBinary —— 类型契约能补上
+// "驱动没给信封但列是二进制"那一档（例如某些引擎回落到 hex 串）
+const BINARY_TYPES = new Set([
+  'binary',
+  'varbinary',
+  'tinyblob',
+  'blob',
+  'mediumblob',
+  'longblob',
+  'bytea'
+])
+
+/**
+ * 是否为二进制类型（与 isNumberType/isDateType 同一套词表口径）
+ * @param {string} dataType 列类型
+ * @returns {boolean}
+ */
+export function isBinaryType (dataType) {
+  return BINARY_TYPES.has(String(dataType || '').toLowerCase())
+}
+
 /**
  * 数值列的单元格 class（H1a-3）。数据页与 SQL 结果页共用这一条判定，
  * 同一列在两个网格里方向一致才是"读得下去"，各判一次就又是一处不一致。

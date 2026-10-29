@@ -115,7 +115,7 @@ import {
 } from '../../common/db-grid-views'
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
-import { formatCellValue, readFormatLocale, cellAlignClass, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
+import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -149,6 +149,9 @@ const getSqlResultPageSize = () => {
   const v = Number(window.store._config && window.store._config.sqlResultPageSize)
   return Number.isInteger(v) && v >= 10 ? Math.min(v, DB_PAGE_SIZE_MAX) : SQL_RESULT_PAGE_SIZE
 }
+// 选中格的字符数只在"看不全"时才有意义：短值网格那一格本来就整行显示，
+// 再挂一个"6 chars"是噪音。阈值取一格大致能显示的字符数（默认列宽 ~180px）
+const SQL_VALUE_META_MIN = 60
 const sqlPageIndex = (page, total, pageSize) => {
   const size = pageSize >= 10 ? pageSize : SQL_RESULT_PAGE_SIZE
   const pages = Math.max(1, Math.ceil(total / size))
@@ -171,6 +174,8 @@ const TREE_MAX_W = 600
 // 上下分区比例持久化键（DbSplitPane 消费）：redis 键列表/详情、mysql 网格/单元格预览
 const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
 const CELL_SPLIT_KEY = 'electerm-db-cell-split'
+// H1a-4：SQL 结果"选中单元格 → 完整值面板"的展开高度持久化键（折叠时不读不写）
+const SQL_VALUE_SPLIT_KEY = 'electerm-db-sql-value-split'
 // Redis hash/set 详情每页条数（后端 HSCAN/SSCAN 游标分页）
 const REDIS_DETAIL_PAGE = 200
 // R1：键列表深跳阈值（页）。SCAN 无 offset，跳页要从 cursor=0 前向步进，
@@ -717,6 +722,13 @@ export default auto(function DbSession (props) {
   })
   // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
   const [sqlPages, setSqlPages] = useState({})
+  // H1a-4：SQL 结果里选中的单元格 { rs, col, rowKey }。rowKey 是结果内的**绝对**
+  // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
+  // SQL 结果是只读视图：不做行内编辑，也不写回
+  const [sqlCell, setSqlCell] = useState(null)
+  // 折叠（一条工具条）/ 展开（完整值面板）。刻意 sticky：展开过一次后，
+  // 点下一格又被自动缩回去只是多余的抖动
+  const [sqlPaneOpen, setSqlPaneOpen] = useState(false)
   // 页大小存 config（与数据页同一组候选），改后回第 1 页
   const sqlPageSize = getSqlResultPageSize()
   const changeSqlPageSize = v => {
@@ -724,8 +736,11 @@ export default auto(function DbSession (props) {
     setSqlPages({})
   }
   // 新结果（含失败清空）一到位就回第 1 页；翻页只切片，不重新执行
+  // H1a-4：同时清掉选中单元格 —— 老结果的行下标对新结果集没有意义（指错行比
+  // 面板空着更糟）；展开/折叠偏好不清，用户下次执行还是他习惯的那一档
   useEffect(() => {
     setSqlPages({})
+    setSqlCell(null)
   }, [sqlResult.results])
 
   // ---- E1 危险 SQL 分级 + 连接级安全带 ----
@@ -3603,6 +3618,20 @@ export default auto(function DbSession (props) {
     onMouseLeave: handlePreviewLeave
   }), [previewShow, handlePreviewLeave])
 
+  // H1a-4：预览卡只渲染前 4000 字符，"查看完整"把全文交给一个弹窗。
+  // 挂在这里（而不是各网格自己接）是因为预览卡本身是全站单例，5 处网格共用同一份
+  // state —— 弹窗同理，一份就够。数据页另有值面板，但那是"看这一格"，
+  // 这里是"看这段被截断的全文"，两件事不冲突。
+  const [fullText, setFullText] = useState(null)
+  const openFullText = useCallback((s) => {
+    if (!s) {
+      return
+    }
+    setFullText({ col: s.col, text: s.text })
+    // 卡片不关的话会带着旧坐标浮在弹窗上（切页签那条同款问题：浮层不会自己让位）
+    handlePreviewHide()
+  }, [handlePreviewHide])
+
   // H1a-2：列头右键菜单也是全站单例（和预览卡同一个理由：每列挂一个浮层，
   // 200 列的数据页每次列 memo 重建都要挂/卸上百个 Trigger）。
   // 各网格只负责在 onHeaderCell 里把"哪一列 + 属于哪个宽度状态 + 加宽到多少"报过来
@@ -3943,8 +3972,14 @@ export default auto(function DbSession (props) {
           }),
           // H1a-1：结果集此前既没有 title 也没有预览，长文本只能靠横向滚动撞运气
           // H1a-3：数值列右对齐（与数据页同一条判定）
+          // H1a-4：单击选中 → 底部完整值面板。只标"当前面板在看的那一格"，
+          // 不做键盘可达（SQL 结果只读，Enter 没有下一步动作），也不给双击编辑
           onCell: row => ({
-            className: numCls,
+            onClick: () => setSqlCell({ rs: i, col: k, rowKey: row.__rowKey }),
+            className: (sqlCell && sqlCell.rs === i &&
+              sqlCell.col === k && sqlCell.rowKey === row.__rowKey)
+              ? (numCls + ' db-cell-selected').trim()
+              : numCls,
             ...previewProps(k, row)
           }),
           // H1a-3：以前这里直接写 `render: renderCell`，antd 传的 (值, 整行, 下标)
@@ -3955,7 +3990,7 @@ export default auto(function DbSession (props) {
         }
       })
     }),
-    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, previewProps, sqlColTypeMaps]
+    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, previewProps, sqlColTypeMaps, sqlCell]
   )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
@@ -4076,6 +4111,95 @@ export default auto(function DbSession (props) {
       />
     )
   }
+
+  // H1a-4：选中格的完整值面板数据。按 (rs, rowKey, col) 现取、不复制值 ——
+  // 一次执行可能是 1 万行的大数组。行取不到（重新执行把结果换了、页码越界）就当
+  // 没选中，工具条与面板一起消失，不留一个指向空气的标题
+  const sqlCellInfo = useMemo(() => {
+    if (!sqlCell) {
+      return null
+    }
+    const results = sqlResult.results || []
+    const r = results[sqlCell.rs]
+    const row = r && Array.isArray(r.rows) ? r.rows[sqlCell.rowKey] : null
+    if (!row) {
+      return null
+    }
+    const value = row[sqlCell.col]
+    const type = (sqlColTypeMaps[sqlCell.rs] || {})[String(sqlCell.col).toLowerCase()] || ''
+    // 多结果集时必须标出是哪一集：页签在上面、面板在下面，只写列名会对不上号
+    const head = results.length > 1
+      ? e('dbResultN').replace('{n}', sqlCell.rs + 1) + ' · '
+      : ''
+    return {
+      value,
+      column: { name: sqlCell.col, type, isBinary: isBinaryType(type) },
+      title: head + sqlCell.col + ' · ' + e('dbRowN').replace('{n}', Number(sqlCell.rowKey) + 1),
+      meta: isBinEnvelope(value)
+        ? value.__bin.size + ' bytes'
+        : (typeof value === 'string' && value.length > SQL_VALUE_META_MIN ? value.length + ' chars' : '')
+    }
+  }, [sqlCell, sqlResult.results, sqlColTypeMaps])
+
+  // 折叠态工具条：整条可点 = 展开；右侧 × = 取消选中（stopPropagation，
+  // 否则点 × 会先冒泡成"展开"）
+  const sqlValueBar = sqlCellInfo
+    ? (
+      <div
+        className='db-sql-value-bar'
+        title={e('dbSqlValueBarHint')}
+        onClick={() => setSqlPaneOpen(true)}
+      >
+        <span
+          className='db-sql-value-bar-col'
+          title={sqlCellInfo.title}
+        >
+          {sqlCellInfo.title}
+        </span>
+        {
+          sqlCellInfo.meta
+            ? <span className='db-sql-value-bar-meta'>{sqlCellInfo.meta}</span>
+            : null
+        }
+        <span className='db-sql-value-bar-hint'>{e('dbSqlValueBarHint')}</span>
+        <Button
+          className='db-sql-value-bar-close'
+          size='small'
+          type='text'
+          icon={<CloseOutlined />}
+          title={e('dbSqlValueBarClose')}
+          onClick={ev => {
+            ev.stopPropagation()
+            setSqlCell(null)
+          }}
+        />
+      </div>
+      )
+    : null
+
+  // 展开态：复用数据页那个 DbValuePane（editable=false → 没有编辑/保存入口，
+  // 但格式切换、高亮、复制、选区右键复制都还在）。面板的 × 是"收回工具条"而不是
+  // "取消选中"：用户下一格还想用同一个面板，也不想丢掉已经拖好的高度
+  const sqlValuePane = sqlCellInfo
+    ? (
+      <DbValuePane
+        title={sqlCellInfo.title}
+        meta={sqlCellInfo.meta}
+        value={sqlCellInfo.value}
+        column={sqlCellInfo.column}
+        patterns={keywordPatterns}
+        themeConfig={themeConfig}
+        editable={false}
+        onClose={() => setSqlPaneOpen(false)}
+      />
+      )
+    : null
+
+  // "展开"要真的有东西可展：重新执行会清掉选中（sqlCellInfo 变 null），而展开偏好
+  // 是故意留着的 —— 于是面板开着、内容没了，bottom 挂着半屏空气，网格被压成一小条
+  // （CDP 实测：展开后重跑 → top 186px / bottom 503px 空白，网格只剩 5 行）。
+  // 折叠只看"展开偏好 + 有没有选中"：偏好不清，但没选中时回到折叠，网格占满
+  const sqlPaneShown = sqlPaneOpen && !!sqlCellInfo
 
   // T2/T3：树过滤只作用于已加载的 metadata，不重新请求后端。
   // 递归支持 PG 的「库 → schema → 表」：节点自身命中时保留全部子节点，
@@ -4816,7 +4940,7 @@ export default auto(function DbSession (props) {
   // 值预览面板：值/关联两处都要用，提出来避免重复 JSX
   const valuePaneEl = (
     <DbValuePane
-      title={selectedCell ? selectedCell.col + ' - row ' + (Number(selectedCell.rowKey) + 1) : ''}
+      title={selectedCell ? selectedCell.col + ' · ' + e('dbRowN').replace('{n}', Number(selectedCell.rowKey) + 1) : ''}
       meta={panelMeta}
       value={panelValue}
       column={panelColumn}
@@ -6427,7 +6551,25 @@ export default auto(function DbSession (props) {
             : null
         }
         <Spin spinning={sqlResult.loading}>
-          {renderSqlResults()}
+          {
+            // H1a-4：选中一格后，网格下面挂一条工具条（折叠）或完整值面板（展开）。
+            // 没有结果时不套 DbSplitPane：空态下多一层 flex 容器只会添乱。
+            // 有结果时**永远**套着（哪怕没选中），配合 collapsed 保持网格在 DOM
+            // 里的位置不变 —— 换树形会让表格整块重挂，虚拟滚动的滚动位置全丢。
+            // collapsed 看 sqlPaneShown（展开偏好 且 有选中）：拿 sqlValuePane（=有没有
+            // 选中）单独当条件，单击的一瞬间就会切成 50/50 分区、工具条孤零零挂在半个
+            // 空容器里；只看 sqlPaneOpen 则重跑清掉选中后半屏是空气
+            (sqlResult.results || []).length
+              ? (
+                <DbSplitPane
+                  storageKey={SQL_VALUE_SPLIT_KEY}
+                  collapsed={!sqlPaneShown}
+                  top={renderSqlResults()}
+                  bottom={sqlPaneShown ? sqlValuePane : sqlValueBar}
+                />
+                )
+              : renderSqlResults()
+          }
         </Spin>
       </div>
       {
@@ -7706,7 +7848,45 @@ export default auto(function DbSession (props) {
         onHide={handlePreviewHide}
         onEnter={handlePreviewEnter}
         onLeave={handlePreviewLeave}
+        onFullText={openFullText}
       />
+      {
+        // H1a-4：预览卡只渲染前 4000 字符，"查看完整"把全文交给弹窗
+        // （A2 DDL 弹窗同款：等宽 pre + 复制 + 关闭）。不截断、可选中，
+        // 3 万字符的 JSON 也能一口气看全
+        fullText
+          ? (
+            <Modal
+              open={!!fullText}
+              title={`${e('dbViewFullText')} - ${fullText.col}`}
+              onCancel={() => setFullText(null)}
+              footer={[
+                <Button
+                  key='copy'
+                  size='small'
+                  onClick={() => copy(fullText.text)}
+                >
+                  {e('copy')}
+                </Button>,
+                <Button
+                  key='close'
+                  size='small'
+                  type='primary'
+                  onClick={() => setFullText(null)}
+                >
+                  {e('ok')}
+                </Button>
+              ]}
+              width={720}
+            >
+              <div className='db-full-text-meta'>
+                {e('dbCellChars').replace('{n}', fullText.text.length)}
+              </div>
+              <pre className='db-full-text-pre'>{fullText.text}</pre>
+            </Modal>
+            )
+          : null
+      }
       {/* H1a-2：列宽菜单。同样全站单例，5 处网格共用这一份浮层 */}
       <DbColMenu
         target={colMenuTarget}

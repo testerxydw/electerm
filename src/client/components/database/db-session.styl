@@ -498,6 +498,12 @@
   text-align right
   font-variant-numeric tabular-nums
 
+// H1a-4：SQL 结果里"完整值面板正在看这一格"的落点标记。没有它，点完只能靠工具条
+// 上的列名回忆自己点了哪儿。描边而不是换底色：底色会和行悬停色打架
+.db-cell-selected
+  box-shadow inset 0 0 0 1px var(--primary)
+  background var(--active-bg)
+
 // 值预览（原文 / 格式化都走这里）：等宽、可滚动、可选中复制，内容已按关键字高亮
 .db-value-pre
   flex 1 1 auto
@@ -643,6 +649,14 @@
   display flex
   flex-direction column
   overflow hidden
+
+// H1a-4 折叠态：top 吃满剩余高、bottom 按内容高（一条工具条），且不给 resizer。
+// bottom 自身不留 padding/边框 —— 没选中单元格时它是空的，必须真的不占位。
+.db-split-pane-collapsed
+  > .db-split-pane-top
+    flex 1 1 auto
+  > .db-split-pane-bottom
+    flex 0 0 auto
 
 .db-split-resizer
   flex none
@@ -847,6 +861,72 @@
   flex-wrap wrap
   gap 8px
   min-height 24px
+
+// H1a-4：SQL 结果"选中单元格"的折叠工具条（DbSplitPane 折叠态的 bottom）。
+// 整条可点 = 展开完整值面板；右侧 × = 取消选中。min-height 只防空态塌陷，
+// 有内容时按内容撑开（窄宽度下文案折行也不裁字）。
+.db-sql-value-bar
+  display flex
+  align-items center
+  gap 8px
+  min-height 26px
+  padding 3px 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main-light)
+  font-size 12px
+  cursor pointer
+  &:hover
+    background var(--hover-bg)
+
+.db-sql-value-bar-col
+  flex none
+  max-width 40%
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--db-code-font, var(--font-mono))
+  color var(--text)
+
+.db-sql-value-bar-meta
+  flex none
+  color var(--text-dark)
+
+// 提示语让位给省略号：窄宽度下先牺牲说明，不能牺牲"选中的是哪一格"
+.db-sql-value-bar-hint
+  flex 0 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  color var(--text-dark)
+
+.db-sql-value-bar-close
+  flex none
+  margin-left auto
+
+// H1a-4：预览卡"查看完整"弹窗的全文区。与预览卡正文同一套呈现
+// （等宽 / pre-wrap / break-all / 可选中复制），差别只是这里给的是全文不截断
+.db-full-text-pre
+  margin 0
+  padding 10px
+  max-height 60vh
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main-light)
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  line-height 1.5
+  white-space pre-wrap
+  word-break break-all
+  user-select text
+  color var(--text)
+
+.db-full-text-meta
+  margin-bottom 6px
+  font-size 12px
+  color var(--text-dark)
 
 // 结果网格的可见边框：与左侧树面板同款。同色背景下没有边界时，
 // 看不出结果区是否真的避开了底部快捷命令栏（2026-10-28 用户反馈）。
