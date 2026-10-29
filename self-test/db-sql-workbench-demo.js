@@ -136,7 +136,7 @@ const FIXTURE = `
     if (op === 'executeSql') {
       window.__lastSql = args.sql
       window.__execN = window.__execN + 1
-      return Promise.resolve({ results: window.__sqlResults() })
+      return Promise.resolve({ results: window.__sqlResults(), elapsedMs: 123 })
     }
     if (op === 'getTableStructure') {
       return Promise.resolve({
@@ -760,7 +760,7 @@ const main = async () => {
     (await readHit(cdp)).exists === 0 &&
     await waitFor(cdp, 'window.__rows().length > 5', 'rerun grid'), { runTwo })
   await typeFilter(cdp, 'xneedle')
-  const tabClick = await cdp.eval('window.__clickResultTab("2")')
+  const tabClick = await cdp.eval('window.__clickResultTab("结果\\s*2|result\\s*2")')
   await sleep(600)
   const valB = await cdp.eval('window.__fValue()')
   const hitB = await readHit(cdp)
@@ -769,7 +769,7 @@ const main = async () => {
     tabClick === 'ok' && valB === '' && hitB.exists === 0 && geoB.domRows === 2, { tabClick, valB, hitB, geoB })
   await typeFilter(cdp, 'A-2')
   const hitB2 = await readHit(cdp)
-  await cdp.eval('window.__clickResultTab("1")')
+  await cdp.eval('window.__clickResultTab("结果\\s*1|result\\s*1")')
   await sleep(600)
   const valA = await cdp.eval('window.__fValue()')
   const hitA2 = await readHit(cdp)
@@ -779,7 +779,7 @@ const main = async () => {
 
   // ---------- F18) 重新执行清空 ----------
   const runAgain = await runSql(cdp)
-  await cdp.eval('window.__clickResultTab("1")')
+  await cdp.eval('window.__clickResultTab("结果\\s*1|result\\s*1")')
   await sleep(600)
   const geoRerun = await cdp.jeval('window.__geom()')
   const toolsRerun = await readTools(cdp)
@@ -928,14 +928,14 @@ const main = async () => {
   // ---------- G12) 每个结果集一份排序 ----------
   await clickHead(cdp, 'id')
   await clickHead(cdp, 'id')
-  await cdp.eval('window.__clickResultTab("2")')
+  await cdp.eval('window.__clickResultTab("结果\\s*2|result\\s*2")')
   await sleep(700)
   const gB = await headState(cdp, 'id')
   const idsB0 = await colTexts(cdp, 'id', 2)
   await clickHead(cdp, 'id')
   await clickHead(cdp, 'id')
   const idsB1 = await colTexts(cdp, 'id', 2)
-  await cdp.eval('window.__clickResultTab("1")')
+  await cdp.eval('window.__clickResultTab("结果\\s*1|result\\s*1")')
   await sleep(700)
   const gA = await headState(cdp, 'id')
   const idsA = await colTexts(cdp, 'id', 2)
@@ -1040,10 +1040,10 @@ const main = async () => {
   await sleep(350)
   await cdp.eval('window.__colsClick(1)')
   await sleep(350)
-  await cdp.eval('window.__clickResultTab("2")')
+  await cdp.eval('window.__clickResultTab("结果\\s*2|result\\s*2")')
   await sleep(700)
   const namesR2 = JSON.parse(await cdp.eval('window.__headNames()'))
-  await cdp.eval('window.__clickResultTab("1")')
+  await cdp.eval('window.__clickResultTab("结果\\s*1|result\\s*1")')
   await sleep(700)
   const namesR1 = JSON.parse(await cdp.eval('window.__headNames()'))
   const runC = await runSql(cdp)
@@ -1053,6 +1053,51 @@ const main = async () => {
     namesR1.join(',') === 'id,tag,upper,nullable' && namesR2.join(',') === 'id,payload' && runC.fired &&
     namesAfter.join(',') === 'id,note,tag,upper,nullable',
     { namesR1, namesR2, runC: pick(runC, ['fired']), namesAfter })
+
+  // ---------- E) 执行耗时状态（{rows} 行 · {ms} ms + 多结果页签总耗时） ----------
+  // 状态行探针：读可见工具行右端的 .db-sql-elapsed 文本
+  await cdp.eval(`(() => {
+    window.__elapsedText = () => {
+      const t = [...document.querySelectorAll('.db-sql-result-tools')].filter(window.__vis)[0]
+      const el = t && t.querySelector('.db-sql-elapsed')
+      return el ? String(el.textContent).trim() : null
+    }
+    return 'elapsed-probe-ready'
+  })()`)
+  await sleep(200)
+  // 固定到单结果集 1 万行：前面的段落可能停在双结果页签上
+  await cdp.eval('window.__sqlMode = "one"')
+  await runSql(cdp)
+  // 期望文本从词条现算（页面语言可变，不能硬编码英文/中文任何一边）
+  const expRows = n => `(() => String(window.translate('dbSqlRowsElapsed'))
+    .replace('{rows}', ${n}).replace('{ms}', '123'))()`
+  const e1 = await cdp.eval('window.__elapsedText()')
+  const exp1 = await cdp.eval(expRows(10000))
+  check('E1 状态行：{rows} 行 · {ms} ms（行数是原始口径，此时未过滤）',
+    e1 === exp1, { e1, exp1 })
+
+  const eF = await typeFilter(cdp, 'xneedle')
+  const eHit = await readHit(cdp)
+  const e2 = await cdp.eval('window.__elapsedText()')
+  const exp2 = await cdp.eval(expRows(2))
+  check('E2 过滤后状态行行数跟着命中口径走（与网格所见一致），耗时不变',
+    eF.changed && eHit.m === 2 && e2 === exp2, { e2, exp2, hit: pick(eHit, ['m', 't']) })
+  await cdp.eval('window.__fClear()')
+  await sleep(400)
+
+  await cdp.eval('window.__sqlMode = "two"')
+  await runSql(cdp)
+  const tabTexts = await cdp.eval(`JSON.stringify(
+    [...document.querySelectorAll('.db-sql-results-tabs .ant-tabs-tab')].filter(window.__vis).map(x => String(x.textContent).trim())
+  )`)
+  const tabs = JSON.parse(tabTexts)
+  const expSuffix = await cdp.eval(`' · ' + String(window.translate('dbSqlElapsedTotal'))
+    .replace('{ms}', '123')`)
+  check('E3 多结果集：总耗时标在每个页签旁（两页签共享一份 123 ms）',
+    tabs.length === 2 && tabs.every(t => t.includes(expSuffix)),
+    { tabs, expSuffix })
+  await cdp.eval('window.__sqlMode = "one"')
+  await runSql(cdp)
 
   // ---------- D) 导出补齐（TSV / JSONL / Markdown，CSV / JSON 回归） ----------
   // downloadText 走 Blob + a[download]，Electron 里会真触发下载；判据不落盘，

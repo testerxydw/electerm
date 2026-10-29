@@ -1016,6 +1016,8 @@ async function listColumns (conn, { schema } = {}) {
 async function executeSql (conn, { sql, readOnly }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
+  // 耗时从进函数起算（含取连接），是用户视角的"这条 SQL 花了多久"
+  const started = Date.now()
   const c = await getClient(conn)
   const res = await c.query(sql)
   // pg 执行多语句时返回结果数组（每条语句一个 result），统一为 results
@@ -1027,7 +1029,8 @@ async function executeSql (conn, { sql, readOnly }) {
       fields: Array.isArray(r.fields) ? r.fields.map(f => f.name) : [],
       // H1a-3：与 fields 同长同序的类型契约，见 db-type-normalize.js
       columns: toColumns(r.fields, f => normalizePgType(f.dataTypeID))
-    }))
+    })),
+    elapsedMs: Date.now() - started
   }
 }
 

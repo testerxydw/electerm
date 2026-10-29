@@ -924,6 +924,14 @@
   border-radius var(--radius-sm)
   margin-bottom 4px
 
+// 工具行右侧状态行：{rows} 行 · {ms} ms。margin-left auto 顶到工具行右沿；
+// 12px 次要色 —— 是参考信息，不能跟分页器/过滤框抢视觉
+.db-sql-elapsed
+  margin-left auto
+  font-size 12px
+  color var(--text-dark)
+  white-space nowrap
+
 // S3-C：SQL 执行历史弹层
 // 尺寸由 JS 内联给（可拖拽 + 持久化），这里的 width/height 只是"JS 没给值"时的兜底
 .db-history-pop

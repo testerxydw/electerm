@@ -1107,6 +1107,8 @@ async function listColumns (conn, { database } = {}) {
 async function executeSql (conn, { sql, database, readOnly }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
+  // 耗时从进函数起算（含取连接），是用户视角的"这条 SQL 花了多久"
+  const started = Date.now()
   const pool = await getPool(conn)
   // 必须同一连接先 USE 再执行：pool.query 两次可能拿到不同连接，USE 会失效；
   // 连接未指定默认库（如 URI 快速连接不带库名）时"库名.表名"裸表名会报 No database selected，
@@ -1118,7 +1120,8 @@ async function executeSql (conn, { sql, database, readOnly }) {
     }
     const [rows, fields] = await c.query(sql)
     return {
-      results: normalizeResults(rows, fields)
+      results: normalizeResults(rows, fields),
+      elapsedMs: Date.now() - started
     }
   } finally {
     c.release()

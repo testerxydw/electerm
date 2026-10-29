@@ -629,6 +629,23 @@ const main = async () => {
 
   const hard = cdpRef.events.filter(e => /^(EX |ERROR|LOG )/.test(e))
   check('V4 真库全程无渲染层硬错误', hard.length === 0, hard.slice(0, 6))
+
+  // V5：状态行显示真实耗时（真库往返不是 0 ms，桩测只能验格式，这里验真值）
+  const elapsedReal = JSON.parse(await cdp.eval(`JSON.stringify((() => {
+    const t = [...document.querySelectorAll('.db-sql-result-tools')].filter(window.__vis)[0]
+    const el = t && t.querySelector('.db-sql-elapsed')
+    return el ? String(el.textContent).trim() : null
+  })())`))
+  // 期望格式从词条现算（{rows}/{ms} 换成数字通配），不硬编码语言
+  const v5Pat = String(await cdp.eval(`(() => {
+    const esc = s => String(s).replace(/[[\\]{}()*+?.,\\\\^$|#]/g, String.fromCharCode(92) + '$&')
+    return esc(window.translate('dbSqlRowsElapsed'))
+      .replace(esc('{rows}'), '[0-9]+').replace(esc('{ms}'), '[0-9]+')
+  })()`))
+  const msOf = String(elapsedReal).match(new RegExp(v5Pat))
+  check('V5 状态行显示真实耗时（行数 · 毫秒，毫秒是真库往返 > 0）',
+    msOf && Number(msOf[0].match(/[0-9]+/g).pop()) > 0,
+    { elapsedReal })
   return finish()
 }
 

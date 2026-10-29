@@ -738,6 +738,8 @@ export default auto(function DbSession (props) {
     loading: false,
     // 多结果集：每项 { rows, fields, affected }（单条语句时只有 1 项）
     results: [],
+    // 整次执行的耗时 ms（主进程回传，多结果集共享；旧后端无此字段时为 null）
+    elapsedMs: null,
     error: ''
   })
   // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
@@ -2391,6 +2393,11 @@ export default auto(function DbSession (props) {
         setSqlResult({
           loading: false,
           results: (res && res.results) || [],
+          // 主进程回传的整次执行耗时（多结果集共享一份总耗时）；旧后端没有
+          // 这个字段时为 null，状态行只显示行数
+          elapsedMs: res && Number.isFinite(Number(res.elapsedMs))
+            ? Number(res.elapsedMs)
+            : null,
           error: ''
         })
         // H1a-2：重新执行 = 新一轮列宽（拖过的宽对新结果集没有意义）。
@@ -4299,6 +4306,24 @@ export default auto(function DbSession (props) {
                 ? colFitAllBtn(sqlWidths)
                 : null
             }
+            {
+              // H1：右侧状态行。行数用命中口径 —— 筛完显示"筛出来的行数"，
+              // 与网格所见一致（总数在过滤框旁的命中/总数里）；耗时是整次执行的
+              // 总耗时，多结果集共享一份（各页签旁另标"总 {n} ms"）
+              view.total
+                ? (
+                  <span className='db-sql-elapsed'>
+                    {
+                      sqlResult.elapsedMs === null
+                        ? e('dbSqlRows').replace('{rows}', view.matched)
+                        : e('dbSqlRowsElapsed')
+                          .replace('{rows}', view.matched)
+                          .replace('{ms}', sqlResult.elapsedMs)
+                    }
+                  </span>
+                  )
+                : null
+            }
           </div>
           {
             r.affected !== undefined
@@ -4325,7 +4350,12 @@ export default auto(function DbSession (props) {
         className='db-sql-results-tabs'
         items={results.map((r, i) => ({
           key: String(i),
-          label: e('dbResultN').replace('{n}', i + 1),
+          // 多结果集共享一份总耗时，标在每个页签旁（各结果集不单独计时）
+          label: e('dbResultN').replace('{n}', i + 1) + (
+            sqlResult.elapsedMs !== null
+              ? ' · ' + e('dbSqlElapsedTotal').replace('{ms}', sqlResult.elapsedMs)
+              : ''
+          ),
           children: renderOne(r, i)
         }))}
       />

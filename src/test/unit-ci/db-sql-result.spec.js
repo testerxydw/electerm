@@ -405,3 +405,30 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     assert.ok(/e\('dbShowHideCols'\)/.test(src) && /e\('dbShowAllCols'\)/.test(src))
   })
 })
+
+describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
+  const src = fs.readFileSync(SESSION, 'utf8')
+  const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
+
+  test('runSql 存 elapsedMs：后端没回传时存 null（不显示 NaN），回传了必须是有限数', () => {
+    const block = src.match(/setSqlResult\(\{\s*loading: false,\s*results:[\s\S]*?\}\)/)
+    assert.ok(block, '找不到 runSql 成功落状态的那一处')
+    assert.ok(/elapsedMs/.test(block[0]), '成功结果没带耗时')
+    assert.ok(/Number\.isFinite\(Number\(res\.elapsedMs\)\)/.test(block[0]), '必须先验证是有限数，旧后端没有这个字段')
+    assert.ok(/: null/.test(block[0]), '没有耗时字段时落 null，前端按"不显示"处理')
+  })
+
+  test('状态行：行数用命中口径，词条 en + zh 各一条', () => {
+    assert.ok(/className='db-sql-elapsed'/.test(src), '工具行右侧没有状态行')
+    assert.ok(/replace\('\{rows\}', view\.matched\)/.test(src), '行数必须是命中口径（与网格所见一致），不是原始总数')
+    for (const k of ['dbSqlRows', 'dbSqlRowsElapsed', 'dbSqlElapsedTotal']) {
+      assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
+    }
+  })
+
+  test('多结果页签旁标总耗时；旧后端（null）时页签标题保持原样', () => {
+    const block = src.slice(src.indexOf("className='db-sql-results-tabs'"))
+    assert.ok(/dbSqlElapsedTotal/.test(block), '页签标题没带总耗时')
+    assert.ok(/sqlResult\.elapsedMs !== null/.test(block), 'null 时不能往页签标题拼 undefined')
+  })
+})

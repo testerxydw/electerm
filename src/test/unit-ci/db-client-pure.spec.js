@@ -899,3 +899,70 @@ describe('postgres executeSql 输出 columns（与 fields 同长同序）', () =
     assert.equal(res.results[0].columns.length, 0)
   })
 })
+
+// ---------- H1：executeSql 回传整次执行耗时（elapsedMs，主进程计时） ----------
+
+describe('mysql executeSql 回传 elapsedMs（vm 打桩）', () => {
+  test('耗时是有限数字且随返回一起出（含取连接的全程）', async () => {
+    let queries = 0
+    const pool = {
+      async getConnection () {
+        return {
+          async query () {
+            queries++
+            return [[{ a: 1 }], [{ name: 'a' }]]
+          },
+          release () {}
+        }
+      }
+    }
+    const mod = loadMysqlInVm({ createPool () { return pool } })
+    // CONN 不带库名 → 没有 USE，只有用户 SQL 一次查询
+    const res = await mod.executeSql(CONN, { sql: 'select a from t', readOnly: false })
+    assert.equal(queries, 1)
+    assert.equal(res.results.length, 1)
+    assert.equal(typeof res.elapsedMs, 'number')
+    assert.ok(res.elapsedMs >= 0, '耗时不能是负数')
+  })
+
+  test('查询失败也带着耗时上抛路径无关（失败时无返回对象，不虚报耗时）', async () => {
+    const pool = {
+      async getConnection () {
+        return {
+          async query () {
+            throw new Error('mock query fail')
+          },
+          release () {}
+        }
+      }
+    }
+    const mod = loadMysqlInVm({ createPool () { return pool } })
+    await assert.rejects(
+      mod.executeSql(CONN, { sql: 'select 1', readOnly: false }),
+      /mock query fail/
+    )
+  })
+})
+
+describe('postgres executeSql 回传 elapsedMs', () => {
+  const CONN2 = { dbHost: 'h', dbPort: 5432, dbUser: 'u', dbName: 'd' }
+
+  function makePgResult (result) {
+    const PgClient = function () {}
+    PgClient.prototype.connect = async function () {}
+    PgClient.prototype.query = async function () { return result }
+    PgClient.prototype.end = async function () {}
+    return { Client: PgClient }
+  }
+
+  test('耗时是有限数字且多语句也是一份总耗时', async () => {
+    const mod = loadPostgresInVm(makePgResult([
+      { rows: [{ a: 1 }], command: 'SELECT', fields: [{ name: 'a', dataTypeID: 20 }] },
+      { rows: [], command: 'INSERT', rowCount: 1, fields: [] }
+    ]))
+    const res = await mod.executeSql(CONN2, { sql: 'select 1; insert into t values (1)', readOnly: false })
+    assert.equal(res.results.length, 2)
+    assert.equal(typeof res.elapsedMs, 'number')
+    assert.ok(res.elapsedMs >= 0)
+  })
+})
