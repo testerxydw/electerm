@@ -17,6 +17,9 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
 const loadJsx = () => fs.readFileSync(JSX, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')
+// H1a-4：数据页 / SQL 结果页列定义并入公共列工厂，单元格级契约跟着挪过去
+const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
+const loadCols = () => fs.readFileSync(COLS, 'utf8')
 
 // 从 db-session.jsx 里抽出 DbGridTable 的 y 推导表达式，跑的是发布代码而非拷贝
 const loadCalcScrollY = () => {
@@ -104,7 +107,8 @@ describe('批次 C：数据库页渲染收口契约', () => {
     const colBlock = src.match(/const columns = (?:useMemo\(\(\) => \()?grid\.rows\.length[\s\S]*?\n\s{4}: \[\]/)
     assert.ok(colBlock, 'columns block not found')
     assert.ok(!colBlock[0].includes('slice(0, 100)'), 'width sampling must stay out of columns')
-    assert.ok(colBlock[0].includes('widthOf(k)'), 'columns must consume memoized widths')
+    // H1a-4：widthOf 的消费随列定义搬进工厂（wg 整体传参），调用点只交宽度系统
+    assert.ok(colBlock[0].includes('wg: dataWidths'), 'columns must hand the width system to the factory')
     // A1：columns 必须是 memo 化的，否则列定义每轮重建、antd 收不到同一份引用
     assert.ok(/const columns = useMemo\(/.test(src), 'columns must be memoized')
     // E2-3b：宽度消费挪进了 widthOf（拖拽中 > 视角记忆 > 自适应），
@@ -116,7 +120,7 @@ describe('批次 C：数据库页渲染收口契约', () => {
     assert.ok(hookCall, 'data grid must take its widths from useColWidths')
     assert.ok(hookCall[0].includes('fitted: columnWidths'), 'memoized sampling must feed the shared hook')
     assert.ok(
-      src.includes('const { live: dataLive, widthOf } = dataWidths'),
+      src.includes('const { live: dataLive } = dataWidths'),
       'widthOf must come from the shared hook, not a local copy'
     )
     const resize = fs.readFileSync(RESIZE_JSX, 'utf8')
@@ -148,12 +152,14 @@ describe('批次 C：数据库页渲染收口契约', () => {
   })
 
   test('网格单元格键盘可达（Tab / Enter / F2 / Esc）', () => {
-    const src = loadJsx()
-    assert.ok(src.includes('tabIndex: 0'), 'cell td must be focusable')
-    assert.ok(src.includes("ev.key === 'F2'"), 'F2 edit shortcut missing')
-    assert.ok(src.includes("'aria-label': k"), 'cell aria-label missing')
-    assert.ok(src.includes("if (ev.key === 'Escape')"), 'Esc exit missing')
-    assert.ok(src.includes('ev.target !== ev.currentTarget'), 'editor key events must not bubble into td handler')
+    const colSrc = loadCols()
+    // 键盘可达随列定义进工厂（数据页开 keyboardAccessible，SQL 结果只读不开）
+    assert.ok(colSrc.includes('tabIndex: 0'), 'cell td must be focusable')
+    assert.ok(colSrc.includes("ev.key === 'F2'"), 'F2 edit shortcut missing')
+    assert.ok(colSrc.includes("'aria-label': k"), 'cell aria-label missing')
+    assert.ok(colSrc.includes("if (ev.key === 'Escape')"), 'Esc exit missing')
+    assert.ok(colSrc.includes('ev.target !== ev.currentTarget'), 'editor key events must not bubble into td handler')
+    assert.ok(loadJsx().includes('keyboardAccessible: true'), 'data grid must opt in to keyboard access')
   })
 
   test('.db-cell-editable 有 focus-visible 焦点环', () => {

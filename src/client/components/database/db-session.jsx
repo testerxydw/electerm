@@ -5,8 +5,8 @@
  */
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Pagination } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete } from 'antd'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -20,6 +20,9 @@ import DbRefsPane from './db-refs-pane'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
 // H1a-4（网格复用整合）：数据页 / SQL 结果页共用列工厂（差异全部参数化）
 import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
+// H1a-4：工具行公共件 —— 分页条（数据页 / Redis 键列表 / SQL 结果三处同一结构）
+// 与过滤输入（数据页 / SQL 结果同一外观，状态仍归各自页面）
+import { DbGridPager, DbGridFilter } from './db-grid-pager'
 import { DbCellMenu } from './db-cell-menu'
 import {
   fitColumnWidths,
@@ -744,6 +747,9 @@ export default auto(function DbSession (props) {
   })
   // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
   const [sqlPages, setSqlPages] = useState({})
+  // 跳页输入的草稿值（同样按结果集下标分栏）：分页条从 antd Pagination 换成
+  // 共用 DbGridPager 后，跳页框的草稿归本组件持有
+  const [sqlJumpDraft, setSqlJumpDraft] = useState({})
   // H1：每个结果集各自的视图状态（过滤 + 排序，列显隐随后接在同一份状态上）。
   // 与 sqlPages 同层、按 results 下标存 —— 多结果集分栏时"结果 1 筛过的词"
   // 不该影响"结果 2"
@@ -4113,16 +4119,38 @@ export default auto(function DbSession (props) {
       // 超过一页才出分页器（单行结果保持原样）。
       // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
       // H1：分页按**过滤后**的行数算，筛完不足一页就不再有分页器
+      // H1a-4：从 antd Pagination 换成与数据页同一份 DbGridPager —— 功能不缩水
+      // （跳页 + 总数都在；页大小选择器本来就在旁边一行），页码展示口径也对齐
+      const page = sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)
+      const sqlTotalPages = Math.max(1, Math.ceil(view.matched / sqlPageSize))
+      const jumpSqlPage = () => {
+        const p = Math.max(1, Number(sqlJumpDraft[i]) || 0)
+        if (!p) {
+          return
+        }
+        setSqlJumpDraft(prev => ({ ...prev, [i]: null }))
+        setSqlPages(prev => ({ ...prev, [i]: Math.min(p, sqlTotalPages) }))
+      }
       const pager = view.matched > sqlPageSize
         ? (
-          <Pagination
-            size='small'
-            current={sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)}
-            pageSize={sqlPageSize}
-            total={view.matched}
-            showSizeChanger={false}
-            showTotal={t => e('dbResultTotal').replace('{n}', t)}
-            onChange={p => setSqlPages(prev => ({ ...prev, [i]: p }))}
+          <DbGridPager
+            prevDisabled={page <= 1}
+            onPrev={() => setSqlPages(prev => ({ ...prev, [i]: page - 1 }))}
+            nextDisabled={page >= sqlTotalPages}
+            onNext={() => setSqlPages(prev => ({ ...prev, [i]: page + 1 }))}
+            pageNoText={e('dbPageLabel').replace('{n}', page)}
+            jump={{
+              numeric: true,
+              min: 1,
+              max: sqlTotalPages,
+              value: sqlJumpDraft[i] || null,
+              onChange: v => setSqlJumpDraft(prev => ({ ...prev, [i]: v })),
+              onPressEnter: jumpSqlPage,
+              placeholder: '1-' + sqlTotalPages
+            }}
+            goDisabled={!sqlJumpDraft[i]}
+            onGo={jumpSqlPage}
+            totalText={e('dbResultTotal').replace('{n}', view.matched)}
           />
           )
         : null
@@ -4147,31 +4175,22 @@ export default auto(function DbSession (props) {
             }
             {
               // H1：本页过滤 —— 匹配的是**整份结果**（不是当前页），与数据页那个
-              // "筛选当前页"是两件事，所以文案与状态都各归各的
+              // "筛选当前页"是两件事，所以文案与状态都各归各的。
+              // H1a-4：输入框外观与数据页统一走 DbGridFilter（防抖逻辑留在
+              // onSqlFilterInput —— 语义是"整份结果"扫描，与数据页的即时高亮不同）
               view.total
                 ? (
-                  <Input
-                    size='small'
+                  <DbGridFilter
                     className='db-sql-filter'
-                    allowClear
                     suffix={<SearchOutlined />}
                     value={sqlFilterDraft[i] === undefined ? filter : sqlFilterDraft[i]}
                     placeholder={e('dbFilterResult')}
                     onChange={ev => onSqlFilterInput(i, ev.target.value)}
+                    count={filter
+                      ? e('dbFilterHit').replace('{m}', view.matched).replace('{t}', view.total)
+                      : null}
+                    countClass={'db-sql-filter-hit' + (view.matched ? '' : ' db-sql-filter-hit-empty')}
                   />
-                  )
-                : null
-            }
-            {
-              filter
-                ? (
-                  <span
-                    className={
-                      'db-sql-filter-hit' + (view.matched ? '' : ' db-sql-filter-hit-empty')
-                    }
-                  >
-                    {e('dbFilterHit').replace('{m}', view.matched).replace('{t}', view.total)}
-                  </span>
                   )
                 : null
             }
@@ -5311,8 +5330,8 @@ export default auto(function DbSession (props) {
           sel
             ? (
               <>
-                <Input
-                  size='small'
+                {/* H1a-4：过滤输入与 SQL 结果页统一走 DbGridFilter（状态仍归本页） */}
+                <DbGridFilter
                   className='db-page-filter'
                   value={pageFilter}
                   onChange={onPageFilterChange}
@@ -5324,17 +5343,8 @@ export default auto(function DbSession (props) {
                   }}
                   placeholder={e('dbFilterPage')}
                   title={e('dbFilterPageHint')}
-                  allowClear
+                  count={pageFilterKw ? `${filteredRows.length} / ${grid.rows.length}` : null}
                 />
-                {
-                  pageFilterKw
-                    ? (
-                      <span className='db-page-filter-count'>
-                        {filteredRows.length} / {grid.rows.length}
-                      </span>
-                      )
-                    : null
-                }
                 {
                   // B3-1：选中单元格即显示该列聚合（本页 = 当前显示行）。
                   // 只读展示，不写库、不发 SQL —— 需要全表聚合去 SQL 页签
@@ -5362,36 +5372,27 @@ export default auto(function DbSession (props) {
         {
           sel
             ? (
-              <div className='db-grid-pager'>
-                <Button
-                  size='small'
-                  icon={<LeftOutlined />}
-                  disabled={grid.page <= 1 || grid.loading}
-                  onClick={() => turnPage(grid.page - 1)}
-                />
-                {renderPageTags()}
-                <span className='db-grid-page-no'>{e('dbPageLabel').replace('{n}', grid.page)}</span>
-                <Button
-                  size='small'
-                  icon={<RightOutlined />}
-                  disabled={!grid.hasMore || grid.loading}
-                  onClick={() => turnPage(grid.page + 1)}
-                />
-                {/* 直接跳转到某页（totalPages 为估算值，跳页时钳制到估算末页） */}
-                <InputNumber
-                  size='small'
-                  min={1}
-                  max={totalPages || undefined}
-                  value={jumpPage}
-                  onChange={v => setJumpPage(v)}
-                  onPressEnter={goPage}
-                  className='db-grid-jump'
-                  placeholder={totalPages ? '1-' + totalPages : e('dbPagePlaceholder')}
-                />
-                <Button size='small' disabled={!jumpPage} onClick={goPage}>
-                  {e('dbGo')}
-                </Button>
-              </div>
+              // H1a-4：分页条与 SQL 结果 / Redis 键列表统一走 DbGridPager
+              <DbGridPager
+                prevDisabled={grid.page <= 1 || grid.loading}
+                onPrev={() => turnPage(grid.page - 1)}
+                nextDisabled={!grid.hasMore || grid.loading}
+                onNext={() => turnPage(grid.page + 1)}
+                pageTags={renderPageTags()}
+                pageNoText={e('dbPageLabel').replace('{n}', grid.page)}
+                // 直接跳转到某页（totalPages 为估算值，跳页时钳制到估算末页）
+                jump={{
+                  numeric: true,
+                  min: 1,
+                  max: totalPages || undefined,
+                  value: jumpPage,
+                  onChange: v => setJumpPage(v),
+                  onPressEnter: goPage,
+                  placeholder: totalPages ? '1-' + totalPages : e('dbPagePlaceholder')
+                }}
+                goDisabled={!jumpPage}
+                onGo={goPage}
+              />
               )
             : null
         }
@@ -7591,6 +7592,11 @@ export default auto(function DbSession (props) {
     ? redisKeyPageNo
     : redisKeyPages
 
+  // H1a-4：Redis 键列表的页码文案（有换算总页数时显示"第 x / 共 y 页"）
+  const redisPageNoText = redisKeyPagesShow
+    ? e('dbPageOfLabel').replace('{n}', redisKeyPageNo).replace('{m}', redisKeyPagesShow)
+    : e('dbPageLabel').replace('{n}', redisKeyPageNo)
+
   const redisArea = (
     <div className='db-redis-area'>
       {
@@ -7614,63 +7620,43 @@ export default auto(function DbSession (props) {
                 >
                   {e('filter')}
                 </Button>
-                <div className='db-grid-pager'>
-                  <Button
-                    size='small'
-                    icon={<LeftOutlined />}
-                    disabled={keyList.stack.length === 0 || keyList.loading}
-                    onClick={() => {
-                      const stack = keyList.stack
-                      loadRedisKeys(
-                        redisDb,
-                        stack[stack.length - 1],
-                        keyList.match,
-                        stack.slice(0, -1)
-                      )
-                    }}
-                  />
-                  <span
-                    className='db-grid-page-no'
-                    // 页数是按键数换算的，把键数挂上去说明依据（键会随并发写入变化）
-                    title={typeof redisKeyTotal === 'number' ? e('dbKeysTotal').replace('{n}', redisKeyTotal) : undefined}
-                  >
-                    {
-                      redisKeyPagesShow
-                        ? e('dbPageOfLabel')
-                          .replace('{n}', redisKeyPageNo)
-                          .replace('{m}', redisKeyPagesShow)
-                        : e('dbPageLabel').replace('{n}', redisKeyPageNo)
-                    }
-                  </span>
-                  <Button
-                    size='small'
-                    icon={<RightOutlined />}
-                    disabled={!keyList.hasMore || keyList.loading}
-                    onClick={() => loadRedisKeys(
+                {/* H1a-4：分页条与数据页 / SQL 结果统一走 DbGridPager
+                    （SCAN 无 offset：上一页走游标栈回退，下一页前向步进） */}
+                <DbGridPager
+                  prevDisabled={keyList.stack.length === 0 || keyList.loading}
+                  onPrev={() => {
+                    const stack = keyList.stack
+                    loadRedisKeys(
                       redisDb,
-                      keyList.nextCursor,
+                      stack[stack.length - 1],
                       keyList.match,
-                      [...keyList.stack, keyList.cursor]
-                    )}
-                  />
-                  {/* R1：键列表任意跳页（SCAN 无 offset，后端前向步进到目标页） */}
-                  <Input
-                    size='small'
-                    className='db-grid-jump'
-                    placeholder={redisKeyPagesShow ? '1-' + redisKeyPagesShow : e('dbPagePlaceholder')}
-                    value={keyJumpInput}
-                    onChange={ev => setKeyJumpInput(ev.target.value)}
-                    onPressEnter={() => jumpRedisKeysPage(keyJumpInput)}
-                    disabled={keyList.loading}
-                  />
-                  <Button
-                    size='small'
-                    disabled={keyList.loading || !String(keyJumpInput).trim()}
-                    onClick={() => jumpRedisKeysPage(keyJumpInput)}
-                  >
-                    {e('dbGo')}
-                  </Button>
-                </div>
+                      stack.slice(0, -1)
+                    )
+                  }}
+                  nextDisabled={!keyList.hasMore || keyList.loading}
+                  onNext={() => loadRedisKeys(
+                    redisDb,
+                    keyList.nextCursor,
+                    keyList.match,
+                    [...keyList.stack, keyList.cursor]
+                  )}
+                  pageNoText={redisPageNoText}
+                  // 页数是按键数换算的，把键数挂上去说明依据（键会随并发写入变化）
+                  pageNoTitle={typeof redisKeyTotal === 'number'
+                    ? e('dbKeysTotal').replace('{n}', redisKeyTotal)
+                    : undefined}
+                  // R1：键列表任意跳页（SCAN 无 offset，后端前向步进到目标页）
+                  jump={{
+                    numeric: false,
+                    value: keyJumpInput,
+                    onChange: ev => setKeyJumpInput(ev.target.value),
+                    onPressEnter: () => jumpRedisKeysPage(keyJumpInput),
+                    disabled: keyList.loading,
+                    placeholder: redisKeyPagesShow ? '1-' + redisKeyPagesShow : e('dbPagePlaceholder')
+                  }}
+                  goDisabled={keyList.loading || !String(keyJumpInput).trim()}
+                  onGo={() => jumpRedisKeysPage(keyJumpInput)}
+                />
                 {/* 刷新放在翻页之后，与 MySQL 网格头一致 */}
                 <Button
                   size='small'

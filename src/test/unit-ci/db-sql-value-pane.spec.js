@@ -27,6 +27,9 @@ const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 const jsx = () => fs.readFileSync(SESSION, 'utf8')
 const splitSrc = () => fs.readFileSync(SPLIT, 'utf8')
 const styl = () => fs.readFileSync(STYL, 'utf8')
+// H1a-4：SQL 结果列定义并入公共列工厂，单元格级契约跟着挪过去
+const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
+const colFactory = () => fs.readFileSync(COLS, 'utf8')
 
 // 去掉行注释：契约钉的是"代码里有没有这一句"，不是"注释里提没提"
 function codeOf (src) {
@@ -105,18 +108,23 @@ describe('SQL 结果区：选中一格就展开下方面板', () => {
 
   test('单击选中：三元组用绝对行下标；不给双击编辑', () => {
     const src = codeOf(jsx())
-    assert.match(src, /onClick: \(\) => setSqlCell\(\{ rs: i, col: k, rowKey: row\.__rowKey \}\)/)
-    const onCell = /onCell: row => \(\{\n {12}onClick: \(\) => setSqlCell\([\s\S]*?\n {10}\}\),/.exec(src)
-    assert.ok(onCell, 'SQL 结果的 onCell 结构变了')
-    assert.ok(!/onDoubleClick/.test(onCell[1]), 'SQL 结果是只读视图，不该挂双击编辑')
-    assert.ok(!/startEdit/.test(onCell[1]), '同上')
+    const colSrc = codeOf(colFactory())
+    // 三元组 (rs, col, rowKey) 的组装在调用点 selectCell 适配器里，onClick 在列工厂
+    assert.match(src, /selectCell: \(row, k\) => setSqlCell\(\{ rs: i, col: k, rowKey: row\.__rowKey \}\)/)
+    assert.match(colSrc, /onClick: \(\) => selectCell\(row, k\)/)
+    const block = src.slice(src.indexOf('const sqlResultColumns = useMemo('), src.indexOf('const sqlSortNumeric'))
+    assert.ok(!/\beditable\b/.test(block), 'SQL 结果是只读视图，不该进可编辑能力')
+    assert.ok(!/startEdit/.test(block), '同上')
   })
 
   test('选中格有落点标记，判定只长在列定义里', () => {
     const src = codeOf(jsx())
-    // 两处 = SQL 结果列定义 + Redis 详情的选中格工厂（5 张详情表共用那一个工厂）；
-    // 再冒出新的一处就说明有人把 class 写到了 render 里
-    assert.equal((src.match(/db-cell-selected/g) || []).length, 2, 'class 只应出现在 SQL 列定义与 Redis 选中格工厂里')
+    const colSrc = codeOf(colFactory())
+    // 两处 = 列工厂（数据页/SQL 共用那份列定义）+ Redis 详情的选中格工厂
+    // （5 张详情表共用那一个工厂）；再冒出新的一处就说明有人把 class 写到了 render 里
+    const total = (src.match(/db-cell-selected/g) || []).length +
+      (colSrc.match(/db-cell-selected/g) || []).length
+    assert.equal(total, 2, 'class 只应出现在列工厂与 Redis 选中格工厂里')
     const css = /\.db-cell-selected\n((?: {2}.*\n)+)/.exec(styl())
     assert.ok(css, '.db-cell-selected 未定义')
     assert.match(css[1], /box-shadow inset 0 0 0 1px var\(--primary\)/)
@@ -215,7 +223,8 @@ describe('悬停预览卡已移除（全部数据库网格）', () => {
   })
 
   test('单元格截断仍关闭原生 title（保留单一路径的悬停观感）', () => {
-    assert.match(codeOf(jsx()), /const CELL_ELLIPSIS = \{ showTitle: false \}/)
+    // CELL_ELLIPSIS 随列定义搬进公共列工厂
+    assert.match(codeOf(colFactory()), /const CELL_ELLIPSIS = \{ showTitle: false \}/)
   })
 
   test('CSS：预览卡与折叠工具条样式一并清掉', () => {

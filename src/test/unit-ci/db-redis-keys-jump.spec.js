@@ -227,7 +227,8 @@ describe('R1 补充：键列表总页数（无过滤时按 INFO keyspace 键数�
     // 真末页以实测为准，不得出现「第 3 / 5 页」而下一页已禁用
     assert.ok(block.includes('!keyList.hasMore'), 'last page must fall back to measured page count')
     assert.ok(block.includes('redisKeyPagesShow'), 'display value must go through the last-page clamp')
-    const pager = src.slice(src.indexOf('const redisArea ='), src.indexOf('mainArea'))
+    // H1a-4：页码文案提为常量（分页条换共用 DbGridPager），从常量定义处起截
+    const pager = src.slice(src.indexOf('const redisPageNoText'), src.indexOf('mainArea'))
     assert.ok(pager.includes("e('dbPageOfLabel')"), 'pager label must switch to 第 N / M 页')
     assert.ok(pager.includes("e('dbPageLabel')"), 'fallback label must stay')
     assert.ok(pager.includes("'1-' + redisKeyPagesShow"), 'jump input must hint the page range')

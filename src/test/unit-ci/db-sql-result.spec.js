@@ -308,7 +308,8 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
   })
   test('分页器与网格都读过滤后的口径（matched / pageRows），不再读原始 rows', () => {
     const block = src.slice(src.indexOf('const renderOne = (r, i) =>'))
-    assert.ok(/total=\{view\.matched\}/.test(block), '分页器 total 还是原始行数')
+    // H1a-4：分页条换共用 DbGridPager 后，总数走 totalText（仍是 matched）
+    assert.ok(/totalText=\{e\('dbResultTotal'\)\.replace\('\{n\}', view\.matched\)\}/.test(block), '分页器 total 还是原始行数')
     assert.ok(/dataSource=\{view\.pageRows\}/.test(block), '网格数据源还是整份切片')
     assert.ok(!/dataSource=\{sqlResultRowMaps/.test(block), '旧的行数组变量该退役了')
   })
@@ -356,8 +357,9 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
       '排序没把"这一列是不是数值列"传进去')
   })
   test('表头点击受控：列头拿到 sort/onSort，三档由 nextSqlSort 决定，不重新执行 SQL', () => {
-    assert.ok(/sort=\{sqlSortOf\(sqlViews, i, k\)\}/.test(src), '列头没拿到受控排序状态')
-    assert.ok(/onSort=\{\(\) => onSqlSort\(i, k\)\}/.test(src), '列头没接点击')
+    // H1a-4：受控排序随列定义进列工厂，调用点传 sortOf / onSort 适配器
+    assert.ok(/sortOf: k => sqlSortOf\(sqlViews, i, k\)/.test(src), '列头没拿到受控排序状态')
+    assert.ok(/onSort: k => onSqlSort\(i, k\)/.test(src), '列头没接点击')
     assert.ok(src.indexOf('nextSqlSort(') > -1, '三档循环没走共用函数')
     const fn = src.match(/const onSqlSort = \(i, key\) => \{[\s\S]*?\n {2}\}/)
     assert.ok(fn, '找不到排序处理函数')
@@ -432,6 +434,7 @@ describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
     assert.ok(/sqlResult\.elapsedMs !== null/.test(block), 'null 时不能往页签标题拼 undefined')
   })
 })
+
 describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', () => {
   const src = fs.readFileSync(SESSION, 'utf8')
   const menuSrc = fs.readFileSync(

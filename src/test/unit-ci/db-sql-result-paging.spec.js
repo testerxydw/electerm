@@ -108,12 +108,14 @@ describe('SQL 结果分页：接线契约', () => {
 
   test('pager is wired to the per-result page state', () => {
     const src = read()
-    // 分页口径是**过滤后**的命中数，不是原始行数（筛完不足一页就不该再有分页器）
-    assert.ok(src.includes('current={sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)}'), 'current page not wired')
-    assert.ok(src.includes('pageSize={sqlPageSize}'), 'page size not wired')
-    assert.ok(src.includes('total={view.matched}'), 'total not wired')
-    assert.ok(src.includes('showSizeChanger={false}'), 'pager must not render its own size changer (tools row owns it)')
-    assert.ok(src.includes('onChange={p => setSqlPages('), 'page change handler missing')
+    // 分页口径是**过滤后**的命中数，不是原始行数（筛完不足一页就不该再有分页器）。
+    // H1a-4：分页条从 antd Pagination 换成共用 DbGridPager（与数据页同一结构），
+    // 页码仍从 sqlPageIndex 派生、翻页仍写 sqlPages，总数仍读 matched
+    assert.ok(src.includes('const page = sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)'), 'current page not wired')
+    assert.ok(src.includes('Math.ceil(view.matched / sqlPageSize)'), 'page count must derive from matched')
+    assert.ok(src.includes("totalText={e('dbResultTotal').replace('{n}', view.matched)}"), 'total not wired')
+    assert.ok(src.includes('setSqlPages(prev => ({ ...prev, [i]: page - 1 }))'), 'prev handler missing')
+    assert.ok(src.includes('setSqlPages(prev => ({ ...prev, [i]: page + 1 }))'), 'next handler missing')
   })
 
   test('pager lives in the top tools row, not the table footer', () => {
