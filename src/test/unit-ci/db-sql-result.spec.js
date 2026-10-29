@@ -432,3 +432,79 @@ describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
     assert.ok(/sqlResult\.elapsedMs !== null/.test(block), 'null 时不能往页签标题拼 undefined')
   })
 })
+describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', () => {
+  const src = fs.readFileSync(SESSION, 'utf8')
+  const menuSrc = fs.readFileSync(
+    path.join(ROOT, 'src/client/components/database/db-cell-menu.jsx'), 'utf8')
+  const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
+  const fnStart = src.indexOf('const openSqlCellMenu')
+  const fn = src.slice(fnStart, src.indexOf('const exportSqlCsv', fnStart))
+
+  test('结果网格每格挂 onContextMenu → 单例菜单：不逐格挂 Dropdown，也不给列头另开一份', () => {
+    const colsBlock = src.slice(
+      src.indexOf('const sqlResultColumns = useMemo('),
+      src.indexOf('const sqlSortNumeric')
+    )
+    // H1a-4：onCell 的接线在列工厂里，调用点只传 openCellMenu 适配器
+    assert.ok(/openCellMenu: \(ev, row, k\) => openSqlCellMenu\(ev, i, k, row\)/.test(colsBlock),
+      'SQL 结果的单元格没接右键')
+    const colSrc = fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx'), 'utf8')
+    assert.ok(/onContextMenu: ev => openCellMenu\(ev, row, k\)/.test(colSrc), '列工厂没把 onContextMenu 摊到格子上')
+    // 全组件只挂一份浮层（1 万行 × 5 列逐格挂 Trigger 会拖垮渲染）
+    assert.equal((src.match(/<DbCellMenu/g) || []).length, 1, '右键菜单必须是全站单例')
+    assert.ok(!/Dropdown/.test(colsBlock), '列定义里不该出现逐格 Dropdown')
+  })
+
+  test('右键先 preventDefault（浏览器原生菜单不叠加），结果集拿不到就不开菜单', () => {
+    assert.ok(fnStart > -1, '找不到 openSqlCellMenu')
+    assert.ok(/ev\.preventDefault\(\)/.test(fn), '没拦原生右键菜单')
+    assert.ok(/if \(!r \|\| !row\) \{\s*return/.test(fn), '结果集/行缺失时应直接不开菜单')
+    assert.ok(/x: ev\.clientX/.test(fn) && /y: ev\.clientY/.test(fn), '落点用右键坐标（视口系）')
+  })
+
+  test('复制值口径与值面板同源：二进制信封复制 base64，其余复制 cellText', () => {
+    assert.ok(/isBinEnvelope\(v\) \? v\.__bin\.b64 : cellText\(v\)/.test(fn),
+      '复制值没走"信封→base64、其余→格子文本"这条口径')
+    assert.ok(/copy\(col\)/.test(fn), '复制字段名该直接写列名')
+  })
+
+  test('整行 TSV/JSON 的列序与导出同源（sqlExportHeaders 以 fields 为准）', () => {
+    assert.ok(/const headers = sqlExportHeaders\(r\)/.test(fn), '整行复制没和导出共用列序')
+    assert.ok(/toTsv\(headers, \[row\]\)/.test(fn), '整行 TSV 没走 db-csv 的 toTsv')
+    assert.ok(/buildCopyStatements\('json', \{ headers, rows: \[row\] \}\)/.test(fn),
+      '整行 JSON 没走 buildCopyStatements（信封占位与 null 语义在那边）')
+  })
+
+  test('按值过滤复用手动输入那条路（防抖/命中口径/页码回第 1 页都在 onSqlFilterInput 里）', () => {
+    assert.ok(/onSqlFilterInput\(rs, cellText\(v\)\)/.test(fn),
+      '按值过滤应写进这一结果集的过滤状态，而不是另起一套')
+    assert.ok(!/runSql\(/.test(fn), '右键动作不该重新执行 SQL')
+  })
+
+  test('菜单浮层的关闭通道与列宽菜单同一套（外点 capture / Escape / 滚动 / 点项即收）', () => {
+    assert.ok(/document\.addEventListener\('pointerdown', onDown, true\)/.test(menuSrc))
+    assert.ok(/ev\.key === 'Escape'/.test(menuSrc))
+    assert.ok(/window\.addEventListener\('scroll', onHide, true\)/.test(menuSrc))
+    assert.ok(/trigger=\{\[\]\}/.test(menuSrc), '浮层必须受控，不能让 Popover 自己开关')
+    assert.ok(/destroyOnHidden/.test(menuSrc), '关闭即卸载，DOM 里不留隐藏浮层')
+    assert.ok(/item\.onClick\(\)/.test(menuSrc) && /onHide\(\)/.test(menuSrc),
+      '点菜单项要先执行动作再收起')
+  })
+
+  test('新结果到位就收起右键菜单（菜单闭包握着旧行对象与旧结果集下标）', () => {
+    const eff = src.match(/useEffect\(\(\) => \{\s*setSqlPages\(\{\}\)[\s\S]*?\}, \[sqlResult\.results\]\)/)
+    assert.ok(eff, '找不到"新结果到位就重置"的 effect')
+    assert.ok(/setSqlCellMenu\(null\)/.test(eff[0]), '旧菜单留着就能抄旧行')
+  })
+
+  test('五条文案走词条，en + zh 各一条', () => {
+    for (const k of ['dbCellCopyValue', 'dbCellCopyColName', 'dbCellCopyRowTsv',
+      'dbCellCopyRowJson', 'dbCellFilterByValue']) {
+      assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
+    }
+    for (const k of ['dbCellCopyValue', 'dbCellCopyColName', 'dbCellCopyRowTsv',
+      'dbCellCopyRowJson', 'dbCellFilterByValue']) {
+      assert.ok(new RegExp("e\\('" + k + "'\\)").test(fn), k + ' 没被用上')
+    }
+  })
+})

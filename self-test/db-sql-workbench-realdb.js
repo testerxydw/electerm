@@ -646,6 +646,60 @@ const main = async () => {
   check('V5 状态行显示真实耗时（行数 · 毫秒，毫秒是真库往返 > 0）',
     msOf && Number(msOf[0].match(/[0-9]+/g).pop()) > 0,
     { elapsedReal })
+
+  // V6：真库数据上的右键复制 —— 只比哈希，绝不打印任何真实单元格内容
+  const v6Probe = await cdp.eval(`(() => {
+    window.__rCtx = (col, rowIdx) => {
+      const tr = window.__rows()[rowIdx || 0]
+      if (!tr) return 'no-row'
+      const idx = window.__colIdx(col)
+      if (idx < 0) return 'no-col'
+      const td = tr.children[idx]
+      if (!td) return 'no-td'
+      const r = td.getBoundingClientRect()
+      td.dispatchEvent(new window.MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, button: 2,
+        clientX: Math.round(r.x + 8), clientY: Math.round(r.y + 8)
+      }))
+      return 'ok'
+    }
+    window.__rMenu = () => {
+      const m = [...document.querySelectorAll('.db-cell-menu')].filter(window.__vis)[0]
+      if (!m) return JSON.stringify({ open: 0 })
+      return JSON.stringify({
+        open: 1,
+        head: String((m.querySelector('.db-cell-menu-head') || {}).textContent || '').trim(),
+        n: [...m.querySelectorAll('.db-cell-menu-item')].filter(window.__vis).length
+      })
+    }
+    window.__rPick = i => {
+      const m = [...document.querySelectorAll('.db-cell-menu')].filter(window.__vis)[0]
+      const items = m ? [...m.querySelectorAll('.db-cell-menu-item')].filter(window.__vis) : []
+      const it = items[i]
+      if (!it) return 'no-item'
+      it.click()
+      return 'ok'
+    }
+    window.__clipHash = () => {
+      try {
+        return String(window.__hash(String(window.pre.readClipboard ? window.pre.readClipboard() : '')))
+      } catch (err) {
+        return ''
+      }
+    }
+    return 'v6-probe'
+  })()`)
+  const v6CellHash = Number(await cdp.eval('window.__hash(String(window.__tdOf("id", 0).textContent).trim())'))
+  const v6Open = await cdp.eval('window.__rCtx("id", 0)')
+  await sleep(250)
+  const v6Menu = JSON.parse(await cdp.eval('window.__rMenu()'))
+  const v6Pick = await cdp.eval('window.__rPick(0)')
+  await sleep(400)
+  const v6ClipHash = Number(await cdp.eval('window.__clipHash()'))
+  check('V6 真库右键菜单：表头/五项齐、复制值与单元格哈希一致（不打印真实内容）',
+    v6Probe === 'v6-probe' && v6Open === 'ok' && v6Menu.open === 1 &&
+    v6Menu.head === 'id' && v6Menu.n === 5 && v6Pick === 'ok' && v6ClipHash === v6CellHash,
+    { open: v6Menu.open, head: v6Menu.head, n: v6Menu.n, pick: v6Pick, sameHash: v6ClipHash === v6CellHash })
   return finish()
 }
 

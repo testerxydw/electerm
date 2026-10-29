@@ -2382,3 +2382,34 @@ body.db-col-resizing
   width 1px
   height 1px
   pointer-events none
+
+// SQL 结果单元格右键菜单：与列宽菜单同一套外观（单例浮层、12px 项、token 上色）
+.db-cell-menu
+  display flex
+  flex-direction column
+  gap 2px
+  min-width 168px
+
+.db-cell-menu-head
+  padding 0 6px 4px
+  margin-bottom 2px
+  border-bottom 1px solid var(--border)
+  color var(--text-dark)
+  font-size 11px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-cell-menu-item
+  display block
+  width 100%
+  padding 4px 6px
+  border 0
+  border-radius var(--radius-sm)
+  background transparent
+  color var(--text)
+  font-size 12px
+  text-align left
+  cursor pointer
+  &:hover
+    background var(--hover-bg)

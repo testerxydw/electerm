@@ -1054,6 +1054,162 @@ const main = async () => {
     namesAfter.join(',') === 'id,note,tag,upper,nullable',
     { namesR1, namesR2, runC: pick(runC, ['fired']), namesAfter })
 
+  // ---------- M) 单元格右键菜单（复制值/字段名/整行 TSV/JSON + 按值过滤） ----------
+  // 探针：右键派原生 contextmenu（React 根监听会合成），浮层三项探针，
+  // 复制类判据一律读回真实剪贴板（writeClipboard 包装器会跨运行残留）
+  await cdp.eval(`(() => {
+    window.__ctxMenu = () => {
+      const m = [...document.querySelectorAll('.db-cell-menu')].filter(window.__vis)[0]
+      if (!m) return JSON.stringify({ open: 0 })
+      const items = [...m.querySelectorAll('.db-cell-menu-item')].filter(window.__vis)
+      const h = m.querySelector('.db-cell-menu-head')
+      return JSON.stringify({
+        open: 1,
+        head: h ? String(h.textContent).trim() : '',
+        items: items.map(x => String(x.textContent).trim())
+      })
+    }
+    window.__cellCtx = (col, rowIdx) => {
+      const tr = window.__rows()[rowIdx || 0]
+      if (!tr) return 'no-row'
+      const idx = window.__colIdx(col)
+      if (idx < 0) return 'no-col:' + col
+      const td = tr.children[idx]
+      if (!td) return 'no-td'
+      const r = td.getBoundingClientRect()
+      td.dispatchEvent(new window.MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, button: 2,
+        clientX: Math.round(r.x + 8), clientY: Math.round(r.y + 8)
+      }))
+      return 'ok'
+    }
+    window.__ctxPick = i => {
+      const m = [...document.querySelectorAll('.db-cell-menu')].filter(window.__vis)[0]
+      if (!m) return 'no-menu'
+      const items = [...m.querySelectorAll('.db-cell-menu-item')].filter(window.__vis)
+      const it = items[i]
+      if (!it) return 'no-item'
+      it.click()
+      return 'ok'
+    }
+    window.__escKey = () => {
+      document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      return 'esc'
+    }
+    // 剪贴板验"读回的真实内容"，不包 writeClipboard：包装器会跨次运行残留，
+    // 一旦页面上留着旧包装，本次的判据就长在过期状态上（上一版就这么把 F22 弄红了）
+    window.__clipEq = exp => {
+      try {
+        const t = String(window.pre.readClipboard ? window.pre.readClipboard() : '')
+        const e2 = typeof exp === 'function' ? String(exp()) : String(exp)
+        return JSON.stringify({ same: t === e2 ? 1 : 0, len: t.length, expLen: e2.length })
+      } catch (err) {
+        return JSON.stringify({ err: String(err) })
+      }
+    }
+    return 'ctx-probe-ready'
+  })()`)
+  await sleep(200)
+  // 固定回单结果集 1 万行、无过滤（C 段末尾重新执行过，视图是干净的）
+  await cdp.eval('window.__sqlMode = "one"')
+  await runSql(cdp)
+
+  // 打开菜单 → 等浮层真的渲染出来 → 再点第 idx 项。
+  // 三步必须分开走：contextmenu 与点击压在同一次 eval 里时，React 还没把
+  // 浮层渲出来，__ctxPick 点到的是上一次残留的菜单（或点空）
+  const ctxPick = async (col, rowIdx, idx) => {
+    const opened = await cdp.eval('window.__cellCtx(' + JSON.stringify(col) + ', ' + rowIdx + ')')
+    await sleep(150)
+    const menu = JSON.parse(await cdp.eval('window.__ctxMenu()'))
+    const picked = await cdp.eval('window.__ctxPick(' + idx + ')')
+    await sleep(350)
+    return { opened, open: menu.open, picked }
+  }
+
+  const mxOpen1 = await ctxPick('note', 0, -1)
+  const mxMenu1 = JSON.parse(await cdp.eval('window.__ctxMenu()'))
+  const mxExpMenu = JSON.parse(await cdp.eval(`JSON.stringify(
+    ['dbCellCopyValue', 'dbCellCopyColName', 'dbCellCopyRowTsv', 'dbCellCopyRowJson', 'dbCellFilterByValue']
+      .map(k => String(window.translate(k)))
+  )`))
+  check('M1 右键出菜单：表头=列名、五项词条齐且顺序正确（不是裸 key）',
+    mxOpen1.opened === 'ok' && mxMenu1.open === 1 && mxMenu1.head === 'note' &&
+    mxMenu1.items.join('|') === mxExpMenu.join('|'),
+    { opened: mxOpen1.opened, head: mxMenu1.head, items: mxMenu1.items })
+  // 先收掉 M1 打开的菜单（点第一项只会复制值，M2 反正要重开）
+  await cdp.eval('window.__escKey()')
+  await sleep(400)
+
+  // 期望值一律在动作**之前**从 DOM 取：复制/过滤之后网格可能已变
+  const mxCellNote0 = String((await cdp.jeval('window.__cellXY("note", 0)')).text)
+  const mxP2 = await ctxPick('note', 0, 0)
+  const mxClipValue = JSON.parse(await cdp.eval('window.__clipEq(' + JSON.stringify(mxCellNote0) + ')'))
+  check('M2 复制值：剪贴板里就是那一格的可见文本（读回真实剪贴板，不是拦写入）',
+    mxP2.picked === 'ok' && mxClipValue.same === 1 && mxClipValue.len > 0,
+    { pick: mxP2.picked, ...mxClipValue })
+
+  const mxP3 = await ctxPick('note', 0, 1)
+  const mxClipCol = JSON.parse(await cdp.eval('window.__clipEq("note")'))
+  check('M3 复制字段名：写入的是列名本身',
+    mxP3.picked === 'ok' && mxClipCol.same === 1 && mxClipCol.len === 4,
+    { pick: mxP3.picked, ...mxClipCol })
+
+  const mxP4 = await ctxPick('note', 0, 2)
+  const mxTsvInfo = JSON.parse(await cdp.eval(`(() => {
+    const t = String(window.pre.readClipboard())
+    const lines = t.split(String.fromCharCode(10))
+    return JSON.stringify({
+      head: lines[0],
+      n: lines.length,
+      rowHasCell: lines[1] ? lines[1].indexOf('note-1') > -1 : false
+    })
+  })()`))
+  check('M4 复制整行 TSV：表头行=五个列名制表符连接，整行只有 表头+1 行且含该格值',
+    mxP4.picked === 'ok' && mxTsvInfo.head === ['id', 'note', 'tag', 'upper', 'nullable'].join(String.fromCharCode(9)) &&
+    mxTsvInfo.n === 2 && mxTsvInfo.rowHasCell,
+    { pick: mxP4.picked, ...mxTsvInfo })
+
+  const mxP5 = await ctxPick('note', 0, 3)
+  const mxJsonInfo = JSON.parse(await cdp.eval(`(() => {
+    try {
+      const a = JSON.parse(String(window.pre.readClipboard()))
+      return JSON.stringify({ isArray: Array.isArray(a), n: a.length, keys: Object.keys(a[0] || {}).join(','), note: a[0] && a[0].note })
+    } catch (e) { return JSON.stringify({ err: String(e) }) }
+  })()`))
+  check('M5 复制整行 JSON：单元素数组、键与列序同源、note 值正确',
+    mxP5.picked === 'ok' && mxJsonInfo.isArray && mxJsonInfo.n === 1 &&
+    mxJsonInfo.keys === 'id,note,tag,upper,nullable' && mxJsonInfo.note === 'note-1',
+    { pick: mxP5.picked, ...mxJsonInfo })
+
+  // 菜单开着按 Esc 收起（关闭通道与列宽菜单同一套）
+  const mxReopen = await cdp.eval('window.__cellCtx("note", 1)')
+  await sleep(150)
+  const mxBeforeEsc = JSON.parse(await cdp.eval('window.__ctxMenu()'))
+  await cdp.eval('window.__escKey()')
+  await sleep(500)
+  const mxAfterEsc = JSON.parse(await cdp.eval('window.__ctxMenu()'))
+  check('M6 Esc 关掉右键菜单（DOM 里不留隐藏浮层，destroyOnHidden）',
+    mxReopen === 'ok' && mxBeforeEsc.open === 1 && mxAfterEsc.open === 0,
+    { mxReopen, before: mxBeforeEsc.open, after: mxAfterEsc.open })
+
+  // 按值过滤：与手动输入同一条路（防抖 + 命中口径 + 页码回第 1 页）
+  const mxUpperRow0 = String((await cdp.jeval('window.__cellXY("upper", 0)')).text)
+  const mxP7 = await ctxPick('upper', 0, 4)
+  let mxMFilter = null
+  const t0m = Date.now()
+  while (Date.now() - t0m < 5000) {
+    const h = JSON.parse(await cdp.eval('window.__fHit()'))
+    if (h && h.exists) { mxMFilter = h; break }
+    await sleep(80)
+  }
+  const mxDraftUpper = await cdp.eval('window.__fValue()')
+  check('M7 按此值过滤：过滤框写入该格文本、命中口径出来（走的就是防抖那条路）',
+    mxP7.picked === 'ok' && String(mxDraftUpper) === mxUpperRow0 &&
+    mxMFilter && mxMFilter.t === 10000 && mxMFilter.m > 0,
+    { pick: mxP7.picked, upperRow0: mxUpperRow0, draft: mxDraftUpper, hit: mxMFilter && { m: mxMFilter.m, t: mxMFilter.t } })
+  await cdp.eval('window.__fClear()')
+  await sleep(400)
+
   // ---------- E) 执行耗时状态（{rows} 行 · {ms} ms + 多结果页签总耗时） ----------
   // 状态行探针：读可见工具行右端的 .db-sql-elapsed 文本
   await cdp.eval(`(() => {
