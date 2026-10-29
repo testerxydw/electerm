@@ -38,6 +38,8 @@ import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements, toTsv, toJsonl, toMarkdownTable } from '../../common/db-csv'
+// H3a：数据字典（Markdown/CSV）纯函数，内容来自 structureV2 的 v2 契约
+import { buildDataDictionary } from '../../common/db-dictionary'
 import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
 import {
   planSameValue,
@@ -237,6 +239,18 @@ const nodeKey = (database, schema, table) => JSON.stringify([
   schema || '',
   table || ''
 ])
+
+// 列清单 v2 的空态：除 columns/foreignKeys 外，H3a 数据字典还要 indexes/表注释/
+// 表类型/估算行数，所以整份契约一起留。只读常量，写入时用新对象覆盖
+const EMPTY_STRUCTURE_V2 = {
+  loading: false,
+  columns: [],
+  foreignKeys: [],
+  indexes: [],
+  type: 'table',
+  comment: null,
+  estimatedRows: null
+}
 
 // B1 插入行表单列归一化：两引擎 describeTable 字段名不同
 // （MySQL: Field/Type/Key/Extra；PG: column_name/data_type/is_primary_key/column_default），
@@ -580,7 +594,8 @@ export default auto(function DbSession (props) {
   // 主进程判未知列"的错位（那份还是 DESC 两引擎字段名不同的原始行，且没有注释）。
   // 与现有 structure 并列而不是替换：行定位、插入表单、表结构 tab 仍在用 describeTable。
   // F1：foreignKeys（本表外键）一并保留，供「关联」侧栏的"被引用父行"方向使用
-  const [structureV2, setStructureV2] = useState({ loading: false, columns: [], foreignKeys: [] })
+  // H3a：indexes/comment/type/estimatedRows 也留在这里，数据字典导出与结构页同源
+  const [structureV2, setStructureV2] = useState(EMPTY_STRUCTURE_V2)
   // 查询路径（loadPage/onTableChange 里的异步回调）要读到最新列清单，state 在闭包里会过期
   const structureV2Ref = useRef({ columns: [] })
   // E2-3b：单元格展示层本地化开关。默认 'none'（原样 String(value)），
@@ -1040,7 +1055,7 @@ export default auto(function DbSession (props) {
     viewKeyRef.current = ''
     countKeyRef.current = ''
     setView(fresh)
-    setStructureV2({ loading: false, columns: [], foreignKeys: [] })
+    setStructureV2(EMPTY_STRUCTURE_V2)
     structureV2Ref.current = { columns: [] }
     setViewMode('builder')
     setWhereDraft('')
@@ -1196,13 +1211,22 @@ export default auto(function DbSession (props) {
       const columns = (res && Array.isArray(res.columns)) ? res.columns : []
       const foreignKeys = (res && Array.isArray(res.foreignKeys)) ? res.foreignKeys : []
       structureV2Ref.current = { columns }
-      setStructureV2({ loading: false, columns, foreignKeys })
+      // H3a：整份 v2 契约留在 state 里（字典导出要索引/表注释/类型/行数估算）
+      setStructureV2({
+        loading: false,
+        columns,
+        foreignKeys,
+        indexes: (res && Array.isArray(res.indexes)) ? res.indexes : [],
+        type: (res && res.type) || 'table',
+        comment: (res && res.comment) || null,
+        estimatedRows: res && Number.isFinite(res.estimatedRows) ? res.estimatedRows : null
+      })
       // 列清单晚到：重算"哪些条件引用了不存在的列"（列被删后旧视角要静默降级）
       refreshViewParts()
       return columns
     }).catch(() => {
       structureV2Ref.current = { columns: [] }
-      setStructureV2({ loading: false, columns: [], foreignKeys: [] })
+      setStructureV2(EMPTY_STRUCTURE_V2)
       refreshViewParts()
       return []
     })
@@ -6965,6 +6989,25 @@ export default auto(function DbSession (props) {
     })
   }
 
+  // H3a：数据字典导出。内容与结构页同源（structureV2 = getTableStructure 的 v2 契约），
+  // 不发额外查询；DDL 只有 mysql 系能给，字典两引擎通用，所以入口放在工具行最右
+  const exportDictionary = (kind) => {
+    if (!sel || !structureV2.columns.length) {
+      return
+    }
+    const { markdown, csv } = buildDataDictionary({
+      table: sel,
+      structure: structureV2,
+      dialect: tab.dbType
+    })
+    const base = `dictionary-${sel.database}-${sel.table}-${tsName()}`
+    if (kind === 'csv') {
+      downloadText(`${base}.csv`, 'text/csv;charset=utf-8', csv)
+    } else {
+      downloadText(`${base}.md`, 'text/markdown;charset=utf-8', markdown)
+    }
+  }
+
   const structureArea = (
     <div className='db-struct-area'>
       {
@@ -6989,6 +7032,21 @@ export default auto(function DbSession (props) {
                   : null
               }
               {colFitAllBtn(structWidths)}
+              <Dropdown
+                trigger='click'
+                disabled={!structureV2.columns.length}
+                menu={{
+                  items: [
+                    { key: 'md', label: 'Markdown' },
+                    { key: 'csv', label: 'CSV' }
+                  ],
+                  onClick: ({ key }) => exportDictionary(key)
+                }}
+              >
+                <Button size='small' icon={<DownloadOutlined />}>
+                  {e('dbDictExport')}
+                </Button>
+              </Dropdown>
             </div>
             )
           : null

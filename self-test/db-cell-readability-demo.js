@@ -181,13 +181,23 @@ const FIXTURE = `
       ])
     }
     if (op === 'getTableStructure') {
+      // H3a：字典导出读的就是这份 v2 契约（索引 / 表注释 / 估算行数），
+      // 缺了它们只能验到空节，所以夹具按真库形状给全（外键仍留空，
+      // 不影响结构页布局；外键文本由单测覆盖）
       return Promise.resolve({
+        type: 'table',
+        comment: '演示表：长文本 / JSON 的展示层',
+        estimatedRows: 200,
         columns: [
-          { name: 'id', dataType: 'bigint', isPk: true },
+          { name: 'id', dataType: 'bigint', columnType: 'bigint unsigned', comment: '主键' },
           { name: 'flag', dataType: 'varchar' },
           { name: 'note', dataType: 'text' },
           { name: 'detail', dataType: 'text' },
           { name: 'parameter', dataType: 'json' }
+        ],
+        indexes: [
+          { name: 'PRIMARY', unique: true, primary: true, columns: ['id'], method: 'BTREE' },
+          { name: 'idx_flag', unique: false, primary: false, columns: ['flag'], method: 'BTREE' }
         ],
         foreignKeys: []
       })
@@ -313,6 +323,60 @@ const HELPERS = `
       h = ((h * 33) ^ s.charCodeAt(i)) >>> 0
     }
     return String(h)
+  }
+  // H3a 字典导出：downloadText 走 Blob + a[download]，真实点击会弹系统保存框
+  // （无头环境卡住），所以拦在 createObjectURL/click 这一层把内容读出来。
+  window.__dlCapture = () => {
+    if (window.__dlInstalled) return 'ok'
+    window.__dl = []
+    const urls = new Map()
+    const origCreate = URL.createObjectURL.bind(URL)
+    URL.createObjectURL = b => {
+      const u = origCreate(b)
+      urls.set(u, b)
+      return u
+    }
+    const origClick = HTMLAnchorElement.prototype.click
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download) {
+        const b = urls.get(this.getAttribute('href'))
+        if (b) {
+          // 只读 text() 会把 BOM 吃掉（UTF-8 解码按规范剥 BOM），
+          // CSV 的 BOM 断言要拿原始字节
+          Promise.all([b.text(), b.arrayBuffer()]).then(([t, buf]) => {
+            window.__dl.push({
+              name: this.download,
+              type: b.type,
+              text: t,
+              bytes: Array.from(new Uint8Array(buf).slice(0, 3))
+            })
+          })
+        }
+        return
+      }
+      return origClick.apply(this, arguments)
+    }
+    window.__dlInstalled = true
+    return 'ok'
+  }
+  window.__dictBtn = () => {
+    const tools = [...document.querySelectorAll('.db-struct-tools')].filter(window.__vis)[0]
+    const btn = tools && [...tools.querySelectorAll('button')]
+      .find(b => /Export dictionary|导出数据字典/.test(b.innerText))
+    if (!btn) return 'no-btn'
+    btn.click()
+    return 'ok'
+  }
+  window.__dictMenuTexts = () => JSON.stringify(
+    [...document.querySelectorAll('.ant-dropdown-menu-item')].filter(window.__vis)
+      .map(i => i.innerText.trim())
+  )
+  window.__dictPick = label => {
+    const items = [...document.querySelectorAll('.ant-dropdown-menu-item')].filter(window.__vis)
+    const it = items.find(i => i.innerText.trim() === label)
+    if (!it) return 'no-item'
+    it.click()
+    return 'ok'
   }
   // 点击数据格后直接读下方值面板：标题、字符数标注、正文长度与哈希。
   // bar 恒为 0 是"没有中间提示条"的回归判据（旧实现会先出一条 db-sql-value-bar）。
@@ -1196,6 +1260,47 @@ const main = async () => {
   check('切到表结构页签', await cdp.eval('window.__clickTab("表结构|Structure")') === 'ok' &&
     await waitFor(cdp, '!!window.__cellOf("CCCCCCCCCCCC")', 'struct long comment cell'))
   await expectNoPreview(cdp, '表结构 Comment(900)', 'CCCCCCCCCCCC', '3-structure-dark.png')
+
+  // 3c) H3a：数据字典导出（结构页工具行 → Markdown / CSV）。内容与结构页同源，
+  // 都是 getTableStructure 的 v2 契约；下载被拦在 createObjectURL 这一层读出文本
+  check('结构页工具行有「导出数据字典」且能点开菜单',
+    await cdp.eval('window.__dlCapture()') === 'ok' &&
+      await cdp.eval('window.__dictBtn()') === 'ok')
+  await sleep(300)
+  const dictMenu = JSON.parse(await cdp.eval('window.__dictMenuTexts()'))
+  check('导出菜单恰好两种格式', dictMenu.length === 2 &&
+    dictMenu.indexOf('Markdown') > -1 && dictMenu.indexOf('CSV') > -1, dictMenu)
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3b-dictionary-menu-dark.png')))
+  check('选 Markdown 触发下载', await cdp.eval("window.__dictPick('Markdown')") === 'ok' &&
+    await waitFor(cdp, 'window.__dl.length === 1', 'md download', 5000))
+  const md = JSON.parse(await cdp.eval('JSON.stringify(window.__dl[0] || null)'))
+  check('Markdown 文件名带库/表/时间戳',
+    !!md && /^dictionary-demo_db-operation_log-\d{8}-\d{6}\.md$/.test(md.name) &&
+      /^text\/markdown/.test(md.type),
+    md && md.name)
+  check('Markdown 四节与列/索引数据一致',
+    !!md &&
+      md.text.indexOf('# 数据字典：demo_db.operation_log') === 0 &&
+      md.text.indexOf('## 列（5）') > -1 &&
+      md.text.indexOf('| 1 | id | bigint unsigned | 否 |  | 否 | 主键 |') > -1 &&
+      md.text.indexOf('## 索引（2）') > -1 &&
+      md.text.indexOf('| idx_flag | 否 | 否 | BTREE | flag |') > -1 &&
+      md.text.indexOf('| 估算行数 | 200 |') > -1,
+    md && md.text.slice(0, 160))
+  // 选完 Markdown 菜单已收起，CSV 要重新点开一次
+  await cdp.eval('window.__dictBtn()')
+  await sleep(300)
+  check('选 CSV 触发下载', await cdp.eval("window.__dictPick('CSV')") === 'ok' &&
+    await waitFor(cdp, 'window.__dl.length === 2', 'csv download', 5000))
+  const csv = JSON.parse(await cdp.eval('JSON.stringify(window.__dl[1] || null)'))
+  check('CSV 文件名/编码/分节正确',
+    !!csv && /^dictionary-demo_db-operation_log-\d{8}-\d{6}\.csv$/.test(csv.name) &&
+      String(csv.bytes) === '239,187,191' &&
+      csv.text.indexOf('# 表信息') === 0 &&
+      csv.text.indexOf('\r\n# 列\r\n序号,列名,类型,可空,默认值,主键,注释\r\n') > -1,
+    csv && { name: csv.name, bytes: csv.bytes })
+  check('CSV 列行与结构一致', !!csv && csv.text.indexOf('1,id,bigint unsigned,否,,否,主键') > -1,
+    csv && csv.text.slice(0, 120))
 
   // 4) SQL 结果页：悬停不出浮层；单击直接展开下方值面板，正文是全文
   check('切到 SQL 页签', await cdp.eval('window.__clickTab("^SQL$")') === 'ok' &&
