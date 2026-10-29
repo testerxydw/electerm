@@ -14,7 +14,7 @@ export const SQL_SORT_BIG_ROWS = 50000
 
 // 每个结果集一份视图状态（按 results 下标存），切换结果页签互不影响
 export function emptySqlView () {
-  return { filter: '', sort: null }
+  return { filter: '', sort: null, hidden: [] }
 }
 
 export function sqlViewOf (views, i) {
@@ -80,6 +80,37 @@ export function sqlSortOf (views, i, key) {
     return null
   }
   return s.order
+}
+
+// 列显隐：可见列 = 全部列按原顺序滤掉 hidden。过滤与渲染共用这一个函数，
+// 保证"筛的列"和"屏幕上看到的列"永远同一份（隐藏列里的值不再参与命中，
+// 否则会出现"筛出一堆行却看不出哪列命中的"假案）。
+export function visibleSqlKeys (keys, hidden) {
+  const cols = Array.isArray(keys) ? keys : []
+  const hid = Array.isArray(hidden) ? hidden : []
+  if (!hid.length) {
+    return cols
+  }
+  const set = new Set(hid.map(String))
+  return cols.filter(k => !set.has(String(k)))
+}
+
+// 勾掉/勾回一列，返回新的 hidden 数组；不给勾掉最后一列 —— 全隐藏的结果集
+// 等于"查询跑了但什么都没有"，用户只会以为坏了。返回 null 表示这次操作不成立，
+// 调用方原样保留旧状态
+export function toggleSqlHidden (keys, hidden, key, checked) {
+  const cols = Array.isArray(keys) ? keys : []
+  const hid = Array.isArray(hidden) ? hidden : []
+  if (!cols.some(k => String(k) === String(key))) {
+    return null
+  }
+  if (!checked) {
+    if (cols.length - visibleSqlKeys(cols, hid).length >= cols.length - 1) {
+      return null
+    }
+    return [...hid.filter(k => String(k) !== String(key)), key]
+  }
+  return hid.filter(k => String(k) !== String(key))
 }
 
 // 数值判定：列类型已知时由调用方（isNumberType）决定；驱动没给 columns 时，

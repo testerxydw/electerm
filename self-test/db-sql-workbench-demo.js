@@ -30,7 +30,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const {
-  getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker, rowRe, clickCell
+  getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker, rowRe, clickCell, findPageTarget
 } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9225'
@@ -323,6 +323,52 @@ const PROBE = `
       return td ? String(td.innerText || '').trim() : ''
     }))
   }
+
+  // ---- H1 列显隐探针：眼睛按钮、下拉项勾选态、当前可见列名 ----
+  window.__eyeCount = () => JSON.stringify(
+    [...document.querySelectorAll('.db-sql-result-tools')]
+      .filter(window.__vis)
+      .map(t => [...t.querySelectorAll('button .anticon-eye')].filter(window.__vis).length)
+  )
+  window.__eyeBtn = () => {
+    const t = tools()
+    if (!t) return null
+    return [...t.querySelectorAll('button .anticon-eye')]
+      .filter(window.__vis)
+      .map(x => x.closest('button'))[0] || null
+  }
+  window.__headNames = () => {
+    const g = grid()
+    if (!g) return JSON.stringify([])
+    return JSON.stringify(
+      [...g.querySelectorAll('thead th .db-col-name')]
+        .filter(window.__vis)
+        .map(x => String(x.textContent).trim())
+    )
+  }
+  window.__colsMenu = () => {
+    const m = [...document.querySelectorAll('.db-sql-cols-menu')].filter(window.__vis)[0]
+    if (!m) return JSON.stringify({ open: 0 })
+    const items = [...m.querySelectorAll('.ant-dropdown-menu-item')].filter(window.__vis)
+    return JSON.stringify({
+      open: 1,
+      n: items.length,
+      items: items.map(it => ({
+        text: String(it.innerText || '').trim().split(String.fromCharCode(10))[0],
+        disabled: /ant-dropdown-menu-item-disabled/.test(String(it.className)) ? 1 : 0,
+        checked: it.querySelector('.ant-checkbox-checked') ? 1 : 0
+      }))
+    })
+  }
+  window.__colsClick = i => {
+    const m = [...document.querySelectorAll('.db-sql-cols-menu')].filter(window.__vis)[0]
+    if (!m) return 'no-menu'
+    const items = [...m.querySelectorAll('.ant-dropdown-menu-item')].filter(window.__vis)
+    const it = items[i]
+    if (!it) return 'no-item'
+    it.click()
+    return 'ok'
+  }
   return 'probe-installed'
 })()
 `
@@ -504,7 +550,7 @@ const finish = async results => {
 const main = async () => {
   fs.mkdirSync(SHOT_DIR, { recursive: true })
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
-  const page = targets.find(t => (t.type === 'page') && String(t.url || '').includes('index.html'))
+  const page = findPageTarget(targets)
   if (!page) {
     throw new Error('no renderer page target found; is the app started with --remote-debugging-port?')
   }
@@ -922,6 +968,91 @@ const main = async () => {
     toolsG.h === 24 && geoG.gridH > 300 && hintG === '',
     { toolsH: toolsG.h, gridH: geoG.gridH, hintG })
   console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '5-light-sorted.png')))
+
+  // ---------- H) 列显隐（每结果集独立 + 至少留一列） ----------
+  // 这一组从 G15 之后的状态起步：结果集 1、无过滤。先把 G14 留下的 note 降序点回无排序
+  await clickHead(cdp, 'note')
+  await sleep(300)
+
+  const eyeN = JSON.parse(await cdp.eval('window.__eyeCount()'))
+  check('C1 工具行有"列显隐"眼睛按钮（激活的结果集一个，不多不少）',
+    eyeN.length >= 1 && eyeN.every(n => n === 1), { eyeN })
+
+  await cdp.eval('window.__eyeBtn().click()')
+  await sleep(400)
+  const menu0 = JSON.parse(await cdp.eval('window.__colsMenu()'))
+  const colItems0 = menu0.items.slice(0, -1)
+  check('C2 菜单里每列一项（默认全勾）+"显示全部"在末尾且禁用（还没藏列）',
+    menu0.open === 1 && menu0.n === 6 && colItems0.every(it => it.checked === 1) &&
+    colItems0.map(it => it.text).join(',') === 'id,note,tag,upper,nullable' &&
+    menu0.items[menu0.n - 1].disabled === 1, menu0)
+
+  await cdp.eval('window.__colsClick(1)')
+  await sleep(400)
+  const names1 = JSON.parse(await cdp.eval('window.__headNames()'))
+  check('C3 勾掉 note 列：表头立刻少这一列，其余列原序保留',
+    names1.join(',') === 'id,tag,upper,nullable', { names1 })
+
+  const fHid = await typeFilter(cdp, 'note-1')
+  const hitHid = await readHit(cdp)
+  check('C4 藏起来的列不再参与命中（note-1 只活在 note 列里，命中 0）',
+    fHid.changed && hitHid.m === 0 && hitHid.t === ROWS, pick(hitHid, ['m', 't']))
+  await cdp.eval('window.__fClear()')
+  await sleep(500)
+
+  await cdp.eval('window.__eyeBtn().click()')
+  await sleep(400)
+  const menu1 = JSON.parse(await cdp.eval('window.__colsMenu()'))
+  const noteItem = menu1.items.find(it => it.text === 'note')
+  check('C5 重开菜单：note 未勾选，"显示全部"此刻可点',
+    menu1.open === 1 && noteItem && noteItem.checked === 0 &&
+    menu1.items[menu1.n - 1].disabled === 0, menu1)
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '6-light-cols-menu.png')))
+  await cdp.eval('window.__colsClick(' + (menu1.n - 1) + ')')
+  await sleep(400)
+  const names2 = JSON.parse(await cdp.eval('window.__headNames()'))
+  check('C6 显示全部：note 回来且原位原序', names2.join(',') === 'id,note,tag,upper,nullable', { names2 })
+
+  // 藏到只剩一列：逐个勾掉 note/tag/upper/nullable（菜单每次点完会收起，逐个重开）
+  for (const idx of [1, 2, 3, 4]) {
+    await cdp.eval('window.__eyeBtn().click()')
+    await sleep(350)
+    await cdp.eval('window.__colsClick(' + idx + ')')
+    await sleep(350)
+  }
+  const names3 = JSON.parse(await cdp.eval('window.__headNames()'))
+  await cdp.eval('window.__eyeBtn().click()')
+  await sleep(350)
+  const menu2 = JSON.parse(await cdp.eval('window.__colsMenu()'))
+  await cdp.eval('window.__colsClick(0)')
+  await sleep(350)
+  const names4 = JSON.parse(await cdp.eval('window.__headNames()'))
+  check('C7 至少留一列：只剩 id 时再勾掉无效（id 还在，hidden 不收脏状态）',
+    names3.join(',') === 'id' && menu2.items[0].checked === 1 && names4.join(',') === 'id',
+    { names3, last: menu2.items[0], names4 })
+
+  // 收尾：显示全部 → 结果集 1 藏 note → 结果集 2 不受影响 → 重新执行清掉
+  await cdp.eval('window.__eyeBtn().click()')
+  await sleep(350)
+  await cdp.eval('window.__colsClick(5)')
+  await sleep(350)
+  await cdp.eval('window.__eyeBtn().click()')
+  await sleep(350)
+  await cdp.eval('window.__colsClick(1)')
+  await sleep(350)
+  await cdp.eval('window.__clickResultTab("2")')
+  await sleep(700)
+  const namesR2 = JSON.parse(await cdp.eval('window.__headNames()'))
+  await cdp.eval('window.__clickResultTab("1")')
+  await sleep(700)
+  const namesR1 = JSON.parse(await cdp.eval('window.__headNames()'))
+  const runC = await runSql(cdp)
+  await sleep(300)
+  const namesAfter = JSON.parse(await cdp.eval('window.__headNames()'))
+  check('C8 每个结果集各自一份藏列 + 重新执行清掉藏列',
+    namesR1.join(',') === 'id,tag,upper,nullable' && namesR2.join(',') === 'id,payload' && runC.fired &&
+    namesAfter.join(',') === 'id,note,tag,upper,nullable',
+    { namesR1, namesR2, runC: pick(runC, ['fired']), namesAfter })
 
   const hard = cdpRef.events.filter(l => /uncaught|error|Error|Cannot|Warning:/.test(String(l)))
   check('F22 渲染层没有新增硬错误（过滤全程无 uncaught/React 报错）',

@@ -903,6 +903,19 @@
   font-size 12px
   color var(--text-dark)
 
+// 列显隐下拉：列多时弹层自己滚，不把页面撑长；列名过长省略号
+.db-sql-cols-menu
+  max-height 320px
+  overflow-y auto
+
+  .db-sql-cols-item
+    display inline-block
+    max-width 260px
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
+    vertical-align middle
+
 // 结果网格的可见边框：与左侧树面板同款。同色背景下没有边界时，
 // 看不出结果区是否真的避开了底部快捷命令栏（2026-10-28 用户反馈）。
 // margin-bottom 与 .db-body 的 8px 内边距叠加，结果框与快捷命令栏之间留 12px

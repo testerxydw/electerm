@@ -18,7 +18,7 @@ const MOD = path.join(ROOT, 'src/client/common/db-sql-result.js')
 const WIDTH_MOD = path.join(ROOT, 'src/client/common/db-column-width.js')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 
-const EXPORTS = '({ SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes })'
+const EXPORTS = '({ SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes, visibleSqlKeys, toggleSqlHidden })'
 
 function load (file, extra) {
   const src = fs.readFileSync(file, 'utf8')
@@ -55,7 +55,8 @@ function loadCellText () {
 const mod = load(MOD, { cellText: loadCellText() })
 const {
   SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView,
-  allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes
+  allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes,
+  visibleSqlKeys, toggleSqlHidden
 } = mod
 
 const bin = size => ({ __bin: { size, b64: 'AAECAwQFBgc=', truncated: false } })
@@ -231,10 +232,10 @@ describe('db-sql-result: 排序状态（三档循环 + 每列独立）', () => {
 })
 
 describe('db-sql-result: 每个结果集一份状态，互不串味', () => {
-  test('缺省状态是"没过滤、没排序"', () => {
-    assert.deepEqual(plain(emptySqlView()), { filter: '', sort: null })
-    assert.deepEqual(plain(sqlViewOf(undefined, 0)), { filter: '', sort: null })
-    assert.deepEqual(plain(sqlViewOf({}, 3)), { filter: '', sort: null })
+  test('缺省状态是"没过滤、没排序、没藏列"', () => {
+    assert.deepEqual(plain(emptySqlView()), { filter: '', sort: null, hidden: [] })
+    assert.deepEqual(plain(sqlViewOf(undefined, 0)), { filter: '', sort: null, hidden: [] })
+    assert.deepEqual(plain(sqlViewOf({}, 3)), { filter: '', sort: null, hidden: [] })
     assert.equal(sqlViewOf({ 1: { filter: 'x' } }, 0).filter, '')
     assert.equal(sqlViewOf({ 1: { filter: 'x' } }, 1).filter, 'x')
   })
@@ -249,6 +250,46 @@ describe('db-sql-result: 每个结果集一份状态，互不串味', () => {
   })
   test('防抖时长钉住设计值 150ms', () => {
     assert.equal(SQL_FILTER_DEBOUNCE, 150)
+  })
+})
+
+describe('db-sql-result: 列显隐（可见列 + 至少留一列）', () => {
+  const keys = ['id', 'name', 'note']
+  test('可见列按原顺序滤掉 hidden，顺序不能被重排', () => {
+    assert.deepEqual(plain(visibleSqlKeys(keys, ['name'])), ['id', 'note'])
+    assert.deepEqual(plain(visibleSqlKeys(keys, ['note', 'id'])), ['name'])
+    assert.deepEqual(plain(visibleSqlKeys(keys, [])), keys)
+  })
+  test('hidden 不是数组 / keys 不是数组时不炸', () => {
+    assert.deepEqual(plain(visibleSqlKeys(keys, undefined)), keys)
+    assert.deepEqual(plain(visibleSqlKeys(keys, null)), keys)
+    assert.deepEqual(plain(visibleSqlKeys(null, ['a'])), [])
+  })
+  test('勾掉一列：追加进 hidden（不就地改入参）', () => {
+    const hid = toggleSqlHidden(keys, [], 'name', false)
+    assert.deepEqual(plain(hid), ['name'])
+    assert.deepEqual(plain(visibleSqlKeys(keys, hid)), ['id', 'note'])
+  })
+  test('勾回一列：从 hidden 里摘掉', () => {
+    const hid = toggleSqlHidden(keys, ['name', 'note'], 'name', true)
+    assert.deepEqual(plain(hid), ['note'])
+  })
+  test('不给勾掉最后一列：返回 null，调用方保留旧状态', () => {
+    assert.equal(toggleSqlHidden(keys, ['name', 'note'], 'id', false), null)
+    // 还剩两列时可勾
+    assert.deepEqual(plain(toggleSqlHidden(keys, ['note'], 'id', false)), ['note', 'id'])
+  })
+  test('不存在的列不算数（返回 null，不往 hidden 塞脏键）', () => {
+    assert.equal(toggleSqlHidden(keys, [], 'nope', false), null)
+    assert.equal(toggleSqlHidden(keys, ['name'], 'NOPE', true), null)
+  })
+  test('单列结果集本来就没得藏', () => {
+    assert.equal(toggleSqlHidden(['only'], [], 'only', false), null)
+  })
+  test('全部显示就是空数组（走同一个 patch 通道）', () => {
+    const v = patchSqlView({ 0: { filter: 'a', sort: null, hidden: ['id'] } }, 0, { hidden: [] })
+    assert.deepEqual(plain(v[0].hidden), [])
+    assert.equal(v[0].filter, 'a', '显示全部不该动过滤')
   })
 })
 
@@ -336,5 +377,31 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
     assert.equal((locales.match(/dbSortLocal:/g) || []).length, 2, 'dbSortLocal 要 en + zh 各一条')
     assert.ok(/\{n\}/.test(locales.match(/dbSortLocal: '[^']*'/)[0]), '提示要留行数占位符')
+  })
+  test('列显隐接在两条派生链上：列定义与过滤都吃 visibleSqlKeys', () => {
+    const colsBlock = src.slice(src.indexOf('const sqlResultColumns = useMemo('), src.indexOf('const sqlSortNumeric'))
+    assert.ok(/visibleSqlKeys\(sqlColumnKeys\(r\), sqlViewOf\(sqlViews, i\)\.hidden\)/.test(colsBlock),
+      '列定义没按 hidden 过滤')
+    const viewsBlock = src.slice(src.indexOf('const sqlResultViews = useMemo('), src.indexOf('const renderSqlResults'))
+    assert.ok(/visibleSqlKeys\(sqlColumnKeys\(r\), sqlViewOf\(sqlViews, i\)\.hidden\)/.test(viewsBlock),
+      '过滤没只扫可见列（藏起来的列不该参与命中）')
+    assert.ok(/toggleSqlHidden\(/.test(src), '切换没走共用函数（最后一列守卫会被绕过）')
+  })
+  test('列显隐菜单：勾选态只展示，切换统一走菜单 onClick（两处都接会互相抵消）', () => {
+    assert.ok(/view\.total && keys\.length > 1/.test(src), '单列结果不该出列显隐按钮')
+    const dd = src.slice(src.indexOf("overlayClassName='db-sql-cols-menu'"), src.indexOf("title={e('dbExportCsv')}"))
+    assert.ok(/checked=\{!hidden\.includes\(k\)\}/.test(dd), '勾选态没跟 hidden 走')
+    assert.ok(!/onChange=\{/.test(dd), 'Checkbox 不要再接 onChange，会跟菜单 onClick 打架')
+    assert.ok(/key\.startsWith\('col::'\)/.test(dd), '列项没接切换')
+    assert.ok(/onSqlToggleCol\(i, keys, k, hidden\.includes\(k\)\)/.test(dd), '切换没传"这一列现在是不是藏着的"')
+    assert.ok(/hidden: \[\]/.test(dd), '"显示全部"没清 hidden')
+    assert.ok(/disabled: !hidden\.length/.test(dd), '没有藏列时"显示全部"该是禁用的')
+  })
+  test('列显隐文案走词条，en + zh 各一条', () => {
+    const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
+    for (const k of ['dbShowHideCols', 'dbShowAllCols']) {
+      assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
+    }
+    assert.ok(/e\('dbShowHideCols'\)/.test(src) && /e\('dbShowAllCols'\)/.test(src))
   })
 })

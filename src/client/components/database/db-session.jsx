@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Pagination } from 'antd'
-import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, LeftOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -116,10 +116,10 @@ import {
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
 import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, isNumberType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
-// H1：SQL 结果工具行的派生链（过滤 → 切页）抽成纯函数，便于单测
+// H1：SQL 结果工具行的派生链（过滤 → 排序 → 切页）抽成纯函数，便于单测
 import {
   filterRowIndexes, sortRowIndexes, sqlViewOf, patchSqlView, sqlSortOf, nextSqlSort,
-  looksNumericColumn, SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS
+  looksNumericColumn, visibleSqlKeys, toggleSqlHidden, SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS
 } from '../../common/db-sql-result'
 import './db-session.styl'
 
@@ -776,6 +776,14 @@ export default auto(function DbSession (props) {
     const order = nextSqlSort(cur && cur.key === key ? cur.order : null)
     setSqlViews(prev => patchSqlView(prev, i, { sort: order ? { key, order } : null }))
     setSqlPages(prev => ({ ...prev, [i]: 1 }))
+  }
+  // 列显隐：勾掉最后一列的请求被 toggleSqlHidden 拒掉（返回 null）时原样保留。
+  // 只改这一份视图状态，不重新执行 SQL，也不动过滤/排序
+  const onSqlToggleCol = (i, keys, key, checked) => {
+    const hidden = toggleSqlHidden(keys, sqlViewOf(sqlViews, i).hidden, key, checked)
+    if (hidden) {
+      setSqlViews(prev => patchSqlView(prev, i, { hidden }))
+    }
   }
   // H1a-4：SQL 结果里选中的单元格 { rs, col, rowKey }。rowKey 是结果内的**绝对**
   // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
@@ -3960,7 +3968,7 @@ export default auto(function DbSession (props) {
   const sqlResultColumns = useMemo(
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
-      const keys = sqlColumnKeys(r)
+      const keys = visibleSqlKeys(sqlColumnKeys(r), sqlViewOf(sqlViews, i).hidden)
       const typeMap = sqlColTypeMaps[i] || {}
       return keys.map(k => {
         // 复合键只用于宽度：列的 dataIndex/key 仍是列名（每结果集各自一张表）
@@ -4041,7 +4049,10 @@ export default auto(function DbSession (props) {
   const sqlResultViews = useMemo(
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
-      const indexes = filterRowIndexes(rows, sqlColumnKeys(r), sqlViewOf(sqlViews, i).filter)
+      // 过滤只扫可见列：筛的是"看到的东西"，藏起来的列不再参与命中，
+      // 否则会出现"筛出一堆行却看不出哪列命中的"假案
+      const keys = visibleSqlKeys(sqlColumnKeys(r), sqlViewOf(sqlViews, i).hidden)
+      const indexes = filterRowIndexes(rows, keys, sqlViewOf(sqlViews, i).filter)
       const ordered = sortRowIndexes(rows, indexes, sqlViewOf(sqlViews, i).sort, sqlSortNumeric[i])
       const start = (sqlPageIndex(sqlPages[i], ordered.length, sqlPageSize) - 1) * sqlPageSize
       return {
@@ -4062,6 +4073,8 @@ export default auto(function DbSession (props) {
       const view = sqlResultViews[i] || { total: 0, matched: 0, pageRows: [] }
       const filter = sqlViewOf(sqlViews, i).filter
       const sort = sqlViewOf(sqlViews, i).sort
+      const keys = sqlColumnKeys(r)
+      const hidden = sqlViewOf(sqlViews, i).hidden || []
       // 超过一页才出分页器（单行结果保持原样）。
       // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
       // H1：分页按**过滤后**的行数算，筛完不足一页就不再有分页器
@@ -4133,6 +4146,50 @@ export default auto(function DbSession (props) {
                   <span className='db-sql-sort-hint'>
                     {e('dbSortLocal').replace('{n}', view.total)}
                   </span>
+                  )
+                : null
+            }
+            {
+              // H1：列显隐。每列一个 Checkbox 项 + "显示全部"，藏在同一个下拉里
+              // （列多时弹层自己滚，见 .db-sql-cols-menu）。单列结果没有可藏的，
+              // 不出这个按钮。trigger 用 click：勾选列表配 hover 会跟着鼠标走丢
+              view.total && keys.length > 1
+                ? (
+                  <Dropdown
+                    overlayClassName='db-sql-cols-menu'
+                    trigger='click'
+                    menu={{
+                      items: [
+                        ...keys.map(k => ({
+                          key: 'col::' + k,
+                          label: (
+                            <Checkbox checked={!hidden.includes(k)}>
+                              <span className='db-sql-cols-item' title={k}>{k}</span>
+                            </Checkbox>
+                          )
+                        })),
+                        { type: 'divider' },
+                        { key: 'all', label: e('dbShowAllCols'), disabled: !hidden.length }
+                      ],
+                      // 勾选态走 Checkbox 纯展示，切换统一在菜单 onClick 里做 ——
+                      // 两处都接会互相抵消（点一下 = 勾上又勾掉）
+                      onClick: ({ key, domEvent }) => {
+                        domEvent.stopPropagation()
+                        if (key === 'all') {
+                          setSqlViews(prev => patchSqlView(prev, i, { hidden: [] }))
+                          return
+                        }
+                        if (key.startsWith('col::')) {
+                          const k = key.slice(5)
+                          onSqlToggleCol(i, keys, k, hidden.includes(k))
+                        }
+                      }
+                    }}
+                  >
+                    <Tooltip title={e('dbShowHideCols')}>
+                      <Button size='small' icon={<EyeOutlined />} />
+                    </Tooltip>
+                  </Dropdown>
                   )
                 : null
             }
