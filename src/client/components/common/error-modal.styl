@@ -12,7 +12,7 @@
 .error-modal-mask
   position absolute
   inset 0
-  background var(--mask-bg)
+  background var(--mask)
 
 .error-modal-box
   position relative
@@ -75,7 +75,7 @@
   color var(--text)
 
 .error-modal-text
-  font-family var(--mono)
+  font-family var(--font-mono)
   font-size 12px
   line-height 1.6
   white-space pre-wrap
@@ -108,6 +108,6 @@
 .error-modal-ok
   background var(--primary)
   border none
-  color var(--text-on-primary, #fff)
+  color var(--primary-contrast)
   &:hover
     opacity .9
