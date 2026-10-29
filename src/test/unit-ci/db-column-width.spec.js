@@ -402,8 +402,11 @@ describe('H1a-1 接线契约：5 处网格都走同一套宽度（长内容走�
     for (const c of ['value', 'member', 'score']) {
       const cell = src.match(new RegExp("onDoubleClick: \\(\\) => editRedisCell\\(r, '" + c + "'"))
       assert.ok(cell, 'redis detail ' + c + ' lost its double-click handler')
-      const block = src.slice(Math.max(0, src.indexOf(cell[0]) - 120), src.indexOf(cell[0]) + cell[0].length)
-      assert.ok(/onCell: r => \(\{/.test(block), 'redis detail ' + c + ' must keep an onCell object')
+      const block = src.slice(Math.max(0, src.indexOf(cell[0]) - 160), src.indexOf(cell[0]) + cell[0].length)
+      // 单击选中与双击编辑共用同一个 onCell：合并写法里两个都得在，
+      // 少一个就是"点了不出值面板"或"双击进不了行内编辑"
+      assert.ok(/onCell: \(r, i\) => \(\{/.test(block), 'redis detail ' + c + ' must keep an onCell object')
+      assert.ok(block.includes('...redisCellProps('), 'redis detail ' + c + ' lost the single-click selection')
     }
   })
 
@@ -644,7 +647,10 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     const src = read()
     // 6 处 = 数据页 1 + SQL 1 + 表结构 1 + 键列表 3；详情那张表刻意留给 H1a-2b
     assert.equal((src.match(/<ColHead/g) || []).length, 6, '只有 4 处 memo 化网格带 ColHead')
-    const detail = src.slice(src.indexOf("{ title: e('dbField')"))
+    // 锚点只认 "title: e('dbField')" 这一段属性：列定义换行写之后，带花括号的整行
+    // 字面量就不存在了，indexOf 返回 -1 会让下面的判据切片切到文件末尾
+    const detail = src.slice(src.indexOf("title: e('dbField')"))
+    assert.ok(detail.length > 200, '详情列定义锚点没找到（列头文案改了？）')
     assert.ok(/width: \d+/.test(detail), 'H1a-2b 待办：详情列仍是写死宽度（无长内容痛点，本轮不动写入路径）')
     assert.ok(!detail.includes('<ColHead'), '详情网格若接线需与 useColWidths 同时到位，不能只换列头')
   })

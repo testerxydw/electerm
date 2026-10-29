@@ -404,7 +404,9 @@ const buildHelpers = splitKey => `
   }
   window.__colMeta = label => {
     const idx = window.__colIdx(label)
-    if (idx < 0) return JSON.stringify({ error: 'no-col:' + label })
+    // 取不到列也要回同一套字段（空数组）：调用方写的是 meta.align[0]，
+    // 这里省掉一个键就等于让"列没渲染出来"升级成"脚本抛错崩掉后面整段"
+    if (idx < 0) return JSON.stringify({ error: 'no-col:' + label, n: 0, cls: [], align: [], texts: [] })
     const rows = window.__rows()
     const pick = rows.slice(0, 3).map(r => r.children[idx])
     return JSON.stringify({
@@ -505,6 +507,10 @@ const buildHelpers = splitKey => `
 })()
 `
 
+// 一条 CDP 协议命令的等待上限。截图在软件合成的 Xvfb 上会慢，给到 45 秒；
+// 超过它就不是"慢"而是"再也不会回话"，必须报错而不是让整套判据停摆
+const CDP_CALL_TIMEOUT = 45000
+
 class Cdp {
   constructor (wsUrl) {
     this.ws = new WebSocket(wsUrl)
@@ -518,12 +524,14 @@ class Cdp {
       this.ws.on('open', resolve)
       this.ws.on('error', reject)
     })
+    this.ws.on('close', () => this.abort('CDP socket closed'))
+    this.ws.on('error', e => this.abort('CDP socket error: ' + e.message))
     this.ws.on('message', d => {
       const m = JSON.parse(d.toString())
       const cb = this.pending.get(m.id)
       if (cb) {
         this.pending.delete(m.id)
-        cb(m)
+        cb.resolve(m)
         return
       }
       if (m.method === 'Runtime.exceptionThrown') {
@@ -548,11 +556,30 @@ class Cdp {
   }
 
   call (method, params) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const id = ++this.id
-      this.pending.set(id, resolve)
+      // 等不到的应答必须变成红字，而不是把整套判据停在半路：
+      // 实测有一轮第 72 条判据之后进程 0% CPU、socket 仍 ESTAB，
+      // 没有任何一条命令会回话，脚本就这样挂到天亮
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          reject(new Error('CDP timeout after ' + CDP_CALL_TIMEOUT + 'ms: ' + method))
+        }
+      }, CDP_CALL_TIMEOUT)
+      timer.unref()
+      this.pending.set(id, {
+        resolve: m => { clearTimeout(timer); resolve(m) },
+        reject
+      })
       this.ws.send(JSON.stringify({ id, method, params }))
     })
+  }
+
+  // socket 没了：还在等的调用一次性判失败，别让调用方永远悬着
+  abort (why) {
+    const waiting = [...this.pending.values()]
+    this.pending.clear()
+    waiting.forEach(cb => cb.reject(new Error(why)))
   }
 
   async eval (expression) {
@@ -637,6 +664,13 @@ class Cdp {
   }
 }
 
+// 找渲染进程目标。不能只认 index.html：主进程加载的是 /index.html?v=版本号，
+// 但 compile 会先清空 assets 目录再写产物，构建窗口里 /index.html 会 404 成
+// "Cannot GET /index.html"，此时页面 URL 落在服务根路径 /（手动恢复导航的结果）。
+// 只认 index.html 的脚本会直接报"没有渲染进程目标"，把环境问题演成测试失败。
+const findPageTarget = (targets) => targets.find(t => t.type === 'page' &&
+  (/index\.html/.test(String(t.url || '')) || /^https?:\/\/127\.0\.0\.1:\d+\/(\?|#|$)/.test(String(t.url || ''))))
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const waitFor = async (cdp, expr, label, timeout = 12000) => {
@@ -660,7 +694,13 @@ const makeChecker = () => {
     results.push({ name, ok: !!ok, detail })
     console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail === undefined ? '' : ' :: ' + JSON.stringify(detail)))
   }
-  return { results, check }
+  // 环境不通（真库拒绝连接、缺凭据）时整段跳过：既不算过也不算失败，
+  // 但必须逐条打出来 —— 否则"没跑成"会被读成"跑绿了"
+  const skip = (name, reason) => {
+    results.push({ name, ok: true, skipped: reason })
+    console.log('SKIP  ' + name + ' :: ' + String(reason).slice(0, 200))
+  }
+  return { results, check, skip }
 }
 
 // 判据不能写死语言：本机词条可能是中文也可能是英文，两种都得认
@@ -735,6 +775,7 @@ module.exports = {
   Cdp,
   sleep,
   waitFor,
+  findPageTarget,
   makeChecker,
   rowRe,
   rsRe,

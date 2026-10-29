@@ -159,8 +159,9 @@ const getSqlResultPageSize = () => {
   return Number.isInteger(v) && v >= 10 ? Math.min(v, DB_PAGE_SIZE_MAX) : SQL_RESULT_PAGE_SIZE
 }
 // 选中格的字符数只在"看不全"时才有意义：短值网格那一格本来就整行显示，
-// 再挂一个"6 chars"是噪音。阈值取一格大致能显示的字符数（默认列宽 ~180px）
-const SQL_VALUE_META_MIN = 60
+// 再挂一个"6 chars"是噪音。阈值取一格大致能显示的字符数（默认列宽 ~180px）。
+// SQL 结果与 Redis 详情共用这一条 —— 两处都是"单击一格看完整值"
+const VALUE_META_MIN = 60
 const sqlPageIndex = (page, total, pageSize) => {
   const size = pageSize >= 10 ? pageSize : SQL_RESULT_PAGE_SIZE
   const pages = Math.max(1, Math.ceil(total / size))
@@ -185,6 +186,9 @@ const REDIS_SPLIT_KEY = 'electerm-db-redis-split'
 const CELL_SPLIT_KEY = 'electerm-db-cell-split'
 // H1a-4：SQL 结果"选中单元格 → 完整值面板"的展开高度持久化键（折叠时不读不写）
 const SQL_VALUE_SPLIT_KEY = 'electerm-db-sql-value-split'
+// Redis 详情"选中一格 → 值面板"的高度记忆键（与 SQL 那只分开：详情区里还有键信息栏，
+// 同一条键会让两处互相把对方的比例带偏）
+const REDIS_VALUE_SPLIT_KEY = 'electerm-db-redis-value-split'
 // Redis hash/set 详情每页条数（后端 HSCAN/SSCAN 游标分页）
 const REDIS_DETAIL_PAGE = 200
 // R1：键列表深跳阈值（页）。SCAN 无 offset，跳页要从 cursor=0 前向步进，
@@ -852,6 +856,11 @@ export default auto(function DbSession (props) {
   const keyJumpTokenRef = useRef(0)
   const [redisKey, setRedisKey] = useState('')
   const [redisDetail, setRedisDetail] = useState(null)
+  // Redis 详情四张表（hash/list/set/zset）"选中的那一格"：{ col, label, rowKey, rowNo }。
+  // 悬停预览卡下线后，这里只剩双击进写路径这一条看全文的路（只读连接连这条都没有），
+  // 所以按数据页/SQL 结果的同一交互补上：单击数据格 → 详情区下面展开只读值面板。
+  // rowNo 单独存：zset 的 rowKey 是扁平数组下标（0/2/4），拿它 +1 报行号会错
+  const [redisCell, setRedisCell] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [ttlInput, setTtlInput] = useState(undefined)
   // D 批：EXPLAIN 弹窗（对当前选区/整段语句做只读计划分析）
@@ -3356,6 +3365,9 @@ export default auto(function DbSession (props) {
   const selectRedisKey = (key, cursor = '0', append = false) => {
     if (!append) {
       setRedisKey(key)
+      // 换键 = 换一份详情，上一键那一格的选中必须清掉：面板标题写的是旧键的
+      // 「列名 · 第 N 行」，行号在新键里指的是另一行数据
+      setRedisCell(null)
     }
     setDetailLoading(true)
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getKeyDetail', {
@@ -4345,7 +4357,7 @@ export default auto(function DbSession (props) {
       title: head + sqlCell.col + ' · ' + e('dbRowN').replace('{n}', Number(sqlCell.rowKey) + 1),
       meta: isBinEnvelope(value)
         ? value.__bin.size + ' bytes'
-        : (typeof value === 'string' && value.length > SQL_VALUE_META_MIN ? value.length + ' chars' : '')
+        : (typeof value === 'string' && value.length > VALUE_META_MIN ? value.length + ' chars' : '')
     }
   }, [sqlCell, sqlResult.results, sqlColTypeMaps])
 
@@ -5067,6 +5079,73 @@ export default auto(function DbSession (props) {
     }
     return list
   }, [redisDetail, detailLimit])
+
+  // 当前详情类型对应的那份行数组（四张表各有一份 memo，值面板按 rowKey 回查用同一份，
+  // 不复制值 —— 一个大 value 拷一次没必要）
+  const redisDetailRows = useMemo(() => {
+    const d = redisDetail
+    if (!d) {
+      return []
+    }
+    if (d.type === 'hash') {
+      return redisHashRows
+    }
+    if (d.type === 'list') {
+      return redisListRows
+    }
+    if (d.type === 'set') {
+      return redisSetRows
+    }
+    if (d.type === 'zset') {
+      return redisZsetRows
+    }
+    return []
+  }, [redisDetail, redisHashRows, redisListRows, redisSetRows, redisZsetRows])
+
+  // 选中格的完整值面板数据。行按 rowKey 现取：详情换了（重新选键、类型不支持）
+  // 就当作没选中，面板跟着收起，不留一个指向空气的标题
+  const redisCellInfo = useMemo(() => {
+    if (!redisCell) {
+      return null
+    }
+    const row = redisDetailRows.find(r => r.__rowKey === redisCell.rowKey)
+    if (!row) {
+      return null
+    }
+    const value = row[redisCell.col]
+    return {
+      value,
+      column: { name: redisCell.col, type: '', isBinary: isBinEnvelope(value) },
+      title: redisCell.label + ' · ' + e('dbRowN').replace('{n}', redisCell.rowNo),
+      meta: typeof value === 'string' && value.length > VALUE_META_MIN
+        ? value.length + ' chars'
+        : ''
+    }
+  }, [redisCell, redisDetailRows])
+
+  // 单击那一格：与双击行内编辑共存（单击先开面板，双击仍进编辑），列标签由调用方给
+  // （Redis 详情的列名是译文的"字段/值/成员/分数"，不是数据字段名）
+  const redisCellProps = (col, label) => (record, index) => ({
+    className: (redisCell && redisCell.col === col && redisCell.rowKey === record.__rowKey
+      ? 'db-cell-selected'
+      : ''),
+    onClick: () => setRedisCell({ col, label, rowKey: record.__rowKey, rowNo: (index || 0) + 1 })
+  })
+
+  const redisValuePane = redisCellInfo
+    ? (
+      <DbValuePane
+        title={redisCellInfo.title}
+        meta={redisCellInfo.meta}
+        value={redisCellInfo.value}
+        column={redisCellInfo.column}
+        patterns={keywordPatterns}
+        themeConfig={themeConfig}
+        editable={false}
+        onClose={() => setRedisCell(null)}
+      />
+      )
+    : null
 
   if (error) {
     return (
@@ -7039,14 +7118,22 @@ export default auto(function DbSession (props) {
             size='small'
             pagination={false}
             columns={[
-              { title: e('dbField'), dataIndex: 'field', key: 'field', ellipsis: CELL_ELLIPSIS, render: v => renderCell(v) },
+              {
+                title: e('dbField'),
+                dataIndex: 'field',
+                key: 'field',
+                ellipsis: CELL_ELLIPSIS,
+                onCell: redisCellProps('field', e('dbField')),
+                render: v => renderCell(v)
+              },
               {
                 title: e('dbValue'),
                 dataIndex: 'value',
                 key: 'value',
                 ellipsis: CELL_ELLIPSIS,
-                // D 批：双击 value 行内编辑（HSET 覆盖同字段）
-                onCell: r => ({
+                // D 批：双击 value 行内编辑（HSET 覆盖同字段）；单击 = 展开完整值面板
+                onCell: (r, i) => ({
+                  ...redisCellProps('value', e('dbValue'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'value', r.value)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveHashValue(r))
@@ -7083,8 +7170,9 @@ export default auto(function DbSession (props) {
                 dataIndex: 'value',
                 key: 'value',
                 ellipsis: CELL_ELLIPSIS,
-                // D 批：双击 value 行内编辑（LSET 按下标）
-                onCell: r => ({
+                // D 批：双击 value 行内编辑（LSET 按下标）；单击 = 展开完整值面板
+                onCell: (r, i) => ({
+                  ...redisCellProps('value', e('dbValue'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'value', r.value)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveListValue(r))
@@ -7120,8 +7208,10 @@ export default auto(function DbSession (props) {
                 dataIndex: 'member',
                 key: 'member',
                 ellipsis: CELL_ELLIPSIS,
-                // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）
-                onCell: r => ({
+                // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）；
+                // 单击 = 展开完整值面板
+                onCell: (r, i) => ({
+                  ...redisCellProps('member', e('dbMember'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'member', r.member)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'member', v, () => editSetMember(r.member, redisEdit ? redisEdit.value : ''))
@@ -7158,8 +7248,10 @@ export default auto(function DbSession (props) {
                 dataIndex: 'member',
                 key: 'member',
                 ellipsis: CELL_ELLIPSIS,
-                // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）
-                onCell: () => ({
+                // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）；
+                // 单击 = 展开完整值面板
+                onCell: (r, i) => ({
+                  ...redisCellProps('member', e('dbMember'))(r, i),
                   onDoubleClick: () => message.info(e('dbRedisMemberImmutable'))
                 }),
                 render: v => renderCell(v)
@@ -7170,8 +7262,9 @@ export default auto(function DbSession (props) {
                 key: 'score',
                 width: 150,
                 ellipsis: CELL_ELLIPSIS,
-                // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）
-                onCell: r => ({
+                // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）；单击 = 展开值面板
+                onCell: (r, i) => ({
+                  ...redisCellProps('score', e('dbScore'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'score', r.score)
                 }),
                 render: (v, r) => renderRedisEditable(r, 'score', v, () => saveZsetScore(r), true)
@@ -7339,7 +7432,21 @@ export default auto(function DbSession (props) {
               )
             : null
         }
-        {body}
+        {
+          // 详情四张表的"单击一格 → 底部值面板"：没选中时折叠（bottom 按内容高 = 0，
+          // 不给拖拽手柄），选中才把表格压出一截 —— 与数据页/SQL 结果同一交互。
+          // string 键的 body 本身就是那只面板，不再套一层分区容器
+          d && d.type !== 'string'
+            ? (
+              <DbSplitPane
+                storageKey={REDIS_VALUE_SPLIT_KEY}
+                collapsed={!redisCellInfo}
+                top={body}
+                bottom={redisValuePane}
+              />
+              )
+            : body
+        }
       </div>
     )
   }

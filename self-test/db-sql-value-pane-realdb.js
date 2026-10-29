@@ -30,7 +30,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const {
   getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker,
-  rowRe, clickCell
+  rowRe, clickCell, findPageTarget, clearDbTabs
 } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9225'
@@ -42,7 +42,7 @@ const PAGE_SIZE = 200
 // Redis 的库号可覆盖（默认 0）：树里的节点标签是 "db0" 这种形态，不是 "0"
 const REDIS_DB = process.env.RDB_REDIS_DB || '0'
 const HELPERS = buildHelpers(SPLIT_KEY)
-const { results, check } = makeChecker()
+const { results, check: rawCheck, skip } = makeChecker()
 
 const ENV = {
   host: process.env.RDB_MYSQL_HOST,
@@ -129,6 +129,20 @@ const restoreAll = async () => {
 }
 
 let reported = false
+// 真库连不上（凭据轮换、网络/授权变更）不是产品故障：这类判据要整段跳过并写清
+// 原因，否则一条 Access denied 会级联成十几条红，把"环境不通"演成"代码坏了"
+let mysqlBlocked = ''
+// 段落首字母 = 判据名前缀：这些段落全部依赖那条 MySQL 真连接（Q1 是门闩本身，
+// 必须留一条真判据说清"连不上"，所以只跳 Q2/Q3 这两个下游前置）
+const MYSQL_ONLY = 'RSTUV'
+const check = (name, ok, detail) => {
+  const n = String(name)
+  if (mysqlBlocked && (MYSQL_ONLY.includes(n[0]) || /^Q[23]/.test(n))) {
+    skip(name, mysqlBlocked)
+    return
+  }
+  rawCheck(name, ok, detail)
+}
 const finish = async () => {
   if (!reported && cdpRef) {
     reported = true
@@ -143,8 +157,11 @@ const finish = async () => {
       console.log('event dump failed: ' + e.message)
     }
   }
+  const skipped = results.filter(r => r.skipped)
   const fail = results.filter(r => !r.ok)
-  console.log('\n' + (results.length - fail.length) + '/' + results.length + ' PASS')
+  const ran = results.length - skipped.length
+  console.log('\n' + (ran - fail.length) + '/' + ran + ' PASS' +
+    (skipped.length ? ' + ' + skipped.length + ' SKIP（环境阻塞：' + String(skipped[0].skipped).slice(0, 120) + '）' : ''))
   if (fail.length) {
     console.log('FAILED: ' + fail.map(f => f.name).join(' | '))
   }
@@ -157,9 +174,15 @@ const finish = async () => {
 const errDump = () => `(() => {
   const vis = window.__vis
   const alerts = [...document.querySelectorAll('.ant-alert-message')].filter(vis).map(x => x.innerText.trim()).slice(0, 2)
+  // 连接根本没起来时应用给的是 .db-session-error 整页（不是 antd 告警条）：
+  // 上一轮 Q1 红了 60 秒只报"无错误告警"，就是因为只查了 .ant-alert-message，
+  // 把屏幕上明晃晃的"连接数据库失败 · Access denied"读成了没错误
+  const connErr = [...document.querySelectorAll('.db-session-error')].filter(vis)
+    .map(x => x.innerText.replace(/\\s+/g, ' ').trim()).slice(0, 2)
   return JSON.stringify({
     tabs: [...document.querySelectorAll('.ant-tabs-tab')].filter(vis).map(x => x.innerText.trim()),
     alerts,
+    connErr,
     spin: [...document.querySelectorAll('.ant-spin-spinning')].filter(vis).length,
     rows: window.__rows().length
   })
@@ -255,7 +278,7 @@ const main = async () => {
   }
 
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
-  const page = targets.find(t => t.type === 'page' && String(t.url || '').includes('index.html'))
+  const page = findPageTarget(targets)
   if (!page) {
     throw new Error('没有渲染进程目标；应用是否带 --remote-debugging-port 启动？')
   }
@@ -288,17 +311,195 @@ const main = async () => {
   await cdp.eval('window.store.setConfig({ dbFormatLocale: "none", dbPageSize: ' + PAGE_SIZE + ', sqlResultPageSize: ' + PAGE_SIZE + ' })')
   await sleep(300)
 
-  // ---------- Q) 真连接 ----------
-  // 清掉上一轮（可能是中途抛错）留下的页签，否则 __one() 会选中旧页签的 DOM。
-  // 只按本脚本自己用的标题删，绝不碰用户手工开的连接
-  const staleIds = JSON.parse(await cdp.eval(
-    "JSON.stringify((window.store.tabs || []).filter(t => t.type === 'database' && /^(mysql realdb|redis real)$/.test(String(t.title))).map(t => t.id))"
-  ))
-  for (const id of staleIds) {
-    await cdp.eval('(async () => { await window.store.delTab(' + JSON.stringify(id) + ') })()')
+  // ---------- W) Redis 真库冒烟（同一套展示层的另一条连接） ----------
+  // Redis 段排在 MySQL 段之前：真 MariaDB 那侧的授权/网络说变就变（今天就是
+  // Access denied），一条连不上不该把另一条连接的验收一起挡在门外。
+  // 开自己的页签前先清场：Page.reload 后持久化页签是异步恢复的，恢复过程会把
+  // activeTabId 改成它自己，__one() 就会选中别的页签留在 DOM 里的树
+  const clearedW = await clearDbTabs(cdp)
+  if (clearedW.left.length) {
+    console.log('WARN 仍有未关掉的数据库页签：' + JSON.stringify(clearedW.left))
   }
-  if (staleIds.length) {
-    await sleep(700)
+  await cdp.eval(`(() => {
+    window.store.addTab({
+      type: 'database', from: 'quick-connect',
+      title: 'redis real',
+      dbType: 'redis', dbHost: ${JSON.stringify(ENV.redisHost)}, dbPort: Number(${JSON.stringify(ENV.redisPort)}),
+      dbPassword: ${JSON.stringify(ENV.redisPass)}, dbName: ${JSON.stringify(REDIS_DB)}, dbSsl: false,
+      readOnly: true, production: false, batch: window.store.currentLayoutBatch
+    })
+    const t = window.store.tabs[window.store.tabs.length - 1]
+    window.store.changeActiveTabId(t.id)
+    return t.id
+  })()`)
+  const redisId = await cdp.eval('String(window.store.activeTabId)')
+  openedTabs.push(redisId)
+  // Redis 页签先出树（db0…db15 带键数），键列表区要点库节点才挂出来 ——
+  // 节点标签是 "db0" 这种形态，按 dbName '0' 精确匹配会找不到
+  await waitFor(cdp, '!!window.__one(".db-tree")', 'redis tree', 40000)
+  const redisNode = await cdp.eval('window.__clickTree(' + JSON.stringify('db' + REDIS_DB) + ')')
+  const redisOk = await waitFor(cdp,
+    "!![...document.querySelectorAll('.db-redis-bar')].filter(window.__vis).length && " +
+    "!![...document.querySelectorAll('.db-redis-keys')].filter(window.__vis).length",
+    'redis area', 40000)
+  const keyRows = await cdp.eval(`(() => {
+    const c = [...document.querySelectorAll('.db-redis-keys')].filter(window.__vis)[0]
+    return c ? c.querySelectorAll('.ant-table-row').length : -1
+  })()`)
+  check('W1 真 Redis 连上并列出键（只读页签，不写任何键）',
+    redisNode === 'ok' && redisOk && keyRows > 0, { redisNode, redisOk, keyRows })
+  if (keyRows > 0) {
+    const picked = await cdp.eval(`(() => {
+      const c = [...document.querySelectorAll('.db-redis-keys')].filter(window.__vis)[0]
+      const r = c.querySelector('.ant-table-row')
+      if (!r) return 'no-row'
+      r.click()
+      return 'ok'
+    })()`)
+    await sleep(1500)
+    const detail = await cdp.eval(`(() => {
+      const d = [...document.querySelectorAll('.db-redis-detail')].filter(window.__vis)[0]
+      if (!d) return JSON.stringify({ exists: 0 })
+      return JSON.stringify({
+        exists: 1,
+        empty: !!d.querySelector('.db-redis-detail-empty'),
+        grids: d.querySelectorAll('.db-grid-table').length,
+        text: d.innerText.replace(/\\s+/g, ' ').length
+      })
+    })()`)
+    const d = JSON.parse(detail)
+    check('W2 选中键后详情区出内容（不是"请选择键"空态）',
+      picked === 'ok' && d.exists === 1 && d.empty === false && d.text > 0, d)
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '5-realdb-redis.png')))
+
+    // ---------- W3~W7：详情表"单击一格 → 底部只读值面板"（真 Redis） ----------
+    // 悬停预览卡下线后，长键值的全文出口只剩这一条，所以真库里也要有一条实测。
+    // 与全文判据同源：只回长度 + djb2 哈希，格子里的真实内容始终留在页面里。
+    //
+    // 取的是"当前键详情里最长的正文格"，不是"视觉上被裁掉的那一格"：成员列在
+    // 1600 宽窗口下有 1208px，真库这 6 个键最长的成员（96 字符）本来就裁不出来，
+    // 用 scrollWidth > clientWidth 当门槛会让判据永远拿不到对象。裁切与否一并返回，
+    // 需要"装不下"的场景（字符数标注那条）由长度阈值 ≥60 保证。
+    const longCellOf = () => cdp.eval(`(() => {
+      const d = [...document.querySelectorAll('.db-redis-detail')].filter(window.__vis)[0]
+      if (!d) return { exists: 0, reason: 'no-detail' }
+      const dRect = d.getBoundingClientRect()
+      // 虚拟表体里正文格是 div.ant-table-cell，表头 th 也带同一个类 —— 只认表体
+      const ths = [...d.querySelectorAll('thead th')].filter(window.__vis)
+      const cells = [...d.querySelectorAll('.ant-table-cell')]
+        .filter(c => window.__vis(c) && !c.closest('thead'))
+      let best = null
+      for (const c of cells) {
+        const t = String(c.innerText || '').trim()
+        if (!t) continue
+        const r = c.getBoundingClientRect()
+        // 虚拟表把视口外的缓冲行也留在 DOM 里，照着点下去点的是别的东西；
+        // 详情区在窗口下半屏，还要保证坐标没落到视口外
+        if (r.top < dRect.top || r.bottom > Math.min(dRect.bottom, window.innerHeight) || r.width < 20) continue
+        const tr = c.parentElement
+        const idx = tr ? [...tr.children].indexOf(c) : -1
+        const cand = {
+          x: Math.round(r.left + Math.min(r.width / 2, 60)),
+          y: Math.round(r.top + r.height / 2),
+          len: t.length,
+          hash: window.__hash(t),
+          truncated: c.scrollWidth > c.clientWidth ? 1 : 0,
+          col: ths[idx] ? String(ths[idx].innerText || '').trim() : ''
+        }
+        if (!best || cand.len > best.len) best = cand
+      }
+      return best ? Object.assign({ exists: 1 }, best) : { exists: 0, reason: 'no-cell', cells: cells.length }
+    })()`)
+    const redisPane = () => cdp.eval(`(() => {
+      const d = [...document.querySelectorAll('.db-redis-detail')].filter(window.__vis)[0]
+      if (!d) return { exists: 0 }
+      const p = d.querySelector('.db-split-pane')
+      const b = d.querySelector('.db-split-pane-bottom')
+      const pane = [...d.querySelectorAll('.db-value-pane')].filter(window.__vis)[0]
+      const pre = pane ? pane.querySelector('.db-value-pane-pre') : null
+      const txt = pre ? pre.innerText : ''
+      return {
+        exists: 1,
+        open: pane ? 1 : 0,
+        collapsed: p ? (String(p.className).indexOf('db-split-pane-collapsed') >= 0 ? 1 : 0) : -1,
+        bottomH: b ? Math.round(b.getBoundingClientRect().height) : -1,
+        sel: d.querySelectorAll('.db-cell-selected').length,
+        editors: d.querySelectorAll('.db-redis-cell-edit').length,
+        title: pane ? ((pane.querySelector('.db-grid-title') || {}).innerText || '') : '',
+        meta: pane ? ((pane.querySelector('.db-grid-total') || {}).innerText || '') : '',
+        len: txt.length,
+        hash: window.__hash(txt)
+      }
+    })()`)
+    // 只读遍历键：真库这 6 个键的类型/长度不由脚本决定，所以先把"最长的那一格"
+    // 找出来，再回到它所在的键上量一次坐标（换过键之后旧坐标就作废了）
+    const selectKey = i => cdp.eval(`(() => {
+      const c = [...document.querySelectorAll('.db-redis-keys')].filter(window.__vis)[0]
+      const r = c ? c.querySelectorAll('.ant-table-row')[${i}] : null
+      if (!r) return 'no-row'
+      r.click()
+      return 'ok'
+    })()`)
+    let cell = null
+    const tried = []
+    for (let i = 0; i < keyRows; i++) {
+      const pickKey = await selectKey(i)
+      await sleep(1200)
+      const found = await longCellOf()
+      tried.push({ i, pickKey, len: found.exists === 1 ? found.len : found.reason })
+      if (found.exists === 1 && found.len >= 60 && (!cell || found.len > cell.len)) {
+        cell = Object.assign({ keyIdx: i }, found)
+      }
+    }
+    check('W3 真 Redis 详情里找到一格够长的正文（≥60 字符才会挂字符数标注）',
+      !!cell, { tried: tried.slice(0, 8), keyRows, longest: cell ? cell.len : 0 })
+    if (cell) {
+      await selectKey(cell.keyIdx)
+      await sleep(1200)
+      const again = await longCellOf()
+      if (again.exists !== 1 || again.hash !== cell.hash) {
+        check('W3a 回到那一格所在的键（坐标重测，旧坐标作废）', false, { again, want: cell.len })
+        cell = null
+      } else {
+        cell = Object.assign(cell, again)
+      }
+    }
+    if (cell) {
+      const closedBefore = await redisPane()
+      check('W3b 未选中时详情分区折叠：面板 0、底栏 0 高',
+        closedBefore.open === 0 && closedBefore.collapsed === 1 && closedBefore.bottomH < 8,
+        closedBefore)
+      await cdp.click(cell.x, cell.y)
+      await sleep(500)
+      const rp = await redisPane()
+      check('W4 真 Redis 单击一格直接展开只读值面板（选中态在、分区展开、无中间提示条）',
+        rp.open === 1 && rp.sel === 1 && rp.collapsed === 0 && rp.bottomH > 40 && rp.editors === 0,
+        { cell: { len: cell.len, col: cell.col }, pane: rp })
+      check('W5 真 Redis 面板正文与那一格逐字符同哈希、字符数标注用的是全文长度',
+        rp.len === cell.len && rp.hash === cell.hash && String(rp.meta).indexOf(String(cell.len)) >= 0,
+        { len: rp.len, want: cell.len, sameHash: rp.hash === cell.hash, meta: rp.meta })
+      check('W6 面板标题 = 列头译文 + 行号（与数据页/SQL 结果同一套文案）',
+        !!cell.col && rp.title.indexOf(cell.col) === 0 && /第\s*\d+\s*行|row\s*\d+/i.test(rp.title),
+        { title: rp.title, col: cell.col })
+      console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '5b-realdb-redis-pane.png')))
+      const closeR = await cdp.eval('window.__closePane()')
+      await sleep(500)
+      const afterR = await redisPane()
+      check('W7 真 Redis 面板 × 收起后分区回到折叠、选中态一并清掉',
+        closeR === 'ok' && afterR.open === 0 && afterR.collapsed === 1 && afterR.sel === 0,
+        { closeR, after: afterR })
+    }
+  }
+
+  // ---------- Q) 真连接 ----------
+  // 清掉所有数据库页签再开自己的：Page.reload 后持久化页签是异步恢复的，
+  // 恢复过程会把 activeTabId 改成它自己 —— 上一份脚本留下的桩页签（demo_db 那棵树）
+  // 会把这里的判据带到错误的 DOM 上，红成"真库连不上"的假故障。
+  // clearDbTabs 先等列表稳定再删，并确认真的删干净（只按 type=database 删，
+  // 这台机器上跑验收的应用实例里，数据库页签全部来自脚本）
+  const cleared = await clearDbTabs(cdp)
+  if (cleared.left.length) {
+    console.log('WARN 仍有未关掉的数据库页签：' + JSON.stringify(cleared.left))
   }
   await cdp.eval(`(() => {
     window.store.addTab({
@@ -317,12 +518,16 @@ const main = async () => {
   openedTabs.push(tabId)
   // 真连接的判据只看树真的把库名列出来了：`.db-tree` 是页签内的树容器，
   // 库名是其中一个节点（不是 .db-tree-db-name —— 那个类只在 Redis 侧出现）
-  const treeShown = await waitFor(cdp, '!!window.__one(".db-tree")', 'real tree', 60000)
-  const treeText0 = await cdp.eval('String((document.querySelector(".db-tree") || { innerText: "" }).innerText)')
+  // 同时等那一页"连接数据库失败"：环境不通就别再空等 60 秒
+  const treeShown = await waitFor(cdp,
+    '!!window.__one(".db-tree") || !!window.__one(".db-session-error")', 'real tree or conn error', 60000)
+  // 必须走 __one（可见性过滤）：document.querySelector 会先命中别的页签留在 DOM 里的隐藏树
+  const treeText0 = await cdp.eval('String(((window.__one(".db-tree") || { innerText: "" })).innerText)')
+  const dumpQ1 = await cdp.jeval(errDump())
+  mysqlBlocked = (dumpQ1.connErr || []).length ? String(dumpQ1.connErr[0]) : ''
   check('Q1 真库页签打开并建连（树里出现库名，无错误告警）',
-    treeShown && String(treeText0).indexOf(ENV.db) >= 0 &&
-    (await cdp.jeval(errDump())).alerts.length === 0,
-    { treeShown, hasDbName: String(treeText0).indexOf(ENV.db) >= 0, dump: await cdp.jeval(errDump()) })
+    treeShown && String(treeText0).indexOf(ENV.db) >= 0 && dumpQ1.alerts.length === 0 && !mysqlBlocked,
+    { treeShown, hasDbName: String(treeText0).indexOf(ENV.db) >= 0, blocked: mysqlBlocked, dump: dumpQ1 })
   // SQL 编辑器挂在"选中一张表"之后的页签里，所以先把树点开、选中样本表
   const dbNode = await cdp.eval('window.__clickTreeExact(' + JSON.stringify(ENV.db) + ')')
   const tableShown = await waitFor(cdp, 'window.__hasTree(' + JSON.stringify(SAMPLE_TABLE) + ')',
@@ -634,60 +839,6 @@ const main = async () => {
     console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '3-realdb-light-pane.png')))
     await cdp.eval('window.store.setTheme(' + JSON.stringify(cfg0.theme) + ')')
     await sleep(800)
-  }
-
-  // ---------- W) Redis 真库冒烟（同一套展示层的另一条连接） ----------
-  await cdp.eval(`(() => {
-    window.store.addTab({
-      type: 'database', from: 'quick-connect',
-      title: 'redis real',
-      dbType: 'redis', dbHost: ${JSON.stringify(ENV.redisHost)}, dbPort: Number(${JSON.stringify(ENV.redisPort)}),
-      dbPassword: ${JSON.stringify(ENV.redisPass)}, dbName: ${JSON.stringify(REDIS_DB)}, dbSsl: false,
-      readOnly: true, production: false, batch: window.store.currentLayoutBatch
-    })
-    const t = window.store.tabs[window.store.tabs.length - 1]
-    window.store.changeActiveTabId(t.id)
-    return t.id
-  })()`)
-  const redisId = await cdp.eval('String(window.store.activeTabId)')
-  openedTabs.push(redisId)
-  // Redis 页签先出树（db0…db15 带键数），键列表区要点库节点才挂出来 ——
-  // 节点标签是 "db0" 这种形态，按 dbName '0' 精确匹配会找不到
-  await waitFor(cdp, '!!window.__one(".db-tree")', 'redis tree', 40000)
-  const redisNode = await cdp.eval('window.__clickTree(' + JSON.stringify('db' + REDIS_DB) + ')')
-  const redisOk = await waitFor(cdp,
-    "!![...document.querySelectorAll('.db-redis-bar')].filter(window.__vis).length && " +
-    "!![...document.querySelectorAll('.db-redis-keys')].filter(window.__vis).length",
-    'redis area', 40000)
-  const keyRows = await cdp.eval(`(() => {
-    const c = [...document.querySelectorAll('.db-redis-keys')].filter(window.__vis)[0]
-    return c ? c.querySelectorAll('.ant-table-row').length : -1
-  })()`)
-  check('W1 真 Redis 连上并列出键（只读页签，不写任何键）',
-    redisNode === 'ok' && redisOk && keyRows > 0, { redisNode, redisOk, keyRows })
-  if (keyRows > 0) {
-    const picked = await cdp.eval(`(() => {
-      const c = [...document.querySelectorAll('.db-redis-keys')].filter(window.__vis)[0]
-      const r = c.querySelector('.ant-table-row')
-      if (!r) return 'no-row'
-      r.click()
-      return 'ok'
-    })()`)
-    await sleep(1500)
-    const detail = await cdp.eval(`(() => {
-      const d = [...document.querySelectorAll('.db-redis-detail')].filter(window.__vis)[0]
-      if (!d) return JSON.stringify({ exists: 0 })
-      return JSON.stringify({
-        exists: 1,
-        empty: !!d.querySelector('.db-redis-detail-empty'),
-        grids: d.querySelectorAll('.db-grid-table').length,
-        text: d.innerText.replace(/\\s+/g, ' ').length
-      })
-    })()`)
-    const d = JSON.parse(detail)
-    check('W2 选中键后详情区出内容（不是"请选择键"空态）',
-      picked === 'ok' && d.exists === 1 && d.empty === false && d.text > 0, d)
-    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '5-realdb-redis.png')))
   }
 
   // ---------- 收尾：全程无渲染层异常 ----------

@@ -28,7 +28,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const {
-  getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker, clickCell
+  getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker, clickCell, findPageTarget, clearDbTabs
 } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9225'
@@ -293,9 +293,14 @@ const finish = async () => {
 const errDump = () => `(() => {
   const vis = window.__vis
   const alerts = [...document.querySelectorAll('.ant-alert-message')].filter(vis).map(x => x.innerText.trim()).slice(0, 2)
+  // 连不上时应用给的是 .db-session-error 整页（不是 antd 告警条）：只查 .ant-alert-message
+  // 会把屏幕上明晃晃的"连接数据库失败 · Access denied"读成"没错误"，判据红了也说不清为什么
+  const connErr = [...document.querySelectorAll('.db-session-error')].filter(vis)
+    .map(x => x.innerText.replace(/\\s+/g, ' ').trim()).slice(0, 2)
   return JSON.stringify({
     tabs: [...document.querySelectorAll('.ant-tabs-tab')].filter(vis).map(x => x.innerText.trim()),
     alerts,
+    connErr,
     spin: [...document.querySelectorAll('.ant-spin-spinning')].filter(vis).length,
     rows: window.__rows().length
   })
@@ -429,7 +434,7 @@ const main = async () => {
   }
 
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
-  const page = targets.find(t => t.type === 'page' && String(t.url || '').includes('index.html'))
+  const page = findPageTarget(targets)
   if (!page) {
     throw new Error('没有渲染进程目标；应用是否带 --remote-debugging-port 启动？')
   }
@@ -467,14 +472,11 @@ const main = async () => {
     { pageSize: await cdp.eval('window.store._config.sqlResultPageSize') })
 
   // ---------- Q) 真连接 ----------
-  const staleIds = JSON.parse(await cdp.eval(
-    "JSON.stringify((window.store.tabs || []).filter(t => t.type === 'database' && /^mysql workbench$/.test(String(t.title))).map(t => t.id))"
-  ))
-  for (const id of staleIds) {
-    await cdp.eval('(async () => { await window.store.delTab(' + JSON.stringify(id) + ') })()')
-  }
-  if (staleIds.length) {
-    await sleep(700)
+  // 先清干净再开自己的页签：持久化页签在 Page.reload 后是异步恢复的，恢复过程会把
+  // activeTabId 改成它自己，上一份脚本留下的桩页签会把判据带到错误的 DOM 上
+  const tabsCleared = await clearDbTabs(cdp)
+  if (tabsCleared.left.length) {
+    console.log('WARN 仍有未关掉的数据库页签：' + JSON.stringify(tabsCleared.left))
   }
   await cdp.eval(`(() => {
     window.store.addTab({
@@ -490,12 +492,15 @@ const main = async () => {
     return t.id
   })()`)
   openedTabs.push(await cdp.eval('String(window.store.activeTabId)'))
-  const treeShown = await waitFor(cdp, '!!window.__one(".db-tree")', 'real tree', 60000)
-  const treeText = await cdp.eval('String((document.querySelector(".db-tree") || { innerText: "" }).innerText)')
+  const treeShown = await waitFor(cdp,
+    '!!window.__one(".db-tree") || !!window.__one(".db-session-error")', 'real tree or conn error', 60000)
+  // 走 __one（可见性过滤）：document.querySelector 会先命中别的页签留在 DOM 里的隐藏树
+  const treeText = await cdp.eval('String(((window.__one(".db-tree") || { innerText: "" })).innerText)')
+  const dumpQ1 = await cdp.jeval(errDump())
   check('Q1 真库页签打开并建连（树里出现库名，无错误告警）',
     treeShown && String(treeText).indexOf(ENV.db) >= 0 &&
-    (await cdp.jeval(errDump())).alerts.length === 0,
-    { treeShown, hasDbName: String(treeText).indexOf(ENV.db) >= 0 })
+    dumpQ1.alerts.length === 0 && !(dumpQ1.connErr || []).length,
+    { treeShown, hasDbName: String(treeText).indexOf(ENV.db) >= 0, blocked: (dumpQ1.connErr || [])[0] || '' })
   const dbNode = await cdp.eval('window.__clickTreeExact(' + JSON.stringify(ENV.db) + ')')
   const tableShown = await waitFor(cdp, 'window.__hasTree(' + JSON.stringify(SAMPLE_TABLE) + ')',
     'table node under ' + ENV.db, 40000)

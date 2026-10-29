@@ -121,6 +121,11 @@ const FIXTURE = `
         })
       }
       if (op === 'getKeyDetail') {
+        // k1 走 string 分支（详情本身就是那只面板），长键走 hash 四张表那条 ——
+        // 不区分的话"换键后不残留上一格选中态"只能验到同一种类型，换类型的渲染路径没实测对象
+        if (String(args.key || '') === 'k1') {
+          return Promise.resolve({ type: 'string', value: 'v1', ttl: 100, total: 2 })
+        }
         return Promise.resolve({
           type: 'hash',
           value: null,
@@ -302,6 +307,52 @@ const HELPERS = `
       bar: document.querySelectorAll('.db-sql-value-bar').length
     })
   }
+  // Redis 详情区的分栏几何。详情根 .db-redis-detail 自己还嵌在"键列表 / 详情"
+  // 那层分区里，直接 querySelector('.db-split-pane') 会量到外层，判据只认详情里这一张
+  window.__redisSplit = () => {
+    const p = [...document.querySelectorAll('.db-redis-detail .db-split-pane')].filter(window.__vis)[0]
+    if (!p) return JSON.stringify({ found: 0 })
+    const b = p.querySelector('.db-split-pane-bottom')
+    const g = p.querySelector('.db-grid-table')
+    const handle = p.querySelector('.db-split-resizer')
+    const r = handle ? handle.getBoundingClientRect() : null
+    return JSON.stringify({
+      found: 1,
+      collapsed: p.className.indexOf('db-split-pane-collapsed') >= 0 ? 1 : 0,
+      resizer: handle ? 1 : 0,
+      resizerXY: r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } : null,
+      bottomH: b ? Math.round(b.getBoundingClientRect().height) : -1,
+      paneVis: [...p.querySelectorAll('.db-value-pane')].filter(window.__vis).length,
+      gridH: g ? Math.round(g.getBoundingClientRect().height) : -1,
+      selCount: p.querySelectorAll('.db-cell-selected').length,
+      // Redis 详情的行内编辑容器与数据页不是同一个类名（Redis 走 db-redis-cell-edit）
+      editors: p.querySelectorAll('.db-redis-cell-edit').length
+    })
+  }
+  // 关掉 Redis 行内编辑：编辑条上没有 Esc 语义，取消是那只 × 按钮（最后一个按钮）
+  window.__cancelRedisEdit = () => {
+    const wrap = [...document.querySelectorAll('.db-redis-detail .db-redis-cell-edit')].filter(window.__vis)[0]
+    if (!wrap) return 'no-editor'
+    const btns = wrap.querySelectorAll('button')
+    const cancel = btns[btns.length - 1]
+    if (!cancel) return 'no-cancel'
+    cancel.click()
+    return 'ok'
+  }
+  // 那一格所在列的列头文字：面板标题前缀要和界面语言一致，所以拿实词来比，
+  // 不在判据里写死"值 / value"。
+  // 注意：行虚拟渲染时 antd 把 thead 拆进 .ant-table-header 里的另一张 table，
+  // 从 td 往上 closest('table') 量不到表头，必须按整个网格容器找列头再按兄弟序号对齐
+  window.__cellColLabel = prefix => {
+    const c = window.__cellOf(prefix)
+    if (!c) return 'no-cell'
+    const scope = c.closest('.db-grid-table-wrap') || c.closest('.ant-table-wrapper') || document
+    const ths = [...scope.querySelectorAll('thead th')].filter(window.__vis)
+    const tr = c.parentElement
+    const idx = tr ? [...tr.children].indexOf(c) : -1
+    const th = ths[idx]
+    return th ? th.innerText.trim() : 'no-th:' + idx + '/' + ths.length
+  }
   window.__closePane = () => {
     const pane = [...document.querySelectorAll('.db-value-pane')].filter(window.__vis)[0]
     if (!pane) return 'no-pane'
@@ -351,6 +402,14 @@ const HELPERS = `
   window.__clickRedisKey = () => {
     const cell = window.__cellOf('session:user')
     if (!cell) return 'no-key-row'
+    const row = cell.closest('.ant-table-row') || cell
+    row.click()
+    return 'ok'
+  }
+  // 按前缀点键列表里的另一个键（换一个类型，验选中态不跟着键切回来）
+  window.__clickRedisKeyAt = prefix => {
+    const cell = window.__cellOf(prefix)
+    if (!cell) return 'no-key-row:' + prefix
     const row = cell.closest('.ant-table-row') || cell
     row.click()
     return 'ok'
@@ -618,6 +677,10 @@ const HELPERS = `
 })()
 `
 
+// 一条 CDP 协议命令的等待上限。截图在软件合成的 Xvfb 上会慢，所以给到 45 秒：
+// 超过它就不是"慢"而是"再也不会回话"，此时必须报错而不是让整套判据停摆
+const CDP_CALL_TIMEOUT = 45000
+
 class Cdp {
   constructor (wsUrl) {
     this.ws = new WebSocket(wsUrl)
@@ -627,20 +690,41 @@ class Cdp {
       this.ws.on('open', resolve)
       this.ws.on('error', reject)
     })
+    // socket 断了/被顶掉了：把还在等的调用全部判失败。
+    // 原来只有 resolve 一条路，连接没了就永远挂着（实测：进程 0% CPU、
+    // socket 仍 ESTAB，整套判据停在第 72 条上，只能外部 kill）
+    this.ws.on('close', () => this.abort('CDP socket closed'))
+    this.ws.on('error', e => this.abort('CDP socket error: ' + e.message))
     this.ws.on('message', d => {
       const m = JSON.parse(d.toString())
       const cb = this.pending.get(m.id)
       if (cb) {
         this.pending.delete(m.id)
-        cb(m)
+        cb.resolve(m)
       }
     })
   }
 
+  abort (why) {
+    const waiting = [...this.pending.values()]
+    this.pending.clear()
+    waiting.forEach(cb => cb.reject(new Error(why)))
+  }
+
   call (method, params) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const id = ++this.id
-      this.pending.set(id, resolve)
+      // 超时也带上 method：红了直接知道卡在哪一条协议上，不用 attach 调试器
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          reject(new Error('CDP timeout after ' + CDP_CALL_TIMEOUT + 'ms: ' + method))
+        }
+      }, CDP_CALL_TIMEOUT)
+      timer.unref()
+      this.pending.set(id, {
+        resolve: m => { clearTimeout(timer); resolve(m) },
+        reject
+      })
       this.ws.send(JSON.stringify({ id, method, params }))
     })
   }
@@ -970,7 +1054,9 @@ const REDIS_TAB = {
 
 const main = async () => {
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
-  const page = targets.find(t => (t.type === 'page') && String(t.url || '').includes('index.html'))
+  // 只认 index.html 会在 compile 清空 assets 的窗口里找不到目标（那时页面落在服务根路径 /）
+  const page = targets.find(t => t.type === 'page' &&
+    (/index\.html/.test(String(t.url || '')) || /^https?:\/\/127\.0\.0\.1:\d+\/(\?|#|$)/.test(String(t.url || ''))))
   if (!page) {
     throw new Error('no renderer page target found; is the app started with --remote-debugging-port?')
   }
@@ -990,6 +1076,7 @@ const main = async () => {
   // 先记原值，跑完还原。上一轮遗留的 200 曾把"下一页"合法置灰，让翻页那条检查失去对象
   const cfgPageSize0 = await cdp.eval('window.store._config && window.store._config.dbPageSize')
   const cfgSqlPageSize0 = await cdp.eval('window.store._config && window.store._config.sqlResultPageSize')
+  const cfgTheme0 = await cdp.eval('String((window.store._config || {}).theme)')
 
   // ---------- MySQL 会话 ----------
   MYSQL_TAB.batch = await cdp.eval('window.store.currentLayoutBatch')
@@ -1495,7 +1582,7 @@ const main = async () => {
 
   // ---------- Redis 会话 ----------
   REDIS_TAB.batch = await cdp.eval('window.store.currentLayoutBatch')
-  await cdp.eval(openTab(REDIS_TAB))
+  const redisId = await cdp.eval(openTab(REDIS_TAB))
   check('Redis 页签打开', await waitFor(cdp,
     "(() => { const t = window.store.tabs.find(x => x.id === window.store.activeTabId); return !!(t && t.dbType === 'redis' && document.querySelector('.db-tree')) })()",
     'redis tab'))
@@ -1529,6 +1616,87 @@ const main = async () => {
   check('点开一个 hash 键（详情网格出长 value）', await cdp.eval('window.__clickRedisKey()') === 'ok' &&
     await waitFor(cdp, '!!window.__cellOf("PPPPPPPPPPPP")', 'redis hash value'))
   await expectNoPreview(cdp, 'Redis 详情 hash value(6500)', 'PPPPPPPPPPPP', '7-redis-hash-dark.png')
+
+  // ---------- Redis 详情四张表：单击一格 → 底部只读值面板 ----------
+  // 撤掉悬停卡后，长 value 的全文出口只剩这一条，所以这里把"折叠态不占位 / 点击即开 /
+  // 全文不走样 / 收起还原 / 与双击行内编辑共存"四件事一次判完
+  const redisSplitClosed = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('Redis 详情未选中时分区折叠：面板 0、底栏 0 高、不给拖拽手柄',
+    redisSplitClosed.found === 1 && redisSplitClosed.collapsed === 1 &&
+      redisSplitClosed.paneVis === 0 && redisSplitClosed.bottomH < 8 &&
+      redisSplitClosed.resizer === 0, redisSplitClosed)
+  const redisColLabelRaw = await cdp.eval('window.__cellColLabel("PPPPPPPPPPPP")')
+  check('取到 value 列的列头译文（面板标题前缀有比对对象）',
+    !!redisColLabelRaw && !redisColLabelRaw.startsWith('no-'), redisColLabelRaw)
+  const redisClick = await clickOpenPane(cdp, 'PPPPPPPPPPPP')
+  check('Redis 详情单击数据格直接展开值面板（与数据页/SQL 结果同一交互）',
+    redisClick.opened && redisClick.pane.open === 1 && redisClick.pane.bar === 0,
+    { opened: redisClick.opened, pane: redisClick.pane })
+  check('Redis 详情面板标题 = 这一列的列头译文 + 行号',
+    String(redisClick.pane.title).indexOf(redisColLabelRaw) === 0 &&
+      /第\s*1\s*行|row\s*1\b/i.test(String(redisClick.pane.title)),
+    { title: redisClick.pane.title, col: redisColLabelRaw })
+  check('Redis 详情面板给出全文 6500 字符并标注字符数',
+    redisClick.pane.preLen === 6500 && /6500\s*(chars|字符)/i.test(String(redisClick.pane.meta || '')),
+    { preLen: redisClick.pane.preLen, meta: redisClick.pane.meta })
+  const redisCellHash = await cdp.eval(`(() => {
+    const c = window.__cellOf('PPPPPPPPPPPP')
+    return c ? window.__hash(c.innerText.trim()) : ''
+  })()`)
+  check('Redis 详情面板正文与单元格内容逐字符同哈希（全文不走样）',
+    !!redisCellHash && redisCellHash === redisClick.pane.preHash,
+    { cellHash: redisCellHash, paneHash: redisClick.pane.preHash })
+  const redisSplitOpen = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('选中格有选中态、分区展开后底栏占到高度、网格随之压矮',
+    redisSplitOpen.selCount === 1 && redisSplitOpen.collapsed === 0 &&
+      redisSplitOpen.paneVis === 1 && redisSplitOpen.bottomH > 40 &&
+      redisSplitOpen.resizer === 1 && redisSplitOpen.gridH < redisSplitClosed.gridH,
+    { closed: redisSplitClosed, open: redisSplitOpen })
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '7b-redis-hash-pane-dark.png')))
+  await expectNoPreview(cdp, 'Redis 详情面板展开时悬停', 'PPPPPPPPPPPP')
+  // 单击不抢双击的行内编辑：D 批那条写路径还在（面板开了也能进编辑）
+  await cdp.move(redisClick.cell.x, redisClick.cell.y)
+  await sleep(100)
+  await cdp.click(redisClick.cell.x, redisClick.cell.y, 2)
+  await sleep(400)
+  const redisEdited = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('Redis 详情双击 value 仍进入行内编辑（单击选中没有抢走这条路径）',
+    redisEdited.editors === 1, redisEdited)
+  const cancelled = await cdp.eval('window.__cancelRedisEdit()')
+  await sleep(300)
+  const afterCancel = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('取消 Redis 行内编辑后面板仍在（编辑不影响选中）',
+    cancelled === 'ok' && afterCancel.editors === 0 && afterCancel.paneVis === 1 &&
+      afterCancel.selCount === 1, { cancelled, after: afterCancel })
+  const closedRedis = await cdp.eval('window.__closePane()')
+  await sleep(400)
+  const redisSplitAfterClose = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('Redis 详情面板 × 收起后分区回到折叠、网格还原全高',
+    closedRedis === 'ok' && redisSplitAfterClose.collapsed === 1 &&
+      redisSplitAfterClose.paneVis === 0 && redisSplitAfterClose.selCount === 0 &&
+      redisSplitAfterClose.gridH === redisSplitClosed.gridH,
+    { closedRedis, after: redisSplitAfterClose, before: redisSplitClosed })
+  // 短值走同一条路径，只是不挂字符数（一格本来就装得下，标注是噪音）
+  const fieldColLabelRaw = await cdp.eval('window.__cellColLabel("payload")')
+  const fieldClick = await clickOpenPane(cdp, 'payload')
+  check('Redis 详情短内容单击也直接开面板（与长内容同一路径、不挂字符数）',
+    fieldClick.opened && fieldClick.pane.open === 1 && fieldClick.pane.meta === '' &&
+      String(fieldClick.pane.title).indexOf(fieldColLabelRaw) === 0,
+    { title: fieldClick.pane.title, meta: fieldClick.pane.meta, col: fieldColLabelRaw })
+  await cdp.eval('window.__closePane()')
+  await sleep(250)
+  // 换一个键 = 重新取详情，上一格的选中态不能带过去（面板指向的是已经不存在的行）
+  await cdp.eval('window.__clickRedisKeyAt("k1")')
+  await sleep(700)
+  const redisSwitched = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('切到另一个键（string 详情本身就是面板）：详情分区不残留、走 string 那条渲染',
+    redisSwitched.found === 0 &&
+      await waitFor(cdp, "!!document.querySelector('.db-redis-detail .db-value-pane')", 'string pane'))
+  await cdp.eval('window.__clickRedisKey()')
+  await sleep(700)
+  const redisBack = JSON.parse(await cdp.eval('window.__redisSplit()'))
+  check('切回 hash 键后分区回到折叠（选中态没跟着键切回来）',
+    redisBack.found === 1 && redisBack.collapsed === 1 && redisBack.selCount === 0, redisBack)
 
   // ---------- 浅色主题复查（值面板配色全部走 token） ----------
   const themeIds = JSON.parse(await cdp.eval("JSON.stringify((window.store.getItems('terminalThemes') || []).map(t => t.id))"))
@@ -1576,6 +1744,19 @@ const main = async () => {
   // 它留着 20 会让下一轮真库测的分页判据跑在别的页大小上
   const backSqlPs = Number(cfgSqlPageSize0) >= 10 ? Number(cfgSqlPageSize0) : 20
   await cdp.eval('window.store.setConfig({ sqlResultPageSize: ' + backSqlPs + ' })')
+  // 主题也还原：这一轮的浅色复查会把 setTheme 落进真实配置目录，
+  // 留着浅色交给下一份脚本，等于让它在没预期的调色板下跑
+  await cdp.eval('window.store.setTheme(' + JSON.stringify(cfgTheme0) + ')')
+  // 本脚本开的两个桩页签（mysql / redis quick-connect）会被持久化恢复：
+  // 留着它们，下一份脚本 Page.reload 后的异步恢复过程会把 activeTabId 改成它们自己，
+  // 于是真库判据读的是这份桩数据的树（demo_db）而不是真库的（tgfsom）—— 假故障
+  for (const id of [mysqlId, redisId]) {
+    await cdp.eval('(async () => { await window.store.delTab(' + JSON.stringify(id) + ') })()')
+  }
+  await sleep(600)
+  const leftTabs = await cdp.eval(
+    "JSON.stringify((window.store.tabs || []).filter(t => t.type === 'database').map(t => t.title))")
+  console.log('leftover db tabs after cleanup: ' + leftTabs)
   await sleep(300)
 
   const fail = results.filter(r => !r.ok)

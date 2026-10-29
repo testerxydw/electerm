@@ -639,7 +639,9 @@ const restoreCfg = async () => {
 
 const main = async () => {
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
-  const page = targets.find(t => (t.type === 'page') && String(t.url || '').includes('index.html'))
+  // 只认 index.html 会在 compile 清空 assets 的窗口里找不到目标（那时页面落在服务根路径 /）
+  const page = targets.find(t => t.type === 'page' &&
+    (/index\.html/.test(String(t.url || '')) || /^https?:\/\/127\.0\.0\.1:\d+\/(\?|#|$)/.test(String(t.url || ''))))
   if (!page) {
     throw new Error('no renderer page target found; is the app started with --remote-debugging-port?')
   }

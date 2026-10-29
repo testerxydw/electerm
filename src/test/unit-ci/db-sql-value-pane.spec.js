@@ -42,7 +42,7 @@ function loadSqlCellInfo () {
     Number,
     String,
     Array,
-    SQL_VALUE_META_MIN: Number((/const SQL_VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1]),
+    VALUE_META_MIN: Number((/const VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1]),
     isBinaryType: t => /blob|bytea|binary|^varbinary$/.test(String(t || '').toLowerCase()),
     isBinEnvelope: v => !!(v && typeof v === 'object' && v.__bin),
     e: k => ({ dbResultN: 'result {n}', dbRowN: 'row {n}' })[k] || k
@@ -112,9 +112,11 @@ describe('SQL 结果区：选中一格就展开下方面板', () => {
     assert.ok(!/startEdit/.test(onCell[1]), '同上')
   })
 
-  test('选中格有落点标记，且只有一处判定', () => {
+  test('选中格有落点标记，判定只长在列定义里', () => {
     const src = codeOf(jsx())
-    assert.equal((src.match(/db-cell-selected/g) || []).length, 1, 'class 只应在 SQL 列定义里出现一次')
+    // 两处 = SQL 结果列定义 + Redis 详情的选中格工厂（5 张详情表共用那一个工厂）；
+    // 再冒出新的一处就说明有人把 class 写到了 render 里
+    assert.equal((src.match(/db-cell-selected/g) || []).length, 2, 'class 只应出现在 SQL 列定义与 Redis 选中格工厂里')
     const css = /\.db-cell-selected\n((?: {2}.*\n)+)/.exec(styl())
     assert.ok(css, '.db-cell-selected 未定义')
     assert.match(css[1], /box-shadow inset 0 0 0 1px var\(--primary\)/)
@@ -158,8 +160,8 @@ describe('sqlCellInfo：面板数据取自结果集与类型契约（真实源�
 
   test('长字符串给字符数、二进制信封给字节数、短值与其余不硬凑', () => {
     const info = loadSqlCellInfo()
-    const min = Number((/const SQL_VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1])
-    assert.ok(Number.isInteger(min) && min > 0, 'SQL_VALUE_META_MIN 必须是个正整数常量')
+    const min = Number((/const VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1])
+    assert.ok(Number.isInteger(min) && min > 0, 'VALUE_META_MIN 必须是个正整数常量')
     // 阈值两侧都要钉住：格子本来就看得全的短值不该挂计数，超出的必须挂
     assert.equal(info({ rs: 0, col: 'a', rowKey: 0 }, results([{ a: 'note-5' }]), maps({ a: 'varchar' })).meta, '')
     assert.equal(
@@ -244,6 +246,7 @@ describe('词条与既有呈现一致', () => {
 
   test('数据页标题不再出现裸英文 " - row "（与 SQL 面板同一套文案）', () => {
     assert.ok(!codeOf(jsx()).includes("' - row '"), '数据页标题应改走 dbRowN')
-    assert.equal((jsx().match(/e\('dbRowN'\)/g) || []).length, 2)
+    // 三处 = 数据页 + SQL 结果 + Redis 详情：三张表的"第 N 行"必须是同一条文案
+    assert.equal((jsx().match(/e\('dbRowN'\)/g) || []).length, 3)
   })
 })

@@ -31,7 +31,7 @@
 const path = require('node:path')
 const {
   getJson, buildHelpers, Cdp, sleep, waitFor, makeChecker,
-  rowRe, rsRe, isCharsMeta, hexOk, clickCell, clearDbTabs
+  rowRe, rsRe, isCharsMeta, hexOk, clickCell, clearDbTabs, findPageTarget
 } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9225'
@@ -336,7 +336,7 @@ const finish = async results => {
 
 const main = async () => {
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
-  const page = targets.find(t => (t.type === 'page') && String(t.url || '').includes('index.html'))
+  const page = findPageTarget(targets)
   if (!page) {
     throw new Error('no renderer page target found; is the app started with --remote-debugging-port?')
   }
