@@ -2417,3 +2417,58 @@ body.db-col-resizing
   cursor pointer
   &:hover
     background var(--hover-bg)
+
+// H1 行详情：字段名定宽 + 值自适应，逐字段可展开/复制
+.db-row-detail-scroll
+  max-height 60vh
+  overflow auto
+
+.db-row-detail
+  display flex
+  flex-direction column
+
+.db-row-detail-item
+  display flex
+  align-items flex-start
+  gap 8px
+  padding 6px 0
+  border-bottom 1px solid var(--border)
+  &:last-child
+    border-bottom 0
+
+.db-row-detail-name
+  flex 0 0 180px
+  display flex
+  flex-direction column
+  gap 2px
+  overflow hidden
+
+.db-row-detail-field
+  color var(--text-dark)
+  font-size 12px
+  font-family var(--db-code-font, var(--font-mono))
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-row-detail-type
+  color var(--text)
+  opacity 0.6
+  font-size 11px
+
+.db-row-detail-value
+  flex 1 1 auto
+  min-width 0
+  margin 0
+  padding 2px 6px
+  border-radius var(--radius-sm)
+  background var(--hover-bg)
+  color var(--text)
+  font-size 12px
+  font-family var(--db-code-font, var(--font-mono))
+  white-space pre-wrap
+  word-break break-all
+  &.is-null
+    color var(--text)
+    opacity 0.6
+    font-style italic

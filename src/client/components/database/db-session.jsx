@@ -24,6 +24,8 @@ import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
 // 与过滤输入（数据页 / SQL 结果同一外观，状态仍归各自页面）
 import { DbGridPager, DbGridFilter } from './db-grid-pager'
 import { DbCellMenu } from './db-cell-menu'
+// H1：行详情（SQL 结果 Modal 承载；H2 数据网格底部"行"页签复用同一渲染体）
+import { DbRowDetailModal } from './db-row-detail'
 import {
   fitColumnWidths,
   wideColumnWidth,
@@ -804,6 +806,9 @@ export default auto(function DbSession (props) {
   // SQL 结果单元格右键菜单（全站单例浮层）：onCell 只写落点，动作在本文件的
   // openSqlCellMenu 里按上下文生成
   const [sqlCellMenu, setSqlCellMenu] = useState(null)
+  // H1 行详情：右键菜单"查看行详情"打开的那一行。存行对象快照而不是下标 ——
+  // 行对象只在这一格被点击时生成一次，翻页/过滤不会把它指向别的行
+  const [sqlRowDetail, setSqlRowDetail] = useState(null)
   // 页大小存 config（与数据页同一组候选），改后回第 1 页
   const sqlPageSize = getSqlResultPageSize()
   const changeSqlPageSize = v => {
@@ -823,6 +828,8 @@ export default auto(function DbSession (props) {
     // 右键菜单也一起收：菜单项闭包握着旧结果的行对象与结果集下标，
     // 新结果到位后再点就会抄旧行/筛错结果集
     setSqlCellMenu(null)
+    // 行详情同样收：新结果的行对象快照已经不属于当前结果集
+    setSqlRowDetail(null)
     sqlFilterCommitted.current = {}
   }, [sqlResult.results])
 
@@ -2548,6 +2555,13 @@ export default auto(function DbSession (props) {
           key: 'rowJson',
           text: e('dbCellCopyRowJson'),
           onClick: () => copy(buildCopyStatements('json', { headers, rows: [row] }))
+        },
+        {
+          // H1：整行逐字段看（复制走 Modal 底部按钮）。行对象是快照，
+          // 与菜单 closure 拿到的同一份，翻页后也还指向原来那一行
+          key: 'rowDetail',
+          text: e('dbCellRowDetail'),
+          onClick: () => setSqlRowDetail({ rs, row })
         },
         {
           key: 'filter',
@@ -8232,6 +8246,18 @@ export default auto(function DbSession (props) {
       <DbCellMenu
         target={sqlCellMenu}
         onHide={() => setSqlCellMenu(null)}
+      />
+      {/* H1 行详情：列序与导出同源（fields 为准），类型表按结果集下标取 */}
+      <DbRowDetailModal
+        open={!!sqlRowDetail}
+        columns={
+          sqlRowDetail && sqlResult.results && sqlResult.results[sqlRowDetail.rs]
+            ? sqlExportHeaders(sqlResult.results[sqlRowDetail.rs])
+            : []
+        }
+        row={sqlRowDetail ? sqlRowDetail.row : {}}
+        types={sqlRowDetail ? (sqlColTypeMaps[sqlRowDetail.rs] || {}) : {}}
+        onClose={() => setSqlRowDetail(null)}
       />
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />

@@ -1129,10 +1129,10 @@ const main = async () => {
   const mxOpen1 = await ctxPick('note', 0, -1)
   const mxMenu1 = JSON.parse(await cdp.eval('window.__ctxMenu()'))
   const mxExpMenu = JSON.parse(await cdp.eval(`JSON.stringify(
-    ['dbCellCopyValue', 'dbCellCopyColName', 'dbCellCopyRowTsv', 'dbCellCopyRowJson', 'dbCellFilterByValue']
+    ['dbCellCopyValue', 'dbCellCopyColName', 'dbCellCopyRowTsv', 'dbCellCopyRowJson', 'dbCellRowDetail', 'dbCellFilterByValue']
       .map(k => String(window.translate(k)))
   )`))
-  check('M1 右键出菜单：表头=列名、五项词条齐且顺序正确（不是裸 key）',
+  check('M1 右键出菜单：表头=列名、六项词条齐且顺序正确（不是裸 key）',
     mxOpen1.opened === 'ok' && mxMenu1.open === 1 && mxMenu1.head === 'note' &&
     mxMenu1.items.join('|') === mxExpMenu.join('|'),
     { opened: mxOpen1.opened, head: mxMenu1.head, items: mxMenu1.items })
@@ -1194,7 +1194,7 @@ const main = async () => {
 
   // 按值过滤：与手动输入同一条路（防抖 + 命中口径 + 页码回第 1 页）
   const mxUpperRow0 = String((await cdp.jeval('window.__cellXY("upper", 0)')).text)
-  const mxP7 = await ctxPick('upper', 0, 4)
+  const mxP7 = await ctxPick('upper', 0, 5)
   let mxMFilter = null
   const t0m = Date.now()
   while (Date.now() - t0m < 5000) {
@@ -1209,6 +1209,109 @@ const main = async () => {
     { pick: mxP7.picked, upperRow0: mxUpperRow0, draft: mxDraftUpper, hit: mxMFilter && { m: mxMFilter.m, t: mxMFilter.t } })
   await cdp.eval('window.__fClear()')
   await sleep(400)
+
+  // ---------- M8~M11) 行详情 Modal（逐字段 + 逐字段复制 + 复制整行） ----------
+  await cdp.eval(`(() => {
+    window.__rdModal = () => {
+      const m = [...document.querySelectorAll('.ant-modal')]
+        .filter(window.__vis)
+        .find(x => x.querySelector('.db-row-detail'))
+      if (!m) return JSON.stringify({ open: 0 })
+      const items = [...m.querySelectorAll('.db-row-detail-item')].filter(window.__vis)
+      const text = el => (el ? String(el.textContent).trim() : '')
+      return JSON.stringify({
+        open: 1,
+        title: text(m.querySelector('.ant-modal-title')),
+        fields: items.map(x => text(x.querySelector('.db-row-detail-field'))),
+        values: items.map(x => text(x.querySelector('.db-row-detail-value'))),
+        expandBtns: items.filter(x => x.querySelector('.ant-btn-link')).length,
+        copyBtns: items.filter(x => x.querySelector('.ant-btn-text')).length,
+        footer: [...m.querySelectorAll('.ant-modal-footer button')].filter(window.__vis).map(text)
+      })
+    }
+    window.__rdCopyField = name => {
+      const m = [...document.querySelectorAll('.ant-modal')]
+        .filter(window.__vis)
+        .find(x => x.querySelector('.db-row-detail'))
+      if (!m) return 'no-modal'
+      const it = [...m.querySelectorAll('.db-row-detail-item')]
+        .find(x => String(x.querySelector('.db-row-detail-field').textContent).trim() === name)
+      if (!it) return 'no-field'
+      const btn = it.querySelector('.ant-btn-text')
+      if (!btn) return 'no-btn'
+      btn.click()
+      return 'ok'
+    }
+    window.__rdFooter = i => {
+      const m = [...document.querySelectorAll('.ant-modal')]
+        .filter(window.__vis)
+        .find(x => x.querySelector('.db-row-detail'))
+      if (!m) return 'no-modal'
+      const b = [...m.querySelectorAll('.ant-modal-footer button')].filter(window.__vis)[i]
+      if (!b) return 'no-btn'
+      b.click()
+      return 'ok'
+    }
+    return 'row-detail-probe-ready'
+  })()`)
+  await sleep(200)
+  // 固定回单结果集 1 万行、无过滤：前面的 M7 改过过滤框
+  await cdp.eval('window.__sqlMode = "one"')
+  await runSql(cdp)
+  const rdCellId = String((await cdp.jeval('window.__cellXY("id", 0)')).text)
+  const rdCellNote = String((await cdp.jeval('window.__cellXY("note", 0)')).text)
+  const rdOpen = await ctxPick('note', 0, 4)
+  await sleep(400)
+  const rd1 = JSON.parse(await cdp.eval('window.__rdModal()'))
+  const rdExpTitle = await cdp.eval("String(window.translate('dbRowDetailTitle'))")
+  check('M8 行详情 Modal：整行 5 字段、列序与表头同源、值取自被右键那一行',
+    rdOpen.picked === 'ok' && rd1.open === 1 && rd1.title === rdExpTitle &&
+    rd1.fields.join(',') === 'id,note,tag,upper,nullable' &&
+    rd1.values[0] === rdCellId && rd1.values[1] === rdCellNote &&
+    rd1.expandBtns === 0 && rd1.copyBtns === 5,
+    {
+      pick: rdOpen.picked,
+      title: rd1.title,
+      fields: rd1.fields,
+      v0: rd1.values[0],
+      v1: rd1.values[1],
+      expand: rd1.expandBtns,
+      copy: rd1.copyBtns
+    })
+  // 双主题同一批：此刻在手的是浅色（F20 切的），再切回启动时那套拍深色
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '7-row-detail-light.png')))
+  if (cfg0.theme && cfg0.theme !== lightId) {
+    await cdp.eval('window.store.setTheme(' + JSON.stringify(cfg0.theme) + ')')
+    await sleep(900)
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '8-row-detail-dark.png')))
+    await cdp.eval('window.store.setTheme(' + JSON.stringify(lightId) + ')')
+    await sleep(900)
+  }
+
+  const rdCopy = await cdp.eval('window.__rdCopyField("note")')
+  const rdClip = JSON.parse(await cdp.eval('window.__clipEq(' + JSON.stringify(rdCellNote) + ')'))
+  check('M9 逐字段复制：剪贴板读回就是该字段展示文本',
+    rdCopy === 'ok' && rdClip.same === 1 && rdClip.len > 0,
+    { copy: rdCopy, ...rdClip })
+
+  const rdFooterCopy = await cdp.eval('window.__rdFooter(0)')
+  const rdJson = JSON.parse(await cdp.eval(`(() => {
+    try {
+      const o = JSON.parse(String(window.pre.readClipboard()))
+      return JSON.stringify({ keys: Object.keys(o).join(','), note: o.note, hasRowKey: '__rowKey' in o })
+    } catch (e) { return JSON.stringify({ err: String(e) }) }
+  })()`))
+  check('M10 复制整行：键序与表头同源，__rowKey 等内部键不进结果',
+    rdFooterCopy === 'ok' && rdJson.keys === 'id,note,tag,upper,nullable' &&
+    rdJson.note === rdCellNote && rdJson.hasRowKey === false,
+    { copy: rdFooterCopy, ...rdJson })
+
+  const rdClosed = await cdp.eval('window.__rdFooter(1)')
+  await sleep(400)
+  const rdAfter = JSON.parse(await cdp.eval('window.__rdModal()'))
+  check('M11 关闭后 Modal 从 DOM 移除（不是藏起来）',
+    rdClosed === 'ok' && rdAfter.open === 0,
+    { close: rdClosed, after: rdAfter.open })
 
   // ---------- E) 执行耗时状态（{rows} 行 · {ms} ms + 多结果页签总耗时） ----------
   // 状态行探针：读可见工具行右端的 .db-sql-elapsed 文本
