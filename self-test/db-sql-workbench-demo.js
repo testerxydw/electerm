@@ -229,15 +229,22 @@ const PROBE = `
       placeholder: window.__fInput() ? String(window.__fInput().placeholder) : '',
       pagesize: vis(t.querySelectorAll('.db-grid-pagesize')).length,
       buttons: vis(t.querySelectorAll('button')).length,
-      pager: vis(t.querySelectorAll('.ant-pagination')).length,
-      pages: vis(t.querySelectorAll('.ant-pagination-item')).map(x => x.innerText.trim()),
+      // 分页器已换成与数据页同一份 DbGridPager：没有页码按钮，"末页"只能从
+      // 跳页框的 placeholder（'1-50'）读，当前页从 .db-grid-page-no 文本解析
+      pager: vis(t.querySelectorAll('.db-grid-pager')).length,
+      maxPage: (() => {
+        const i = vis(t.querySelectorAll('.db-grid-pager .db-grid-jump input'))[0]
+        const m = i ? String(i.getAttribute('placeholder') || '').match(/([0-9]+)[^0-9]*$/) : null
+        return m ? Number(m[1]) : -1
+      })(),
       totalText: (() => {
-        const el = vis(t.querySelectorAll('.ant-pagination-total-text'))[0]
+        const el = vis(t.querySelectorAll('.db-grid-pager .db-grid-total'))[0]
         return el ? String(el.innerText || '').trim() : ''
       })(),
       current: (() => {
-        const el = vis(t.querySelectorAll('.ant-pagination-item-active'))[0]
-        return el ? Number(String(el.innerText).trim()) : -1
+        const el = vis(t.querySelectorAll('.db-grid-pager .db-grid-page-no'))[0]
+        const m = el ? String(el.innerText || '').match(/([0-9]+)/) : null
+        return m ? Number(m[1]) : -1
       })()
     })
   }
@@ -443,10 +450,36 @@ const scrollResultToBottom = async (cdp) => {
   await sleep(250)
 }
 // 末页 + 滚到底 + 读这一列最后 n 行
-const tailOfLastPage = async (cdp, label, n) => {
-  const last = await cdp.eval("([...document.querySelectorAll('.db-sql-result-tools .ant-pagination-item')].pop() || {}).innerText")
-  await cdp.eval('window.__gotoPage(' + Number(String(last).trim()) + ')')
+// DbGridPager 没有页码按钮：跳页 = 往跳页框写值（原生 setter + input 事件，
+// 走 React 的受控链路）再点 Go；Go 在草稿落进 state 之前是禁用的，所以要分两步
+const gotoSqlPage = async (cdp, n) => {
+  const typed = await cdp.eval(`(() => {
+    const box = window.__one('.db-sql-result-tools .db-grid-pager')
+    if (!box) return 'no-pager'
+    const i = [...box.querySelectorAll('.db-grid-jump input')].filter(window.__vis)[0]
+    if (!i) return 'no-jump'
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(i, String(${n}))
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    return 'ok'
+  })()`)
+  await sleep(180)
+  const went = await cdp.eval(`(() => {
+    const box = window.__one('.db-sql-result-tools .db-grid-pager')
+    const b = box && [...box.querySelectorAll('button')].filter(window.__vis).pop()
+    if (!b) return 'no-go'
+    if (b.disabled) return 'go-disabled'
+    b.click()
+    return 'ok'
+  })()`)
   await sleep(500)
+  return { typed, went }
+}
+const tailOfLastPage = async (cdp, label, n) => {
+  // 末页号从跳页框 placeholder（'1-50'）读；读不到就停在当前页
+  const maxPage = Number((await readTools(cdp)).maxPage)
+  await gotoSqlPage(cdp, maxPage > 1 ? maxPage : 1)
+  await sleep(300)
   await scrollResultToBottom(cdp)
   return (await colTexts(cdp, label, 400)).slice(-n)
 }
@@ -645,9 +678,9 @@ const main = async () => {
   // antd 分页器只会把首尾几页做成页码按钮（中间折叠成 ...），所以认"第 1 页与末页都在、
   // 底纹文字是总行数"，而不是数满 50 个按钮
   check('F3 分页器按原始行数给页码（末页 ' + (ROWS / PAGE) + '）',
-    t0s.pager === 1 && t0s.pages.includes(String(ROWS / PAGE)) && t0s.current === 1 &&
+    t0s.pager === 1 && t0s.maxPage === ROWS / PAGE && t0s.current === 1 &&
     String(t0s.totalText).indexOf(String(ROWS)) >= 0,
-    { pages: t0s.pages, current: t0s.current, totalText: t0s.totalText })
+    { maxPage: t0s.maxPage, current: t0s.current, totalText: t0s.totalText })
 
   // ---------- F4/F5) 防抖 + 扫整份结果（跨页命中） ----------
   const execBefore = Number(await cdp.eval('window.__execN'))
@@ -709,12 +742,12 @@ const main = async () => {
   check('F11 命中数与独立参照一致（' + expect7 + ' 行；产品与参照各算各的）',
     f7.changed && hit7.m === expect7 && hit7.t === ROWS, { hit7, expect7, elapsed: f7.elapsed })
   check('F11b 分页器 total/页数换成命中口径：' + Math.ceil(expect7 / PAGE) + ' 页，底纹文字也跟着',
-    tools7.pager === 1 && tools7.pages.length === Math.ceil(expect7 / PAGE) &&
+    tools7.pager === 1 && tools7.maxPage === Math.ceil(expect7 / PAGE) &&
     String(tools7.totalText).indexOf(String(expect7)) >= 0, tools7)
   const geo7 = await cdp.jeval('window.__geom()')
   check('F11c ' + expect7 + ' 行命中下虚拟化没退化（DOM ' + geo7.domRows + ' 行 ≪ 命中数）',
     geo7.virtual === 1 && geo7.domRows < PAGE, geo7)
-  await cdp.eval('window.__gotoPage(' + Math.ceil(expect7 / PAGE) + ')')
+  await gotoSqlPage(cdp, Math.ceil(expect7 / PAGE))
   await sleep(500)
   const lastBefore = await cdp.jeval('window.__geom()')
   const f8 = await typeFilter(cdp, 'xneedle')
@@ -735,10 +768,10 @@ const main = async () => {
     cleared === 'ok' && (await cdp.eval('window.__fValue()')) === '' &&
     (await readHit(cdp)).exists === 0 && geo9.firstId === '1' &&
     geo9.domRows > 5 && tools9.pager === 1 && tools9.current === 1 &&
-    // antd 只渲染首尾几个页码项，中间的折成 …，所以认"末页在列表里"而不是项数
-    tools9.pages.includes(String(ROWS / PAGE)) &&
+    // 末页号从跳页框 placeholder 读（DbGridPager 不渲染页码按钮）
+    tools9.maxPage === ROWS / PAGE &&
     String(tools9.totalText).includes(String(ROWS)),
-    { cleared, firstId: geo9.firstId, pages: tools9.pages, current: tools9.current, totalText: tools9.totalText })
+    { cleared, firstId: geo9.firstId, maxPage: tools9.maxPage, current: tools9.current, totalText: tools9.totalText })
 
   // ---------- F14) 筛选后行号仍是绝对下标 ----------
   await typeFilter(cdp, 'xneedle')
@@ -945,7 +978,7 @@ const main = async () => {
     { gB, idsB0, idsB1, gA, idsA })
 
   // ---------- G13) 换排序回第 1 页 ----------
-  await cdp.eval('window.__gotoPage(5)')
+  await gotoSqlPage(cdp, 5)
   await sleep(700)
   const pageBefore = (await readTools(cdp)).current
   await clickHead(cdp, 'note')
