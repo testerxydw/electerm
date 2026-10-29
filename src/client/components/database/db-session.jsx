@@ -3859,8 +3859,10 @@ export default auto(function DbSession (props) {
 
   // 可见列 = 全部列的顺序再过滤 hiddenColumns。渲染与导出共用这一个函数，
   // 保证"屏幕上看到的列"与"导出/复制出的列"永远一致（§7.6 验收 4）
+  // H1a-4：hiddenColumns 的小写集合单独给出，列工厂的 isVisible 谓词用它
+  const hiddenColumnSet = () => new Set((view.hiddenColumns || []).map(h => String(h).toLowerCase()))
   const visibleColumnNames = (keys) => {
-    const hidden = new Set((view.hiddenColumns || []).map(h => String(h).toLowerCase()))
+    const hidden = hiddenColumnSet()
     return orderedColumnNames(keys)
       .filter(k => !hidden.has(String(k).toLowerCase()))
   }
@@ -3936,7 +3938,9 @@ export default auto(function DbSession (props) {
   // view（手动宽）/ columnWidths（自适应宽）/ dataLive（拖拽中）
   const columns = useMemo(() => (grid.rows.length
     ? buildGridColumns({
-      keys: visibleColumnNames(Object.keys(grid.rows[0])),
+      // H1a-4：列显隐过滤统一走列工厂的 isVisible（排序仍按全部列算）
+      keys: orderedColumnNames(Object.keys(grid.rows[0])),
+      isVisible: k => !hiddenColumnSet().has(String(k).toLowerCase()),
       typeMap: colTypeByName,
       commentMap: colCommentByName,
       showComment: true,
@@ -4031,10 +4035,12 @@ export default auto(function DbSession (props) {
   const sqlResultColumns = useMemo(
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
-      const keys = visibleSqlKeys(sqlColumnKeys(r), sqlViewOf(sqlViews, i).hidden)
       const typeMap = sqlColTypeMaps[i] || {}
       return buildGridColumns({
-        keys,
+        // H1a-4：列显隐过滤统一走列工厂的 isVisible（visibleSqlKeys 的
+        // 大小写口径原样保留：单列集合复用同一纯函数）
+        keys: sqlColumnKeys(r),
+        isVisible: k => visibleSqlKeys([k], sqlViewOf(sqlViews, i).hidden).length > 0,
         typeMap,
         // H1a-2：原来是写死 220 —— 短值列一片空白、长值列看不全，两头都难受
         wg: sqlWidths,
@@ -4323,7 +4329,7 @@ export default auto(function DbSession (props) {
               : null
           }
           <DbGridTable
-            className='db-sql-result-grid'
+            className='db-sql-result-grid is-bordered'
             size='small'
             columns={sqlResultColumns[i] || []}
             dataSource={view.pageRows}
@@ -5783,6 +5789,7 @@ export default auto(function DbSession (props) {
         storageKey={CELL_SPLIT_KEY}
         top={
           <DbGridTable
+            className='is-bordered'
             size='small'
             loading={grid.loading}
             columns={columns}

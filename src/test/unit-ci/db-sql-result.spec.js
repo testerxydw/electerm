@@ -382,7 +382,9 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
   })
   test('列显隐接在两条派生链上：列定义与过滤都吃 visibleSqlKeys', () => {
     const colsBlock = src.slice(src.indexOf('const sqlResultColumns = useMemo('), src.indexOf('const sqlSortNumeric'))
-    assert.ok(/visibleSqlKeys\(sqlColumnKeys\(r\), sqlViewOf\(sqlViews, i\)\.hidden\)/.test(colsBlock),
+    // H1a-4：列显隐过滤统一走列工厂的 isVisible；SQL 侧的口径仍是 visibleSqlKeys
+    // （单列集合复用同一纯函数，大小写语义不变），数据侧是 hiddenColumnSet
+    assert.ok(/isVisible: k => visibleSqlKeys\(\[k\], sqlViewOf\(sqlViews, i\)\.hidden\)\.length > 0/.test(colsBlock),
       '列定义没按 hidden 过滤')
     const viewsBlock = src.slice(src.indexOf('const sqlResultViews = useMemo('), src.indexOf('const renderSqlResults'))
     assert.ok(/visibleSqlKeys\(sqlColumnKeys\(r\), sqlViewOf\(sqlViews, i\)\.hidden\)/.test(viewsBlock),

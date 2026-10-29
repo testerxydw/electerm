@@ -31,7 +31,9 @@ export const CELL_ELLIPSIS = { showTitle: false }
  * 生成一份网格列定义。
  *
  * @param {Object}   options
- * @param {Array}    options.keys               列名数组（可见性过滤在 P2 前由调用点做好）
+ * @param {Array}    options.keys               列名数组（已按调用方的列序规则排好）
+ * @param {Function} [options.isVisible]        可见性谓词 (k) => bool；缺省全部可见。
+ *                                               过滤统一在本函数内做（两页一个口径）
  * @param {Object}   [options.typeMap]          小写列名 → 类型名（查不到按 '' 处理）
  * @param {Object}   [options.commentMap]       小写列名 → 注释；showComment 为 false 时可缺省
  * @param {boolean}  [options.showComment]      列头是否展示注释第二行（数据页 true）
@@ -69,6 +71,7 @@ export const CELL_ELLIPSIS = { showTitle: false }
 export function buildGridColumns (options) {
   const {
     keys,
+    isVisible = null,
     typeMap = {},
     commentMap = null,
     showComment = false,
@@ -103,7 +106,10 @@ export function buildGridColumns (options) {
     renderCell
   } = options
 
-  return keys.map(k => {
+  // 可见性过滤统一收在这里：调用点只给"全部列（已排好序）+ 可见性谓词"，
+  // 数据页（hiddenColumns 大小写不敏感）与 SQL 结果（visibleSqlKeys）各自传谓词
+  const list = isVisible ? keys.filter(isVisible) : keys
+  return list.map(k => {
     const dataType = typeMap[String(k).toLowerCase()] || ''
     const comment = showComment && commentMap
       ? (commentMap[String(k).toLowerCase()] || '')

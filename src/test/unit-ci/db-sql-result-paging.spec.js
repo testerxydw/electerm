@@ -130,12 +130,15 @@ describe('SQL 结果分页：接线契约', () => {
 
   test('result grid has a visible frame (footer avoidance is obvious)', () => {
     const src = read()
-    assert.ok(src.includes("className='db-sql-result-grid'"), 'grid frame class missing')
+    // H1a-4：边框规则提为共享 .is-bordered（SQL 结果网格与数据页主网格都挂），
+    // .db-sql-result-grid 只留 SQL 专属的 margin
+    assert.ok(src.includes("className='db-sql-result-grid is-bordered'"), 'grid frame class missing')
+    assert.ok(src.includes("className='is-bordered'"), 'data grid must share the frame class')
     const styl = fs.readFileSync(STYL, 'utf8')
-    const block = styl.match(/\.db-grid-table-wrap\.db-sql-result-grid\n((?: {2}[^\n]*\n)+)/)
-    assert.ok(block, '.db-sql-result-grid rule not found')
-    assert.match(block[1], /^ {2}border 1px solid var\(--border\)$/m, 'grid frame border missing')
-    assert.match(block[1], /^ {2}border-radius var\(--radius-sm\)$/m, 'grid frame radius missing')
+    const shared = styl.match(/\.db-grid-table-wrap\.is-bordered\n((?: {2}[^\n]*\n)+)/)
+    assert.ok(shared, '.is-bordered rule not found')
+    assert.match(shared[1], /^ {2}border 1px solid var\(--border\)$/m, 'grid frame border missing')
+    assert.match(shared[1], /^ {2}border-radius var\(--radius-sm\)$/m, 'grid frame radius missing')
   })
 
   test('tools row aligns left (pager + size + export on the same row)', () => {
