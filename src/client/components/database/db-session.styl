@@ -905,6 +905,73 @@
   &.is-truncated
     color var(--warn)
 
+// H7a-4 Redis 服务器信息弹层
+.db-redis-info
+  // 概览分组：窄宽度自动折行，不会因为窗口小就横向挤成一列长条
+  .db-redis-info-groups
+    display flex
+    flex-wrap wrap
+    gap 12px
+    align-items flex-start
+
+  .db-redis-info-group
+    // 260px 起：够放"已连接客户端 / 128"这样的标签+值，再窄就要折行影响扫读
+    flex 1 1 260px
+    min-width 240px
+    max-width 340px
+    border 1px solid var(--border)
+    border-radius var(--radius-sm)
+    padding 8px 10px
+
+  .db-redis-info-group-title
+    color var(--text-muted)
+    font-size 12px
+    margin-bottom 6px
+
+  .db-redis-info-row
+    display flex
+    align-items baseline
+    gap 8px
+    line-height 20px
+
+  .db-redis-info-k
+    flex 0 0 auto
+    // 标签固定 118px 起对齐，值再长短也落在同一条竖线上，扫读成本低
+    min-width 108px
+    color var(--text-muted)
+
+  .db-redis-info-v
+    flex 1 1 0
+    min-width 0
+    text-align right
+    color var(--text-dark)
+    font-family var(--font-mono)
+    font-variant-numeric tabular-nums
+
+  .db-redis-info-raw
+    max-height 46vh
+    overflow auto
+    margin 0
+    padding 8px 10px
+    border 1px solid var(--border)
+    border-radius var(--radius-sm)
+    background var(--hover-bg)
+    color var(--text-dark)
+    font-family var(--font-mono)
+    font-size 12px
+    line-height 18px
+    // 键名/路径这类长 token 不该撑出横向滚动条，让它按字符折
+    white-space pre-wrap
+    word-break break-all
+
+  .db-redis-info-loading
+  .db-redis-info-empty
+    display flex
+    align-items center
+    justify-content center
+    min-height 120px
+    color var(--text-muted)
+
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane
   flex 1 1 0

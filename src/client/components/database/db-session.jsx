@@ -6,17 +6,19 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import { refsStatic } from '../common/ref'
-import DbConnError from './db-conn-error'
+import DbConnError, { cleanDbError } from './db-conn-error'
 import SessionBarActions from '../common/session-bar-actions'
 import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
+// H7a-4：Redis 服务器信息弹层（概览 / Keyspace / 原始 INFO）
+import DbRedisInfoModal from './db-redis-info'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
 // H1a-4（网格复用整合）：数据页 / SQL 结果页共用列工厂（差异全部参数化）
 import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
@@ -948,6 +950,11 @@ export default auto(function DbSession (props) {
   // 同一把令牌管"取消 + 丢弃在途响应"：主进程没有 SCAN 中断通道（dbClientOp 只有
   // 单次超时），能做的就是在渲染侧不再采纳这一轮之后的结果
   const keyTreeTokenRef = useRef(0)
+  // H7a-4：服务器信息（INFO）。只在打开弹层时拉一次 + 手动刷新按钮再拉，不做轮询：
+  // INFO 要遍历实例统计，常驻轮询等于给每台连着的 Redis 挂了个定时任务，
+  // 而这份数据没人盯着看。令牌管"连点刷新时旧响应不覆盖新响应"。
+  const [redisInfo, setRedisInfo] = useState({ open: false, loading: false, text: '', error: '' })
+  const redisInfoTokenRef = useRef(0)
   const [redisKey, setRedisKey] = useState('')
   const [redisDetail, setRedisDetail] = useState(null)
   // Redis 详情四张表（hash/list/set/zset）"选中的那一格"：{ col, label, rowKey, rowNo }。
@@ -3734,6 +3741,50 @@ export default auto(function DbSession (props) {
     } else {
       loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)
     }
+  }
+
+  // H7a-4：INFO 全量原文 → 弹层。op 不 select db（实例级信息），所以换库不需要重拉，
+  // 但"打开时拉一次"仍然保留：概览里最关键的是内存/客户端/命中率，都随写入在变。
+  const loadRedisInfo = () => {
+    redisInfoTokenRef.current++
+    const token = redisInfoTokenRef.current
+    setRedisInfo(s => ({ ...s, loading: true }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisInfo', {}).then(res => {
+      if (token !== redisInfoTokenRef.current) {
+        return
+      }
+      // 只写数据、不动 open：弹层可能在请求回来之前就关了，响应不该把它重新打开
+      setRedisInfo(s => ({
+        ...s,
+        loading: false,
+        text: String(res || ''),
+        error: ''
+      }))
+    }).catch(err => {
+      if (token !== redisInfoTokenRef.current) {
+        return
+      }
+      // 错误留在弹层内而不是走 onOpError：这里丢的只是"这一次查看"，
+      // 键列表照常可用；置顶横幅会让人以为整条连接断了。
+      // text 清空：留着上一份 INFO 会和"失败"并排显示，用户不知道看哪份。
+      setRedisInfo(s => ({
+        ...s,
+        loading: false,
+        text: '',
+        error: cleanDbError(err && err.message ? err.message : err)
+      }))
+    })
+  }
+
+  const openRedisInfo = () => {
+    setRedisInfo(s => ({ ...s, open: true }))
+    loadRedisInfo()
+  }
+
+  const closeRedisInfo = () => {
+    // 关闭即作废在途请求：否则关掉再打开会先看到上一次请求的结果闪一下
+    redisInfoTokenRef.current++
+    setRedisInfo({ open: false, loading: false, text: '', error: '' })
   }
 
   const redisTreeNodes = useMemo(() => {
@@ -8444,6 +8495,22 @@ export default auto(function DbSession (props) {
         <span className='db-tool-sep' />
         <span className='db-tool-group'>
           {
+            // H7a-4：Redis 独有入口，放顶栏而不是 Redis 工具条：弹层是"这个实例怎么样"，
+            // 与当前在看的键无关，且顶栏是唯一跨 tab 都可见的位置
+            isRedis
+              ? (
+                <Button
+                  size='small'
+                  icon={<InfoCircleOutlined />}
+                  loading={redisInfo.loading && redisInfo.open}
+                  onClick={openRedisInfo}
+                >
+                  {e('dbRedisInfo')}
+                </Button>
+                )
+              : null
+          }
+          {
             connError
               ? (
                 <Button
@@ -8891,6 +8958,21 @@ export default auto(function DbSession (props) {
         types={sqlRowDetail ? (sqlColTypeMaps[sqlRowDetail.rs] || {}) : {}}
         onClose={() => setSqlRowDetail(null)}
       />
+      {/* H7a-4：Redis 服务器信息（INFO 概览 / Keyspace / 原文） */}
+      {
+        isRedis
+          ? (
+            <DbRedisInfoModal
+              open={redisInfo.open}
+              loading={redisInfo.loading}
+              error={redisInfo.error}
+              text={redisInfo.text}
+              onClose={closeRedisInfo}
+              onRefresh={loadRedisInfo}
+            />
+            )
+          : null
+      }
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
     </div>
