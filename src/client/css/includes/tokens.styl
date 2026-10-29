@@ -35,6 +35,17 @@
   // 状态实色底（红条等）上的文字色：红/橙都是深底色，固定用白字
   --text-on-status #ffffff
 
+  // ---- v5 派生：AA 达标的"文字用色"（正文/次级/强调）----
+  // 三条实测出来的口径（self-test/db-contrast-demo.js，深/浅 × 卡片底/悬停底/选中底）：
+  //   · 占位符以前用 opacity 压暗，压到 2.0~4.2:1，浅色主题下几乎看不见 →
+  //     弱化只能改"颜色"不能改"不透明度"，且要留够 4.5:1
+  //   · --text 往 --main 收 35% 后深色主题仍有 5.3:1（最差的选中底），
+  //     但浅色主题下"更弱"不能"更浅"（#555→#767676 只剩 3.9:1），只能更深 → 见 .theme-light
+  //   · --primary 直接当正文色：浅色主题卡片底上只有 3.3:1，深色主题压进
+  //     浸染底也掉到 4.1:1 → 强调文字一律走 --primary-text
+  --text-muted unquote('color-mix(in srgb, var(--text) 65%, var(--main))')
+  --primary-text unquote('color-mix(in srgb, var(--primary) 72%, var(--text-light))')
+
   // ---- 数据库引擎标识色（书签树 / tab 的 db 圆柱与徽标共用）----
   // 官方品牌色：mysql #4479A1 / redis #DC382D / postgres #336791
   // 深色基底=原色 mix 30% white 提亮（保对比度）；浅色覆盖见 .theme-light
@@ -102,3 +113,8 @@
   --db-engine-mysql #4479A1
   --db-engine-redis #DC382D
   --db-engine-postgres #336791
+  // 浅色主题里"更弱的文字"必须更深而不是更浅：--text(#555) 往 --main(#ededed)
+  // 收 35% 只剩 3.9:1，反过来往深色走（--text-dark #444）才有 8.3:1
+  --text-muted var(--text-dark)
+  // 主色压深到 62%（≈#00547E）才够 AA：#08c 直接放浅底 3.3:1、放选中底 2.8:1
+  --primary-text unquote('color-mix(in srgb, var(--primary) 62%, #000000)')

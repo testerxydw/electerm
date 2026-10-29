@@ -414,9 +414,10 @@
 .db-grid-dot
   opacity 0.6
 
-// 选中计数：勾选后出现在批量动作组首。用主色是因为它代表"接下来会改到这些行"
+// 选中计数：勾选后出现在批量动作组首。用主色是因为它代表"接下来会改到这些行"。
+// 文字用主色一律走 --primary-text：--primary(#08c) 直接当正文色，浅色主题卡片底上只有 3.3:1
 .db-grid-selected
-  color var(--primary)
+  color var(--primary-text)
   font-size 12px
 
 // T11 精确总行数：文字按钮与 exact 标记
@@ -649,7 +650,10 @@
 // CSS-in-JS 是运行时注入的，先后不保证 —— 所以这里把链路写全
 // （.db-grid-table .ant-table .ant-table-tbody），选中态再补 row + selected 两个类。
 .db-grid-table
+  // 格内正文用不透明 --text：antd 给单元格的是它自己的 colorText（实测 rgba(85,85,85,.88)），
+  // 半透明文字压在 16% 主色浸染底上只剩 4.2:1，浅色主题不达标（U2c 实测）
   .ant-table .ant-table-tbody .ant-table-row > .ant-table-cell
+    color var(--text)
     transition background var(--dur-1) var(--ease)
   .ant-table .ant-table-tbody .ant-table-row:hover > .ant-table-cell
     background var(--hover-bg)
@@ -658,15 +662,16 @@
   .ant-table .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell
     background var(--active-bg)
 
+// NULL / 空串占位：弱化一律用 --text-muted，不再用 opacity
+// （实测 opacity 0.5 在浅色主题只剩 2.2:1、0.45 只剩 2.0:1，深色主题压进选中底也只有 4.0:1；
+//  对比度判据见 self-test/db-contrast-demo.js）
 .db-cell-null
-  color var(--text)
-  opacity 0.5
+  color var(--text-muted)
 
 // H2 空串占位：和 NULL 一样都是"没内容"，但语义不同（'' 是值，NULL 不是）。
-// 用一对引号 + 更低对比的细体区分：有字形可认，又不至于抢真实数据的注意力
+// 区分靠字形（"" 一对引号）与细体，不靠更低的对比度
 .db-cell-empty
-  color var(--text)
-  opacity 0.45
+  color var(--text-muted)
   font-weight 300
 
 // 关键字高亮（.db-kw）颜色由终端主题决定，在 db-highlight.jsx 里以内联 style 上色，
@@ -2491,7 +2496,7 @@ body.db-col-resizing
 
 // 树视图：节点类型与 Extra 高亮（预估字段保持普通文本色）
 .db-explain-type
-  color var(--primary)
+  color var(--primary-text)
   font-weight 600
 
 .db-explain-extra
@@ -2679,9 +2684,9 @@ body.db-col-resizing
   text-overflow ellipsis
   white-space nowrap
 
+// 字段名与 NULL 值：弱化用 --text-muted，不用 opacity（浅色主题下 0.6 只剩 2.7:1）
 .db-row-detail-type
-  color var(--text)
-  opacity 0.6
+  color var(--text-muted)
   font-size 11px
 
 .db-row-detail-value
@@ -2697,6 +2702,5 @@ body.db-col-resizing
   white-space pre-wrap
   word-break break-all
   &.is-null
-    color var(--text)
-    opacity 0.6
+    color var(--text-muted)
     font-style italic

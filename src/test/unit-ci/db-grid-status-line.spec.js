@@ -116,11 +116,12 @@ describe('U1d 批量动作分组', () => {
 })
 
 describe('U1d 样式与文案契约', () => {
-  test('本页行数用主文本色、选中计数用主色、数字等宽', () => {
+  test('本页行数用主文本色、选中计数用达标主色、数字等宽', () => {
     const styl = read(STYL)
     assert.match(styl, /\.db-grid-total\n[\s\S]*?font-variant-numeric tabular-nums/)
     assert.match(styl, /\.db-grid-page-rows\n {2}color var\(--text\)/)
-    assert.match(styl, /\.db-grid-selected\n {2}color var\(--primary\)/)
+    // U2c：主色当正文色在浅色主题只剩 3.3:1，一律换成 --primary-text
+    assert.match(styl, /\.db-grid-selected\n {2}color var\(--primary-text\)/)
     assert.match(styl, /\.db-grid-dot\n {2}opacity/)
   })
 
