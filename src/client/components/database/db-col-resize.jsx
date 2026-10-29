@@ -182,6 +182,18 @@ export function ColHead (props) {
     className = 'db-col-head'
   } = props
   const sortable = typeof onSort === 'function'
+  // 这一次点击的 mousedown 是不是落在拖宽手柄上。拖宽时列在指针下变宽，抬起点
+  // 往往还在同一列里，浏览器把 click 派发到"按下与抬起的共同祖先"（就是列头），
+  // 于是每一次拖完都白送一次排序点击（CDP 实测：拖一次 __orders 多一条 id:asc）
+  const pressedOnHandle = useRef(false)
+  const clearPressed = () => { pressedOnHandle.current = false }
+  const onHeadClick = () => {
+    if (pressedOnHandle.current) {
+      pressedOnHandle.current = false
+      return
+    }
+    onSort()
+  }
   const onKeyDown = sortable
     ? ev => {
       if (ev.key === 'Enter' || ev.key === ' ') {
@@ -202,7 +214,9 @@ export function ColHead (props) {
           ? (sort === 'ascend' ? 'ascending' : sort === 'descend' ? 'descending' : 'none')
           : undefined
       }
-      onClick={sortable ? onSort : undefined}
+      // 在列名上按下 = 这是一次真点击，把手柄留下的标记清掉（标记只在拖的那次生效）
+      onMouseDown={sortable ? clearPressed : undefined}
+      onClick={sortable ? onHeadClick : undefined}
       onKeyDown={onKeyDown}
     >
       <span className='db-col-name'>{label}</span>
@@ -226,7 +240,10 @@ export function ColHead (props) {
       {/* 手柄不吃点击/双击/右键：点一下会误触排序，右键要留给列头菜单（在 th 上） */}
       <span
         className='db-col-resizer'
-        onMouseDown={ev => wg.startResize(ev, colKey)}
+        onMouseDown={ev => {
+          pressedOnHandle.current = true
+          wg.startResize(ev, colKey)
+        }}
         onClick={ev => ev.stopPropagation()}
         onDoubleClick={ev => ev.stopPropagation()}
         onContextMenu={ev => ev.stopPropagation()}
