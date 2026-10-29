@@ -46,11 +46,24 @@
   &.err
     background var(--error)
 
-// 只读/刷新紧跟在连接信息之后（左起排列），不推到工具条最右端
+// 风险/系统库/连接动作紧跟在连接信息之后（左起排列），不推到工具条最右端
 .db-head-right
   display flex
   align-items center
   gap 6px
+
+// U1：右侧按语义分组。组内 6px，组与组之间只留一条 1px 竖线，
+// 让"生产标记 + 只读"读成一个整体，而不是和刷新按钮混成一排控件
+.db-tool-group
+  display inline-flex
+  align-items center
+  gap 6px
+
+.db-tool-sep
+  flex none
+  width 1px
+  height 14px
+  background var(--border)
 
 // 窗口级动作（查找/全屏）：靠右，与终端顶栏 SessionControl 右侧控件同位置同口径
 // （S1 起图标本体来自 common/session-bar-actions.jsx，激活态类 .search-open 全局共用）
@@ -179,15 +192,15 @@
   margin-left 5px
   font-weight bold
 
-// 工具条"系统库"显示开关（label + Switch）
+// 工具条里"标签 + Switch"的开关（只读 / 系统库）：两个开关并排，
+// 标签让它们不靠 tooltip 也能分清
 .db-sys-toggle
   display inline-flex
   align-items center
-  margin-right 8px
-.db-sys-toggle-label
+  gap 4px
+.db-tool-label
   color var(--text-dark)
   font-size 12px
-  margin-right 4px
   white-space nowrap
 
 // 右侧主区
