@@ -3802,6 +3802,10 @@ export default auto(function DbSession (props) {
     let node
     if (v === null || v === undefined) {
       node = <span className='db-cell-null'>NULL</span>
+    } else if (v === '') {
+      // H2：空串与 NULL 都是"格子空白"，肉眼分不出是哪一种。空串给一对引号
+      // 占位（低对比细体），NULL 保持半透明 NULL —— 复制/导出/编辑仍取原值
+      node = <span className='db-cell-empty'>''</span>
     } else if (isBinEnvelope(v)) {
       // F3：二进制列在网格里只显示大小占位（完整内容在下方值面板按呈现器解码）
       node = hlNode(

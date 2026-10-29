@@ -471,6 +471,13 @@
   color var(--text)
   opacity 0.5
 
+// H2 空串占位：和 NULL 一样都是"没内容"，但语义不同（'' 是值，NULL 不是）。
+// 用一对引号 + 更低对比的细体区分：有字形可认，又不至于抢真实数据的注意力
+.db-cell-empty
+  color var(--text)
+  opacity 0.45
+  font-weight 300
+
 // 关键字高亮（.db-kw）颜色由终端主题决定，在 db-highlight.jsx 里以内联 style 上色，
 // 这里不再写死色值（CSS 契约：非 includes 目录禁止硬编码颜色）
 
