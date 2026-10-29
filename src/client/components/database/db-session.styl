@@ -945,7 +945,7 @@
     min-width 0
     text-align right
     color var(--text-dark)
-    font-family var(--font-mono)
+    font-family var(--db-code-font, var(--font-mono))
     font-variant-numeric tabular-nums
 
   .db-redis-info-raw
@@ -957,7 +957,7 @@
     border-radius var(--radius-sm)
     background var(--hover-bg)
     color var(--text-dark)
-    font-family var(--font-mono)
+    font-family var(--db-code-font, var(--font-mono))
     font-size 12px
     line-height 18px
     // 键名/路径这类长 token 不该撑出横向滚动条，让它按字符折

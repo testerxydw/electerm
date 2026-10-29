@@ -486,7 +486,12 @@ describe('H7a-4 文案与样式', () => {
     const b = styl.slice(at, at + 1800)
     assert.match(b, /var\(--text-muted\)/)
     assert.match(b, /var\(--border\)/)
-    assert.match(b, /var\(--font-mono\)/)
+    // 数据面字体必须走 --db-code-font 回落链（css-tokens.spec.js 的仓库级契约）：
+    // 只写 var(--font-mono) 会绕过"终端 tab 字体"，而回落链里也含 --font-mono，
+    // 所以这里钉的是整条链，不是"有没有 mono"
+    assert.match(b, /font-family var\(--db-code-font, var\(--font-mono\)\)/)
+    assert.equal(/font-family var\(--font-mono\)/.test(b), false,
+      '数据面不得用裸 --font-mono')
     assert.equal(/#[0-9a-f]{3,8}\b/i.test(b), false, '不许硬编码颜色')
     // 值右对齐 + 等宽 + tabular-nums：概览要能竖着扫
     assert.match(b, /text-align right/)
