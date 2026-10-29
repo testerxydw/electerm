@@ -499,7 +499,7 @@ describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', (
   test('新结果到位就收起右键菜单（菜单闭包握着旧行对象与旧结果集下标）', () => {
     const eff = src.match(/useEffect\(\(\) => \{\s*setSqlPages\(\{\}\)[\s\S]*?\}, \[sqlResult\.results\]\)/)
     assert.ok(eff, '找不到"新结果到位就重置"的 effect')
-    assert.ok(/setSqlCellMenu\(null\)/.test(eff[0]), '旧菜单留着就能抄旧行')
+    assert.ok(/setCellMenu\(null\)/.test(eff[0]), '旧菜单留着就能抄旧行')
   })
 
   test('五条文案走词条，en + zh 各一条', () => {

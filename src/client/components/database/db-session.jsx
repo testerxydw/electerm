@@ -736,6 +736,8 @@ export default auto(function DbSession (props) {
     setPageFilter('')
     setSelectedCell(null)
     setEditing(null)
+    // 右键菜单的项握着行快照与行下标：换表/清过滤后原来的行可能已经不在
+    setCellMenu(null)
   }
   const onPageFilterChange = (ev) => {
     setPageFilter(ev.target.value)
@@ -818,9 +820,10 @@ export default auto(function DbSession (props) {
   // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
   // SQL 结果是只读视图：不做行内编辑，也不写回
   const [sqlCell, setSqlCell] = useState(null)
-  // SQL 结果单元格右键菜单（全站单例浮层）：onCell 只写落点，动作在本文件的
-  // openSqlCellMenu 里按上下文生成
-  const [sqlCellMenu, setSqlCellMenu] = useState(null)
+  // 单元格右键菜单（全站单例浮层）：onCell 只写落点，菜单项由各自的
+  // openSqlCellMenu / openDataCellMenu 按上下文生成。数据页与 SQL 结果共用
+  // 同一份 state —— 两页不会同时可见，没必要各挂一个浮层
+  const [cellMenu, setCellMenu] = useState(null)
   // H1 行详情：右键菜单"查看行详情"打开的那一行。存行对象快照而不是下标 ——
   // 行对象只在这一格被点击时生成一次，翻页/过滤不会把它指向别的行
   const [sqlRowDetail, setSqlRowDetail] = useState(null)
@@ -842,7 +845,7 @@ export default auto(function DbSession (props) {
     setSqlFilterDraft({})
     // 右键菜单也一起收：菜单项闭包握着旧结果的行对象与结果集下标，
     // 新结果到位后再点就会抄旧行/筛错结果集
-    setSqlCellMenu(null)
+    setCellMenu(null)
     // 行详情同样收：新结果的行对象快照已经不属于当前结果集
     setSqlRowDetail(null)
     sqlFilterCommitted.current = {}
@@ -1210,7 +1213,7 @@ export default auto(function DbSession (props) {
     }).then(res => {
       const columns = (res && Array.isArray(res.columns)) ? res.columns : []
       const foreignKeys = (res && Array.isArray(res.foreignKeys)) ? res.foreignKeys : []
-      structureV2Ref.current = { columns }
+      structureV2Ref.current = { columns, foreignKeys }
       // H3a：整份 v2 契约留在 state 里（字典导出要索引/表注释/类型/行数估算）
       setStructureV2({
         loading: false,
@@ -2555,7 +2558,7 @@ export default auto(function DbSession (props) {
     }
     const headers = sqlExportHeaders(r)
     const v = row[col]
-    setSqlCellMenu({
+    setCellMenu({
       x: ev.clientX,
       y: ev.clientY,
       head: col,
@@ -3905,6 +3908,77 @@ export default auto(function DbSession (props) {
       .filter(k => !hidden.has(String(k).toLowerCase()))
   }
 
+  // H2：数据页单元格右键菜单。落点与菜单项在这里生成，浮层本身是全站单例
+  // （DbCellMenu）。列序与导出同源（visibleColumnNames）：复制整行拿到的
+  // 就是屏幕上看到的那些列。
+  // 外键项只算"本表外键 → 父表"这一向：本地即可判定，不依赖反向引用查询
+  // 是否已经为该列返回（refInfo 属于"当前选中格"，右键的格未必就是它）
+  const openDataCellMenu = (ev, row, k) => {
+    ev.preventDefault()
+    if (!sel || !row) {
+      return
+    }
+    const v = row[k]
+    const headers = visibleColumnNames(Object.keys(row))
+    const items = [
+      {
+        // 与值面板的复制同口径：二进制信封复制 base64，其余复制可读文本
+        key: 'value',
+        text: e('dbCellCopyValue'),
+        onClick: () => copy(isBinEnvelope(v) ? v.__bin.b64 : cellText(v))
+      },
+      {
+        key: 'colname',
+        text: e('dbCellCopyColName'),
+        onClick: () => copy(k)
+      },
+      {
+        key: 'rowTsv',
+        text: e('dbCellCopyRowTsv'),
+        onClick: () => copy(toTsv(headers, [row]))
+      },
+      {
+        key: 'rowJson',
+        text: e('dbCellCopyRowJson'),
+        onClick: () => copy(buildCopyStatements('json', { headers, rows: [row] }))
+      },
+      {
+        // 选中该格 → 底部值面板展开（与单击同一入口，可编辑态也一致）
+        key: 'valuePane',
+        text: e('dbCellValuePane'),
+        onClick: () => selectCell(row, k)
+      }
+    ]
+    if (canEditCell) {
+      items.push({
+        key: 'edit',
+        text: e('dbCellEdit'),
+        onClick: () => startEdit(row, k)
+      })
+    }
+    const parents = buildRefItems({
+      column: k,
+      row,
+      foreignKeys: (structureV2Ref.current && structureV2Ref.current.foreignKeys) || [],
+      references: [],
+      database: sel.database,
+      schema: sel.schema || '',
+      dialect
+    })
+    for (const item of parents) {
+      // NULL / 二进制定位值不能拼 WHERE：与关联页签同一判定，不给出点了没用的项
+      if (item.unusable) {
+        continue
+      }
+      items.push({
+        key: item.key,
+        text: e('dbCellOpenRef').replace('{table}', item.target.table),
+        onClick: () => openRefTable(item)
+      })
+    }
+    setCellMenu({ x: ev.clientX, y: ev.clientY, head: k, items })
+  }
+
   // 列宽三源（拖拽中 > 手动 > 自适应 > 90）与拖拽机构抽到 useColWidths，
   // 5 处网格共用同一套。数据页把手动宽提交回**持久化视角**，所以 H1a-2 之后
   // 的行为与之前逐字一致（拖完落盘、切表回来还在）；差别只是实现换了地方 +
@@ -3993,6 +4067,9 @@ export default auto(function DbSession (props) {
       editable: true,
       serverSort: true,
       keyboardAccessible: true,
+      // H2：右键单元格出菜单（复制/编辑/值面板/外键跳转），与 SQL 结果共用一个浮层
+      cellMenu: true,
+      openCellMenu: openDataCellMenu,
       sortOrderOf,
       selectCell,
       cellBaseClass: 'db-cell-editable',
@@ -8300,10 +8377,10 @@ export default auto(function DbSession (props) {
         target={colMenuTarget}
         onHide={handleColMenuHide}
       />
-      {/* SQL 结果单元格右键菜单：同为全站单例浮层 */}
+      {/* 单元格右键菜单：数据页 / SQL 结果共用的全站单例浮层 */}
       <DbCellMenu
-        target={sqlCellMenu}
-        onHide={() => setSqlCellMenu(null)}
+        target={cellMenu}
+        onHide={() => setCellMenu(null)}
       />
       {/* H1 行详情：列序与导出同源（fields 为准），类型表按结果集下标取 */}
       <DbRowDetailModal
