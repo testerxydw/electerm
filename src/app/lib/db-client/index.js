@@ -66,6 +66,8 @@ const OP_MAP = {
   redis: {
     getMetadata: 'getMetadata',
     getPageData: 'getPageData',
+    // H7a：服务器信息弹层（全量 INFO 原文）
+    getRedisInfo: 'getRedisInfo',
     // R1：键列表任意跳页（SCAN 从 cursor=0 前向步进到目标页）
     scanKeysToPage: 'scanKeysToPage',
     getKeyDetail: 'getKeyDetail',

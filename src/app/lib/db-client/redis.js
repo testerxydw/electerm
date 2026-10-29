@@ -185,6 +185,18 @@ async function getMetadata (conn) {
 }
 
 /**
+ * 服务器信息：一次全量 `INFO`（含 keyspace 段），只回原文。
+ * 解析不放这里：`parseRedisInfo` 是纯函数，放渲染侧才能用 node:test 逐条钉死
+ * （放主进程就得为一份字符串解析起一个假 RESP server）。
+ * 不吞错也不降级：受管实例禁用 INFO 时把原始报错抛上去 —— 概览弹层宁可显示
+ * "这个实例不允许 INFO"，也不能显示一张全是 0 的假概览（0 是合法值，分不清）。
+ */
+async function getRedisInfo (conn) {
+  const c = await getClient(conn)
+  return String(await c.info() || '')
+}
+
+/**
  * SCAN 分页 —— 使用「游标」模型而非「页码」模型。
  * Redis 的 SCAN cursor 是不透明的哈希游标（不是 offset），
  * 用 (page-1)*pageSize 当游标会得到重复/遗漏的结果；
@@ -563,6 +575,8 @@ module.exports = {
   release,
   getMetadata,
   getPageData,
+  // H7a：服务器信息（全量 INFO 原文，解析在渲染侧纯函数）
+  getRedisInfo,
   getKeyDetail,
   setKey,
   delKey,
