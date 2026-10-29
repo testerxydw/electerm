@@ -19,6 +19,56 @@ const os = require('node:os')
 const path = require('node:path')
 
 const REPO = path.resolve(__dirname, '../../..')
+const NM = path.join(REPO, 'node_modules')
+const STALE_MS = 3600e3
+
+const isStale = p => {
+  try {
+    return Date.now() - fs.statSync(p).mtimeMs > STALE_MS
+  } catch (e) {
+    return false
+  }
+}
+
+const removeTree = p => fs.rmSync(p, { recursive: true, force: true })
+
+// 回收崩溃遗留：只删 1 小时没动过的（同一工作区可能有别的进程正在跑）
+function sweepStale (dir, prefix) {
+  let names = []
+  try {
+    names = fs.readdirSync(dir)
+  } catch (e) {
+    return
+  }
+  names
+    .filter(n => n.startsWith(prefix))
+    .map(n => path.join(dir, n))
+    .filter(isStale)
+    .forEach(removeTree)
+}
+
+/**
+ * 本次运行的临时树根目录，放系统临时目录（与仓库其他用例同一做法）。
+ *
+ * 为什么不能放 node_modules 下：agent 运行时（CodeBuddy/WorkBuddy 的
+ * NODE_OPTIONS 安全删除垫片）会把 node_modules 里的 fs.rmSync 逐条转进回收站，
+ * 本用例一次跑要建 6 棵树、每棵十几个条目，实测把回收站灌进 8000+ 条垃圾；
+ * 系统临时目录是该垫片的豁免路径，删了就是真删。
+ *
+ * 树里再软链一个 node_modules 指回仓库：被拷贝的 protocol.js 里的
+ * `require('electron')` 才仍解析到用例 stub 的那个 electron（require.cache 按
+ * realpath 命中）。软链建不了（Windows 无权限）就退回仓库内，用例优先能跑。
+ */
+function makeRunRoot () {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-inject-'))
+  try {
+    fs.symlinkSync(NM, path.join(root, 'node_modules'), 'junction')
+    return root
+  } catch (e) {
+    removeTree(root)
+    return fs.mkdtempSync(path.join(NM, '.tmp-inject-'))
+  }
+}
 const electronPath = require.resolve('electron')
 const protocolPath = require.resolve('../../app/widgets/protocol')
 const legacyPath = require.resolve('../../build/polyfills/electron-lt25/protocol-legacy')
@@ -232,11 +282,19 @@ describe('legacy adapter (Electron < 25)', () => {
 describe('build-time injection', () => {
   const silent = () => {}
   let tree
+  let runRoot
+
+  before(() => {
+    sweepStale(os.tmpdir(), 'electerm-inject-')
+    sweepStale(NM, '.tmp-inject-')
+    runRoot = makeRunRoot()
+  })
+  after(() => removeTree(runRoot))
 
   function makeTree (electronVersion) {
-    // Under node_modules: git-ignored build space, and `require('electron')`
-    // from the copied app still resolves to the stubbed module in the spec.
-    const root = fs.mkdtempSync(path.join(REPO, 'node_modules/.tmp-inject-'))
+    // 根目录在系统临时目录（见 makeRunRoot 注释），其下的 node_modules 软链
+    // 指回仓库，所以 `require('electron')` 仍解析到用例 stub 的那份
+    const root = fs.mkdtempSync(path.join(runRoot, 't-'))
     fs.cpSync(path.join(REPO, 'src/app/widgets'), path.join(root, 'work/app/widgets'), {
       recursive: true
     })
