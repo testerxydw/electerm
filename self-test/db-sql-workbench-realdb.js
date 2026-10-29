@@ -385,11 +385,18 @@ const clearFilter = async cdp => {
 const main = async () => {
   fs.mkdirSync(SHOT_DIR, { recursive: true })
   // ---------- R) 前置：凭据纪律 + 护栏自证 ----------
-  const missing = Object.entries(ENV).filter(([, v]) => !v).map(([k]) => k)
+  // 空口令是合法配置（这台 MariaDB 的 root 没设密码），但环境变量必须**显式存在**：
+  // 按 undefined 判漏配，按真假值判会把空口令误报成"凭据缺失"
+  const missing = Object.entries(ENV)
+    .filter(([, v]) => v === undefined || v === null || v === '')
+    .filter(([k]) => k !== 'pass')
+    .map(([k]) => k)
+  const passGiven = ENV.pass !== undefined
   const src = fs.readFileSync(__filename, 'utf8')
   const hasSecret = [ENV.pass].filter(Boolean).some(p => src.includes(p))
-  check('R1 凭据全部来自环境变量、脚本正文不含口令', missing.length === 0 && !hasSecret, { missing, hasSecret })
-  if (missing.length || hasSecret) {
+  check('R1 凭据全部来自环境变量、脚本正文不含口令',
+    missing.length === 0 && passGiven && !hasSecret, { missing, passGiven, hasSecret })
+  if (missing.length || !passGiven || hasSecret) {
     console.log('用法: RDB_MYSQL_HOST/PORT/USER/PASS/DB node ' + path.basename(__filename))
     return 1
   }
@@ -612,6 +619,8 @@ const main = async () => {
   const bar = await cdp.jeval('window.__bar()')
   check('V3 清空后单击首格：行号仍是结果内绝对下标（第 1 行）',
     selCell.ok && /^id · /.test(bar.title || '') && /第 1 行|row 1\b/.test(bar.title || ''), { title: bar.title })
+  await cdp.eval('window.__closePane()')
+  await sleep(300)
 
   const hard = cdpRef.events.filter(e => /^(EX |ERROR|LOG )/.test(e))
   check('V4 真库全程无渲染层硬错误', hard.length === 0, hard.slice(0, 6))

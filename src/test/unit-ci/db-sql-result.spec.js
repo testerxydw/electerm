@@ -18,7 +18,7 @@ const MOD = path.join(ROOT, 'src/client/common/db-sql-result.js')
 const WIDTH_MOD = path.join(ROOT, 'src/client/common/db-column-width.js')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 
-const EXPORTS = '({ SQL_FILTER_DEBOUNCE, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes })'
+const EXPORTS = '({ SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes })'
 
 function load (file, extra) {
   const src = fs.readFileSync(file, 'utf8')
@@ -53,7 +53,10 @@ function loadCellText () {
 }
 
 const mod = load(MOD, { cellText: loadCellText() })
-const { SQL_FILTER_DEBOUNCE, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes } = mod
+const {
+  SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView,
+  allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes
+} = mod
 
 const bin = size => ({ __bin: { size, b64: 'AAECAwQFBgc=', truncated: false } })
 
@@ -128,11 +131,110 @@ describe('db-sql-result: 匹配语义（任意列 + 所见即所得）', () => {
   })
 })
 
+describe('db-sql-result: 排序是"下标数组"上的排列，NULL 恒最后', () => {
+  const rows = [
+    { id: 9, name: 'b', v: 30 },
+    { id: 10, name: 'A', v: null },
+    { id: 2, name: 'c', v: 10 },
+    { id: 1, name: 'a', v: null }
+  ]
+  const idx = [0, 1, 2, 3]
+  const byId = (order, numeric = true) => plain(sortRowIndexes(rows, idx, { key: 'id', order }, numeric ? ['id'] : []))
+  test('数值列按数值比较，不按字符串（否则 10 < 9）', () => {
+    assert.deepEqual(byId('ascend'), [3, 2, 0, 1])
+    assert.deepEqual(byId('descend'), [1, 0, 2, 3])
+  })
+  test('数值判定为假时按字符串序（"10" 在 "9" 前）', () => {
+    assert.deepEqual(byId('ascend', false), [3, 1, 2, 0])
+  })
+  test('NULL 恒排最后，升降都一样', () => {
+    assert.deepEqual(plain(sortRowIndexes(rows, idx, { key: 'v', order: 'ascend' }, ['v'])), [2, 0, 1, 3])
+    assert.deepEqual(plain(sortRowIndexes(rows, idx, { key: 'v', order: 'descend' }, ['v'])), [0, 2, 1, 3])
+  })
+  test('同值按结果内原始顺序稳定排列（两个 NULL 不互相换位）', () => {
+    // 两个 NULL 的下标是 1 和 3，两个方向都必须保持 1 在前
+    const asc = plain(sortRowIndexes(rows, idx, { key: 'v', order: 'ascend' }, ['v']))
+    const desc = plain(sortRowIndexes(rows, idx, { key: 'v', order: 'descend' }, ['v']))
+    assert.ok(asc.indexOf(1) < asc.indexOf(3))
+    assert.ok(desc.indexOf(1) < desc.indexOf(3))
+  })
+  test('不改入参：原下标数组与行对象都原样', () => {
+    const input = [3, 1, 0, 2]
+    const out = sortRowIndexes(rows, input, { key: 'id', order: 'ascend' }, ['id'])
+    assert.deepEqual(plain(input), [3, 1, 0, 2])
+    assert.notEqual(out, input)
+    assert.deepEqual(plain(rows.map(r => r.id)), [9, 10, 2, 1])
+  })
+  test('没排序（null/空 key/空 order）原样返回，不做无谓的复制', () => {
+    assert.equal(sortRowIndexes(rows, idx, null, ['id']), idx)
+    assert.equal(sortRowIndexes(rows, idx, { key: '', order: 'ascend' }, ['id']), idx)
+    assert.equal(sortRowIndexes(rows, idx, { key: 'id', order: null }, ['id']), idx)
+  })
+  test('只在给定下标集合里排（过滤后的子集），行号仍是绝对下标', () => {
+    // 过滤后的集合是 [3, 1]（id 1 和 10），排序只在这两个里换位
+    assert.deepEqual(plain(sortRowIndexes(rows, [3, 1], { key: 'id', order: 'descend' }, ['id'])), [1, 3])
+  })
+  test('不存在的列 = 全是 NULL，保持原顺序；脏行跳过而不是抛', () => {
+    assert.deepEqual(plain(sortRowIndexes(rows, idx, { key: 'nope', order: 'ascend' }, [])), [0, 1, 2, 3])
+    const dirty = [null, { id: 2 }, 42, { id: 1 }]
+    assert.deepEqual(plain(sortRowIndexes(dirty, [0, 1, 2, 3], { key: 'id', order: 'ascend' }, ['id'])), [3, 1, 0, 2])
+  })
+  test('数值列里混进非数字串时退回字符串比较，不产生 NaN 乱序', () => {
+    const mixed = [{ v: 2 }, { v: 'abc' }, { v: 10 }]
+    assert.deepEqual(plain(sortRowIndexes(mixed, [0, 1, 2], { key: 'v', order: 'ascend' }, ['v'])), [0, 2, 1])
+  })
+})
+
+describe('db-sql-result: 排序状态（三档循环 + 每列独立）', () => {
+  test('点击循环：无 → 升 → 降 → 无', () => {
+    assert.equal(nextSqlSort(null), 'ascend')
+    assert.equal(nextSqlSort(undefined), 'ascend')
+    assert.equal(nextSqlSort('ascend'), 'descend')
+    assert.equal(nextSqlSort('descend'), null)
+    assert.equal(nextSqlSort('something'), 'ascend')
+  })
+  test('受控状态只认当前列：换一列时旧箭头不跟过去', () => {
+    const views = { 0: { filter: '', sort: { key: 'id', order: 'descend' } } }
+    assert.equal(sqlSortOf(views, 0, 'id'), 'descend')
+    assert.equal(sqlSortOf(views, 0, 'name'), null)
+    assert.equal(sqlSortOf(views, 1, 'id'), null)
+    assert.equal(sqlSortOf({}, 0, 'id'), null)
+  })
+  test('order 不认识时按"没排序"处理，不把脏状态画成升序', () => {
+    assert.equal(sqlSortOf({ 0: { sort: { key: 'id', order: 'sideways' } } }, 0, 'id'), null)
+  })
+  test('数值列兜底推断：全 number/bigint/数字串才算，混一个文本就不是', () => {
+    assert.equal(looksNumericColumn([{ v: 1 }, { v: 2.5 }], 'v'), true)
+    assert.equal(looksNumericColumn([{ v: '1' }, { v: '-2.5' }, { v: '3e4' }], 'v'), true)
+    assert.equal(looksNumericColumn([{ v: 1 }, { v: 'abc' }], 'v'), false)
+    assert.equal(looksNumericColumn([{ v: 1 }, { v: '' }], 'v'), false)
+    // 空串不是数字：Mysql 的 decimal 不会给空串，但 text 列可能
+    assert.equal(looksNumericColumn([{ v: '  ' }], 'v'), false)
+  })
+  test('全 NULL 的列不算数值列（没有可比的值，也不该把它当数排）', () => {
+    assert.equal(looksNumericColumn([{ v: null }, { v: undefined }, {}], 'v'), false)
+    assert.equal(looksNumericColumn([], 'v'), false)
+    assert.equal(looksNumericColumn(null, 'v'), false)
+  })
+  test('采样上限生效：第 101 个值才出现文本时仍算数值列（只采前 100 个）', () => {
+    const many = []
+    for (let i = 0; i < 100; i++) {
+      many.push({ v: i })
+    }
+    many.push({ v: 'abc' })
+    assert.equal(looksNumericColumn(many, 'v'), true)
+    assert.equal(looksNumericColumn(many, 'v', 500), false)
+  })
+  test('大结果提示阈值是 5 万行（设计口径）', () => {
+    assert.equal(SQL_SORT_BIG_ROWS, 50000)
+  })
+})
+
 describe('db-sql-result: 每个结果集一份状态，互不串味', () => {
-  test('缺省状态是"没过滤"', () => {
-    assert.deepEqual(plain(emptySqlView()), { filter: '' })
-    assert.deepEqual(plain(sqlViewOf(undefined, 0)), { filter: '' })
-    assert.deepEqual(plain(sqlViewOf({}, 3)), { filter: '' })
+  test('缺省状态是"没过滤、没排序"', () => {
+    assert.deepEqual(plain(emptySqlView()), { filter: '', sort: null })
+    assert.deepEqual(plain(sqlViewOf(undefined, 0)), { filter: '', sort: null })
+    assert.deepEqual(plain(sqlViewOf({}, 3)), { filter: '', sort: null })
     assert.equal(sqlViewOf({ 1: { filter: 'x' } }, 0).filter, '')
     assert.equal(sqlViewOf({ 1: { filter: 'x' } }, 1).filter, 'x')
   })
@@ -198,5 +300,41 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
       assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
     }
     assert.ok(/\{m\}/.test(locales) && /\{t\}/.test(locales), '命中/总数要留两个占位符')
+  })
+  test('排序接在过滤之后、切页之前（先排全量再切页，不是只排当前页）', () => {
+    const block = src.slice(
+      src.indexOf('const sqlResultViews = useMemo('),
+      src.indexOf('const renderSqlResults')
+    )
+    const iFilter = block.indexOf('filterRowIndexes(')
+    const iSort = block.indexOf('sortRowIndexes(')
+    const iSlice = block.indexOf('ordered.slice(start, start + sqlPageSize)')
+    assert.ok(iFilter > -1 && iSort > iFilter, '排序没接在过滤之后')
+    assert.ok(iSlice > iSort, '先切页后排序：只排当前页，跨页顺序是错的')
+    assert.ok(/sortRowIndexes\(rows, indexes, sqlViewOf\(sqlViews, i\)\.sort, sqlSortNumeric\[i\]\)/.test(block),
+      '排序没把"这一列是不是数值列"传进去')
+  })
+  test('表头点击受控：列头拿到 sort/onSort，三档由 nextSqlSort 决定，不重新执行 SQL', () => {
+    assert.ok(/sort=\{sqlSortOf\(sqlViews, i, k\)\}/.test(src), '列头没拿到受控排序状态')
+    assert.ok(/onSort=\{\(\) => onSqlSort\(i, k\)\}/.test(src), '列头没接点击')
+    assert.ok(src.indexOf('nextSqlSort(') > -1, '三档循环没走共用函数')
+    const fn = src.match(/const onSqlSort = \(i, key\) => \{[\s\S]*?\n {2}\}/)
+    assert.ok(fn, '找不到排序处理函数')
+    assert.ok(/patchSqlView\(prev, i, \{ sort:/.test(fn[0]), '排序没写进每结果集的状态')
+    assert.ok(/setSqlPages\(prev => \(\{ \.\.\.prev, \[i\]: 1 \}\)\)/.test(fn[0]), '换排序后没回第 1 页')
+    assert.ok(!/runSql\(/.test(fn[0]), '点表头不该重新执行 SQL')
+  })
+  test('数值列判定与右对齐同源（isNumberType），驱动没给类型时才用值兜底', () => {
+    assert.ok(/import \{[^}]*isNumberType[^}]*\} from '\.\.\/\.\.\/common\/db-format-value'/.test(src))
+    const block = src.slice(src.indexOf('const sqlSortNumeric = useMemo('), src.indexOf('const sqlResultViews = useMemo('))
+    assert.ok(/isNumberType\(dt\)/.test(block), '类型已知时没按类型判定')
+    assert.ok(/looksNumericColumn\(rows, k\)/.test(block), '类型缺失时没有兜底推断')
+  })
+  test('大结果排序提示走词条，50k 阈值来自共用常量', () => {
+    assert.ok(/SQL_SORT_BIG_ROWS/.test(src))
+    assert.ok(/e\('dbSortLocal'\)/.test(src))
+    const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
+    assert.equal((locales.match(/dbSortLocal:/g) || []).length, 2, 'dbSortLocal 要 en + zh 各一条')
+    assert.ok(/\{n\}/.test(locales.match(/dbSortLocal: '[^']*'/)[0]), '提示要留行数占位符')
   })
 })

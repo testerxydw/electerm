@@ -93,13 +93,15 @@ describe('SQL 结果分页：接线契约', () => {
 
   test('row-key clones only the current page (slice before map)', () => {
     const src = read()
-    // 本页过滤上线后，派生链从"直接切 rows"改成"先算命中下标再切"（sqlResultViews），
-    // 这里守的是没变的那件事：克隆只发生在切出来的那一页上
+    // 本页过滤上线后，派生链从"直接切 rows"改成"先算命中下标再切"（sqlResultViews）；
+    // 排序又在这条链上插入一步（过滤 → 排序 → 切页）。这里守的是没变的那件事：
+    // 克隆只发生在切出来的那一页上，不管切之前的数组叫 indexes 还是 ordered
     const memo = src.match(/const sqlResultViews = useMemo\([\s\S]*?\n\s{2}\)/)
     assert.ok(memo, 'sqlResultViews memo not found')
     const code = memo[0]
-    assert.ok(code.includes('indexes.slice(start, start + sqlPageSize)'), 'must slice before cloning')
-    assert.ok(/indexes\.slice\([^)]*\)\.map\(/.test(code), 'clone must run on the page slice, not the full result')
+    assert.ok(code.includes('.slice(start, start + sqlPageSize)'), 'must slice before cloning')
+    assert.ok(/\b\w+\.slice\(start, start \+ sqlPageSize\)\.map\(/.test(code),
+      'clone must run on the page slice, not the full result')
     assert.ok(!/\(r && r\.rows\) \|\| \[\]\)\.map\(/.test(code), 'full-result clone must not return')
     assert.ok(/sqlPageSize[,\]]/.test(code.slice(code.lastIndexOf('['))), 'page size must be a memo dependency')
   })

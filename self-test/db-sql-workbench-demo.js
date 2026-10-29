@@ -38,6 +38,17 @@ const SHOT_DIR = process.argv[3] || path.join(__dirname, 'db-sql-workbench-shots
 const SPLIT_KEY = 'electerm-db-sql-value-split'
 const ROWS = 10000
 const PAGE = 200
+
+// 判据输出只留必要字段（与真库脚本同一条纪律：长字符串先截断再打印）
+const pick = (o, keys) => {
+  const r = {}
+  for (const k of keys) {
+    if (o && o[k] !== undefined) {
+      r[k] = typeof o[k] === 'string' && o[k].length > 40 ? o[k].slice(0, 40) + '…' : o[k]
+    }
+  }
+  return r
+}
 const DEBOUNCE = 150
 
 const HELPERS = buildHelpers(SPLIT_KEY)
@@ -260,6 +271,58 @@ const PROBE = `
     rows: window.__rows().length
   })
   window.__fElapsed = () => (window.__fAt === null ? -1 : Math.round(window.__fAt - window.__fT0))
+
+  // ---- H1 排序探针：受控状态看 aria-sort 打在哪、指示符文字是什么 ----
+  const grid = () => [...document.querySelectorAll('.db-sql-result-grid')].filter(window.__vis)[0] || null
+  const thOf = label => {
+    const g = grid()
+    if (!g) return null
+    return [...g.querySelectorAll('thead th')].filter(window.__vis).find(th => {
+      const n = th.querySelector('.db-col-name')
+      return n && String(n.textContent).trim() === label
+    }) || null
+  }
+  window.__headState = label => {
+    const th = thOf(label)
+    if (!th) return JSON.stringify({ found: 0 })
+    const head = th.querySelector('.db-col-head-sortable')
+    const ind = th.querySelector('.db-col-sort')
+    return JSON.stringify({
+      found: 1,
+      aria: head ? String(head.getAttribute('aria-sort')) : '',
+      ind: ind ? String(ind.textContent).trim() : '',
+      active: ind && /db-col-sort-active/.test(String(ind.className)) ? 1 : 0,
+      tabindex: head ? String(head.getAttribute('tabindex')) : ''
+    })
+  }
+  window.__headAll = () => {
+    const g = grid()
+    return g ? g.querySelectorAll('thead .db-col-head-sortable').length : -1
+  }
+  window.__headClick = label => {
+    const th = thOf(label)
+    const head = th && th.querySelector('.db-col-head-sortable')
+    if (!head) return 'no-head'
+    head.click()
+    return 'ok'
+  }
+  window.__headKey = (label, key) => {
+    const th = thOf(label)
+    const head = th && th.querySelector('.db-col-head-sortable')
+    if (!head) return 'no-head'
+    head.focus()
+    head.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    return 'ok'
+  }
+  window.__colTexts = (label, n) => {
+    const idx = window.__colIdx(label)
+    if (idx < 0) return JSON.stringify({ error: 'no-col' })
+    const rows = window.__rows()
+    return JSON.stringify(rows.slice(0, n || 3).map(tr => {
+      const td = tr.children[idx]
+      return td ? String(td.innerText || '').trim() : ''
+    }))
+  }
   return 'probe-installed'
 })()
 `
@@ -311,6 +374,36 @@ const firstIdOf = async cdp => String((await cdp.jeval('window.__cellXY("id", 0)
 
 const readHit = async cdp => JSON.parse(await cdp.eval('window.__fHit()'))
 const readTools = async cdp => JSON.parse(await cdp.eval('window.__fTools()'))
+// 排序专用：列头状态（aria-sort / 指示符）、点击、列内前 n 个文本
+const headState = async (cdp, label) => cdp.jeval('window.__headState(' + JSON.stringify(label) + ')')
+const colTexts = async (cdp, label, n) => cdp.jeval('window.__colTexts(' + JSON.stringify(label) + ', ' + n + ')')
+const clickHead = async (cdp, label) => {
+  const r = await cdp.eval('window.__headClick(' + JSON.stringify(label) + ')')
+  await sleep(350)
+  return r
+}
+// 末页末尾的几行落在虚拟列表可视窗口之外（DOM 只留窗口内那一小段），
+// 直接读 "__rows 的最后 4 个"读的是"窗口最后 4 个"。先滚到底再读。
+const scrollResultToBottom = async (cdp) => {
+  const p = await cdp.jeval('window.__bodyPoint()')
+  let prev = null
+  for (let i = 0; i < 60; i++) {
+    await cdp.wheel(p.x, p.y, 600)
+    await sleep(90)
+    const cur = await cdp.eval('window.__innerTY()')
+    if (cur === prev) break
+    prev = cur
+  }
+  await sleep(250)
+}
+// 末页 + 滚到底 + 读这一列最后 n 行
+const tailOfLastPage = async (cdp, label, n) => {
+  const last = await cdp.eval("([...document.querySelectorAll('.db-sql-result-tools .ant-pagination-item')].pop() || {}).innerText")
+  await cdp.eval('window.__gotoPage(' + Number(String(last).trim()) + ')')
+  await sleep(500)
+  await scrollResultToBottom(cdp)
+  return (await colTexts(cdp, label, 400)).slice(-n)
+}
 
 // 桩必须在 boot 之后装：pre.js 整对象赋值 window.pre，装早了会被冲掉，
 // 于是页签真的去连 127.0.0.1:3306（ECONNREFUSED），判据全退化成"没找到网格"。
@@ -607,6 +700,9 @@ const main = async () => {
   const bar = await cdp.jeval('window.__bar()')
   check('F14 筛完只剩 2 行时单击，工具条报的还是结果内绝对行号（第 7777 行）',
     cell.ok && /^id · /.test(bar.title) && rowRe(7777).test(bar.title), { bar, cell })
+  // 单击即展开面板：后面的筛选/分页判据按全高网格算，先收起再继续
+  await cdp.eval('window.__closePane()')
+  await sleep(400)
   await cdp.eval('window.__fClear()')
   await sleep(600)
 
@@ -701,6 +797,131 @@ const main = async () => {
     await cdp.eval('window.__fClear()')
     await sleep(400)
   }
+
+  // ---------- G) 表头排序（受控：升 → 降 → 无） ----------
+  // 这一组从 F18 之后的状态起步：结果集 1 = 1 万行、无过滤、第 1 页
+  const execSort0 = Number(await cdp.eval('window.__execN'))
+  const g0 = await headState(cdp, 'id')
+  const heads = Number(await cdp.eval('window.__headAll()'))
+  check('G1 每个结果列头都可排序（受控按钮 + 未排序时是淡的 ⇅）',
+    heads >= 5 && g0.found === 1 && g0.aria === 'none' && g0.ind === '⇅' &&
+    g0.active === 0 && g0.tabindex === '0', { heads, g0 })
+
+  await clickHead(cdp, 'id')
+  const g1 = await headState(cdp, 'id')
+  const ids1 = await colTexts(cdp, 'id', 3)
+  check('G2 第一次点升序：aria-sort / ▲ / 数据真按升序',
+    g1.aria === 'ascending' && g1.ind === '▲' && g1.active === 1 &&
+    ids1.join(',') === '1,2,3', { g1, ids1 })
+
+  await clickHead(cdp, 'id')
+  const g2 = await headState(cdp, 'id')
+  const ids2 = await colTexts(cdp, 'id', 3)
+  check('G3 第二次点降序：数值列按数排（10000 在 9999 前），不是按字符串',
+    g2.aria === 'descending' && g2.ind === '▼' && ids2.join(',') === '10000,9999,9998', { g2, ids2 })
+
+  await clickHead(cdp, 'id')
+  const g3 = await headState(cdp, 'id')
+  const ids3 = await colTexts(cdp, 'id', 3)
+  check('G4 第三次点回到无排序：箭头变淡、顺序回到执行时的原样',
+    g3.aria === 'none' && g3.ind === '⇅' && g3.active === 0 && ids3.join(',') === '1,2,3', { g3, ids3 })
+
+  await clickHead(cdp, 'note')
+  const notes = await colTexts(cdp, 'note', 3)
+  check('G5 文本列按文本序（note-1 < note-10 < note-100），不按数值',
+    notes.join(',') === 'note-1,note-10,note-100', { notes })
+  await clickHead(cdp, 'note')
+  await clickHead(cdp, 'note')
+
+  await clickHead(cdp, 'nullable')
+  const nullFirst = await colTexts(cdp, 'nullable', 1)
+  const tailAsc = await tailOfLastPage(cdp, 'nullable', 4)
+  check('G6 升序时 NULL 排最后（4 个 NULL 全在末页末尾，不在第一屏当最小值）',
+    nullFirst[0] === 'v' && tailAsc.every(x => x === 'NULL'), { first: nullFirst[0], tailAsc })
+
+  await clickHead(cdp, 'nullable')
+  // 换向回第 1 页看的是分页器高亮页，不是首行 id：按 nullable 降序时首行是最大值的
+  // 那一行（同值并列按原序），本来就未必是 id=1
+  const toolsDesc = await readTools(cdp)
+  const tailDesc = await tailOfLastPage(cdp, 'nullable', 4)
+  check('G7 降序时 NULL 仍排最后（"NULL 恒最后"与方向无关），且换向回第 1 页',
+    toolsDesc.current === 1 && tailDesc.every(x => x === 'NULL'),
+    { current: toolsDesc.current, tailDesc })
+  await clickHead(cdp, 'nullable')
+
+  const fSort = await typeFilter(cdp, 'xneedle')
+  const hitSort = await readHit(cdp)
+  await clickHead(cdp, 'id')
+  const idsAsc2 = await colTexts(cdp, 'id', 2)
+  check('G8 排序只排命中集：命中/总数口径不变（2/10000），升序首行是 3001',
+    fSort.changed && hitSort.m === 2 && hitSort.t === ROWS && idsAsc2.join(',') === '3001,7777',
+    { hit: pick(hitSort, ['m', 't']), idsAsc2 })
+
+  await clickHead(cdp, 'id')
+  const idsDesc2 = await colTexts(cdp, 'id', 2)
+  const cellG = await clickCell(cdp, 'id', 0)
+  const barG = await cdp.jeval('window.__bar()')
+  check('G9 排序后单击仍是结果内绝对行号（第 7777 行，不是页内第 1 行）',
+    idsDesc2.join(',') === '7777,3001' && cellG.ok && rowRe(7777).test(barG.title || ''),
+    { idsDesc2, title: barG.title })
+  await cdp.eval('window.__closePane()')
+  await sleep(400)
+
+  const execSort1 = Number(await cdp.eval('window.__execN'))
+  check('G10 排序/切页全程没重新执行 SQL（纯前端排列）',
+    execSort0 === execSort1, { before: execSort0, after: execSort1 })
+
+  const clearedSort = await cdp.eval('window.__fClear()')
+  const runReset = await runSql(cdp)
+  const gReset = await headState(cdp, 'id')
+  const idsReset = await colTexts(cdp, 'id', 3)
+  check('G11 重新执行清掉排序（箭头回到 ⇅，顺序回到原样）',
+    clearedSort === 'ok' && runReset.fired && gReset.aria === 'none' && idsReset.join(',') === '1,2,3',
+    { clearedSort, runReset: pick(runReset, ['fired']), gReset, idsReset })
+
+  // ---------- G12) 每个结果集一份排序 ----------
+  await clickHead(cdp, 'id')
+  await clickHead(cdp, 'id')
+  await cdp.eval('window.__clickResultTab("2")')
+  await sleep(700)
+  const gB = await headState(cdp, 'id')
+  const idsB0 = await colTexts(cdp, 'id', 2)
+  await clickHead(cdp, 'id')
+  await clickHead(cdp, 'id')
+  const idsB1 = await colTexts(cdp, 'id', 2)
+  await cdp.eval('window.__clickResultTab("1")')
+  await sleep(700)
+  const gA = await headState(cdp, 'id')
+  const idsA = await colTexts(cdp, 'id', 2)
+  check('G12 每个结果集各自一份排序（结果集 2 的降序不覆盖结果集 1 的降序，两头都对）',
+    gB.aria === 'none' && idsB0.join(',') === 'A-1,A-2' &&
+    idsB1.join(',') === 'A-2,A-1' && gA.aria === 'descending' && idsA.join(',') === '10000,9999',
+    { gB, idsB0, idsB1, gA, idsA })
+
+  // ---------- G13) 换排序回第 1 页 ----------
+  await cdp.eval('window.__gotoPage(5)')
+  await sleep(700)
+  const pageBefore = (await readTools(cdp)).current
+  await clickHead(cdp, 'note')
+  const tools13 = await readTools(cdp)
+  check('G13 换排序列回第 1 页（否则看到的是"另一个顺序的第 5 页"）',
+    pageBefore === 5 && tools13.current === 1, { pageBefore, current: tools13.current })
+
+  const before14 = await headState(cdp, 'note')
+  const keyRes = await cdp.eval('window.__headKey("note", "Enter")')
+  await sleep(350)
+  const after14 = await headState(cdp, 'note')
+  check('G14 键盘 Enter 也能切排序（Tab 可达，不是只能鼠标）',
+    keyRes === 'ok' && before14.aria === 'ascending' && after14.aria === 'descending',
+    { before14, after14 })
+
+  const toolsG = await readTools(cdp)
+  const geoG = await cdp.jeval('window.__geom()')
+  const hintG = await cdp.eval("(() => { const el = [...document.querySelectorAll('.db-sql-sort-hint')].filter(window.__vis)[0]; return el ? String(el.innerText) : '' })()")
+  check('G15 排序后工具行仍是一行 24px、网格没被箭头挤塌；1 万行不显示 5 万行档提示',
+    toolsG.h === 24 && geoG.gridH > 300 && hintG === '',
+    { toolsH: toolsG.h, gridH: geoG.gridH, hintG })
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '5-light-sorted.png')))
 
   const hard = cdpRef.events.filter(l => /uncaught|error|Error|Cannot|Warning:/.test(String(l)))
   check('F22 渲染层没有新增硬错误（过滤全程无 uncaught/React 报错）',

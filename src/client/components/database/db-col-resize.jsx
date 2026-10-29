@@ -8,9 +8,9 @@
  * - 这里只做"事件 → 状态"的薄层，不掺量宽公式，也不决定"这一列该多宽"
  *   （加宽的目标宽由调用点在点击时算，避免为所有列预扫一遍宽版）。
  *
- * 列头菜单是**全站单例**（整个 db 会话只挂一个浮层），和 H1a-1 的预览卡同一套做法：
- * 给每列各挂一个 Dropdown 的话，200 列的数据页每次列 memo 重建都要挂/卸上百个
- * Trigger 实例；单例只有一份状态，列本身只负责"打开时把落点写进 state"。
+ * 列头菜单是**全站单例**（整个 db 会话只挂一个浮层）：给每列各挂一个 Dropdown 的话，
+ * 200 列的数据页每次列 memo 重建都要挂/卸上百个 Trigger 实例；单例只有一份状态，
+ * 列本身只负责"打开时把落点写进 state"。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Popover } from 'antd'
@@ -167,18 +167,60 @@ export function useColMenu () {
 }
 
 /**
- * 列头标题节点：列名（+可选注释第二行）+ 拖拽手柄。
+ * 列头标题节点：列名（+可选注释第二行）+ 拖拽手柄（+可选排序）。
  * 手柄复用数据页既有的 .db-col-resizer（th 右边沿 16px 热区，hover 才显竖线），
  * 所以 5 处网格的拖拽手感是同一个。
+ *
+ * 排序不走 antd 的 sorter：它会把标题包进 `.ant-table-column-sorters`，列头就从
+ * "整格都是拖拽手柄的宿主"缩成"标题那一小段"，右沿热区跟着跑偏。这里自己接
+ * 点击/Enter/空格，状态由调用方受控（`sort` 为 null / 'ascend' / 'descend'）。
  */
 export function ColHead (props) {
-  const { label, colKey, wg, comment, hint, className = 'db-col-head' } = props
+  const {
+    label, colKey, wg, comment, hint,
+    sort = null, onSort,
+    className = 'db-col-head'
+  } = props
+  const sortable = typeof onSort === 'function'
+  const onKeyDown = sortable
+    ? ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault()
+        ev.stopPropagation()
+        onSort()
+      }
+    }
+    : undefined
   return (
-    <span className={className} title={hint || (typeof label === 'string' ? label : undefined)}>
+    <span
+      className={className + (sortable ? ' db-col-head-sortable' : '')}
+      title={hint || (typeof label === 'string' ? label : undefined)}
+      role={sortable ? 'button' : undefined}
+      tabIndex={sortable ? 0 : undefined}
+      aria-sort={
+        sortable
+          ? (sort === 'ascend' ? 'ascending' : sort === 'descend' ? 'descending' : 'none')
+          : undefined
+      }
+      onClick={sortable ? onSort : undefined}
+      onKeyDown={onKeyDown}
+    >
       <span className='db-col-name'>{label}</span>
       {
         comment
           ? <span className='db-col-comment' title={comment}>{comment}</span>
+          : null
+      }
+      {
+        sortable
+          ? (
+            <span
+              className={'db-col-sort' + (sort ? ' db-col-sort-active' : '')}
+              aria-hidden='true'
+            >
+              {sort === 'ascend' ? '▲' : sort === 'descend' ? '▼' : '⇅'}
+            </span>
+            )
           : null
       }
       {/* 手柄不吃点击/双击/右键：点一下会误触排序，右键要留给列头菜单（在 th 上） */}

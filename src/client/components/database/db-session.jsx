@@ -115,9 +115,12 @@ import {
 } from '../../common/db-grid-views'
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
-import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
+import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, isNumberType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
 // H1：SQL 结果工具行的派生链（过滤 → 切页）抽成纯函数，便于单测
-import { filterRowIndexes, sqlViewOf, patchSqlView, SQL_FILTER_DEBOUNCE } from '../../common/db-sql-result'
+import {
+  filterRowIndexes, sortRowIndexes, sqlViewOf, patchSqlView, sqlSortOf, nextSqlSort,
+  looksNumericColumn, SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS
+} from '../../common/db-sql-result'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -766,6 +769,14 @@ export default auto(function DbSession (props) {
     const timers = sqlFilterTimers.current
     return () => Object.values(timers).forEach(clearTimeout)
   }, [])
+  // 表头点击：升序 → 降序 → 无排序。受控排序只改视图状态，不重新执行 SQL；
+  // 换排序同样回第 1 页 —— 停在第 8 页看"换了个顺序的第 8 页"没法判断排序生效没有
+  const onSqlSort = (i, key) => {
+    const cur = sqlViewOf(sqlViews, i).sort
+    const order = nextSqlSort(cur && cur.key === key ? cur.order : null)
+    setSqlViews(prev => patchSqlView(prev, i, { sort: order ? { key, order } : null }))
+    setSqlPages(prev => ({ ...prev, [i]: 1 }))
+  }
   // H1a-4：SQL 结果里选中的单元格 { rs, col, rowKey }。rowKey 是结果内的**绝对**
   // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
   // SQL 结果是只读视图：不做行内编辑，也不写回
@@ -3964,6 +3975,8 @@ export default auto(function DbSession (props) {
               colKey={wk}
               wg={sqlWidths}
               hint={e('dbColResizeHint')}
+              sort={sqlSortOf(sqlViews, i, k)}
+              onSort={() => onSqlSort(i, k)}
             />
           ),
           dataIndex: k,
@@ -3997,27 +4010,47 @@ export default auto(function DbSession (props) {
         }
       })
     }),
-    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, sqlColTypeMaps, sqlCell]
+    [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, sqlColTypeMaps, sqlCell, sqlViews]
   )
 
   // SQL 结果渲染：单结果集直接表格；多语句多结果集用 tab 分栏
+  // H1：哪些列按数值比较。类型契约在的时候以 columns[].type 为准（varchar 里
+  // 放 "10"/"9" 仍是文本序）；驱动没给 columns 时才用值兜底推断。
+  // 与右对齐用的是同一条 isNumberType 判定 —— 右对齐的列点表头就该按数排
+  const sqlSortNumeric = useMemo(
+    () => (sqlResult.results || []).map((r, i) => {
+      const rows = (r && r.rows) || []
+      const typeMap = sqlColTypeMaps[i] || {}
+      const set = new Set()
+      for (const k of sqlColumnKeys(r)) {
+        const dt = typeMap[String(k).toLowerCase()] || ''
+        if (dt ? isNumberType(dt) : looksNumericColumn(rows, k)) {
+          set.add(k)
+        }
+      }
+      return set
+    }),
+    [sqlResult.results, sqlColTypeMaps]
+  )
+
   // A2：SQL 结果集行键数组提升到组件顶层 useMemo（依赖组件级 sqlResult.results），
   // 避免传输进度等无关重渲触发 antd Table 全行重渲。
   // 分页后只克隆当前页的行（__rowKey 用结果内的绝对下标，翻页不重复也不冲突）
-  // H1：过滤 → 切页。matched 与 pageRows 同一次派生出来，所以"命中/总数"、
+  // H1：过滤 → 排序 → 切页。matched 与 pageRows 同一次派生出来，所以"命中/总数"、
   // 分页器页数、网格里看到的行数永远同一口径（不会出现"共 3 页"而筛完只剩 5 行）
   const sqlResultViews = useMemo(
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
       const indexes = filterRowIndexes(rows, sqlColumnKeys(r), sqlViewOf(sqlViews, i).filter)
-      const start = (sqlPageIndex(sqlPages[i], indexes.length, sqlPageSize) - 1) * sqlPageSize
+      const ordered = sortRowIndexes(rows, indexes, sqlViewOf(sqlViews, i).sort, sqlSortNumeric[i])
+      const start = (sqlPageIndex(sqlPages[i], ordered.length, sqlPageSize) - 1) * sqlPageSize
       return {
         total: rows.length,
-        matched: indexes.length,
-        pageRows: indexes.slice(start, start + sqlPageSize).map(idx => ({ ...rows[idx], __rowKey: idx }))
+        matched: ordered.length,
+        pageRows: ordered.slice(start, start + sqlPageSize).map(idx => ({ ...rows[idx], __rowKey: idx }))
       }
     }),
-    [sqlResult.results, sqlPages, sqlPageSize, sqlViews]
+    [sqlResult.results, sqlPages, sqlPageSize, sqlViews, sqlSortNumeric]
   )
 
   const renderSqlResults = () => {
@@ -4028,6 +4061,7 @@ export default auto(function DbSession (props) {
     const renderOne = (r, i) => {
       const view = sqlResultViews[i] || { total: 0, matched: 0, pageRows: [] }
       const filter = sqlViewOf(sqlViews, i).filter
+      const sort = sqlViewOf(sqlViews, i).sort
       // 超过一页才出分页器（单行结果保持原样）。
       // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
       // H1：分页按**过滤后**的行数算，筛完不足一页就不再有分页器
@@ -4089,6 +4123,15 @@ export default auto(function DbSession (props) {
                     }
                   >
                     {e('dbFilterHit').replace('{m}', view.matched).replace('{t}', view.total)}
+                  </span>
+                  )
+                : null
+            }
+            {
+              sort && view.total > SQL_SORT_BIG_ROWS
+                ? (
+                  <span className='db-sql-sort-hint'>
+                    {e('dbSortLocal').replace('{n}', view.total)}
                   </span>
                   )
                 : null

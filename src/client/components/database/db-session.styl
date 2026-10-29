@@ -874,6 +874,35 @@
 .db-sql-filter-hit-empty
   color var(--error)
 
+// H1：表头排序。指示符绝对定位在右边沿拖拽热区（16px）左侧 —— 放进文字行会
+// 被 .db-col-name 的 ellipsis 裁掉，也会把窄列的列名挤没。
+// 未排序时给个淡的 ⇅ 提示"这一列可点"，排序后换成实心箭头 + 主色
+.db-col-head-sortable
+  padding-right 14px
+  cursor pointer
+  user-select none
+
+  &:focus-visible
+    outline 2px solid var(--primary)
+    outline-offset 2px
+
+.db-col-sort
+  position absolute
+  top 3px
+  right 18px
+  font-size 10px
+  line-height 1
+  opacity 0.35
+  pointer-events none
+
+.db-col-sort-active
+  opacity 1
+  color var(--primary)
+
+.db-sql-sort-hint
+  font-size 12px
+  color var(--text-dark)
+
 // 结果网格的可见边框：与左侧树面板同款。同色背景下没有边界时，
 // 看不出结果区是否真的避开了底部快捷命令栏（2026-10-28 用户反馈）。
 // margin-bottom 与 .db-body 的 8px 内边距叠加，结果框与快捷命令栏之间留 12px
