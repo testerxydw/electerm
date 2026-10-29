@@ -3,18 +3,23 @@
  *
  * 为什么抽到这里：两页的列定义 ~80% 重复 —— 都是 ColHead 标题、width、
  * ellipsis、onHeaderCell 右键列宽菜单、onCell 点击选中、数值右对齐、
- * render 走 renderCell。合法差异只有能力开关：数据页是服务端排序 +
- * 双击编辑 + 键盘可达 + 列头注释；SQL 页是客户端排序 + 单元格右键菜单 +
- * 「结果集下标::列名」复合宽度键 + 只读。
+ * render 走 renderCell。合法差异只有能力开关：数据页是双击编辑 + 键盘可达 +
+ * 列头注释 + 排序要重查；SQL 页是单元格右键菜单 + 「结果集下标::列名」
+ * 复合宽度键 + 只读 + 排序只在内存里排。
  *
  * 设计取舍：做成**纯函数**而不是 hook —— 工厂不持有任何状态，列 memo 的
  * 依赖数组仍由调用点控制（与 db-session 现在的 memo 依赖逐字一致，
  * widthOf/startResize 这类每轮新引用的函数依旧不进依赖）。
  * db-col-resize.jsx 的 hooks 只包"状态"，这里只做"配置 → 列定义"的映射。
  *
- * ⚠️ 行为契约：重构前后用户可见行为必须逐字节一致。两页的差异全部参数化：
- * - editable / serverSort / keyboardAccessible / showComment：数据页能力
- * - clientSort / cellMenu / widthKeyOf / headKeyOf：SQL 结果页能力
+ * ⚠️ 行为契约：两页的差异全部参数化：
+ * - editable / keyboardAccessible / showComment：数据页能力
+ * - cellMenu / widthKeyOf / headKeyOf：SQL 结果页能力
+ * - 排序只有一套（sortable + sortOf + onSort，箭头画在 ColHead 里）：
+ *   数据页的 onSort 去重查（服务端 ORDER BY），SQL 页只在内存排。
+ *   不给数据页用 antd 的 col.sorter：它会把标题包进 .ant-table-column-sorters
+ *   （列头从"整格都是拖宽手柄的宿主"缩成标题那一小段、右沿热区跟着跑偏），
+ *   还会带一个语言包里没有的英文 tooltip（"Click to sort ascending"）。
  */
 import React from 'react'
 import { Input } from 'antd'
@@ -46,13 +51,12 @@ export const CELL_ELLIPSIS = { showTitle: false }
  * @param {string}   [options.hint]             列头提示文案（调用方按自身能力拼好）
  * @param {string}   [options.filterKw]         renderCell 高亮关键字（数据页本页过滤词，SQL 传 ''）
  * @param {boolean}  [options.editable]         双击编辑 + 编辑态 Input 分支（数据页）
- * @param {boolean}  [options.serverSort]       服务端排序（sorter:true + sortOrder）
- * @param {boolean}  [options.clientSort]       客户端排序（ColHead 受控 sort + onSort）
+ * @param {boolean}  [options.sortable]         列头可排序：箭头画在 ColHead 里，点击回调 onSort。
+ *                                              两页同一套（数据页去重查，SQL 页在内存排）
  * @param {boolean}  [options.cellMenu]         单元格右键菜单（SQL 结果页）
  * @param {boolean}  [options.keyboardAccessible] 键盘可达（Tab/Enter/F2/Escape，数据页）
- * @param {Function} [options.sortOrderOf]      serverSort: k => 'ascend' | 'descend' | null
- * @param {Function} [options.sortOf]           clientSort: k => 'ascend' | 'descend' | null
- * @param {Function} [options.onSort]           clientSort: (k) => void
+ * @param {Function} [options.sortOf]           sortable: k => 'ascend' | 'descend' | null
+ * @param {Function} [options.onSort]           sortable: (k) => void
  * @param {Function} options.selectCell         (row, k) => void，单击选中
  * @param {Function} [options.selectedOf]       (row, k) => bool，选中格高亮（SQL 结果面板联动）
  * @param {string}   [options.cellBaseClass]    单元格基础 class（数据页 'db-cell-editable'，SQL 缺省）
@@ -84,11 +88,9 @@ export function buildGridColumns (options) {
     hint = '',
     filterKw = '',
     editable = false,
-    serverSort = false,
-    clientSort = false,
+    sortable = false,
     cellMenu = false,
     keyboardAccessible = false,
-    sortOrderOf = () => null,
     sortOf = () => null,
     onSort,
     selectCell,
@@ -131,8 +133,8 @@ export function buildGridColumns (options) {
           comment={showComment ? comment : undefined}
           hint={hint}
           className={headClassName}
-          sort={clientSort ? sortOf(k) : null}
-          onSort={clientSort && onSort ? () => onSort(k) : undefined}
+          sort={sortable ? sortOf(k) : null}
+          onSort={sortable && onSort ? () => onSort(k) : undefined}
         />
       ),
       dataIndex: k,
@@ -222,12 +224,6 @@ export function buildGridColumns (options) {
         // H1a-3：以前这里直接写 `render: renderCell`，antd 传的 (值, 整行, 下标)
         // 会把**行下标**当成 dataType —— 类型必须显式传，关键字不预留就传 ''
         : v => renderCell(v, filterKw, dataType)
-    }
-    // 服务端排序走 antd 的 sorter 标记（数据页 onTableChange 重新查询）；
-    // 客户端排序走 ColHead 受控箭头（SQL 结果，不重新执行 SQL）。两页互斥
-    if (serverSort) {
-      col.sorter = true
-      col.sortOrder = sortOrderOf(k)
     }
     return col
   })

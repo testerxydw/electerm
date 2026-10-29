@@ -283,47 +283,35 @@ describe('SQL 复合宽键（下标::列名）与表头菜单标题', () => {
   })
 })
 
-describe('排序：serverSort / clientSort 互斥能力', () => {
-  test('serverSort：col.sorter=true + sortOrder 来自 sortOrderOf，ColHead 不接排序', () => {
-    const cols = buildGridColumns({
-      keys: ['a'],
-      wg: makeWg(),
-      colMenu: makeColMenu(),
-      serverSort: true,
-      sortOrderOf: k => k === 'a' ? 'ascend' : null,
-      selectCell: () => {},
-      renderCell: makeRender()
-    })
-    assert.equal(cols[0].sorter, true)
-    assert.equal(cols[0].sortOrder, 'ascend')
-    assert.equal(cols[0].title.props.sort, null, '服务端排序不接 ColHead 受控箭头')
-    assert.equal(cols[0].title.props.onSort, undefined)
-  })
-
-  test('clientSort：col 无 sorter，ColHead 接受控 sort + onSort 回调', () => {
+describe('排序：两页同一套（ColHead 箭头 + onSort 回调），不给 antd sorter', () => {
+  test('sortable：ColHead 接受控 sort + onSort；col 上永远没有 antd 的 sorter 标记', () => {
     const seen = []
     const cols = buildGridColumns({
       keys: ['a', 'b'],
       wg: makeWg(),
       colMenu: makeColMenu(),
-      clientSort: true,
+      sortable: true,
       sortOf: k => k === 'a' ? 'descend' : null,
       onSort: k => seen.push(k),
       selectCell: () => {},
       renderCell: makeRender()
     })
-    assert.ok(!('sorter' in cols[0]), '客户端排序不得给 antd 的 sorter 标记')
+    // 数据页（服务端 ORDER BY）与 SQL 页（内存排）都走这条：箭头只有一份。
+    // col.sorter 会把标题包进 .ant-table-column-sorters —— 列头右沿的拖宽热区
+    // 被 .ant-table-column-title 的 overflow 裁掉，还会冒出英文 tooltip
+    assert.ok(!('sorter' in cols[0]), '不得给 antd 的 sorter 标记')
+    assert.ok(!('sortOrder' in cols[0]))
     assert.equal(cols[0].title.props.sort, 'descend')
     assert.equal(typeof cols[0].title.props.onSort, 'function')
     cols[0].title.props.onSort()
     assert.deepEqual(seen, ['a'], 'onSort 必须带上列名')
     assert.equal(cols[1].title.props.sort, null, '未排序列受控值为 null（ColHead 不画箭头）')
-    // 工厂把 onSort 挂到 clientSort 开着的每一列（箭头显隐由受控 sort 决定），
+    // 工厂把 onSort 挂到 sortable 开着的每一列（箭头显隐由受控 sort 决定），
     // 这里钉住的是"受控值为 null"而不是"没有 onSort"
     assert.equal(typeof cols[1].title.props.onSort, 'function')
   })
 
-  test('两个开关全关（SQL 之外的网格形态）：无 sorter，ColHead sort 为 null', () => {
+  test('开关关掉（结构页/Redis 那几处网格）：无 sorter，ColHead sort 为 null', () => {
     const cols = buildGridColumns({
       keys: ['a'],
       wg: makeWg(),
@@ -334,6 +322,7 @@ describe('排序：serverSort / clientSort 互斥能力', () => {
     assert.ok(!('sorter' in cols[0]))
     assert.ok(!('sortOrder' in cols[0]))
     assert.equal(cols[0].title.props.sort, null)
+    assert.equal(cols[0].title.props.onSort, undefined)
   })
 })
 

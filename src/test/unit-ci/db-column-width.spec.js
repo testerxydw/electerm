@@ -652,8 +652,10 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     const fm = colSrc.match(/<ColHead[\s\S]*?\/>/)
     assert.ok(fm, '列工厂缺 ColHead 挂载')
     assert.ok(/hint=\{hint\}/.test(fm[0]), '工厂 ColHead 没接调用点的 hint')
-    // 数据页那一列同时要保留"单击预览 / 双击编辑"，拖拽提示是并进来不是替换掉
-    const data = src.match(/hint: `\$\{canEditCell \? e\('dbPreviewEditHint'\) : e\('dbPreviewHint'\)\} · \$\{e\('dbColResizeHint'\)\}`/)
+    // 数据页那一列同时要保留"单击预览 / 双击编辑"，拖拽提示是并进来不是替换掉。
+    // 排序提示并到同一条里：箭头改由 ColHead 自己画之后，antd 那句内置 tooltip
+    // （"Click to sort ascending"，在语言包之外）跟着没了，不补就等于没人知道能排序
+    const data = src.match(/hint: `\$\{canEditCell \? e\('dbPreviewEditHint'\) : e\('dbPreviewHint'\)\} · \$\{e\('dbColResizeHint'\)\} · \$\{e\('dbColSortHint'\)\}`/)
     assert.ok(data, '数据页丢了预览/编辑提示')
   })
 

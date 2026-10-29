@@ -507,6 +507,9 @@ const en = {
   dbColWiden: 'widen to {n}',
   dbColAutoFitAll: 'auto-fit all columns',
   dbColResizeHint: 'drag the right edge, right click for more',
+  // 列头排序箭头改由 ColHead 自己画（不再用 antd 的 sorter），内置 tooltip 跟着没了，
+  // 提示并到列头 title 里
+  dbColSortHint: 'click the header to sort',
   dbResultN: 'result {n}',
   dbAffectedRows: 'affected rows: {n}',
   dbSeconds: 'seconds',
@@ -1197,6 +1200,7 @@ const zhCn = {
   dbColWiden: '加宽到 {n}',
   dbColAutoFitAll: '自适应全部列',
   dbColResizeHint: '拖动右边沿改宽，右键更多',
+  dbColSortHint: '点击列头排序',
   dbResultN: '结果 {n}',
   dbAffectedRows: '影响行数：{n}',
   dbSeconds: '秒',

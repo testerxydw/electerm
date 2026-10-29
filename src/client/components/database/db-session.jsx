@@ -603,7 +603,7 @@ export default auto(function DbSession (props) {
   // F1：foreignKeys（本表外键）一并保留，供「关联」侧栏的"被引用父行"方向使用
   // H3a：indexes/comment/type/estimatedRows 也留在这里，数据字典导出与结构页同源
   const [structureV2, setStructureV2] = useState(EMPTY_STRUCTURE_V2)
-  // 查询路径（loadPage/onTableChange 里的异步回调）要读到最新列清单，state 在闭包里会过期
+  // 查询路径（loadPage/onColSort 里的异步回调）要读到最新列清单，state 在闭包里会过期
   const structureV2Ref = useRef({ columns: [] })
   // E2-3b：单元格展示层本地化开关。默认 'none'（原样 String(value)），
   // 要的人自己在网格头部打开。只影响 renderCell 的显示文本
@@ -1669,18 +1669,17 @@ export default auto(function DbSession (props) {
   }
 
   // 列头点击：**只负责把这次点击写进 view.order**，方向与 3 列上限由 nextSortOrder 决定。
-  // 视角条的 chips 走同一个函数，两处显示因此永远一致（各写一份必然打架）
-  const onTableChange = (pagination, filters, sorter) => {
-    if (!sel) {
-      return
-    }
-    const field = sorter && sorter.field ? String(sorter.field) : ''
-    if (!field) {
+  // 视角条的 chips 走同一个函数，两处显示因此永远一致（各写一份必然打架）。
+  // 箭头由 ColHead 自己画（与 SQL 结果同一套）：不再借 antd 的 col.sorter，
+  // 它会把标题包进 .ant-table-column-sorters、挤掉列头右沿的拖宽热区，
+  // 还带一个语言包里没有的英文 tooltip（"Click to sort ascending"）
+  const onColSort = (field) => {
+    if (!sel || !field) {
       return
     }
     applyView(normalizeView({
       ...viewRef.current,
-      order: nextSortOrder(viewRef.current.order, field, 3)
+      order: nextSortOrder(viewRef.current.order, String(field), 3)
     }))
     resetPageFilter()
     // 换排序/换页大小都不改结果集大小：有生效条件时那个"精确行数"仍然成立，
@@ -3914,8 +3913,8 @@ export default auto(function DbSession (props) {
     [grid.rows]
   )
 
-  // 列头排序箭头跟随 view.order（受控）：不写 sortOrder 的话，antd 会自己维护一份
-  // 排序状态，chips 一改（比如重置）箭头就停在旧方向上
+  // 列头排序箭头跟随 view.order（受控）：箭头由 ColHead 自己画，状态只有
+  // view.order 一处来源，视角条 chips 一改（比如重置）箭头就跟着回位
   const sortOrderOf = (k) => {
     const key = String(k).toLowerCase()
     const hit = (view.order || []).find(o => String(o.column).toLowerCase() === key)
@@ -4150,16 +4149,19 @@ export default auto(function DbSession (props) {
       wideRows: grid.rows,
       headClassName: 'db-col-title',
       // 数据页原来只说"单击预览/双击编辑"，拖宽这件事在这里等于没人告知——
-      // 手柄 hover 才显形，看不到提示就不会有人去试，所以把拖拽提示并进来
-      hint: `${canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')} · ${e('dbColResizeHint')}`,
+      // 手柄 hover 才显形，看不到提示就不会有人去试，所以把拖拽提示并进来。
+      // 排序提示补上：箭头不再走 antd 的 sorter，也就没有它那句内置 tooltip
+      hint: `${canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')} · ${e('dbColResizeHint')} · ${e('dbColSortHint')}`,
       filterKw: pageFilterKw,
       editable: true,
-      serverSort: true,
+      // 排序与 SQL 结果同一套：箭头画在 ColHead，点击走 onColSort 重查（服务端 ORDER BY）
+      sortable: true,
+      sortOf: sortOrderOf,
+      onSort: onColSort,
       keyboardAccessible: true,
       // H2：右键单元格出菜单（复制/编辑/值面板/外键跳转），与 SQL 结果共用一个浮层
       cellMenu: true,
       openCellMenu: openDataCellMenu,
-      sortOrderOf,
       selectCell,
       cellBaseClass: 'db-cell-editable',
       canEditCell,
@@ -4254,8 +4256,8 @@ export default auto(function DbSession (props) {
         wideRows: rows,
         // 宽度用的是「结果集下标::列名」，菜单标题只显示列名
         headKeyOf: k => k,
-        hint: e('dbColResizeHint'),
-        clientSort: true,
+        hint: `${e('dbColResizeHint')} · ${e('dbColSortHint')}`,
+        sortable: true,
         sortOf: k => sqlSortOf(sqlViews, i, k),
         onSort: k => onSqlSort(i, k),
         // H1a-4：单击选中 → 底部完整值面板（与数据页同一套：点一格就展开面板，
@@ -6051,7 +6053,6 @@ export default auto(function DbSession (props) {
             dataSource={filteredRows}
             rowKey='__rowKey'
             pagination={false}
-            onChange={onTableChange}
             rowSelection={rowSelection}
             locale={{
               emptyText: grid.error
