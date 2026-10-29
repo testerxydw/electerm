@@ -258,3 +258,67 @@ describe('db-csv buildCopyStatements', () => {
     assert.equal(buildCopyStatements('insert', { table: 't', headers: ['a'], rows: null }), '')
   })
 })
+
+describe('db-csv toJsonl / toMarkdownTable（SQL 结果导出补齐）', () => {
+  const { toJsonl, toMarkdownTable } = loadFns()
+
+  test('toJsonl：一行一个独立 JSON 对象，逐行可 parse 回来', () => {
+    const out = toJsonl(['a', 'b'], [{ a: 1, b: 'x' }, { a: 2, b: 'y' }])
+    const lines = out.split('\n')
+    assert.equal(lines.length, 2)
+    assert.deepEqual(lines.map(l => JSON.parse(l)), [{ a: 1, b: 'x' }, { a: 2, b: 'y' }])
+  })
+
+  test('toJsonl：列序与取值以 headers 为准（滤掉 __rowKey 辅助键），缺列补 null', () => {
+    const out = toJsonl(['a', 'c'], [{ a: 1, __rowKey: 9 }])
+    assert.deepEqual(JSON.parse(out), { a: 1, c: null })
+  })
+
+  test('toJsonl：二进制信封换占位串（b64 信封结构不进数据文件）', () => {
+    const bin = { __bin: { size: 5, b64: 'aGVsbG8=', truncated: false } }
+    const out = toJsonl(['blob'], [{ blob: bin }])
+    assert.equal(JSON.parse(out).blob, '<binary 5 bytes>')
+  })
+
+  test('toJsonl：字符串内的换行/引号走 JSON 转义（一行永远是一条记录）', () => {
+    const out = toJsonl(['v'], [{ v: 'a"b\nc' }])
+    assert.equal(out.split('\n').length, 1)
+    assert.equal(JSON.parse(out).v, 'a"b\nc')
+  })
+
+  test('toJsonl：rows 非数组 → 空串；headers 非数组 → 每行空对象', () => {
+    assert.equal(toJsonl(['a'], null), '')
+    assert.equal(toJsonl(null, [{ a: 1 }]), '{}')
+  })
+
+  test('toMarkdownTable：表头 + 分隔行 + 数据行', () => {
+    const out = toMarkdownTable(['a', 'b'], [{ a: 1, b: 'x' }])
+    const lines = out.split('\n')
+    assert.equal(lines.length, 3)
+    assert.equal(lines[0], '| a | b |')
+    assert.equal(lines[1], '| --- | --- |')
+    assert.equal(lines[2], '| 1 | x |')
+  })
+
+  test('toMarkdownTable：竖线转义不破表结构，换行变 <br>', () => {
+    const out = toMarkdownTable(['v'], [{ v: 'a|b' }, { v: 'x\ny' }])
+    const lines = out.split('\n')
+    assert.equal(lines.length, 4, '换行必须压成 <br>，不能拆行')
+    assert.ok(lines[2].includes('a\\|b'), lines[2])
+    assert.ok(lines[3].includes('x<br>y'), lines[3])
+  })
+
+  test('toMarkdownTable：反引号转义；null → 空单元格；二进制占位', () => {
+    const bin = { __bin: { size: 8, b64: 'AAAAAAAAAA==', truncated: false } }
+    const out = toMarkdownTable(['v', 'n', 'b'], [{ v: 'a`b', n: null, b: bin }])
+    const cells = out.split('\n')[2].split('|').slice(1, -1).map(s => s.trim())
+    assert.ok(cells[0].includes('\\`'))
+    assert.equal(cells[1], '')
+    assert.equal(cells[2], '<binary 8 bytes>')
+  })
+
+  test('toMarkdownTable：rows 非数组 → 只有表头和分隔行', () => {
+    const out = toMarkdownTable(['a'], null)
+    assert.equal(out.split('\n').length, 2)
+  })
+})

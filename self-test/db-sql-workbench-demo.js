@@ -1054,6 +1054,128 @@ const main = async () => {
     namesAfter.join(',') === 'id,note,tag,upper,nullable',
     { namesR1, namesR2, runC: pick(runC, ['fired']), namesAfter })
 
+  // ---------- D) 导出补齐（TSV / JSONL / Markdown，CSV / JSON 回归） ----------
+  // downloadText 走 Blob + a[download]，Electron 里会真触发下载；判据不落盘，
+  // 改为截获 createObjectURL 的 Blob 读成文本存进 __dls，验内容与行数
+  await cdp.eval(`(() => {
+    window.__dls = []
+    window.__dlArm = () => {
+      if (!window.__dlPatched) {
+        window.__dlPatched = true
+        const orig = window.URL.createObjectURL.bind(window.URL)
+        window.URL.createObjectURL = blob => {
+          const url = orig(blob)
+          // Blob.text() 按 UTF-8 解码会把 BOM 剥掉（规范行为），BOM 要从字节看
+          Promise.all([
+            blob.text ? blob.text() : Promise.resolve(''),
+            blob.arrayBuffer ? blob.arrayBuffer() : Promise.resolve(new ArrayBuffer(0))
+          ]).then(([t, buf]) => {
+            const b = new Uint8Array(buf)
+            window.__dls.push({
+              mime: String(blob.type || ''),
+              text: String(t),
+              bom: b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF
+            })
+          }).catch(() => {})
+          return url
+        }
+      }
+      window.__dls = []
+      return 'armed'
+    }
+    const dlBtn = () => {
+      const t = [...document.querySelectorAll('.db-sql-result-tools')].filter(window.__vis)[0]
+      if (!t) return null
+      const b = [...t.querySelectorAll('button .anticon-download')].map(x => x.closest('button')).filter(window.__vis)[0]
+      return b || null
+    }
+    window.__exportOpen = () => {
+      const b = dlBtn()
+      if (!b) return 'no-btn'
+      b.click()
+      return 'opened'
+    }
+    window.__exportPick = label => {
+      const items = [...document.querySelectorAll('.ant-dropdown-menu-item')]
+        .filter(window.__vis)
+        .filter(x => !x.closest('.db-sql-cols-menu'))
+      const it = items.find(x => String(x.textContent).trim() === label)
+      if (!it) return 'no-item:' + items.map(x => String(x.textContent).trim()).join(',')
+      it.click()
+      return 'clicked'
+    }
+    return 'export-probe-ready'
+  })()`)
+  await sleep(300)
+  const exportAs = async (cdp2, label) => {
+    await cdp2.eval('window.__dlArm()')
+    await cdp2.eval('window.__exportOpen()')
+    await sleep(400)
+    const picked = await cdp2.eval('window.__exportPick(' + JSON.stringify(label) + ')')
+    await sleep(600)
+    const dls = JSON.parse(await cdp2.eval('JSON.stringify(window.__dls)'))
+    return { picked, dls }
+  }
+
+  const dCsv = await exportAs(cdp, 'CSV')
+  check('D1 导出菜单回归：CSV 仍可导出（BOM + 表头行 + 1 万行）',
+    dCsv.picked === 'clicked' && dCsv.dls.length === 1 &&
+    dCsv.dls[0].mime.startsWith('text/csv') &&
+    dCsv.dls[0].bom === true &&
+    dCsv.dls[0].text.split('\r\n').length >= ROWS + 1,
+    { picked: dCsv.picked, n: dCsv.dls.length, mime: dCsv.dls[0] && dCsv.dls[0].mime, lines: dCsv.dls[0] && dCsv.dls[0].text.split('\r\n').length })
+
+  const dJson = await exportAs(cdp, 'JSON')
+  check('D2 导出菜单回归：JSON 仍可导出（数组长度 1 万）',
+    dJson.picked === 'clicked' && dJson.dls.length === 1 &&
+    JSON.parse(dJson.dls[0].text).length === ROWS,
+    { picked: dJson.picked, n: dJson.dls.length })
+
+  const dTsv = await exportAs(cdp, 'TSV')
+  const tsvTxt = dTsv.dls[0] ? dTsv.dls[0].text : ''
+  check('D3 TSV：表头行 = 列名制表符连接，数据行 = 1 万 + 值内制表/换行压成空格',
+    dTsv.picked === 'clicked' && dTsv.dls.length === 1 &&
+    dTsv.dls[0].mime.startsWith('text/tab-separated-values') &&
+    tsvTxt.split('\n').length === ROWS + 1 &&
+    tsvTxt.split('\n')[0] === ['id', 'note', 'tag', 'upper', 'nullable'].join('\t'),
+    { picked: dTsv.picked, mime: dTsv.dls[0] && dTsv.dls[0].mime, lines: tsvTxt.split('\n').length, head: tsvTxt.split('\n')[0] })
+
+  const dJsonl = await exportAs(cdp, 'JSONL')
+  const jsonlTxt = dJsonl.dls[0] ? dJsonl.dls[0].text : ''
+  const jsonlLines = jsonlTxt.split('\n')
+  check('D4 JSONL：一行一个 JSON 对象（1 万行逐行可 parse），列序以 fields 为准',
+    dJsonl.picked === 'clicked' && dJsonl.dls.length === 1 &&
+    dJsonl.dls[0].mime.startsWith('application/x-ndjson') &&
+    jsonlLines.length === ROWS &&
+    jsonlLines.every(l => { JSON.parse(l); return true }) &&
+    Object.keys(JSON.parse(jsonlLines[0])).join(',') === 'id,note,tag,upper,nullable',
+    { picked: dJsonl.picked, mime: dJsonl.dls[0] && dJsonl.dls[0].mime, lines: jsonlLines.length, keys: jsonlLines[0] ? Object.keys(JSON.parse(jsonlLines[0])).join(',') : '' })
+
+  const dMd = await exportAs(cdp, 'Markdown')
+  const mdTxt = dMd.dls[0] ? dMd.dls[0].text : ''
+  const mdLines = mdTxt.split('\n')
+  check('D5 Markdown：表头行 + 分隔行 + 1 万数据行（换行没把表撑破）',
+    dMd.picked === 'clicked' && dMd.dls.length === 1 &&
+    dMd.dls[0].mime.startsWith('text/markdown') &&
+    mdLines.length === ROWS + 2 &&
+    mdLines[0] === '| id | note | tag | upper | nullable |' &&
+    mdLines[1] === '| --- | --- | --- | --- | --- |',
+    { picked: dMd.picked, mime: dMd.dls[0] && dMd.dls[0].mime, lines: mdLines.length, head: mdLines[0] })
+
+  // Markdown 转义要有真实样本：构造一列含竖线/换行/反引号的结果集再导
+  // （换成桩的返回函数后必须真的重新执行一次 —— 导出读的是已加载的结果，
+  // 不重新执行导出的还是那份 1 万行旧数据）
+  await cdp.eval('window.__sqlResults = function () { return [{ sql: "pipe", fields: ["v"], columns: [{ name: "v", type: "varchar" }], rows: [{ v: "a|b" }, { v: "x" + String.fromCharCode(10) + "y" }, { v: "c`d" }, { v: null }] }] }')
+  const runD6 = await runSql(cdp)
+  const dMd2 = await exportAs(cdp, 'Markdown')
+  const md2 = dMd2.dls[0] ? dMd2.dls[0].text : ''
+  const md2Lines = md2.split('\n')
+  check('D6 Markdown 转义真样本：竖线转义、换行变 <br>、反引号转义、NULL 空单元格',
+    runD6.fired && md2Lines.length === 6 &&
+    md2Lines[2].includes('a\\|b') && md2Lines[3].includes('x<br>y') &&
+    md2Lines[4].includes('c\\`d') && md2Lines[5] === '|  |',
+    { fired: runD6.fired, lines: md2Lines.length, rows: md2Lines.slice(2) })
+
   const hard = cdpRef.events.filter(l => /uncaught|error|Error|Cannot|Warning:/.test(String(l)))
   check('F22 渲染层没有新增硬错误（过滤全程无 uncaught/React 报错）',
     hard.length === 0, hard.slice(0, 6))

@@ -29,7 +29,7 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
-import { downloadCsv, downloadText, buildCopyStatements } from '../../common/db-csv'
+import { downloadCsv, downloadText, buildCopyStatements, toTsv, toJsonl, toMarkdownTable } from '../../common/db-csv'
 import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
 import {
   planSameValue,
@@ -2478,15 +2478,19 @@ export default auto(function DbSession (props) {
   }
 
   // SQL 结果导出：列取 fields（缺省回退首行键），行取该结果集 rows
+  const sqlExportHeaders = r => {
+    const rows = (r && r.rows) || []
+    return (r.fields && r.fields.length)
+      ? r.fields
+      : (rows.length ? Object.keys(rows[0]) : [])
+  }
+
   const exportSqlCsv = (r, i) => {
     const rows = (r && r.rows) || []
     if (!rows.length) {
       return
     }
-    const headers = (r.fields && r.fields.length)
-      ? r.fields
-      : Object.keys(rows[0])
-    downloadCsv(`db-sql-result-${i + 1}-${tsName()}.csv`, headers, rows)
+    downloadCsv(`db-sql-result-${i + 1}-${tsName()}.csv`, sqlExportHeaders(r), rows)
   }
 
   // SQL 结果导出 JSON：直接序列化该结果集 rows
@@ -2499,6 +2503,45 @@ export default auto(function DbSession (props) {
       `db-sql-result-${i + 1}-${tsName()}.json`,
       'application/json;charset=utf-8',
       JSON.stringify(rows, null, 2)
+    )
+  }
+
+  // SQL 结果导出 TSV：贴表格软件（Excel/剪贴板同款转义），制表/换行压成空格
+  const exportSqlTsv = (r, i) => {
+    const rows = (r && r.rows) || []
+    if (!rows.length) {
+      return
+    }
+    downloadText(
+      `db-sql-result-${i + 1}-${tsName()}.tsv`,
+      'text/tab-separated-values;charset=utf-8',
+      toTsv(sqlExportHeaders(r), rows)
+    )
+  }
+
+  // SQL 结果导出 JSONL（ndjson）：一行一个 JSON 对象，流式工具逐行可读
+  const exportSqlJsonl = (r, i) => {
+    const rows = (r && r.rows) || []
+    if (!rows.length) {
+      return
+    }
+    downloadText(
+      `db-sql-result-${i + 1}-${tsName()}.jsonl`,
+      'application/x-ndjson;charset=utf-8',
+      toJsonl(sqlExportHeaders(r), rows)
+    )
+  }
+
+  // SQL 结果导出 Markdown：直接贴进文档/issue 就是表格
+  const exportSqlMarkdown = (r, i) => {
+    const rows = (r && r.rows) || []
+    if (!rows.length) {
+      return
+    }
+    downloadText(
+      `db-sql-result-${i + 1}-${tsName()}.md`,
+      'text/markdown;charset=utf-8',
+      toMarkdownTable(sqlExportHeaders(r), rows)
     )
   }
 
@@ -4196,16 +4239,35 @@ export default auto(function DbSession (props) {
             {
               view.total
                 ? (
+                  // trigger='click'：同一行里列显隐菜单是点击展开，相邻两个菜单
+                  // 一只 hover 一只点击手感打架；点击展开对键盘操作也更明确
                   <Dropdown
+                    trigger='click'
                     menu={{
                       items: [
                         { key: 'csv', label: 'CSV' },
-                        { key: 'json', label: 'JSON' }
+                        { key: 'json', label: 'JSON' },
+                        { key: 'tsv', label: 'TSV' },
+                        { key: 'jsonl', label: 'JSONL' },
+                        { key: 'markdown', label: 'Markdown' }
                       ],
-                      // 导出始终是整份结果（不受当前页限制）
-                      onClick: ({ key }) => key === 'json'
-                        ? exportSqlJson(r, i)
-                        : exportSqlCsv(r, i)
+                      // 导出始终是整份结果（不受当前页限制）；导出的是结果集
+                      // 原始行（不过滤/不排序视图态 —— 要当前筛选请去数据页）
+                      onClick: ({ key }) => {
+                        if (key === 'json') {
+                          return exportSqlJson(r, i)
+                        }
+                        if (key === 'tsv') {
+                          return exportSqlTsv(r, i)
+                        }
+                        if (key === 'jsonl') {
+                          return exportSqlJsonl(r, i)
+                        }
+                        if (key === 'markdown') {
+                          return exportSqlMarkdown(r, i)
+                        }
+                        return exportSqlCsv(r, i)
+                      }
                     }}
                   >
                     <Tooltip title={e('dbExportCsv')}>

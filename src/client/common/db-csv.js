@@ -142,6 +142,51 @@ export function toTsv (headers, rows) {
   return lines.join('\n')
 }
 
+// JSONL（ndjson）：每行一个独立的 JSON 对象，流式工具（jq/Spark/日志管道）逐行可读。
+// 列序与取值以 headers 为准（顺带滤掉 __rowKey 这类辅助键）；
+// 二进制信封不进 JSON —— 直接序列化会暴露 b64 信封结构，被误当成完整数据
+export function toJsonl (headers, rows) {
+  const heads = Array.isArray(headers) ? headers : []
+  const lines = []
+  for (const row of (rows || [])) {
+    const o = {}
+    heads.forEach(h => {
+      const v = row && row[h] !== undefined ? row[h] : null
+      o[h] = isBinEnvelope(v) ? `<binary ${v.__bin.size} bytes>` : v
+    })
+    lines.push(JSON.stringify(o))
+  }
+  return lines.join('\n')
+}
+
+// Markdown 表格：表头行 + 分隔行 + 数据行。单元格里竖线、换行、反引号必须转义，
+// 否则一列长文本就能把整张表的结构撑破；二进制信封显示占位串
+export function toMarkdownTable (headers, rows) {
+  const clean = s => String(s)
+    .replace(/\|/g, '\\|')
+    .replace(/\r\n/g, '<br>')
+    .replace(/\n/g, '<br>')
+    .replace(/\r/g, '<br>')
+    .replace(/`/g, '\\`')
+  const heads = Array.isArray(headers) ? headers : []
+  const cell = v => {
+    if (v === null || v === undefined) {
+      return ''
+    }
+    if (isBinEnvelope(v)) {
+      return `<binary ${v.__bin.size} bytes>`
+    }
+    return clean(v)
+  }
+  const line = cells => `| ${cells.join(' | ')} |`
+  const lines = [
+    line(heads.map(clean)),
+    line(heads.map(() => '---')),
+    ...((rows || []).map(row => line(heads.map(h => cell(row ? row[h] : null)))))
+  ]
+  return lines.join('\n')
+}
+
 // 行集合 → 文本：kind = insert / update / json / tsv
 // 列顺序与取值均以 headers 为准（过滤 __rowKey 等辅助键）；
 // update 依赖 pkColumn 定位（无主键返回空串，UI 侧禁用入口）；
