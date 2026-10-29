@@ -18,6 +18,10 @@
  *   1) npm run vite-build
  *   2) 起带 --remote-debugging-port 的实例（见 README 式注释：self-test/redis-keys-jump-demo.js）
  *   3) node self-test/db-key-tree-demo.js [debugPort] [shotDir]
+ *
+ * ⚠️ 本脚本会把 window.pre.runGlobalAsync 整个接管（这是唯一能造出"1 万键 + 可控延迟"
+ * 的办法），跑完不还原：同一个实例里接着跑真库脚本，点开的还是这个假 db0。
+ * 真库那份（db-key-tree-realredis.js）因此开跑前先 Page.reload 并钉一条"现场没有桩"。
  */
 const fs = require('node:fs')
 const path = require('node:path')
