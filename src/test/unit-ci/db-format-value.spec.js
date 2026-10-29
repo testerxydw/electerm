@@ -241,8 +241,11 @@ describe('db-format-value: 日期', () => {
   test('带时区的串与 Date 对象都能格式化', () => {
     const a = m.formatCellValue('2024-01-05T10:30:00Z', 'timestamptz', 'os')
     assert.ok(/2024/.test(a), a)
-    const b = m.formatCellValue(new Date(2024, 0, 5, 10, 30, 0), 'timestamptz', 'os')
+    const d = new Date(2024, 0, 5, 10, 30, 0)
+    const b = m.formatCellValue(d, 'timestamptz', 'os')
     assert.ok(/2024/.test(b), b)
+    // Date 对象必须走本地化分支，不得原样返回 String(Date)（否则出现 /GMT/、斜杠、无前导零）
+    assert.notEqual(b, String(d), 'Date 对象应被本地化，不应原样返回')
   })
 
   test('不可解析的日期串原样返回，不抛', () => {

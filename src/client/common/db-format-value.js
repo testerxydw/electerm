@@ -222,6 +222,18 @@ export function formatCellValue (value, dataType, mode) {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? groupViaNumber(value, String(value)) : String(value)
   }
+  if (value instanceof Date) {
+    // 日期列拿到的是 JS Date（某些驱动/序列化路径回传 Date 而非字符串）：
+    // 复用与字符串分支相同的本地化逻辑，不再原样 String(Date)。
+    const dt = String(dataType || '').toLowerCase()
+    if (isDateType(dt)) {
+      if (dt === 'time' || dt === 'time without time zone' || dt === 'time with time zone') {
+        return formatTimeOnly(value.toISOString().slice(11, 19)) || value.toISOString()
+      }
+      return formatDateString(value.toISOString()) || value.toISOString()
+    }
+    return String(value)
+  }
   if (typeof value !== 'string') {
     // 布尔、BigInt 等：不猜语义，原样
     return String(value)
