@@ -5524,6 +5524,11 @@ export default auto(function DbSession (props) {
     ? refTabsEl
     : emptyPaneEl
 
+  // U1d：数据页状态行文案。放在 dataArea 之前，让"总数为空时不画分隔点"只判一次
+  const gridRowsText = e('dbGridPageRows').replace('{n}', String(grid.rows.length))
+  const gridTotalText = exactRows.value !== null
+    ? `${e('dbExactRows')}: ${exactRows.value}`
+    : (typeof grid.totalRows === 'number' ? `${e('approxRows')}: ${grid.totalRows}` : '')
   const dataArea = (
     <div className='db-grid-area'>
       <div className='db-grid-head'>
@@ -5537,14 +5542,19 @@ export default auto(function DbSession (props) {
           sel
             ? (
               <span className='db-grid-total'>
+                {/* 本页行数与总数并排：只有"总行数（约）"说不清这一屏拿到多少行 */}
+                <span className='db-grid-page-rows'>{gridRowsText}</span>
+                {
+                  gridTotalText
+                    ? <span className='db-grid-dot'>·</span>
+                    : null
+                }
                 {
                   exactRows.value === null
-                    ? (typeof grid.totalRows === 'number'
-                        ? `${e('approxRows')}: ${grid.totalRows}`
-                        : null)
+                    ? (gridTotalText ? <span>{gridTotalText}</span> : null)
                     : (
                       <>
-                        {e('dbExactRows')}: {exactRows.value}
+                        <span>{gridTotalText}</span>
                         <Tag className='db-exact-tag'>{e('dbExactTag')}</Tag>
                       </>
                       )
@@ -5883,72 +5893,77 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          // B1 反选：表头勾选框已能正常渲染（columnWidth 修复列宽塌陷）负责全选/取消，
-          // 这里保留反选（无选中时等价全选，Tooltip 随状态切换）
+          // U1d：勾选后的一族动作合成一组——选中计数 + 反选 + 删除 + 批量改值 + 查找替换。
+          // 门控（只读 + 主键 + 本页有行）原来在四段各写一遍，现在提到组首：
+          // 计数原来只挂在删除/批量改值的按钮后缀上，光看按钮分不清"没选"还是"选了没显示"，
+          // 所以把"已选 n 行"摆到组首；按钮后缀保留，破坏性动作在按下处仍能看到自己的范围。
           sel && !isReadonly && pkColumn && grid.rows.length
             ? (
-              <Tooltip title={selectedRowKeys.length ? e('dbInvertSelection') : e('dbSelectAllPage')}>
-                <Button
-                  size='small'
-                  icon={<DiffOutlined />}
-                  onClick={invertSelection}
-                />
-              </Tooltip>
-              )
-            : null
-        }
-        {
-          // B1 删除选中：门控 只读+主键（无主键无法安全定位行），常显禁用
-          // （避免选中后按钮突然出现在反选之前、鼠标下方被误点，用户拍板）
-          sel && !isReadonly && pkColumn && grid.rows.length
-            ? (
-              <Popconfirm
-                title={
-                  e('dbDeleteRowsConfirm')
-                    .replace('{table}', sel.table)
-                    .replace('{n}', String(selectedRowKeys.length))
+              <span className='db-tool-group'>
+                {
+                  selectedRowKeys.length
+                    ? (
+                      <span className='db-grid-selected'>
+                        {e('dbGridSelectedRows').replace('{n}', String(selectedRowKeys.length))}
+                      </span>
+                      )
+                    : null
                 }
-                onConfirm={runDeleteRows}
-              >
-                <Button size='small' danger icon={<DeleteOutlined />} disabled={!selectedRowKeys.length}>
-                  {e('dbDeleteRows')}{selectedRowKeys.length ? `(${selectedRowKeys.length})` : ''}
-                </Button>
-              </Popconfirm>
-              )
-            : null
-        }
-        {
-          // B3-2 批量同列改值：门控与 deleteRows 同（只读 + 主键 + 有勾选 + 本页有行），
-          // 按钮常显禁用（与删除一致，避免选中后按钮位置跳动被误点）
-          sel && !isReadonly && pkColumn && grid.rows.length
-            ? (
-              <Tooltip title={selectedRowKeys.length ? e('dbBulkEdit') : e('dbNeedSelection')}>
-                <Button
-                  size='small'
-                  icon={<EditOutlined />}
-                  disabled={!selectedRowKeys.length}
-                  onClick={openBulk}
-                >
-                  {e('dbBulkEdit')}{selectedRowKeys.length ? `(${selectedRowKeys.length})` : ''}
-                </Button>
-              </Tooltip>
-              )
-            : null
-        }
-        {
-          // B3-3 查找替换：范围受"本页可见行"约束（见 repPreview 注释）；
-          // 不需要勾选（替换所有匹配单元格），但必须有主键才能逐行定位
-          sel && !isReadonly && pkColumn && grid.rows.length
-            ? (
-              <Tooltip title={e('dbReplace')}>
-                <Button
-                  size='small'
-                  icon={<SwapOutlined />}
-                  onClick={openReplace}
-                >
-                  {e('dbReplace')}
-                </Button>
-              </Tooltip>
+                {
+                  // B1 反选：表头勾选框已能正常渲染（columnWidth 修复列宽塌陷）负责全选/取消，
+                  // 这里保留反选（无选中时等价全选，Tooltip 随状态切换）
+                  <Tooltip title={selectedRowKeys.length ? e('dbInvertSelection') : e('dbSelectAllPage')}>
+                    <Button
+                      size='small'
+                      icon={<DiffOutlined />}
+                      onClick={invertSelection}
+                    />
+                  </Tooltip>
+                }
+                {
+                  // B1 删除选中：门控 只读+主键（无主键无法安全定位行），常显禁用
+                  // （避免选中后按钮突然出现在反选之前、鼠标下方被误点，用户拍板）
+                  <Popconfirm
+                    title={
+                      e('dbDeleteRowsConfirm')
+                        .replace('{table}', sel.table)
+                        .replace('{n}', String(selectedRowKeys.length))
+                    }
+                    onConfirm={runDeleteRows}
+                  >
+                    <Button size='small' danger icon={<DeleteOutlined />} disabled={!selectedRowKeys.length}>
+                      {e('dbDeleteRows')}{selectedRowKeys.length ? `(${selectedRowKeys.length})` : ''}
+                    </Button>
+                  </Popconfirm>
+                }
+                {
+                  // B3-2 批量同列改值：门控与 deleteRows 同（只读 + 主键 + 有勾选 + 本页有行），
+                  // 按钮常显禁用（与删除一致，避免选中后按钮位置跳动被误点）
+                  <Tooltip title={selectedRowKeys.length ? e('dbBulkEdit') : e('dbNeedSelection')}>
+                    <Button
+                      size='small'
+                      icon={<EditOutlined />}
+                      disabled={!selectedRowKeys.length}
+                      onClick={openBulk}
+                    >
+                      {e('dbBulkEdit')}{selectedRowKeys.length ? `(${selectedRowKeys.length})` : ''}
+                    </Button>
+                  </Tooltip>
+                }
+                {
+                  // B3-3 查找替换：范围受"本页可见行"约束（见 repPreview 注释）；
+                  // 不需要勾选（替换所有匹配单元格），但必须有主键才能逐行定位
+                  <Tooltip title={e('dbReplace')}>
+                    <Button
+                      size='small'
+                      icon={<SwapOutlined />}
+                      onClick={openReplace}
+                    >
+                      {e('dbReplace')}
+                    </Button>
+                  </Tooltip>
+                }
+              </span>
               )
             : null
         }

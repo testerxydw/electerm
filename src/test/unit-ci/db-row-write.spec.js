@@ -332,8 +332,9 @@ describe('B1 wiring: renderer 接线', () => {
   })
 
   test('删除入口受 只读+主键 门控，常显禁用（防选中后按钮突然出现误点）', () => {
-    const block = src.match(/B1 删除选中[\s\S]*?: null\n {8}\}/)
-    assert.ok(block, 'delete button block not found')
+    // U1d 起门控提到批量动作组首，四段不再各写一遍，所以断言看整组
+    const block = src.match(/U1d：勾选后的一族动作[\s\S]*?: null\n {8}\}/)
+    assert.ok(block, 'batch action group not found')
     assert.ok(block[0].includes('!isReadonly'))
     assert.ok(block[0].includes('pkColumn'))
     assert.ok(block[0].includes('grid.rows.length'), 'always visible while writable+pk')

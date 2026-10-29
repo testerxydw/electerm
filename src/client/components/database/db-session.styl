@@ -403,6 +403,21 @@
   display inline-flex
   align-items center
   gap 4px
+  // 行数/耗时是数字，等宽避免翻页时数字宽度变化把后面的控件推来推去
+  font-variant-numeric tabular-nums
+
+// U1d：本页行数是这一屏的确定值，比"总行数（约）"更该被读到，所以给它主文本色；
+// 估算/精确总数保持次要色，中间那个点负责分隔两种口径
+.db-grid-page-rows
+  color var(--text)
+
+.db-grid-dot
+  opacity 0.6
+
+// 选中计数：勾选后出现在批量动作组首。用主色是因为它代表"接下来会改到这些行"
+.db-grid-selected
+  color var(--primary)
+  font-size 12px
 
 // T11 精确总行数：文字按钮与 exact 标记
 .db-exact-btn

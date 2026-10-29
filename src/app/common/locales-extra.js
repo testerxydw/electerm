@@ -523,6 +523,8 @@ const en = {
   dbExactRows: 'Exact rows',
   dbExactTag: 'exact',
   dbCountFailed: 'Exact count failed, still showing the estimate',
+  dbGridPageRows: '{n} rows on this page',
+  dbGridSelectedRows: '{n} selected',
   // —— E1 危险 SQL 分级 / 连接级安全带（阶段4-E1）——
   dbRiskRead: 'read',
   dbRiskWrite: 'write',
@@ -1211,6 +1213,8 @@ const zhCn = {
   dbExactRows: '精确行数',
   dbExactTag: '精确',
   dbCountFailed: '精确计数失败，仍显示估算值',
+  dbGridPageRows: '本页 {n} 行',
+  dbGridSelectedRows: '已选 {n} 行',
   // —— E1 危险 SQL 分级 / 连接级安全带（阶段4-E1）——
   dbRiskRead: '只读',
   dbRiskWrite: '写',
