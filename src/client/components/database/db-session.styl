@@ -862,6 +862,18 @@
   gap 8px
   min-height 24px
 
+// H1：SQL 结果的过滤输入与"命中/总数"。宽度取设计区间 180~260 的中位；
+// 命中 0 用错误色 —— 工具行里"筛没了"必须一眼看出来，否则会被当成查询没跑
+.db-sql-filter
+  width 200px
+
+.db-sql-filter-hit
+  font-size 12px
+  color var(--text-dark)
+
+.db-sql-filter-hit-empty
+  color var(--error)
+
 // H1a-4：SQL 结果"选中单元格"的折叠工具条（DbSplitPane 折叠态的 bottom）。
 // 整条可点 = 展开完整值面板；右侧 × = 取消选中。min-height 只防空态塌陷，
 // 有内容时按内容撑开（窄宽度下文案折行也不裁字）。

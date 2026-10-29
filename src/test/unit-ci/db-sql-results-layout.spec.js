@@ -89,8 +89,11 @@ describe('多结果集：渲染分支', () => {
 
   test('下载按钮只在有行时渲染（现象判据：能看到按钮就说明数据回来了）', () => {
     const src = read(SESSION)
-    // 分页后判断依据从 (r.rows || []).length 改为局部 rows，语义不变
-    assert.match(src, /const rows = r\.rows \|\| \[\]/)
-    assert.match(src, /^\s*rows\.length$/m)
+    // 判断依据跟着派生链改名（局部 rows → 每结果集的 view），语义仍是"这次执行有没有回行"。
+    // 用 view.total 而不是 view.matched：筛到 0 命中时页大小/导出/列宽工具得留着，
+    // 否则"过滤把按钮筛没了"，用户只能靠清空输入框才能找回它们。
+    assert.match(src, /const view = sqlResultViews\[i\] \|\| \{ total: 0, matched: 0, pageRows: \[\] \}/)
+    assert.match(src, /^\s*view\.total$/m)
+    assert.ok(!/^\s*view\.matched$/m.test(src), '工具行的显隐不该跟着命中数走')
   })
 })

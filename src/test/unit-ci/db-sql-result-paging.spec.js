@@ -93,27 +93,30 @@ describe('SQL 结果分页：接线契约', () => {
 
   test('row-key clones only the current page (slice before map)', () => {
     const src = read()
-    const memo = src.match(/const sqlResultRowMaps = useMemo\([\s\S]*?\n\s{2}\)/)
-    assert.ok(memo, 'sqlResultRowMaps memo not found')
+    // 本页过滤上线后，派生链从"直接切 rows"改成"先算命中下标再切"（sqlResultViews），
+    // 这里守的是没变的那件事：克隆只发生在切出来的那一页上
+    const memo = src.match(/const sqlResultViews = useMemo\([\s\S]*?\n\s{2}\)/)
+    assert.ok(memo, 'sqlResultViews memo not found')
     const code = memo[0]
-    assert.ok(code.includes('rows.slice(start, start + sqlPageSize)'), 'must slice before cloning')
-    assert.ok(/rows\.slice\([^)]*\)\.map\(/.test(code), 'clone must run on the page slice, not the full result')
+    assert.ok(code.includes('indexes.slice(start, start + sqlPageSize)'), 'must slice before cloning')
+    assert.ok(/indexes\.slice\([^)]*\)\.map\(/.test(code), 'clone must run on the page slice, not the full result')
     assert.ok(!/\(r && r\.rows\) \|\| \[\]\)\.map\(/.test(code), 'full-result clone must not return')
-    assert.ok(code.includes('sqlPageSize]'), 'page size must be a memo dependency')
+    assert.ok(/sqlPageSize[,\]]/.test(code.slice(code.lastIndexOf('['))), 'page size must be a memo dependency')
   })
 
   test('pager is wired to the per-result page state', () => {
     const src = read()
-    assert.ok(src.includes('current={sqlPageIndex(sqlPages[i], rows.length, sqlPageSize)}'), 'current page not wired')
+    // 分页口径是**过滤后**的命中数，不是原始行数（筛完不足一页就不该再有分页器）
+    assert.ok(src.includes('current={sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)}'), 'current page not wired')
     assert.ok(src.includes('pageSize={sqlPageSize}'), 'page size not wired')
-    assert.ok(src.includes('total={rows.length}'), 'total not wired')
+    assert.ok(src.includes('total={view.matched}'), 'total not wired')
     assert.ok(src.includes('showSizeChanger={false}'), 'pager must not render its own size changer (tools row owns it)')
     assert.ok(src.includes('onChange={p => setSqlPages('), 'page change handler missing')
   })
 
   test('pager lives in the top tools row, not the table footer', () => {
     const src = read()
-    assert.ok(src.includes('const pager = rows.length > sqlPageSize'), 'pager threshold missing')
+    assert.ok(src.includes('const pager = view.matched > sqlPageSize'), 'pager threshold missing')
     // 表尾分页会被底部命令栏遮住 → 表格不再渲染自带底部分页器
     assert.ok(src.includes('pagination={false}'), 'table must not render the footer pager')
     const tools = src.match(/<div className='db-sql-result-tools'>[\s\S]*?\n\s{10}<\/div>/)

@@ -116,6 +116,8 @@ import {
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
 import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
+// H1：SQL 结果工具行的派生链（过滤 → 排序 → 切页）抽成纯函数，便于单测
+import { filterRowIndexes, sqlViewOf, patchSqlView, SQL_FILTER_DEBOUNCE } from '../../common/db-sql-result'
 import './db-session.styl'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -722,6 +724,37 @@ export default auto(function DbSession (props) {
   })
   // SQL 结果分页：每个结果集各自记住页码（多语句分栏时互不影响）
   const [sqlPages, setSqlPages] = useState({})
+  // H1：每个结果集各自的视图状态（本页过滤，排序/列显隐随后接在同一份状态上）。
+  // 与 sqlPages 同层、按 results 下标存 —— 多结果集分栏时"结果 1 筛过的词"
+  // 不该影响"结果 2"
+  const [sqlViews, setSqlViews] = useState({})
+  // 输入框的即时值与生效值分开：只有防抖到点的才写进 sqlViews，
+  // 否则 1 万行结果每敲一个字符就全量扫一遍
+  const [sqlFilterDraft, setSqlFilterDraft] = useState({})
+  const sqlFilterTimers = useRef({})
+  // 上一次真正提交的过滤词。判据只能记在 ref 里：定时器回调里读到的 sqlViews
+  // 是注册那一次的闭包，拿它比"变没变"会比出假结论
+  const sqlFilterCommitted = useRef({})
+  const onSqlFilterInput = (i, v) => {
+    setSqlFilterDraft(prev => ({ ...prev, [i]: v }))
+    const timers = sqlFilterTimers.current
+    clearTimeout(timers[i])
+    timers[i] = setTimeout(() => {
+      const committed = sqlFilterCommitted.current
+      if (committed[i] !== v) {
+        // 换词就把页码写回第 1 页。不写的话页码只是被 sqlPageIndex **读时夹住**，
+        // 实测很别扭：在第 6 页筛到 2 行（分页器没了、看着像只有这一屏），清空过滤
+        // 却直接跳到第 1001 行 —— 用户不知道自己是"停在旧页码上"的
+        committed[i] = v
+        setSqlPages(prev => ({ ...prev, [i]: 1 }))
+      }
+      setSqlViews(prev => patchSqlView(prev, i, { filter: v }))
+    }, SQL_FILTER_DEBOUNCE)
+  }
+  useEffect(() => {
+    const timers = sqlFilterTimers.current
+    return () => Object.values(timers).forEach(clearTimeout)
+  }, [])
   // H1a-4：SQL 结果里选中的单元格 { rs, col, rowKey }。rowKey 是结果内的**绝对**
   // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
   // SQL 结果是只读视图：不做行内编辑，也不写回
@@ -738,9 +771,14 @@ export default auto(function DbSession (props) {
   // 新结果（含失败清空）一到位就回第 1 页；翻页只切片，不重新执行
   // H1a-4：同时清掉选中单元格 —— 老结果的行下标对新结果集没有意义（指错行比
   // 面板空着更糟）；展开/折叠偏好不清，用户下次执行还是他习惯的那一档
+  // H1：过滤也一起清 —— 老结果的筛词对新结果集基本等于"看起来空了"，
+  // 而且输入框留着旧词会让人以为新结果真的只有这么几行
   useEffect(() => {
     setSqlPages({})
     setSqlCell(null)
+    setSqlViews({})
+    setSqlFilterDraft({})
+    sqlFilterCommitted.current = {}
   }, [sqlResult.results])
 
   // ---- E1 危险 SQL 分级 + 连接级安全带 ----
@@ -3997,13 +4035,20 @@ export default auto(function DbSession (props) {
   // A2：SQL 结果集行键数组提升到组件顶层 useMemo（依赖组件级 sqlResult.results），
   // 避免传输进度等无关重渲触发 antd Table 全行重渲。
   // 分页后只克隆当前页的行（__rowKey 用结果内的绝对下标，翻页不重复也不冲突）
-  const sqlResultRowMaps = useMemo(
+  // H1：过滤 → 切页。matched 与 pageRows 同一次派生出来，所以"命中/总数"、
+  // 分页器页数、网格里看到的行数永远同一口径（不会出现"共 3 页"而筛完只剩 5 行）
+  const sqlResultViews = useMemo(
     () => (sqlResult.results || []).map((r, i) => {
       const rows = (r && r.rows) || []
-      const start = (sqlPageIndex(sqlPages[i], rows.length, sqlPageSize) - 1) * sqlPageSize
-      return rows.slice(start, start + sqlPageSize).map((x, j) => ({ ...x, __rowKey: start + j }))
+      const indexes = filterRowIndexes(rows, sqlColumnKeys(r), sqlViewOf(sqlViews, i).filter)
+      const start = (sqlPageIndex(sqlPages[i], indexes.length, sqlPageSize) - 1) * sqlPageSize
+      return {
+        total: rows.length,
+        matched: indexes.length,
+        pageRows: indexes.slice(start, start + sqlPageSize).map(idx => ({ ...rows[idx], __rowKey: idx }))
+      }
     }),
-    [sqlResult.results, sqlPages, sqlPageSize]
+    [sqlResult.results, sqlPages, sqlPageSize, sqlViews]
   )
 
   const renderSqlResults = () => {
@@ -4012,16 +4057,18 @@ export default auto(function DbSession (props) {
       return null
     }
     const renderOne = (r, i) => {
-      const rows = r.rows || []
+      const view = sqlResultViews[i] || { total: 0, matched: 0, pageRows: [] }
+      const filter = sqlViewOf(sqlViews, i).filter
       // 超过一页才出分页器（单行结果保持原样）。
       // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
-      const pager = rows.length > sqlPageSize
+      // H1：分页按**过滤后**的行数算，筛完不足一页就不再有分页器
+      const pager = view.matched > sqlPageSize
         ? (
           <Pagination
             size='small'
-            current={sqlPageIndex(sqlPages[i], rows.length, sqlPageSize)}
+            current={sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)}
             pageSize={sqlPageSize}
-            total={rows.length}
+            total={view.matched}
             showSizeChanger={false}
             showTotal={t => e('dbResultTotal').replace('{n}', t)}
             onChange={p => setSqlPages(prev => ({ ...prev, [i]: p }))}
@@ -4033,7 +4080,7 @@ export default auto(function DbSession (props) {
           <div className='db-sql-result-tools'>
             {pager}
             {
-              rows.length
+              view.total
                 ? (
                   <Select
                     size='small'
@@ -4048,7 +4095,37 @@ export default auto(function DbSession (props) {
                 : null
             }
             {
-              rows.length
+              // H1：本页过滤 —— 匹配的是**整份结果**（不是当前页），与数据页那个
+              // "筛选当前页"是两件事，所以文案与状态都各归各的
+              view.total
+                ? (
+                  <Input
+                    size='small'
+                    className='db-sql-filter'
+                    allowClear
+                    suffix={<SearchOutlined />}
+                    value={sqlFilterDraft[i] === undefined ? filter : sqlFilterDraft[i]}
+                    placeholder={e('dbFilterResult')}
+                    onChange={ev => onSqlFilterInput(i, ev.target.value)}
+                  />
+                  )
+                : null
+            }
+            {
+              filter
+                ? (
+                  <span
+                    className={
+                      'db-sql-filter-hit' + (view.matched ? '' : ' db-sql-filter-hit-empty')
+                    }
+                  >
+                    {e('dbFilterHit').replace('{m}', view.matched).replace('{t}', view.total)}
+                  </span>
+                  )
+                : null
+            }
+            {
+              view.total
                 ? (
                   <Dropdown
                     menu={{
@@ -4075,7 +4152,7 @@ export default auto(function DbSession (props) {
             {
               // H1a-2：结果集列宽工具（与列头右键菜单同一动作，多个结果集共用一份手动宽，
               // 按的是"这次执行的所有列"）
-              rows.length
+              view.total
                 ? colFitAllBtn(sqlWidths)
                 : null
             }
@@ -4089,7 +4166,7 @@ export default auto(function DbSession (props) {
             className='db-sql-result-grid'
             size='small'
             columns={sqlResultColumns[i] || []}
-            dataSource={sqlResultRowMaps[i]}
+            dataSource={view.pageRows}
             rowKey='__rowKey'
             pagination={false}
           />
