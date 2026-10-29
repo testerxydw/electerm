@@ -127,7 +127,8 @@ describe('H1 行详情：会话接线', () => {
 
   test('重新执行（新结果到位）收掉行详情', () => {
     const src = codeOf(read(SESSION))
-    assert.match(src, /setSqlCellMenu\(null\)\n\s*setSqlRowDetail\(null\)/)
+    // 右键菜单已合并成全站单例 cellMenu（数据页/SQL 结果共用），复位语句随之改名
+    assert.match(src, /setCellMenu\(null\)\n\s*setSqlRowDetail\(null\)/)
   })
 
   test('词条：en + zhCn 各六条且都被引用', () => {
