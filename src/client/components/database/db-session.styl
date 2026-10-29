@@ -238,6 +238,137 @@
   gap 6px
   margin-left auto
 
+// U1c：无表选中时的数据页工作台首页（连接摘要 + 快捷入口 + 最近表）
+.db-home
+  display flex
+  align-items center
+  justify-content center
+  height 100%
+  padding 16px
+  overflow auto
+
+.db-home-card
+  width 100%
+  max-width 620px
+  padding 16px
+  border 1px solid var(--border)
+  border-radius var(--radius-lg)
+  background var(--surface-1)
+
+.db-home-summary
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+  font-size 12px
+  color var(--text-dark)
+
+.db-home-engine
+  padding 0 6px
+  border-radius var(--radius-sm)
+  background var(--hover-bg)
+  color var(--text)
+  line-height 18px
+
+.db-home-target
+  min-width 0
+  max-width 60%
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-home-flag
+  padding 0 6px
+  border 1px solid var(--border)
+  border-radius var(--radius-pill)
+  color var(--text-dark)
+  font-size 11px
+  line-height 16px
+
+  &.is-prod
+    border-color var(--error)
+    background var(--error-bg)
+    color var(--error)
+
+.db-home-title
+  margin-top 12px
+  color var(--text)
+  font-size 15px
+  font-weight 500
+
+.db-home-hint
+  margin-top 4px
+  color var(--text-dark)
+  font-size 12px
+
+.db-home-actions
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+  margin-top 14px
+
+.db-home-caret
+  margin-left 4px
+  font-size 10px
+
+.db-home-recent
+  margin-top 16px
+  padding-top 12px
+  border-top 1px solid var(--border)
+
+.db-home-recent-head
+  display flex
+  align-items baseline
+  gap 6px
+  font-size 12px
+  color var(--text-dark)
+
+.db-home-recent-title
+  color var(--text)
+  font-weight 500
+
+.db-home-tables
+  display flex
+  flex-wrap wrap
+  gap 6px
+  margin-top 8px
+
+// 表名用原生 button：可 Tab 到、回车即开，样式与 antd 小按钮同口径
+.db-home-table
+  display inline-flex
+  align-items center
+  gap 5px
+  height 24px
+  padding 0 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background transparent
+  color var(--text)
+  font-family inherit
+  font-size 12px
+  cursor pointer
+  transition border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease)
+
+  &:hover
+    border-color var(--primary)
+    background var(--hover-bg)
+
+  &:focus-visible
+    outline 2px solid var(--primary)
+    outline-offset 1px
+
+.db-home-table-name
+  max-width 220px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-home-empty
+  margin-top 8px
+  color var(--text-dark)
+  font-size 12px
+
 .db-grid-title
   color var(--text)
   font-weight 500

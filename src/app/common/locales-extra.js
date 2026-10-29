@@ -690,7 +690,17 @@ const en = {
   dbQuickOpenPlaceholder: 'Search actions, tables, columns and history...',
   dbQuickOpenGroupAction: 'Actions',
   dbQuickOpenGroupObject: 'Tables & columns',
-  dbQuickOpenGroupHistory: 'Recent SQL'
+  dbQuickOpenGroupHistory: 'Recent SQL',
+  // U1c 数据页空态（工作台首页）
+  dbHomeTitle: 'No table selected',
+  dbHomeHint: 'Pick a table in the tree on the left, or start from one of the shortcuts below',
+  dbHomeRefresh: 'Refresh metadata',
+  dbHomeSql: 'Open SQL',
+  dbHomeQuick: 'Quick open',
+  dbHomeImport: 'Import into table',
+  dbHomeRecent: 'Tables',
+  dbHomeRecentHint: 'first {n} tables of the loaded metadata',
+  dbHomeNoTables: 'No table loaded yet - refresh metadata'
 }
 
 // 简体中文
@@ -1367,7 +1377,17 @@ const zhCn = {
   dbQuickOpenPlaceholder: '搜索动作、表、列与历史语句...',
   dbQuickOpenGroupAction: '动作',
   dbQuickOpenGroupObject: '表与列',
-  dbQuickOpenGroupHistory: '最近 SQL'
+  dbQuickOpenGroupHistory: '最近 SQL',
+  // U1c 数据页空态（工作台首页）
+  dbHomeTitle: '还没有选中表',
+  dbHomeHint: '在左侧树里选一张表，或从下面的快捷入口开始',
+  dbHomeRefresh: '刷新元数据',
+  dbHomeSql: '打开 SQL',
+  dbHomeQuick: '快速打开',
+  dbHomeImport: '导入到表',
+  dbHomeRecent: '表',
+  dbHomeRecentHint: '已加载元数据里的前 {n} 张',
+  dbHomeNoTables: '还没有加载到表，先刷新元数据'
 }
 
 module.exports = {

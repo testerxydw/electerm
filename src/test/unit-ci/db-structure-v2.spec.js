@@ -574,7 +574,10 @@ describe('视图在树里的呈现（源码守卫）', () => {
   })
 
   test('选中视图时 sel 带 nodeType:view，缺省按 table', () => {
-    assert.ok(jsx.includes("nodeType: node.nodeType || 'table'"), 'sel must carry nodeType with table fallback')
+    // U1c：打开表的路径收进 openTable（树点击与空态"最近表"共用），兜底跟着搬过去
+    assert.ok(jsx.includes("nodeType: target.nodeType || 'table'"), 'sel must carry nodeType with table fallback')
+    assert.ok(/openTable\(\{ database, schema, table, nodeType: node\.nodeType \}\)/.test(jsx),
+      '树点击要把叶子类型交给 openTable')
   })
 
   test('视图不出现「添加行」入口（INSERT INTO 视图两引擎都可能拒绝）', () => {

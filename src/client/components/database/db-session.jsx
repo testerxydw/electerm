@@ -102,6 +102,8 @@ import DbQuickOpen from './db-quick-open'
 // C 批：导出到文件（四步向导，走主进程流式导出）/ 导入 CSV/TSV（映射向导）
 import DbExportDialog from './db-export-dialog'
 import DbImportDialog from './db-import-dialog'
+// U1c：无表选中时的数据页空态（连接摘要 + 快捷入口 + 最近表）
+import DbWorkspaceHome from './db-workspace-home'
 // D 批：EXPLAIN 执行计划弹窗（树/图/JSON 三视图 + SVG/PNG 导出）
 import DbExplainDialog from './db-explain-tree'
 // D 批：Redis 类型化写接口层（写失败/成功都刷新详情，绝不本地假更新）
@@ -239,6 +241,9 @@ const nodeKey = (database, schema, table) => JSON.stringify([
   schema || '',
   table || ''
 ])
+
+// U1c：空态"最近表"最多列几张 —— 再多就不是"快捷入口"，是另一棵树了
+const HOME_TABLES_MAX = 8
 
 // 列清单 v2 的空态：除 columns/foreignKeys 外，H3a 数据字典还要 indexes/表注释/
 // 表类型/估算行数，所以整份契约一起留。只读常量，写入时用新对象覆盖
@@ -1138,6 +1143,85 @@ export default auto(function DbSession (props) {
     return flattenTables(metadata, sqlDbName)
   }, [isRedis, metadata, sqlDbName])
 
+  // U1c：空态"最近表"。直接取已加载 metadata 的前 8 张表 —— 不新增持久化键，
+  // 也不发额外请求（设计 §4.2：最近表先用当前 metadata）。
+  // 只收表：视图没有"导入目标"的语义，过程/函数点开是 DDL 不是网格
+  const homeTables = useMemo(() => {
+    const out = []
+    const walk = (database, schema, nodes) => {
+      for (const node of nodes || []) {
+        if (out.length >= HOME_TABLES_MAX) {
+          return
+        }
+        if (!node || !node.name) {
+          continue
+        }
+        if (isLeafNode(node)) {
+          if (node.type === 'table' || !node.type) {
+            out.push({
+              key: nodeKey(database, schema, node.name),
+              database,
+              schema,
+              table: node.name,
+              nodeType: 'table',
+              label: schema ? `${schema}.${node.name}` : node.name,
+              title: `${database}.${node.name}`
+            })
+          }
+          continue
+        }
+        // 库内对象分组（过程/触发器/事件）里没有表
+        if (node.type === 'group') {
+          continue
+        }
+        walk(database, node.name || '', node.children)
+      }
+    }
+    if (isRedis) {
+      return out
+    }
+    for (const db of metadata || []) {
+      if (out.length >= HOME_TABLES_MAX) {
+        break
+      }
+      if (!db || !db.name) {
+        continue
+      }
+      walk(db.name, '', db.children)
+    }
+    return out
+  }, [isRedis, metadata])
+
+  // U1c：打开一张表（树点击 / 空态"最近表" / 空态"导入到…"共用同一条路径）。
+  // 返回 promise：导入向导要等结构与首屏数据落定后再弹，否则列映射是空的
+  const openTable = (target) => {
+    // nodeType: 'table' | 'view'。缺省按 table 处理（旧 metadata 无 type 时是表）
+    const next = {
+      database: target.database,
+      schema: target.schema || '',
+      table: target.table,
+      nodeType: target.nodeType || 'table'
+    }
+    resetPageFilter()
+    resetExactRows()
+    // 竞态令牌在**点击时**就取：结构查询是异步的，两次点击的完成顺序可能颠倒，
+    // 用"恢复时"的序号会出现"后点的表被先点的结果覆盖"
+    viewSeqRef.current += 1
+    const seq = viewSeqRef.current
+    // 顺序很关键：列清单 → 视角 → 第一次取页。
+    // 先取页会先闪一页全量数据（条件还没恢复），而列清单晚到会让条件全被判"未知列"
+    return loadStructure(next)
+      .then(() => restoreView(next, seq))
+      .then(ok => {
+        if (!ok) {
+          // 恢复期间用户又点了别的表：这一次的结果整体作废
+          return null
+        }
+        setSel(next)
+        return loadQuery(next, 1)
+      })
+  }
+
   const onSelectTree = (keys, info) => {
     const node = info.node
     if (isRedis) {
@@ -1169,25 +1253,7 @@ export default auto(function DbSession (props) {
       return
     }
     // nodeType: 'table' | 'view'。缺省按 table 处理（旧 metadata 无 type 时是表）
-    const next = { database, schema: schema || '', table, nodeType: node.nodeType || 'table' }
-    resetPageFilter()
-    resetExactRows()
-    // 竞态令牌在**点击时**就取：结构查询是异步的，两次点击的完成顺序可能颠倒，
-    // 用"恢复时"的序号会出现"后点的表被先点的结果覆盖"
-    viewSeqRef.current += 1
-    const seq = viewSeqRef.current
-    // 顺序很关键：列清单 → 视角 → 第一次取页。
-    // 先取页会先闪一页全量数据（条件还没恢复），而列清单晚到会让条件全被判"未知列"
-    loadStructure(next)
-      .then(() => restoreView(next, seq))
-      .then(ok => {
-        if (!ok) {
-          // 恢复期间用户又点了别的表：这一次的结果整体作废
-          return null
-        }
-        setSel(next)
-        return loadQuery(next, 1)
-      })
+    openTable({ database, schema, table, nodeType: node.nodeType })
   }
 
   // 表结构（列定义）：MySQL 返回 Field/Type/Null/Key/Default/Extra，PG 返回 information_schema 列
@@ -4854,6 +4920,9 @@ export default auto(function DbSession (props) {
   // ---- E2-3b 命令面板（Ctrl/Cmd+K）：四类来源 ----
 
   const [quickOpen, setQuickOpen] = useState(false)
+  // U1c：数据/SQL/结构主页签改受控 —— 空态的"打开 SQL"要能切页；
+  // 三个 pane 都 forceRender，切页不重置各自的本地状态
+  const [mainTab, setMainTab] = useState('data')
 
   // 快捷键挂在 window 上：焦点在 SQL 编辑器（CM6）或网格里时按键也要生效。
   // Ctrl/Cmd+P 一律不拦（那是打印/其他面板的键）；带 shift/alt 的组合不是本
@@ -5372,6 +5441,13 @@ export default auto(function DbSession (props) {
   const tableLabel = sel
     ? (sel.schema ? `${sel.schema}.${sel.table}` : `${sel.database}.${sel.table}`)
     : ''
+  // 连接目标文本（顶部工具条与空态共用）。不带引擎名 —— 引擎已由左侧徽标表达，
+  // 避免"Redis Redis ·…"重复
+  const target = [
+    tab.dbHost ? `${tab.dbHost}:${tab.dbPort || ''}` : tab.title,
+    tab.dbName,
+    tab.dbUser
+  ].filter(Boolean).join(' · ')
   // 值预览面板：值/关联两处都要用，提出来避免重复 JSX
   const valuePaneEl = (
     <DbValuePane
@@ -6180,6 +6256,28 @@ export default auto(function DbSession (props) {
           : null
       }
     </div>
+  )
+
+  // U1c：没选中表时数据页不再是一张空网格（表名为空、控件全隐藏，看起来像坏了），
+  // 给工作台首页：连接摘要 + 四个快捷入口 + metadata 里的前几张表
+  const workspaceHome = (
+    <DbWorkspaceHome
+      engine={dbTypeLabelMap[tab.dbType] || tab.dbType}
+      target={target}
+      readonly={isReadonly}
+      production={isProduction}
+      loading={treeLoading}
+      tables={homeTables}
+      onRefresh={() => loadTree()}
+      onOpenSql={() => setMainTab('sql')}
+      onQuickOpen={() => setQuickOpen(true)}
+      onOpenTable={t => openTable(t)}
+      // 导入向导第一步之后要用列清单做映射，所以先打开表、结构落定再弹向导
+      onImportTable={t => {
+        setMainTab('data')
+        openTable(t).then(() => setImportOpen(true))
+      }}
+    />
   )
 
   // A-7：切换补全关键字大小写。只影响候选插入，不改编辑器里已有文本
@@ -7910,8 +8008,11 @@ export default auto(function DbSession (props) {
     : (
       <Tabs
         className='db-tabs'
+        activeKey={mainTab}
+        onChange={setMainTab}
         items={[
-          { key: 'data', label: e('dbDataTab'), forceRender: true, children: dataArea },
+          // U1c：没选中表时数据页显示工作台首页，而不是一张标题为空的网格
+          { key: 'data', label: e('dbDataTab'), forceRender: true, children: sel ? dataArea : workspaceHome },
           { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea },
           {
             key: 'structure',
@@ -7925,12 +8026,6 @@ export default auto(function DbSession (props) {
 
   // 顶部工具条：数据库页专有（终端那条 SessionControl 对数据库 tab 已关闭）。
   // 高度与 .terminal-control 一致(32px)，故高度口径不需要另加扣减。
-  // 目标文本不带引擎名（引擎已由左侧徽标表达），避免"Redis Redis ·…"重复
-  const target = [
-    tab.dbHost ? `${tab.dbHost}:${tab.dbPort || ''}` : tab.title,
-    tab.dbName,
-    tab.dbUser
-  ].filter(Boolean).join(' · ')
   const headBar = (
     <div className='db-head'>
       <span className='db-head-engine'>{dbTypeLabelMap[tab.dbType] || tab.dbType}</span>
