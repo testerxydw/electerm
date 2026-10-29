@@ -3909,6 +3909,12 @@ export default auto(function DbSession (props) {
     return orderedColumnNames(keys)
       .filter(k => !hidden.has(String(k).toLowerCase()))
   }
+  // 数据页行对象上的 __rowKey 是网格辅助键（选中/编辑/过滤定位），不是数据列：
+  // 从 Object.keys(row) 取列时会跟着进来，复制整行/行详情必须剔掉，
+  // 否则导出的那一列是一串与表结构无关的内部下标
+  const rowColumnNames = (row) => visibleColumnNames(
+    Object.keys(row || {}).filter(k => k !== '__rowKey')
+  )
 
   // H2：数据页单元格右键菜单。落点与菜单项在这里生成，浮层本身是全站单例
   // （DbCellMenu）。列序与导出同源（visibleColumnNames）：复制整行拿到的
@@ -3921,7 +3927,7 @@ export default auto(function DbSession (props) {
       return
     }
     const v = row[k]
-    const headers = visibleColumnNames(Object.keys(row))
+    const headers = rowColumnNames(row)
     // 过滤词用"格子里看到的文本"：本页过滤比的就是这个（cellText），
     // 复制值那套二进制 base64 在这里没有意义。空串/纯空白给不出词，不提供该项
     const filterText = cellText(v)
