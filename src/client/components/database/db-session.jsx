@@ -18,6 +18,9 @@ import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
+// H1a-4（网格复用整合）：数据页 / SQL 结果页共用列工厂（差异全部参数化）
+import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
+import { DbCellMenu } from './db-cell-menu'
 import {
   fitColumnWidths,
   wideColumnWidth,
@@ -115,7 +118,7 @@ import {
 } from '../../common/db-grid-views'
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
-import { formatCellValue, readFormatLocale, cellAlignClass, isBinaryType, isNumberType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
+import { formatCellValue, readFormatLocale, isBinaryType, isNumberType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
 // H1：SQL 结果工具行的派生链（过滤 → 排序 → 切页）抽成纯函数，便于单测
 import {
   filterRowIndexes, sortRowIndexes, sqlViewOf, patchSqlView, sqlSortOf, nextSqlSort,
@@ -129,10 +132,7 @@ import './db-session.styl'
 const SqlCodeEditor = lazy(() => import('./db-sql-editor'))
 
 const e = window.translate
-// 截断列的公共配置。showTitle: false 是刻意的：rc-table 在 ellipsis 为真时会把
-// 格子里显示的那段文本塞进原生 title，等于给每格的每个值多一份字符串副本；
-// 长内容改由"单击格子 → 下方完整值面板"承接，悬停不再弹任何浮层。
-const CELL_ELLIPSIS = { showTitle: false }
+// CELL_ELLIPSIS（截断列公共配置）随列工厂挪到 db-grid-columns.jsx，两页共用
 // 每页行数：可经 config.dbPageSize 配置（10/20/50/100/200），默认 20；
 // 服务端上限 1000 不变（mysql.js/redis.js），渲染侧上限见 DB_PAGE_SIZE_MAX
 const DB_PAGE_SIZE_DEFAULT = 20
@@ -795,6 +795,9 @@ export default auto(function DbSession (props) {
   // 下标（分页只切片不改下标），所以翻到第 2 页再翻回来，面板指的还是原来那一行。
   // SQL 结果是只读视图：不做行内编辑，也不写回
   const [sqlCell, setSqlCell] = useState(null)
+  // SQL 结果单元格右键菜单（全站单例浮层）：onCell 只写落点，动作在本文件的
+  // openSqlCellMenu 里按上下文生成
+  const [sqlCellMenu, setSqlCellMenu] = useState(null)
   // 页大小存 config（与数据页同一组候选），改后回第 1 页
   const sqlPageSize = getSqlResultPageSize()
   const changeSqlPageSize = v => {
@@ -811,6 +814,9 @@ export default auto(function DbSession (props) {
     setSqlCell(null)
     setSqlViews({})
     setSqlFilterDraft({})
+    // 右键菜单也一起收：菜单项闭包握着旧结果的行对象与结果集下标，
+    // 新结果到位后再点就会抄旧行/筛错结果集
+    setSqlCellMenu(null)
     sqlFilterCommitted.current = {}
   }, [sqlResult.results])
 
@@ -2501,6 +2507,52 @@ export default auto(function DbSession (props) {
       : (rows.length ? Object.keys(rows[0]) : [])
   }
 
+  // SQL 结果单元格右键菜单（设计 §2.3：结果网格 onCell 返回 onContextMenu，
+  // 菜单项按上下文生成；复制的列序与导出同源 —— 都以 fields 为准）。
+  // 复制值的口径与值面板一致：二进制信封复制 base64，其余复制 cellText
+  const openSqlCellMenu = (ev, rs, col, row) => {
+    ev.preventDefault()
+    const r = (sqlResult.results || [])[rs]
+    if (!r || !row) {
+      return
+    }
+    const headers = sqlExportHeaders(r)
+    const v = row[col]
+    setSqlCellMenu({
+      x: ev.clientX,
+      y: ev.clientY,
+      head: col,
+      items: [
+        {
+          key: 'value',
+          text: e('dbCellCopyValue'),
+          onClick: () => copy(isBinEnvelope(v) ? v.__bin.b64 : cellText(v))
+        },
+        {
+          key: 'colname',
+          text: e('dbCellCopyColName'),
+          onClick: () => copy(col)
+        },
+        {
+          key: 'rowTsv',
+          text: e('dbCellCopyRowTsv'),
+          onClick: () => copy(toTsv(headers, [row]))
+        },
+        {
+          key: 'rowJson',
+          text: e('dbCellCopyRowJson'),
+          onClick: () => copy(buildCopyStatements('json', { headers, rows: [row] }))
+        },
+        {
+          key: 'filter',
+          text: e('dbCellFilterByValue'),
+          // 与手动在过滤框输入同一个入口：防抖、命中口径、页码回第 1 页全走同一条路
+          onClick: () => onSqlFilterInput(rs, cellText(v))
+        }
+      ]
+    })
+  }
+
   const exportSqlCsv = (r, i) => {
     const rows = (r && r.rows) || []
     if (!rows.length) {
@@ -3818,7 +3870,7 @@ export default auto(function DbSession (props) {
     }),
     fitted: columnWidths
   })
-  const { live: dataLive, widthOf } = dataWidths
+  const { live: dataLive } = dataWidths
 
   // H1a-2：工具行的"自适应全部列"（4 处网格同一个形状）。只在有手动宽时可点：
   // 没拖过/加宽过时按下去不会有任何变化，禁用比"点了没反应"诚实
@@ -3877,95 +3929,38 @@ export default auto(function DbSession (props) {
   // 进了等于每轮重建列定义，memo 白做。要重建靠的是它们读的那三个量：
   // view（手动宽）/ columnWidths（自适应宽）/ dataLive（拖拽中）
   const columns = useMemo(() => (grid.rows.length
-    ? visibleColumnNames(Object.keys(grid.rows[0])).map(k => {
-      const dataType = colTypeByName[String(k).toLowerCase()] || ''
-      const comment = colCommentByName[String(k).toLowerCase()] || ''
-      // H1a-3：数值列右对齐。按列定一次 class，不在每格的 render 里判 ——
-      // 200 行 × 20 列就是 4000 次判定，而这一列的类型根本不会变
-      const numCls = cellAlignClass(dataType)
-      return {
-        // H1a-1：操作提示挪到列头，td 不再被"提示语"占用（td 现在只负责悬停预览）
-        // H1a-2：表头结构与其余网格统一走 ColHead（列名 + 注释 + 拖拽手柄）
-        title: (
-          <ColHead
-            label={k}
-            colKey={k}
-            wg={dataWidths}
-            comment={comment}
-            // 数据页原来只说"单击预览/双击编辑"，拖宽这件事在这里等于没人告知——
-            // 手柄 hover 才显形，看不到提示就不会有人去试，所以把拖拽提示并进来
-            hint={`${canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')} · ${e('dbColResizeHint')}`}
-            className='db-col-title'
-          />
-        ),
-        dataIndex: k,
-        key: k,
-        width: widthOf(k),
-        ellipsis: CELL_ELLIPSIS,
-        sorter: true,
-        sortOrder: sortOrderOf(k),
-        // H1a-2：右键列头出列宽菜单（自适应本列 / 加宽到 N / 自适应全部列）。
-        // 加宽目标宽在按下时才量（右键是低频动作），菜单上显示的数字即结果
-        onHeaderCell: () => ({
-          onContextMenu: ev => colMenu.openColMenu(ev, {
-            wg: dataWidths,
-            key: k,
-            wide: wideColumnWidth(grid.rows, k)
-          })
-        }),
-        // 单击选中 → 下方预览面板；双击命中区放在整个单元格（td）上：
-        // 值短时后面的空白也能双击进编辑态，之前挂在文字 span 上，
-        // 只有精确双击到字符才生效
-        onCell: row => ({
-          onClick: () => selectCell(row, k),
-          onDoubleClick: () => canEditCell && startEdit(row, k),
-          // 键盘可达：Tab 进入单元格，Enter 预览/编辑，F2 直接编辑，Esc 退出
-          tabIndex: 0,
-          'aria-label': k,
-          onKeyDown: ev => {
-            // 编辑框内的按键会冒泡到 td：只处理单元格自身获得焦点时的按键
-            if (ev.target !== ev.currentTarget) {
-              return
-            }
-            if (ev.key === 'Enter') {
-              ev.preventDefault()
-              selectCell(row, k)
-              if (canEditCell) {
-                startEdit(row, k)
-              }
-            } else if (ev.key === 'F2' && canEditCell) {
-              ev.preventDefault()
-              startEdit(row, k)
-            } else if (ev.key === 'Escape') {
-              setSelectedCell(null)
-              setEditing(null)
-            }
-          },
-          className: numCls ? 'db-cell-editable ' + numCls : 'db-cell-editable'
-        }),
-        render: (v, row) => {
-          if (editing && editing.rowKey === row.__rowKey && editing.col === k) {
-            return (
-              <Input
-                size='small'
-                autoFocus
-                className='db-cell-editor'
-                value={editValue}
-                onChange={ev => setEditValue(ev.target.value)}
-                onPressEnter={submitEdit}
-                onKeyDown={ev => {
-                  if (ev.key === 'Escape') {
-                    ev.preventDefault()
-                    cancelEdit()
-                  }
-                }}
-                onBlur={cancelEdit}
-              />
-            )
-          }
-          return renderCell(v, pageFilterKw, dataType)
-        }
-      }
+    ? buildGridColumns({
+      keys: visibleColumnNames(Object.keys(grid.rows[0])),
+      typeMap: colTypeByName,
+      commentMap: colCommentByName,
+      showComment: true,
+      wg: dataWidths,
+      colMenu,
+      wideRows: grid.rows,
+      headClassName: 'db-col-title',
+      // 数据页原来只说"单击预览/双击编辑"，拖宽这件事在这里等于没人告知——
+      // 手柄 hover 才显形，看不到提示就不会有人去试，所以把拖拽提示并进来
+      hint: `${canEditCell ? e('dbPreviewEditHint') : e('dbPreviewHint')} · ${e('dbColResizeHint')}`,
+      filterKw: pageFilterKw,
+      editable: true,
+      serverSort: true,
+      keyboardAccessible: true,
+      sortOrderOf,
+      selectCell,
+      cellBaseClass: 'db-cell-editable',
+      canEditCell,
+      startEdit,
+      cancelEdit,
+      submitEdit,
+      editing,
+      editValue,
+      onEditValueChange: setEditValue,
+      // Escape 同时清掉选中与编辑态（原数据页 onCell onKeyDown 逐字等价）
+      onClearSelection: () => {
+        setSelectedCell(null)
+        setEditing(null)
+      },
+      renderCell
     })
     : []), [grid.rows, view, dataLive, renderCell, editing, editValue, canEditCell, pageFilterKw, colTypeByName, colCommentByName, langCode, sel, pkColumn])
 
@@ -4001,7 +3996,7 @@ export default auto(function DbSession (props) {
     commit: (upd) => setSqlColWidths(prev => upd(prev)),
     fitted: sqlFitted
   })
-  const { live: sqlLive, widthOf: sqlWidthOf } = sqlWidths
+  const { live: sqlLive } = sqlWidths
 
   // H1a-3：SQL 结果的列类型表（每个结果集一份，键为小写列名）。
   // 数据源是适配层新增的并列字段 `columns: [{name, type}]`（主进程
@@ -4032,52 +4027,30 @@ export default auto(function DbSession (props) {
       const rows = (r && r.rows) || []
       const keys = visibleSqlKeys(sqlColumnKeys(r), sqlViewOf(sqlViews, i).hidden)
       const typeMap = sqlColTypeMaps[i] || {}
-      return keys.map(k => {
+      return buildGridColumns({
+        keys,
+        typeMap,
+        // H1a-2：原来是写死 220 —— 短值列一片空白、长值列看不全，两头都难受
+        wg: sqlWidths,
         // 复合键只用于宽度：列的 dataIndex/key 仍是列名（每结果集各自一张表）
-        const wk = i + '::' + k
-        const dataType = typeMap[String(k).toLowerCase()] || ''
-        const numCls = cellAlignClass(dataType)
-        return {
-          // H1a-2：原来是写死 220 —— 短值列一片空白、长值列看不全，两头都难受
-          title: (
-            <ColHead
-              label={k}
-              colKey={wk}
-              wg={sqlWidths}
-              hint={e('dbColResizeHint')}
-              sort={sqlSortOf(sqlViews, i, k)}
-              onSort={() => onSqlSort(i, k)}
-            />
-          ),
-          dataIndex: k,
-          key: k,
-          width: sqlWidthOf(wk),
-          ellipsis: CELL_ELLIPSIS,
-          onHeaderCell: () => ({
-            onContextMenu: ev => colMenu.openColMenu(ev, {
-              wg: sqlWidths,
-              key: wk,
-              // 宽度用的是「结果集下标::列名」，菜单标题只显示列名
-              head: k,
-              wide: wideColumnWidth(rows, k)
-            })
-          }),
-          // H1a-4：单击选中 → 底部完整值面板（与数据页同一套：点一格就展开面板，
-          // 不再先出现"单击展开"的折叠工具条）。只标"当前面板在看的那一格"，
-          // 不做键盘可达（SQL 结果只读，Enter 没有下一步动作），也不给双击编辑
-          onCell: row => ({
-            onClick: () => setSqlCell({ rs: i, col: k, rowKey: row.__rowKey }),
-            className: (sqlCell && sqlCell.rs === i &&
-              sqlCell.col === k && sqlCell.rowKey === row.__rowKey)
-              ? (numCls + ' db-cell-selected').trim()
-              : numCls
-          }),
-          // H1a-3：以前这里直接写 `render: renderCell`，antd 传的 (值, 整行, 下标)
-          // 会把**行下标**当成 dataType —— 结果就是"看起来没格式化"其实是格式化了
-          // 一个不存在的类型名。类型现在从 columns 来，关键字显式传 ''（SQL 结果
-          // 的本页过滤要等 H1，这里不预留参数）
-          render: v => renderCell(v, '', dataType)
-        }
+        widthKeyOf: k => i + '::' + k,
+        colMenu,
+        wideRows: rows,
+        // 宽度用的是「结果集下标::列名」，菜单标题只显示列名
+        headKeyOf: k => k,
+        hint: e('dbColResizeHint'),
+        clientSort: true,
+        sortOf: k => sqlSortOf(sqlViews, i, k),
+        onSort: k => onSqlSort(i, k),
+        // H1a-4：单击选中 → 底部完整值面板（与数据页同一套：点一格就展开面板，
+        // 不再先出现"单击展开"的折叠工具条）。只标"当前面板在看的那一格"，
+        // 不做键盘可达（SQL 结果只读，Enter 没有下一步动作），也不给双击编辑
+        cellMenu: true,
+        openCellMenu: (ev, row, k) => openSqlCellMenu(ev, i, k, row),
+        selectCell: (row, k) => setSqlCell({ rs: i, col: k, rowKey: row.__rowKey }),
+        selectedOf: (row, k) => !!(sqlCell && sqlCell.rs === i &&
+          sqlCell.col === k && sqlCell.rowKey === row.__rowKey),
+        renderCell
       })
     }),
     [sqlResult.results, renderCell, sqlFitted, sqlColWidths, sqlLive, sqlColTypeMaps, sqlCell, sqlViews]
@@ -5131,6 +5104,30 @@ export default auto(function DbSession (props) {
     }
     return []
   }, [redisDetail, redisHashRows, redisListRows, redisSetRows, redisZsetRows])
+
+  // H1a-2b：Redis 详情的列宽（内存态，与表结构/键列表同一处理：详情不是"某张表的视角"，
+  // 写进视角没有归属）。手动宽按**键类型分桶**存（`{ hash: { value: 720 }, zset: { member: 400 } }`）：
+  // 哈希的"值"和列表的"值"是同名字段，共用一份就会拖一处改另一处；分桶后
+  // 列头菜单的"自适应全部列"也只清当前这一张表，不会把没在看的类型的宽度一起抹掉
+  const [redisDetailColWidths, setRedisDetailColWidths] = useState({})
+  const redisDetailType = redisDetail ? String(redisDetail.type || '') : ''
+  const redisDetailFitted = useMemo(() => {
+    if (!redisDetailRows.length) {
+      return {}
+    }
+    return fitColumnWidths(redisDetailRows, Object.keys(redisDetailRows[0]).filter(k => k !== '__rowKey'))
+  }, [redisDetailRows])
+  const redisDetailWidths = useColWidths({
+    manual: redisDetailColWidths[redisDetailType] || {},
+    commit: (upd) => setRedisDetailColWidths(prev => {
+      const cur = prev[redisDetailType] || {}
+      return { ...prev, [redisDetailType]: upd(cur) }
+    }),
+    fitted: redisDetailFitted
+  })
+  // 详情列定义是渲染里就地重建的（列随键类型换），live 宽由 widthOf 直接读到，
+  // 不像那 4 处 memo 化列定义要把 live 放进依赖数组
+  const { widthOf: redisDetailWidthOf } = redisDetailWidths
 
   // 选中格的完整值面板数据。行按 rowKey 现取：详情换了（重新选键、类型不支持）
   // 就当作没选中，面板跟着收起，不留一个指向空气的标题
@@ -7149,22 +7146,54 @@ export default auto(function DbSession (props) {
             pagination={false}
             columns={[
               {
-                title: e('dbField'),
+                title: (
+                  <ColHead
+                    label={e('dbField')}
+                    colKey='field'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
                 dataIndex: 'field',
                 key: 'field',
+                width: redisDetailWidthOf('field'),
                 ellipsis: CELL_ELLIPSIS,
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'field',
+                    head: e('dbField'),
+                    wide: wideColumnWidth(redisHashRows, 'field')
+                  })
+                }),
                 onCell: redisCellProps('field', e('dbField')),
                 render: v => renderCell(v)
               },
               {
-                title: e('dbValue'),
+                title: (
+                  <ColHead
+                    label={e('dbValue')}
+                    colKey='value'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
                 dataIndex: 'value',
                 key: 'value',
+                width: redisDetailWidthOf('value'),
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 value 行内编辑（HSET 覆盖同字段）；单击 = 展开完整值面板
                 onCell: (r, i) => ({
                   ...redisCellProps('value', e('dbValue'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'value', r.value)
+                }),
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'value',
+                    head: e('dbValue'),
+                    wide: wideColumnWidth(redisHashRows, 'value')
+                  })
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveHashValue(r))
               },
@@ -7196,14 +7225,30 @@ export default auto(function DbSession (props) {
             columns={[
               { title: '#', dataIndex: 'index', key: 'index', width: 80, render: v => renderCell(v) },
               {
-                title: e('dbValue'),
+                title: (
+                  <ColHead
+                    label={e('dbValue')}
+                    colKey='value'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
                 dataIndex: 'value',
                 key: 'value',
+                width: redisDetailWidthOf('value'),
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 value 行内编辑（LSET 按下标）；单击 = 展开完整值面板
                 onCell: (r, i) => ({
                   ...redisCellProps('value', e('dbValue'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'value', r.value)
+                }),
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'value',
+                    head: e('dbValue'),
+                    wide: wideColumnWidth(redisListRows, 'value')
+                  })
                 }),
                 render: (v, r) => renderRedisEditable(r, 'value', v, () => saveListValue(r))
               },
@@ -7234,15 +7279,31 @@ export default auto(function DbSession (props) {
             pagination={false}
             columns={[
               {
-                title: e('dbMember'),
+                title: (
+                  <ColHead
+                    label={e('dbMember')}
+                    colKey='member'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
                 dataIndex: 'member',
                 key: 'member',
+                width: redisDetailWidthOf('member'),
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）；
                 // 单击 = 展开完整值面板
                 onCell: (r, i) => ({
                   ...redisCellProps('member', e('dbMember'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'member', r.member)
+                }),
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'member',
+                    head: e('dbMember'),
+                    wide: wideColumnWidth(redisSetRows, 'member')
+                  })
                 }),
                 render: (v, r) => renderRedisEditable(r, 'member', v, () => editSetMember(r.member, redisEdit ? redisEdit.value : ''))
               },
@@ -7274,9 +7335,17 @@ export default auto(function DbSession (props) {
             pagination={false}
             columns={[
               {
-                title: e('dbMember'),
+                title: (
+                  <ColHead
+                    label={e('dbMember')}
+                    colKey='member'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
                 dataIndex: 'member',
                 key: 'member',
+                width: redisDetailWidthOf('member'),
                 ellipsis: CELL_ELLIPSIS,
                 // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）；
                 // 单击 = 展开完整值面板
@@ -7284,18 +7353,42 @@ export default auto(function DbSession (props) {
                   ...redisCellProps('member', e('dbMember'))(r, i),
                   onDoubleClick: () => message.info(e('dbRedisMemberImmutable'))
                 }),
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'member',
+                    head: e('dbMember'),
+                    wide: wideColumnWidth(redisZsetRows, 'member')
+                  })
+                }),
                 render: v => renderCell(v)
               },
               {
-                title: e('dbScore'),
+                title: (
+                  <ColHead
+                    label={e('dbScore')}
+                    colKey='score'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
                 dataIndex: 'score',
                 key: 'score',
-                width: 150,
+                // 分数列原来写死 150：数字列占 150，成员列（真正会长的那一列）反而没宽
+                width: redisDetailWidthOf('score'),
                 ellipsis: CELL_ELLIPSIS,
                 // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）；单击 = 展开值面板
                 onCell: (r, i) => ({
                   ...redisCellProps('score', e('dbScore'))(r, i),
                   onDoubleClick: () => editRedisCell(r, 'score', r.score)
+                }),
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'score',
+                    head: e('dbScore'),
+                    wide: wideColumnWidth(redisZsetRows, 'score')
+                  })
                 }),
                 render: (v, r) => renderRedisEditable(r, 'score', v, () => saveZsetScore(r), true)
               },
@@ -8141,6 +8234,11 @@ export default auto(function DbSession (props) {
       <DbColMenu
         target={colMenuTarget}
         onHide={handleColMenuHide}
+      />
+      {/* SQL 结果单元格右键菜单：同为全站单例浮层 */}
+      <DbCellMenu
+        target={sqlCellMenu}
+        onHide={() => setSqlCellMenu(null)}
       />
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />

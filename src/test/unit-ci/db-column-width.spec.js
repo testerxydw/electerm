@@ -48,6 +48,10 @@ const plain = (x) => JSON.parse(JSON.stringify(x))
 
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const read = () => fs.readFileSync(JSX, 'utf8')
+// H1a-4（网格复用整合）：数据页 / SQL 结果页的列定义并入公共列工厂，
+// 两处网格的接线契约（ColHead/onCell/CELL_ELLIPSIS/三源选宽）跟着挪进工厂
+const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
+const readCols = () => fs.readFileSync(COLS, 'utf8')
 
 // 组件里这些列定义都是 2 空格缩进的顶层 const：截到下一个 const 即为一整块
 const region = (src, name) => {
@@ -358,13 +362,15 @@ describe('H1a-1 接线契约：5 处网格都走同一套宽度（长内容走�
   })
 
   test('单元格不设原生 title：长内容只在值面板里给全文', () => {
-    const src = read()
+    const colSrc = readCols()
     // rc-table 在 ellipsis 为真时会给纯字符串格自动补 title（实测长达数千字符），
     // 所以光"自己不写 title"不够，必须显式 showTitle: false；同时格子里不做
     // per-render 的文本序列化（列 memo 依赖含 editValue，会在编辑热路径上重复算）
-    assert.ok(/const CELL_ELLIPSIS = \{ showTitle: false \}/.test(src), 'CELL_ELLIPSIS must disable rc-table title')
-    const cell = src.match(/onCell: row => \(\{[\s\S]*?\n {8}\}\)/)
-    assert.ok(cell, 'data grid onCell not found')
+    // CELL_ELLIPSIS 随列工厂住在 db-grid-columns.jsx（数据页 / SQL 结果页共用）
+    assert.ok(/const CELL_ELLIPSIS = \{ showTitle: false \}/.test(colSrc), 'CELL_ELLIPSIS must disable rc-table title')
+    assert.ok(/ellipsis: CELL_ELLIPSIS/.test(colSrc), '列工厂必须实际挂 CELL_ELLIPSIS')
+    const cell = colSrc.match(/onCell: row => \{[\s\S]*?\n {6}\}/)
+    assert.ok(cell, '列工厂 onCell not found')
     // 序列化只允许出现在"选中一格"后的值面板元信息里（cellText 挂在选中值上 memo），
     // 绝不能进 onCell —— 列 memo 依赖含 editValue，行内编辑每敲一个字符都会重算
     assert.ok(!/cellText/.test(cell[0]), 'onCell 不做文本序列化（编辑热路径）')
@@ -412,9 +418,13 @@ describe('H1a-1 接线契约：5 处网格都走同一套宽度（长内容走�
 
   test('操作提示让给列头：td 不再被提示语占用', () => {
     const src = read()
-    assert.ok(src.includes('className=\'db-col-title\''), 'header hint span missing')
-    const cell = src.match(/onCell: row => \(\{[\s\S]*?\n {8}\}\)/)
-    assert.ok(cell, 'data grid onCell not found')
+    const colSrc = readCols()
+    // 列头提示（含 db-col-title 列名样式）随列工厂走：调用点传 headClassName，
+    // 工厂里接到 ColHead 的 className
+    assert.ok(src.includes("headClassName: 'db-col-title'"), 'header hint span missing (调用点)')
+    assert.ok(colSrc.includes('className={headClassName}'), 'header hint span missing (工厂)')
+    const cell = colSrc.match(/onCell: row => \{[\s\S]*?\n {6}\}/)
+    assert.ok(cell, '列工厂 onCell not found')
     assert.ok(!/title: e\('dbPreview/.test(cell[0]), 'old td hint must not return')
   })
 })
@@ -441,7 +451,20 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
 
   test('4 处网格的列头都是 ColHead + 列宽菜单，写死宽度全部下线', () => {
     const src = read()
-    for (const name of ['columns', 'sqlResultColumns', 'structColumns', 'redisKeyColumns']) {
+    const colSrc = readCols()
+    // 数据页 / SQL 结果页已并入公共列工厂：调用点只负责传能力开关，
+    // ColHead / onHeaderCell / 三源选宽在工厂里各保一份
+    for (const name of ['columns', 'sqlResultColumns']) {
+      const body = region(src, name)
+      assert.ok(body.includes('buildGridColumns('), name + ' 必须走公共列工厂')
+      assert.ok(!/width: \d+/.test(body), name + ' still has a hardcoded width')
+    }
+    assert.ok(colSrc.includes('<ColHead'), 'factory header is not ColHead (手柄/菜单/注释会各写一套)')
+    assert.ok(colSrc.includes('onHeaderCell'), 'factory carries no header props (右键菜单进不去)')
+    assert.ok(colSrc.includes('openColMenu'), 'factory is not bound to the column menu')
+    assert.ok(!/width: \d+/.test(colSrc), 'factory still has a hardcoded width')
+    assert.match(colSrc, /width: wg\.widthOf\(/, 'factory width must come from the 3-source picker')
+    for (const name of ['structColumns', 'redisKeyColumns']) {
       const body = region(src, name)
       assert.ok(body.includes('<ColHead'), name + ' header is not ColHead (手柄/菜单/注释会各写一套)')
       assert.ok(body.includes('onHeaderCell'), name + ' carries no header props (右键菜单进不去)')
@@ -458,11 +481,12 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     assert.ok(data.includes('patchViewColumns'), '数据页必须经 patchViewColumns 落盘（切表回来还在）')
     assert.ok(data.includes('viewRef.current.columnWidths'), '必须读最新视角，不能拿渲染闭包里的旧 map')
 
-    // 其余三处：各自的 useState map，且一次都不能碰 patchViewColumns
+    // 其余四处：各自的 useState map，且一次都不能碰 patchViewColumns
     const memory = [
       ['sqlWidths', 'sqlColWidths'],
       ['structWidths', 'structColWidths'],
-      ['redisKeysWidths', 'redisColWidths']
+      ['redisKeysWidths', 'redisColWidths'],
+      ['redisDetailWidths', 'redisDetailColWidths']
     ]
     for (const [hook, state] of memory) {
       const b = hookOf(src, hook)
@@ -470,7 +494,7 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
       assert.ok(!b.includes('patchViewColumns'), hook + ' 不得写表视角（结果集列会变，存进去只会攒脏宽）')
     }
     // setter 只做 setState
-    for (const [state, setter] of [['sqlColWidths', 'setSqlColWidths'], ['structColWidths', 'setStructColWidths'], ['redisColWidths', 'setRedisColWidths']]) {
+    for (const [state, setter] of [['sqlColWidths', 'setSqlColWidths'], ['structColWidths', 'setStructColWidths'], ['redisColWidths', 'setRedisColWidths'], ['redisDetailColWidths', 'setRedisDetailColWidths']]) {
       assert.ok(
         new RegExp('const \\[' + state + ', ' + setter + '\\] = useState\\(\\{\\}\\)').test(src),
         state + ' 必须是本地 useState（不持久化）'
@@ -615,16 +639,22 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
 
   test('每处列头都带拖拽提示：手柄 hover 才显形，不写提示等于没做', () => {
     const src = read()
+    const colSrc = readCols()
+    // 数据页 / SQL 结果的 ColHead 并入列工厂（hint 由调用点按能力拼好传入），
+    // db-session 里剩下的是表结构 / 键列表 / Redis 详情这 10 处
     const mounts = src.match(/<ColHead[\s\S]*?\/>/g) || []
-    assert.ok(mounts.length >= 6, 'ColHead 挂载点少于预期')
+    assert.ok(mounts.length >= 10, 'ColHead 挂载点少于预期')
     for (const m of mounts) {
       assert.ok(/hint=\{/.test(m), '有一处 ColHead 没带 hint：\n' + m.slice(0, 120))
       assert.ok(m.includes('dbColResizeHint'), '列头提示必须说到可以拖宽')
     }
+    // 工厂里是唯一一份 ColHead 构造点：hint 必须是调用点传参，不能在工厂里写死
+    const fm = colSrc.match(/<ColHead[\s\S]*?\/>/)
+    assert.ok(fm, '列工厂缺 ColHead 挂载')
+    assert.ok(/hint=\{hint\}/.test(fm[0]), '工厂 ColHead 没接调用点的 hint')
     // 数据页那一列同时要保留"单击预览 / 双击编辑"，拖拽提示是并进来不是替换掉
-    const data = src.match(/<ColHead[\s\S]*?wg=\{dataWidths\}[\s\S]*?\/>/)
-    assert.ok(data, '数据页列头未找到')
-    assert.ok(/dbPreviewEditHint|dbPreviewHint/.test(data[0]), '数据页丢了预览/编辑提示')
+    const data = src.match(/hint: `\$\{canEditCell \? e\('dbPreviewEditHint'\) : e\('dbPreviewHint'\)\} · \$\{e\('dbColResizeHint'\)\}`/)
+    assert.ok(data, '数据页丢了预览/编辑提示')
   })
 
   test('4 条新文案 en / zh_cn 成对、占位符一致、且真被用到', () => {
@@ -643,15 +673,33 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     }
   })
 
-  test('Redis 详情 5 张表本轮不接线（H1a-2b）：钉住范围，防止半接线', () => {
+  test('Redis 详情 6 个内容列已接列宽：列头与三源选宽同时到位，写入路径不受影响', () => {
     const src = read()
-    // 6 处 = 数据页 1 + SQL 1 + 表结构 1 + 键列表 3；详情那张表刻意留给 H1a-2b
-    assert.equal((src.match(/<ColHead/g) || []).length, 6, '只有 4 处 memo 化网格带 ColHead')
-    // 锚点只认 "title: e('dbField')" 这一段属性：列定义换行写之后，带花括号的整行
-    // 字面量就不存在了，indexOf 返回 -1 会让下面的判据切片切到文件末尾
-    const detail = src.slice(src.indexOf("title: e('dbField')"))
-    assert.ok(detail.length > 200, '详情列定义锚点没找到（列头文案改了？）')
-    assert.ok(/width: \d+/.test(detail), 'H1a-2b 待办：详情列仍是写死宽度（无长内容痛点，本轮不动写入路径）')
-    assert.ok(!detail.includes('<ColHead'), '详情网格若接线需与 useColWidths 同时到位，不能只换列头')
+    // 10 处 = 表结构 1 + 键列表 3 + 详情 6（数据页 / SQL 结果的 ColHead 已并入
+    // 列工厂，工厂里那份构造点 + 两个调用点覆盖两处网格）。序号列与删除按钮列
+    // 不参与量宽，见下面两条例外
+    assert.equal((src.match(/<ColHead/g) || []).length, 10, '详情 6 个内容列都要挂 ColHead')
+    const colSrc = readCols()
+    assert.equal((colSrc.match(/<ColHead/g) || []).length, 1, '列工厂只保一份 ColHead 构造点')
+    assert.equal((src.match(/wg=\{redisDetailWidths\}/g) || []).length, 6, '详情列头缺一列')
+    assert.equal((src.match(/width: redisDetailWidthOf\('/g) || []).length, 6,
+      '详情 6 列的宽必须走三源 picker')
+    assert.equal((src.match(/wg: redisDetailWidths,/g) || []).length, 6, '详情列缺右键菜单绑定')
+    // 手动宽按**键类型分桶**存：hash 的 value 与 list 的 value 是同名字段，共用一份
+    // 就是拖一处改另一处；分桶同时让列头菜单的"自适应全部列"只清当前这一张表
+    const detailHook = hookOf(src, 'redisDetailWidths')
+    assert.ok(/manual: redisDetailColWidths\[redisDetailType\]/.test(detailHook),
+      '详情手动宽必须按 redisDetailType 取桶')
+    assert.ok(/\[redisDetailType\]: upd\(cur\)/.test(detailHook),
+      '提交必须写回当前类型那一份，不能整张 map 覆盖')
+    // 分数列原来写死 150：数字列占 150，真正会长的是成员列反而没宽
+    assert.ok(!/width: 150/.test(src), 'width: 150 应随详情接线一起下线')
+    // 例外钉住：4 个删除按钮列 + 1 个序号列仍是写死宽（按钮列没有"内容"可量，
+    // 序号列宽度由位数决定，交给自适应只会让操作列忽宽忽窄）
+    assert.equal((src.match(/width: 60/g) || []).length, 4, '删除按钮列应保持 60 固定')
+    assert.equal((src.match(/width: 80/g) || []).length, 1, '序号列应保持 80 固定')
+    // 接线不能碰写路径：双击行内编辑的每一列都还得在（D 批的 LSET/HSET/SREM/ZADD 入口）
+    assert.equal((src.match(/onDoubleClick: \(\) => editRedisCell/g) || []).length, 4,
+      '详情双击进编辑的那 4 列被接线弄丢了')
   })
 })

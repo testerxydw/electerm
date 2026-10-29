@@ -271,6 +271,9 @@ describe('接线契约（真实源码抽取）', () => {
   const mysqlSrc = () => fs.readFileSync(MYSQL_ADAPTER, 'utf8')
   const pgSrc = () => fs.readFileSync(PG_ADAPTER, 'utf8')
   const jsx = () => fs.readFileSync(JSX, 'utf8')
+  // H1a-4（网格复用整合）：数据页 / SQL 结果页的列定义并入公共列工厂，
+  // 类型 → renderCell / 右对齐的接线契约跟着挪进工厂
+  const colFactory = () => fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx'), 'utf8')
 
   test('两个适配器都 require 类型归一模块，且 executeSql 结果带 columns', () => {
     assert.match(mysqlSrc(), /require\('\.\.\/\.\.\/common\/db-type-normalize'\)/)
@@ -290,21 +293,25 @@ describe('接线契约（真实源码抽取）', () => {
     assert.match(jsx(), /const sqlColTypeMaps = useMemo/)
     // 结果集下标必须对上：跨结果集查类型会把 A 结果集的 int 用到 B 结果集的同名列上
     assert.match(jsx(), /const typeMap = sqlColTypeMaps\[i\] \|\| \{\}/)
-    assert.match(jsx(), /const dataType = typeMap\[String\(k\)\.toLowerCase\(\)\] \|\| ''/)
-    assert.match(jsx(), /render: v => renderCell\(v, '', dataType\)/)
+    // 类型 → dataType 的解析与 render 的喂入都住在列工厂里（两页同一份）
+    assert.match(colFactory(), /const dataType = typeMap\[String\(k\)\.toLowerCase\(\)\] \|\| ''/)
+    assert.match(colFactory(), /renderCell\(v, filterKw, dataType\)/)
     // 裸 `render: renderCell` 在**代码行**上必须绝迹（注释里留了说明，所以按行过滤）：
     // antd 的 render(text, record, index) 会把整行对象当关键字、行下标当类型传进来
-    const codeLines = jsx().split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l))
+    const codeLines = (jsx() + '\n' + colFactory()).split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l))
     assert.equal(codeLines.filter(l => /render: renderCell\b/.test(l)).length, 0)
-    // 5 处网格都显式表态（拿类型 or 明说不拿），不靠参数位置的巧合
-    assert.equal((jsx().match(/render: v => renderCell\(/g) || []).length, 7)
+    // 显式表态（拿类型 or 明说不拿）不靠参数位置的巧合：调用点 6 处 + 列工厂 1 处
+    assert.equal((jsx().match(/render: v => renderCell\(/g) || []).length, 6)
+    assert.equal((colFactory().match(/renderCell\(v, filterKw, dataType\)/g) || []).length, 2)
   })
 
   test('数值列右对齐：两个网格用同一个 cellAlignClass，class 打在 td 上', () => {
-    assert.match(jsx(), /import \{[^}]*cellAlignClass[^}]*\} from '\.\.\/\.\.\/common\/db-format-value'/)
-    assert.equal((jsx().match(/const numCls = cellAlignClass\(dataType\)/g) || []).length, 2)
-    assert.match(jsx(), /className: numCls \? 'db-cell-editable ' \+ numCls : 'db-cell-editable'/)
-    assert.match(jsx(), /className: numCls/)
+    // cellAlignClass 的消费方是列工厂（数据页 / SQL 结果共用同一份列定义）
+    assert.match(colFactory(), /import \{[^}]*cellAlignClass[^}]*\} from '\.\.\/\.\.\/common\/db-format-value'/)
+    assert.equal((colFactory().match(/const numCls = cellAlignClass\(dataType\)/g) || []).length, 1)
+    // class 组合两页一个口径：基础 class + numCls（+ SQL 选中态），空段过滤后拼接
+    assert.match(colFactory(), /const cls = \[cellBaseClass, numCls, selected \? 'db-cell-selected' : ''\]/)
+    assert.match(colFactory(), /className: cls/)
   })
 
   test('CSS：.db-cell-num 右对齐 + tabular-nums；不动表头（手柄占着右边沿）', () => {
