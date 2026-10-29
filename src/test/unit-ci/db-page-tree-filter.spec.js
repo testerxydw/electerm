@@ -14,13 +14,28 @@ const loadStyl = () => fs.readFileSync(STYL, 'utf8')
 const loadLocales = () => fs.readFileSync(LOCALES, 'utf8')
 
 // 从真实源码抽 useMemo 回调体执行，避免测试拷贝一份过滤逻辑
+// H2：过滤改成按 cellText（格子里的可见文本）比，沙箱里要给出同一个实现，
+// 否则 JSON 列"看得见却搜不到"这条又会悄悄退化
 const loadFilteredRows = () => {
   const src = loadJsx()
   const m = src.match(
     /const filteredRows = useMemo\(\(\) => \{([\s\S]*?)\n\s{2}\}, \[grid\.rows, pageFilterKw\]\)/
   )
   assert.ok(m, 'filteredRows derivation not found in db-session.jsx')
-  return vm.runInNewContext('(function (grid, pageFilterKw) {' + m[1] + '})', {})
+  const cw = fs.readFileSync(path.join(ROOT, 'src/client/common/db-column-width.js'), 'utf8')
+  const fn = cw.match(/export function cellText \(v\) \{([\s\S]*?)\n\}/)
+  assert.ok(fn, 'cellText not found in db-column-width.js')
+  const isBin = cw.match(/export function isBinEnvelope \(v\) \{([\s\S]*?)\n\}/)
+  assert.ok(isBin, 'isBinEnvelope not found in db-column-width.js')
+  const cellText = vm.runInNewContext(
+    '(function () {' +
+      'const isBinEnvelope = (v) => {' + isBin[1] + '};' +
+      'const cellText = (v) => {' + fn[1] + '};' +
+      'return cellText' +
+    '})()',
+    {}
+  )
+  return vm.runInNewContext('(function (grid, pageFilterKw) {' + m[1] + '})', { cellText })
 }
 
 const loadVisibleMetadata = () => {
@@ -76,6 +91,21 @@ describe('T1 current-page row filter (real source)', () => {
 
   test('no match returns empty list (table empty state stays distinguishable)', () => {
     assert.equal(filterRows(grid, 'zzz').length, 0)
+  })
+
+  test('JSON 列按格子里的文本匹配（原来是 [object Object]，右键按值过滤必然零命中）', () => {
+    const jsonGrid = {
+      rows: [
+        { id: 1, payload: { uid: 1001, action: 'export' } },
+        { id: 2, payload: { uid: 1002, action: 'import' } }
+      ]
+    }
+    const byAction = filterRows(jsonGrid, 'export')
+    assert.equal(byAction.length, 1)
+    assert.equal(byAction[0].__rowKey, 0)
+    const byUid = filterRows(jsonGrid, '1002')
+    assert.equal(byUid.length, 1)
+    assert.equal(byUid[0].__rowKey, 1)
   })
 
   test('rowKey stays the original page index after filtering', () => {

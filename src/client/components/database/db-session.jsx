@@ -566,8 +566,10 @@ export default auto(function DbSession (props) {
       if (k === '__rowKey') {
         return false
       }
-      const v = r[k]
-      return (v === null || v === undefined ? 'NULL' : String(v))
+      // H2：按"格子里看到的文本"匹配（cellText）。原来对象列走 String(v)
+      // 得到 [object Object]，JSON 列的可见内容在过滤里根本查不到，
+      // 右键"按此值过滤"落到 JSON 格上必然零命中
+      return cellText(r[k])
         .toLowerCase()
         .includes(pageFilterKw)
     }))
@@ -3920,6 +3922,9 @@ export default auto(function DbSession (props) {
     }
     const v = row[k]
     const headers = visibleColumnNames(Object.keys(row))
+    // 过滤词用"格子里看到的文本"：本页过滤比的就是这个（cellText），
+    // 复制值那套二进制 base64 在这里没有意义。空串/纯空白给不出词，不提供该项
+    const filterText = cellText(v)
     const items = [
       {
         // 与值面板的复制同口径：二进制信封复制 base64，其余复制可读文本
@@ -3954,6 +3959,14 @@ export default auto(function DbSession (props) {
         key: 'edit',
         text: e('dbCellEdit'),
         onClick: () => startEdit(row, k)
+      })
+    }
+    if (filterText.trim()) {
+      items.push({
+        // 写进现有本页过滤：命中口径、高亮、"清空过滤"按钮都走同一条路
+        key: 'filter',
+        text: e('dbCellFilterByValue'),
+        onClick: () => setPageFilter(filterText)
       })
     }
     const parents = buildRefItems({
