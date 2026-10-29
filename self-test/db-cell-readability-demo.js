@@ -690,15 +690,31 @@ const HELPERS = `
     b.click()
     return 'ok'
   }
-  // 翻页：只认"可见 pane 里的那一个"分页条（数据页 / SQL 结果各有一套）
+  // SQL 结果翻页：H1a-4 起分页条换成 DbGridPager（没有 .ant-pagination-item-N），
+  // 判据改走它自己的结构 —— 相邻页点箭头，跳页走「跳页框 + Go」（InputNumber
+  // 的 onChange 要等一拍才进 state，Go 延迟 180ms 再点）
   window.__clickPage = (n) => {
-    const li = [...document.querySelectorAll('.ant-pagination-item-' + n)].filter(window.__vis)[0]
-    if (!li) {
-      return 'no-page-' + n + ':' + [...document.querySelectorAll('.ant-pagination-item')]
-        .filter(window.__vis).map(x => x.className.match(/ant-pagination-item-(\\d+)/)).join(',')
+    const bar = [...document.querySelectorAll('.db-sql-result-one .db-grid-pager')].filter(window.__vis)[0]
+    if (!bar) return 'no-pager'
+    const label = bar.querySelector('.db-grid-page-no')
+    const cur = Number(String(label ? label.innerText : '').replace(/\\D+/g, '')) || 1
+    const btns = [...bar.querySelectorAll('button')]
+    if (n === cur + 1 && btns[1] && !btns[1].disabled) {
+      btns[1].click()
+      return 'ok'
     }
-    const a = li.querySelector('a') || li
-    a.click()
+    if (n === cur - 1 && btns[0] && !btns[0].disabled) {
+      btns[0].click()
+      return 'ok'
+    }
+    const input = bar.querySelector('.db-grid-jump input') || bar.querySelector('input')
+    if (!input) return 'no-jump:' + cur
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(input, String(n))
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const go = btns[btns.length - 1]
+    if (!go) return 'no-go:' + cur
+    setTimeout(() => go.click(), 180)
     return 'ok'
   }
   // 数据页的翻页是左右箭头按钮（不是 antd Pagination），按图标类名点
