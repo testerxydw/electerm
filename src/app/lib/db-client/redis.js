@@ -196,6 +196,33 @@ async function getRedisInfo (conn) {
   return String(await c.info() || '')
 }
 
+// SLOWLOG GET 是一次性把整段日志拷回来，条数必须有上限：
+// 慢日志阈值调低过的实例能攒到 server 端的上限 128 条以上（Redis 会截断到 slowlog-max-len），
+// 但客户端传 count=0 在 RESP 语义里是"取全部"，所以 0/负数/NaN 一律回落到默认值。
+const SLOWLOG_DEFAULT_COUNT = 128
+const SLOWLOG_MAX_COUNT = 512
+
+/**
+ * 慢日志：`SLOWLOG GET count`，回服务端给的原始条目数组，归一放渲染侧纯函数
+ * （条目形状跨 Redis 版本会变：7.4 起多了微秒时间戳，位置解析必须容错）。
+ * 与 INFO 同为实例级：不 select db；SLOWLOG 被禁用/只读副本拒绝时原样抛错，
+ * 吞成空数组就等于把"这个实例拿不到慢日志"伪装成"这个实例没有慢查询"。
+ */
+async function getRedisSlowlog (conn, { count } = {}) {
+  const c = await getClient(conn)
+  const n = clampSlowlogCount(count)
+  const res = await c.slowlog('get', n)
+  return Array.isArray(res) ? res : []
+}
+
+function clampSlowlogCount (count) {
+  const n = Math.floor(Number(count))
+  if (!Number.isFinite(n) || n <= 0) {
+    return SLOWLOG_DEFAULT_COUNT
+  }
+  return Math.min(n, SLOWLOG_MAX_COUNT)
+}
+
 /**
  * SCAN 分页 —— 使用「游标」模型而非「页码」模型。
  * Redis 的 SCAN cursor 是不透明的哈希游标（不是 offset），
@@ -577,6 +604,8 @@ module.exports = {
   getPageData,
   // H7a：服务器信息（全量 INFO 原文，解析在渲染侧纯函数）
   getRedisInfo,
+  // H7b：慢日志（SLOWLOG GET 原始条目，归一在渲染侧纯函数）
+  getRedisSlowlog,
   getKeyDetail,
   setKey,
   delKey,

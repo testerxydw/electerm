@@ -68,6 +68,8 @@ const OP_MAP = {
     getPageData: 'getPageData',
     // H7a：服务器信息弹层（全量 INFO 原文）
     getRedisInfo: 'getRedisInfo',
+    // H7b：慢日志（SLOWLOG GET，实例级只读）
+    getRedisSlowlog: 'getRedisSlowlog',
     // R1：键列表任意跳页（SCAN 从 cursor=0 前向步进到目标页）
     scanKeysToPage: 'scanKeysToPage',
     getKeyDetail: 'getKeyDetail',
