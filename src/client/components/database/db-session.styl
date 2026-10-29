@@ -1771,37 +1771,51 @@ body.db-hist-resizing
   text-overflow ellipsis
   white-space nowrap
 
-// 列宽拖拽手柄：贴在列头文字区右边沿的一条 16px 热区。
+// 列宽拖拽热区：贴在**列与列的边界**上的一条 16px 竖带（不画线，线用表头自己的分隔线）。
 // 点击会冒泡到表头触发排序，所以 JS 里 stopPropagation + preventDefault
 //
-// 两个"必须内收、不能骑在 th 边沿上"的实测理由（原写法 right -8px 让手柄中心
-// 正好落在裁剪线上，结果可排序列的拖拽 100% 失灵）：
-// 1) antd 给 .ant-table-column-title 加了 overflow hidden，而我们的手柄挂在它
-//    里面的 .db-col-title/.db-col-head 上。right -8px 时外半条（8px）被裁掉，
-//    elementFromPoint 在那半条上拿到的是遮罩；改成 right 0 后整条都在裁剪框内。
-// 2) 可排序列还有一层 .ant-table-column-sorters::after（absolute + inset 0、
-//    z-index auto、树序在后）要盖住我们，所以手柄这侧要留一个正 z-index 才翻得上去。
-// 内收而不是去解 antd 的裁剪：那道 hidden 正是长列名省略号的依赖，而且外八字会
-// 压到排序图标（1122~1136）上，把"点一下排序"的落点也吃掉。
+// right 为什么从 0 改成 -8px：0 是收在**文字区**右端，而文字区右端离 th 右端还差
+// 一格内边距（size=small 时 cellPaddingInlineSM = 8px），热区右沿落在分隔线左边 8px，
+// 看起来就是"线在文字旁边"而不是"线在列边上"。外推 8px 让热区右沿正好压在 th 边沿，
+// 与分隔线重合；th 因为列带 ellipsis 是 overflow hidden，但裁剪发生在 padding box
+// 边界，这 8px 仍在 padding box 内，不会被裁。**再往外就越界**：right -16px 时右半条
+// 落在 padding box 之外，被裁掉的既是像素也是命中区（elementFromPoint 拿不到）。
+// 上下同样外扩一格 paddingXS（8px），热区覆盖整列头高度，鼠标在列头任一高度都能抓住。
+//
+// 旧写法在这里画了自己的 &::after 2px 竖线，位置在文字右端，与 th 边沿的分隔线差 8px，
+// 于是同一处出现两道相邻的线（2026-10-29 用户反馈）。现在线交给下面的 :has 规则点亮。
 .db-col-resizer
   position absolute
-  top 0
-  right 0
+  top -8px
+  right -8px
   width 16px
-  height 100%
+  height auto
+  bottom -8px
   cursor col-resize
   z-index 2
-  // 默认看不见，hover 时才出现一道竖线：列头空间本来就紧
-  &::after
+
+// hover 热区时点亮表头自己那道分隔线：位置沿用 antd 的 inset-inline-end 0，
+// 只把它默认的 1.6em 居中短线拉成整格高度并换成主色 —— "这根线可以拖"一眼可读。
+// 选择器要把 antd 那串 :not() 一并写全：它的 ::before  specificity 是 (0,5,2)，
+// 只加 .db-grid-table 前缀（(0,4,2)）压不住，会出现 hover 了但线不变色。
+.db-grid-table
+  .ant-table-thead > tr > th:not(:last-child):not(.ant-table-selection-column):not(.ant-table-row-expand-icon-cell):not([colspan]):has(.db-col-resizer:hover)::before
+    top 0
+    bottom 0
+    height auto
+    transform none
+    width 2px
+    background-color var(--primary)
+  // 末列 antd 不画分隔线（:not(:last-child)），但它照样有拖宽热区，得自己补上反馈
+  .ant-table-thead > tr > th:last-child:has(.db-col-resizer:hover)::before
     content ''
     position absolute
-    top 20%
-    right 0
+    top 0
+    bottom 0
+    inset-inline-end 0
     width 2px
-    height 60%
-    background transparent
-  &:hover::after
-    background var(--border)
+    height auto
+    background-color var(--primary)
 
 // 拖拽期间：全局禁选中 + 全屏 col-resize 光标。
 // 不加这条时鼠标滑出表格区域会变回默认光标，用户不知道拖拽还在进行

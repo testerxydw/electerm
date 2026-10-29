@@ -614,27 +614,43 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     }
   })
 
-  test('手柄几何：整条热区在裁剪框内 + 正 z-index（可排序列拖拽实测失灵的回归钉）', () => {
-    const lines = fs.readFileSync(STYL, 'utf8').split('\n')
+  test('手柄几何：热区压在列边界上 + hover 点亮表头自己那道线（不再自画一条）', () => {
+    const text = fs.readFileSync(STYL, 'utf8')
+    const lines = text.split('\n')
     const i = lines.findIndex(l => l.trim() === '.db-col-resizer')
     assert.ok(i >= 0, '.db-col-resizer rule missing')
-    // 取到本条规则结束（下一个顶格选择器/注释）为止，嵌套的 &::after 也在内
+    // 取到本条规则结束（下一个顶格选择器/注释）为止
     const end = lines.findIndex((l, k) => k > i && l.trim() && !/^\s/.test(l))
     const body = lines.slice(i + 1, end < 0 ? lines.length : end)
     const prop = (name) => {
       const hit = body.find(l => l.trim().startsWith(name + ' '))
       return hit ? hit.trim().slice(name.length + 1) : null
     }
-    // 实测原因：antd 的 .ant-table-column-title 带 overflow hidden，手柄挂在它里面的
-    // .db-col-title 上。right 若为负值，外半条被裁掉，elementFromPoint 在那半条上拿到
-    // 的是排序遮罩 —— 手柄中心正好落在裁剪线上，可排序列的拖拽 100% 无响应。
-    assert.equal(prop('right'), '0', '手柄必须完全落在 th 内（right 负值会被 antd 的 overflow hidden 裁掉）')
-    assert.ok(Number(prop('z-index')) >= 1, '手柄需要正 z-index 才压得过 .ant-table-column-sorters::after')
+    // 热区右沿必须压在 **th 的边界**上（那才是列与列的分界，也是分隔线所在）。
+    // 列头容器右沿离 th 边界差一格 cellPaddingInlineSM（size=small 时 8px），所以外扩
+    // 8px；再往外就越过 th 的 padding box，被列的 ellipsis（overflow hidden）裁掉——
+    // 裁掉的那半条既看不见也点不着。"仍然可命中"由 CDP 实测 elementFromPoint 钉死
+    // （旧写法 right 0 依赖的是 .ant-table-column-title 的裁剪，那层包装随 col.sorter
+    // 一起摘掉了，现在两页都不借 antd 的排序实现）
+    assert.equal(prop('right'), '-8px', '热区右沿要与列边界重合')
+    assert.equal(prop('top'), '-8px', '热区要覆盖整列头高：上沿外扩一格内边距')
+    assert.equal(prop('bottom'), '-8px', '热区下沿同样外扩，否则列头下半截抓不住')
+    assert.ok(Number(prop('z-index')) >= 1, '手柄需要正 z-index 才压得住列头里的浮层')
     // 热区宽度 = 可点宽度：12px 以下在触控板/高 DPI 上很难命中
     assert.ok(Number.parseInt(prop('width'), 10) >= 12, '热区太窄，实测点不到')
     assert.equal(prop('cursor'), 'col-resize', '光标不给 col-resize，用户不知道这里能拖')
-    // visible 的竖线：hover 才显形，所以必须有一条能被点亮的 ::after
-    assert.ok(body.some(l => l.trim() === '&:hover::after'), '缺少 hover 时的可见竖线（看不见 = 没人会去拖）')
+    // 线由表头那道分隔线承担：手柄再自画一条就会与它错开（2026-10-29 用户反馈"两道线"）
+    assert.ok(!body.some(l => l.trim().startsWith('&::after')), '手柄不该再自带一条竖线')
+    assert.ok(!body.some(l => l.trim() === '&:hover::after'), '手柄不该再有 hover 自画的线')
+    // hover 点亮的是 antd 那道线，选择器要把它的 :not() 链写全：antd 的 ::before
+    // specificity 是 (0,5,2)，只加个 class 前缀压不住 → hover 了但线不变色
+    assert.ok(/th:not\(:last-child\)[^{\n]*:has\(\.db-col-resizer:hover\)::before/.test(text),
+      '缺"hover 热区点亮表头分隔线"的规则')
+    // 末列 antd 不画分隔线（:not(:last-child) 排除），但它照样有热区，得自己补反馈
+    assert.ok(/th:last-child:has\(\.db-col-resizer:hover\)::before/.test(text),
+      '末列缺 hover 反馈规则')
+    assert.ok((text.match(/background-color var\(--primary\)/g) || []).length >= 2,
+      '点亮的线必须用主色 token（两条规则各一条）')
   })
 
   test('每处列头都带拖拽提示：手柄 hover 才显形，不写提示等于没做', () => {
