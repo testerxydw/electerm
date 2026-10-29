@@ -1,7 +1,11 @@
 const FtpClientWrapper = require('./ftp-client')
 const { TerminalBase } = require('./session-base')
 const { commonExtends } = require('./session-common')
-const { readRemoteFile, writeRemoteFile } = require('./ftp-file')
+const { readRemoteFile, writeRemoteFile, readRemoteFileChunk } = require('./ftp-file')
+const {
+  previewReadLimit,
+  buildPreview
+} = require('../common/remote-preview.js')
 const { Readable, PassThrough } = require('stream')
 const { posix: path } = require('path')
 const globalState = require('./global-state')
@@ -273,6 +277,45 @@ class Ftp extends TerminalBase {
 
   async readFile (remotePath, client) {
     return this.withOperationClient(currentClient => readRemoteFile(currentClient, remotePath), client)
+  }
+
+  /**
+   * 只读预览（G3）。口径与 SFTP 侧一致：图片 10MB、其余 2MB 上限，
+   * 由 previewReadLimit 决定读多少，不整份下载。
+   */
+  async previewRemoteFile (remotePath, client) {
+    return this.withOperationClient(async currentClient => {
+      const name = remotePath.split('/').pop()
+      const stats = await this.stat(remotePath, currentClient)
+      if (stats.isDirectory) {
+        throw new Error('preview target is a directory: ' + remotePath)
+      }
+      const limit = previewReadLimit(name, stats.size)
+      const buffer = limit > 0
+        ? await readRemoteFileChunk(currentClient, remotePath, 0, limit - 1)
+        : Buffer.alloc(0)
+      return buildPreview({
+        name,
+        size: stats.size,
+        mtime: stats.modifyTime,
+        mode: stats.mode,
+        buffer
+      })
+    }, client)
+  }
+
+  async readRemoteFileChunk (remotePath, start, end, client) {
+    return this.withOperationClient(async currentClient => {
+      const buffer = await readRemoteFileChunk(currentClient, remotePath, start, end)
+      return {
+        base64: buffer.toString('base64'),
+        bytes: buffer.length
+      }
+    }, client)
+  }
+
+  async statRemoteFile (remotePath, client) {
+    return this.stat(remotePath, client)
   }
 
   async writeFile (remotePath, str, mode, client) {

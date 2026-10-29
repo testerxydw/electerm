@@ -3,8 +3,14 @@
  */
 const {
   readRemoteFile,
-  writeRemoteFile
+  writeRemoteFile,
+  readRemoteFileChunk,
+  statRemoteFile
 } = require('./sftp-file')
+const {
+  previewReadLimit,
+  buildPreview
+} = require('../common/remote-preview.js')
 const { commonExtends } = require('./session-common.js')
 const { TerminalBase } = require('./session-base.js')
 const {
@@ -633,6 +639,55 @@ class Sftp extends TerminalBase {
    */
   readFile (remotePath) {
     return readRemoteFile(this.sftp, remotePath)
+  }
+
+  /**
+   * 只读预览：分片读文件头 + 类型判定（G3）
+   *
+   * 读多少由 previewReadLimit 决定（图片 10MB、其余 2MB，且不超过文件大小），
+   * 所以这里不会像 readFile 那样把大文件整份搬进内存。
+   *
+   * @param {String} remotePath
+   * @return {Promise}
+   */
+  async previewRemoteFile (remotePath) {
+    const name = String(remotePath).split('/').pop()
+    const stats = await statRemoteFile(this.sftp, remotePath)
+    if (stats.isDirectory) {
+      throw new Error('preview target is a directory: ' + remotePath)
+    }
+    const limit = previewReadLimit(name, stats.size)
+    const buffer = limit > 0
+      ? await readRemoteFileChunk(this.sftp, remotePath, 0, limit - 1)
+      : Buffer.alloc(0)
+    return buildPreview({
+      name,
+      size: stats.size,
+      // ssh2 的 mtime 是秒，统一成毫秒给渲染层（FTP 侧本来就是毫秒）
+      mtime: stats.mtime * 1000,
+      mode: stats.mode,
+      buffer
+    })
+  }
+
+  /**
+   * 分段读取（G3 预览前置）：返回 base64，ws 是 JSON 通道，不能直接传 Buffer
+   *
+   * @param {String} remotePath
+   * @param {Number} start
+   * @param {Number} end
+   * @return {Promise}
+   */
+  async readRemoteFileChunk (remotePath, start, end) {
+    const buffer = await readRemoteFileChunk(this.sftp, remotePath, start, end)
+    return {
+      base64: buffer.toString('base64'),
+      bytes: buffer.length
+    }
+  }
+
+  statRemoteFile (remotePath) {
+    return statRemoteFile(this.sftp, remotePath)
   }
 
   /**

@@ -417,7 +417,10 @@ export const instSftpKeys = [
   'mv',
   'cp',
   'readFile',
-  'writeFile'
+  'writeFile',
+  'readRemoteFileChunk',
+  'statRemoteFile',
+  'previewRemoteFile'
 ]
 export const zmodemTransferPackSize = 1024 * 8
 export const splitMap = {
