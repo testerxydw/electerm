@@ -4147,7 +4147,6 @@ export default auto(function DbSession (props) {
       wg: dataWidths,
       colMenu,
       wideRows: grid.rows,
-      headClassName: 'db-col-title',
       // 数据页原来只说"单击预览/双击编辑"，拖宽这件事在这里等于没人告知——
       // 手柄 hover 才显形，看不到提示就不会有人去试，所以把拖拽提示并进来。
       // 排序提示补上：箭头不再走 antd 的 sorter，也就没有它那句内置 tooltip

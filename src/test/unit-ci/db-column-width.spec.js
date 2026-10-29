@@ -419,10 +419,17 @@ describe('H1a-1 接线契约：5 处网格都走同一套宽度（长内容走�
   test('操作提示让给列头：td 不再被提示语占用', () => {
     const src = read()
     const colSrc = readCols()
-    // 列头提示（含 db-col-title 列名样式）随列工厂走：调用点传 headClassName，
-    // 工厂里接到 ColHead 的 className
-    assert.ok(src.includes("headClassName: 'db-col-title'"), 'header hint span missing (调用点)')
-    assert.ok(colSrc.includes('className={headClassName}'), 'header hint span missing (工厂)')
+    // 表头标题容器只有一份：工厂不再接 headClassName、调用点也不再传，
+    // 五处网格（数据页 / SQL 结果 / 结构 / 键列表 / 详情）共用 ColHead 默认的
+    // .db-col-head —— 两页两套容器就是"表头格式不统一"的一半来源
+    assert.ok(!src.includes('headClassName'), '调用点还在传 headClassName（容器分叉没收敛）')
+    assert.ok(!colSrc.includes('headClassName'), '列工厂还留着 headClassName 参数')
+    assert.ok(!colSrc.includes('className={'), '工厂不该给 ColHead 传 className（用默认容器）')
+    const styl = fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8')
+    assert.ok(/^\.db-col-head$/m.test(styl), '共用标题容器规则缺失')
+    assert.ok(!/^\.db-col-title$/m.test(styl), '.db-col-title 应已并进 .db-col-head')
+    assert.ok(!src.includes('db-col-title'), '数据页表头还在用旧容器类名')
+    assert.ok(!fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-col-resize.jsx'), 'utf8').includes('db-col-title'), 'ColHead 里还留着旧容器类名')
     const cell = colSrc.match(/onCell: row => \{[\s\S]*?\n {6}\}/)
     assert.ok(cell, '列工厂 onCell not found')
     assert.ok(!/title: e\('dbPreview/.test(cell[0]), 'old td hint must not return')

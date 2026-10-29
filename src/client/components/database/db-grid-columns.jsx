@@ -46,7 +46,6 @@ export const CELL_ELLIPSIS = { showTitle: false }
  * @param {Function} [options.widthKeyOf]       宽度键映射，默认 k => k；SQL 结果传 `下标::列名` 复合键
  * @param {Object}   options.colMenu            useColMenu 返回值（openColMenu 挂在 onHeaderCell 上）
  * @param {Array}    [options.wideRows]         量 wideColumnWidth 用的行（数据页全量行 / SQL 各结果集）
- * @param {string}   [options.headClassName]    ColHead 的 className（数据页 'db-col-title'，SQL 缺省）
  * @param {Function} [options.headKeyOf]        列头菜单标题映射；SQL 传列名本身，菜单不露复合键
  * @param {string}   [options.hint]             列头提示文案（调用方按自身能力拼好）
  * @param {string}   [options.filterKw]         renderCell 高亮关键字（数据页本页过滤词，SQL 传 ''）
@@ -83,7 +82,6 @@ export function buildGridColumns (options) {
     widthKeyOf = k => k,
     colMenu,
     wideRows = [],
-    headClassName,
     headKeyOf = null,
     hint = '',
     filterKw = '',
@@ -132,7 +130,6 @@ export function buildGridColumns (options) {
           wg={wg}
           comment={showComment ? comment : undefined}
           hint={hint}
-          className={headClassName}
           sort={sortable ? sortOf(k) : null}
           onSort={sortable && onSort ? () => onSort(k) : undefined}
         />

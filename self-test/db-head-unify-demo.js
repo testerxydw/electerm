@@ -127,7 +127,7 @@ const STUB = `
   window.__clickHead = name => {
     const th = window.__th(name)
     if (!th) return 'no-th'
-    const head = th.querySelector('.db-col-head, .db-col-title')
+    const head = th.querySelector('.db-col-head')
     if (!head) return 'no-head'
     head.click()
     return 'ok'
@@ -140,8 +140,41 @@ const STUB = `
   })
   window.__headTitle = name => {
     const th = window.__th(name)
-    const head = th && th.querySelector('.db-col-head, .db-col-title')
+    const head = th && th.querySelector('.db-col-head')
     return head ? String(head.getAttribute('title') || '') : ''
+  }
+  // 容器收敛判据：表头标题容器只剩 .db-col-head 一份（数据页原来那条同构的
+  // .db-col-title 已并进它）。合并后唯一差别是"有没有注释那一行"，所以：
+  //   有注释 → 两行，行间距正好是容器自己的 gap（1px）
+  //   无注释 → 容器高度回落到列名高度（gap 只作用在流内相邻项，多不出高度）
+  // 无注释这一支在桩数据里天生碰不到（4 列都带注释），就地把注释节点摘掉量完
+  // 再原样塞回去：一次同步 evaluate，React 察觉不到，也不影响后面的判据。
+  window.__headShape = (name) => {
+    const th = window.__th(name)
+    if (!th) return JSON.stringify({ err: 'no-th' })
+    const all = window.__ths()
+    const head = th.querySelector('.db-col-head')
+    const nameEl = th.querySelector('.db-col-name')
+    const comment = th.querySelector('.db-col-comment')
+    const out = {
+      cls: head ? String(head.className) : '',
+      legacy: document.querySelectorAll('.db-grid-table .db-col-title').length,
+      heads: all.filter(x => x.querySelector('.db-col-head')).length,
+      ths: all.length,
+      headH: head ? Math.round(head.getBoundingClientRect().height) : null,
+      nameH: nameEl ? Math.round(nameEl.getBoundingClientRect().height) : null,
+      gap: comment && nameEl ? Math.round(comment.getBoundingClientRect().top - nameEl.getBoundingClientRect().bottom) : null,
+      hasComment: !!comment,
+      bareHeadH: null,
+      bareNameH: null
+    }
+    if (comment && head && nameEl) {
+      comment.remove()
+      out.bareHeadH = Math.round(head.getBoundingClientRect().height)
+      out.bareNameH = Math.round(nameEl.getBoundingClientRect().height)
+      head.insertBefore(comment, th.querySelector('.db-col-sort') || null)
+    }
+    return JSON.stringify(out)
   }
   window.__lastOrder = () => window.__orders[window.__orders.length - 1] || []
   window.__orderCount = () => window.__orders.length
@@ -361,6 +394,15 @@ const main = async () => {
   const zh = await cdp.eval('window.translate("dbColSortHint")')
   check('列头 title 含排序提示词条', tip.includes(zh) && !!zh, { tip, zh })
 
+  // ---- 1b) 表头标题容器只有一份：.db-col-head；无注释列不该被撑高 ----
+  const shape = await json(cdp, 'window.__headShape("id")')
+  check('表头容器收敛为单一份 .db-col-head（.db-col-title 全部消失）',
+    shape.legacy === 0 && shape.cls.startsWith('db-col-head') && shape.heads === shape.ths && shape.ths > 0, shape)
+  check('有注释列：两行之间正是容器自己的 1px gap（合并后 gap 只有一处定义）',
+    shape.hasComment && shape.gap === 1 && shape.headH > shape.nameH, shape)
+  check('注释摘掉后容器高度回落到列名高度（单行表头不会被多撑一行）',
+    shape.bareHeadH === shape.bareNameH && shape.bareHeadH === shape.nameH, shape)
+
   // ---- 2) 一套排序：箭头 + view.order + 发给服务端的 orderClauses ----
   const first = await cdp.eval('window.__orderCount()')
   check('未排序时箭头是淡提示 ⇅', await cdp.eval('window.__glyph("id")') === '⇅',
@@ -494,6 +536,8 @@ const main = async () => {
     console.log('FAILED: ' + failed.map(f => f.name).join(' | '))
     process.exitCode = 1
   }
+  // 不断socket 的话这条常驻连接会一直压着事件循环，判据早跑完了进程还不退
+  cdp.ws.close()
 }
 
 main().catch(err => {
