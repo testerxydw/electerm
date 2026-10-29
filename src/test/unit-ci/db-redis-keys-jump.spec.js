@@ -16,7 +16,7 @@ const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 function loadRedis (opts = {}) {
-  const calls = { scan: [] }
+  const calls = { scan: [], pipelines: 0 }
   const scans = [...(opts.scan || [])]
   const types = opts.types || {}
   const ttls = opts.ttls || {}
@@ -31,6 +31,7 @@ function loadRedis (opts = {}) {
       return [next, keys]
     },
     pipeline () {
+      calls.pipelines++
       const ops = []
       return {
         type (k) {
@@ -143,6 +144,54 @@ describe('R1：scanKeysToPage 键列表前向跳页（后端）', () => {
     assert.equal(calls.scan.length, 1)
     assert.equal(calls.scan[0].cursor, '0')
     assert.equal(res.pageIndex, 0)
+  })
+})
+
+// adapter 跑在 vm 沙箱里，对象来自另一个 realm（原型不同），断言前先 JSON 归一
+const plain = v => JSON.parse(JSON.stringify(v))
+
+describe('H7a-1：getPageData keysOnly 只取键名（键树全量遍历用）', () => {
+  test('keysOnly：rows 只有 name，且完全不建 pipeline（不发 TYPE/TTL）', async () => {
+    const { mod, calls } = loadRedis({
+      scan: [['9', ['user:1:profile', 'order:2']]]
+    })
+    const res = await mod.getPageData(CONN, { dbIndex: 0, cursor: '0', pageSize: 100, keysOnly: true })
+    assert.equal(calls.pipelines, 0, 'keysOnly 不该为每个键再发 TYPE + TTL')
+    assert.deepEqual(plain(res.rows), [{ name: 'user:1:profile' }, { name: 'order:2' }])
+    assert.equal(res.nextCursor, '9')
+    assert.equal(res.hasMore, true)
+  })
+
+  test('默认（不带 keysOnly）行为不变：rows 带 type/ttl，pipeline 只建一次', async () => {
+    const { mod, calls } = loadRedis({
+      scan: [['0', ['user:1', 'user:2']]],
+      types: { 'user:1': 'hash' },
+      ttls: { 'user:1': 60 }
+    })
+    const res = await mod.getPageData(CONN, { dbIndex: 0, cursor: '0', pageSize: 100 })
+    assert.equal(calls.pipelines, 1, '一批键只走一次 pipeline，不能每键一次往返')
+    assert.deepEqual(plain(res.rows), [
+      { name: 'user:1', type: 'hash', ttl: 60 },
+      { name: 'user:2', type: 'string', ttl: -1 }
+    ])
+    assert.equal(res.hasMore, false)
+  })
+
+  test('keysOnly 仍守游标语义与 pageSize 上限（前端靠它驱动抓取循环）', async () => {
+    const { mod, calls } = loadRedis({ scan: [['7', ['k']], ['0', []]] })
+    const first = await mod.getPageData(CONN, { dbIndex: 2, cursor: '0', pageSize: 5000, match: 'a:*', keysOnly: true })
+    assert.deepEqual([...calls.scan[0].args], ['MATCH', 'a:*', 'COUNT', 1000])
+    const second = await mod.getPageData(CONN, { dbIndex: 2, cursor: first.nextCursor, pageSize: 1000, keysOnly: true })
+    assert.equal(calls.scan[1].cursor, '7', '下一页必须从上一轮的 nextCursor 接着扫')
+    assert.deepEqual(second.rows, [])
+    assert.equal(second.hasMore, false)
+  })
+
+  test('keysOnly 命中空页返回空数组（不报 undefined，循环据此收尾）', async () => {
+    const { mod } = loadRedis({ scan: [['0', []]] })
+    const res = await mod.getPageData(CONN, { dbIndex: 0, cursor: '0', keysOnly: true })
+    assert.deepEqual(plain(res.rows), [])
+    assert.equal(res.nextCursor, '0')
   })
 })
 

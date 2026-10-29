@@ -209,7 +209,11 @@ async function buildKeyRows (c, keys) {
   })
 }
 
-async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
+// keysOnly：只要键名，跳过每键 TYPE + TTL 的 pipeline。
+// 给"键树"这种上万键的全量遍历用 —— 树只需要名字就能分层，带上 type/ttl 会把
+// 一次 SCAN 变成 2N 次命令，10k 键就是 20k 次往返。行仍是对象数组（{ name }），
+// 前端两套消费方（列表表格 / 树）拿到的形状一致。
+async function getPageData (conn, { dbIndex, match, cursor, pageSize, keysOnly }) {
   const c = await useDb(conn, dbIndex)
   const size = Math.min(Number(pageSize) || 100, 1000)
   const [next, keys] = await c.scan(
@@ -220,7 +224,7 @@ async function getPageData (conn, { dbIndex, match, cursor, pageSize }) {
     size
   )
   return {
-    rows: await buildKeyRows(c, keys),
+    rows: keysOnly ? keys.map(k => ({ name: k })) : await buildKeyRows(c, keys),
     nextCursor: String(next),
     hasMore: String(next) !== '0'
   }
