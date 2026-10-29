@@ -205,6 +205,13 @@ describe('normalizeMysqlType', () => {
     assert.equal(NORM.normalizeMysqlType(NaN, {}), '')
     assert.equal(NORM.normalizeMysqlType(3, undefined), 'int')
   })
+
+  test('null 类型码显式回落 ""（Number(null)===0 不得误判 decimal）', () => {
+    // 观察项修复：null 类型码经 Number(null)===0 会撞上 MYSQL_TYPE_DECIMAL(0)；
+    // "认不上返回 ''" 的契约要求显式拦截，不能吐 'decimal'。
+    assert.equal(NORM.normalizeMysqlType(null, {}), '')
+    assert.equal(NORM.normalizeMysqlType(null), '')
+  })
 })
 
 describe('normalizePgType', () => {

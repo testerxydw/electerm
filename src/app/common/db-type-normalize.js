@@ -91,6 +91,11 @@ const MYSQL_FLAG_BLOB = 16
  * @returns {string} 归一类型名；认不上返回 `''`（当字符串处理）
  */
 function normalizeMysqlType (columnType, meta) {
+  // 防御性拦截：null/undefined 不应被 Number(null) === 0 撞上 MYSQL_TYPE_DECIMAL(0)
+  // 而误判为 'decimal'。真实驱动不会下发 null 类型码，但"认不上返回 ''"的契约要求显式拦截。
+  if (columnType === null || columnType === undefined) {
+    return ''
+  }
   const code = Number(columnType)
   if (!Number.isInteger(code)) {
     return ''
