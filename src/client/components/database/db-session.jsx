@@ -5537,36 +5537,6 @@ export default auto(function DbSession (props) {
             : null
         }
         {
-          sel
-            ? (
-              // H1a-4：分页条与 SQL 结果 / Redis 键列表统一走 DbGridPager
-              <DbGridPager
-                prevDisabled={grid.page <= 1 || grid.loading}
-                onPrev={() => turnPage(grid.page - 1)}
-                nextDisabled={!grid.hasMore || grid.loading}
-                onNext={() => turnPage(grid.page + 1)}
-                pageTags={renderPageTags()}
-                pageNoText={e('dbPageLabel').replace('{n}', grid.page)}
-                // 直接跳转到某页（totalPages 为估算值，跳页时钳制到估算末页）
-                jump={{
-                  numeric: true,
-                  min: 1,
-                  max: totalPages || undefined,
-                  value: jumpPage,
-                  onChange: v => setJumpPage(v),
-                  onPressEnter: goPage,
-                  placeholder: totalPages ? '1-' + totalPages : e('dbPagePlaceholder')
-                }}
-                goDisabled={!jumpPage}
-                onGo={goPage}
-              />
-              )
-            : null
-        }
-        {
-          sel ? renderPageSizeSelect() : null
-        }
-        {
           // E2-3b：列显示弹层（隐藏 / 列序）。只改视角的列字段，不重新取数
           sel && grid.rows.length
             ? (
@@ -5903,6 +5873,39 @@ export default auto(function DbSession (props) {
                   {e('dbReplace')}
                 </Button>
               </Tooltip>
+              )
+            : null
+        }
+        {/* U1：翻页 + 页大小独立成组放在行尾。宽屏时贴右端、和动作按钮同一行；
+            窄屏时整组折到第二行 —— 翻页条不会被拆成两截，动作按钮也不会因为
+            翻页条占住中间而被迫挤成一行半 */}
+        {
+          sel
+            ? (
+              <span className='db-grid-head-pager'>
+                {/* H1a-4：分页条与 SQL 结果 / Redis 键列表统一走 DbGridPager */}
+                <DbGridPager
+                  prevDisabled={grid.page <= 1 || grid.loading}
+                  onPrev={() => turnPage(grid.page - 1)}
+                  nextDisabled={!grid.hasMore || grid.loading}
+                  onNext={() => turnPage(grid.page + 1)}
+                  pageTags={renderPageTags()}
+                  pageNoText={e('dbPageLabel').replace('{n}', grid.page)}
+                  // 直接跳转到某页（totalPages 为估算值，跳页时钳制到估算末页）
+                  jump={{
+                    numeric: true,
+                    min: 1,
+                    max: totalPages || undefined,
+                    value: jumpPage,
+                    onChange: v => setJumpPage(v),
+                    onPressEnter: goPage,
+                    placeholder: totalPages ? '1-' + totalPages : e('dbPagePlaceholder')
+                  }}
+                  goDisabled={!jumpPage}
+                  onGo={goPage}
+                />
+                {renderPageSizeSelect()}
+              </span>
               )
             : null
         }
