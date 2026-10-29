@@ -637,6 +637,27 @@
   padding-left 10px
   padding-right 10px
 
+// U2：行悬停/选中态统一吃 token。antd 那两层底色来自它内部 colorPrimary 的派生
+// （实测 hover = rgb(27,46,63)、选中 = rgb(14,55,75)），换主题时不会跟着
+// --hover-bg / --active-bg 走 —— 网格的交互态和界面其余部分就成了两套配色。
+// 选择器写 .ant-table-cell 而不是 td：DbGridTable 在 scroll.y > 0 时开虚拟表体，
+// 那时行与格都是 div，`td` 那条选择器直接落空（Redis 键列表的选中态就这么丢过）。
+// tbody → row 那层用后代而非子选择器：虚拟表体在两者之间还插了
+// .ant-table-tbody-virtual-holder(-inner) 两层 div，`>` 同样会落空。
+// 对 antd 的规则要"类数严格多于它"才稳：它选中态那条写了 5 个类
+// （wrapper/tbody/row/row-selected/cell），打平只能靠样式表先后，而 antd 的
+// CSS-in-JS 是运行时注入的，先后不保证 —— 所以这里把链路写全
+// （.db-grid-table .ant-table .ant-table-tbody），选中态再补 row + selected 两个类。
+.db-grid-table
+  .ant-table .ant-table-tbody .ant-table-row > .ant-table-cell
+    transition background var(--dur-1) var(--ease)
+  .ant-table .ant-table-tbody .ant-table-row:hover > .ant-table-cell
+    background var(--hover-bg)
+  // 悬停不改变选中行：选中 + 悬停仍是 --active-bg，否则勾中的行在鼠标划过时闪一下
+  .ant-table .ant-table-tbody .ant-table-row.ant-table-row-selected > .ant-table-cell,
+  .ant-table .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell
+    background var(--active-bg)
+
 .db-cell-null
   color var(--text)
   opacity 0.5
@@ -861,7 +882,10 @@
   align-items center
   justify-content center
 
-.db-row-selected td
+// Redis 键列表的"当前键"高亮：与 antd 的行选中态同一口径（--active-bg）。
+// td 那条留给非虚拟渲染（scroll.y 关掉时才是真 table），虚拟表体走 .ant-table-cell
+.db-row-selected td,
+.db-row-selected .ant-table-cell
   background var(--active-bg)
 
 // 统一值预览/编辑面板（mysql 单元格、redis 键值共用，DbValuePane）
