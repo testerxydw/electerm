@@ -22,6 +22,8 @@ import DbRedisInfoModal from './db-redis-info'
 // H3b-3：ER 图（结构页工具条 → 全屏弹层；只读）
 import DbErView from './db-er-view'
 import DbStructureDiff from './db-structure-diff'
+// H6a：命名参数（:name）填写面板。值以参数绑定发送，不拼进 SQL
+import DbSqlParamsModal from './db-sql-params-modal'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
 // H1a-4（网格复用整合）：数据页 / SQL 结果页共用列工厂（差异全部参数化）
 import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
@@ -30,6 +32,7 @@ import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
 import { DbGridPager, DbGridFilter } from './db-grid-pager'
 import { DbCellMenu } from './db-cell-menu'
 import { parseXinfoStream, parseXinfoGroups, parseXrangeEntries } from '../../common/db-redis-stream'
+import { extractSqlParams, toPositional, countSqlStatements } from '../../common/db-sql-params'
 // H1：行详情（SQL 结果 Modal 承载；H2 数据网格底部"行"页签复用同一渲染体）
 import { DbRowDetail, DbRowDetailModal } from './db-row-detail'
 import {
@@ -2620,23 +2623,32 @@ export default auto(function DbSession (props) {
     bumpBypass(v => v + 1)
   }
 
-  const runSql = async () => {
-    const sql = sqlText.trim()
-    if (!sql) {
-      return
-    }
-    // 当前库随语句下传（连接无默认库时后端先 USE 再执行，避免 No database selected）：
-    // 优先树选中表所在库，无选中回退连接库名
+  // H6a：参数化开关（默认开）。关掉就是原来的纯文本执行，:name 原样发给服务端
+  const [sqlParamMode, setSqlParamMode] = useState(true)
+  const [sqlParams, setSqlParams] = useState({ open: false, names: [], initial: {}, sql: '', database: '' })
+  // "记住本次值"只在当前 tab 内存里：刷新页面就没了，也不落盘
+  const paramMemoRef = useRef({})
+
+  // 真正执行：sql 可能是转换后的占位符文本（执行用），historySql 始终是用户原文
+  const runSqlNow = async (sql, params, historySql) => {
     const database = (sel && sel.database) || tab.dbName || ''
-    // 闸门必须在 executeSql 之前：取消 = 零执行（连 loading 都不该亮）
+    // 闸门必须在 executeSql 之前：取消 = 零执行（连 loading 都不该亮）。
+    // 用原文判定：:name 只是普通 token，不改变语句类型
     if (!isRedis && !isReadonly) {
-      const ok = await confirmSqlRisk(sql, database)
+      const ok = await confirmSqlRisk(historySql || sql, database)
       if (!ok) {
         return
       }
     }
     setSqlResult(s => ({ ...s, loading: true, error: '' }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', database ? { sql, database } : { sql })
+    const payload = { sql }
+    if (database) {
+      payload.database = database
+    }
+    if (Array.isArray(params) && params.length) {
+      payload.params = params
+    }
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', payload)
       .then(res => {
         setSqlResult({
           loading: false,
@@ -2651,9 +2663,10 @@ export default auto(function DbSession (props) {
         // H1a-2：重新执行 = 新一轮列宽（拖过的宽对新结果集没有意义）。
         // 翻页/本地过滤/换分页大小不走到这里，所以那些场景下列宽保持不变
         setSqlColWidths({})
-        // S3-C：执行历史只存本地（语句/引擎/库），失败也记录
+        // S3-C：执行历史只存本地（语句/引擎/库），失败也记录。
+        // 存原文（含 :name）：参数值是数据，不该进历史
         appendSqlHistory({
-          sql,
+          sql: historySql || sql,
           dbType: tab.dbType,
           dbHost: tab.dbHost,
           dbName: currentDbName,
@@ -2667,13 +2680,52 @@ export default auto(function DbSession (props) {
           error: err && err.message ? err.message : String(err)
         })
         appendSqlHistory({
-          sql,
+          sql: historySql || sql,
           dbType: tab.dbType,
           dbHost: tab.dbHost,
           dbName: currentDbName,
           ok: false
         })
       })
+  }
+
+  // H6a：执行入口。有 :name 就先收值（值以参数绑定发送，不拼 SQL）；
+  // 没有参数或参数开关关掉时，与原来完全一致
+  const runSql = async () => {
+    const sql = sqlText.trim()
+    if (!sql) {
+      return
+    }
+    const names = !isRedis && sqlParamMode ? extractSqlParams(sql) : []
+    if (!names.length) {
+      return runSqlNow(sql, null, sql)
+    }
+    // 参数化模式只支持单条语句：多语句下占位符归属无法确定（后端也会拒）
+    if (countSqlStatements(sql) > 1) {
+      message.error(e('dbSqlParamsSingle'))
+      return
+    }
+    const database = (sel && sel.database) || tab.dbName || ''
+    setSqlParams({ open: true, names, initial: paramMemoRef.current, sql, database })
+  }
+
+  const submitSqlParams = values => {
+    const { sql, names } = sqlParams
+    // 先把这一轮填的值记下来（下一次同样的 :name 直接带出），再去做转换
+    const memo = { ...paramMemoRef.current }
+    names.forEach(n => {
+      memo[n] = { value: values[n] === null ? '' : String(values[n]), isNull: values[n] === null }
+    })
+    paramMemoRef.current = memo
+    let built
+    try {
+      built = toPositional(sql, values, dialect)
+    } catch (err) {
+      message.error(err && err.message ? err.message : String(err))
+      return
+    }
+    setSqlParams(s => ({ ...s, open: false }))
+    runSqlNow(built.sql, built.values, sql)
   }
 
   // ---- S3-B CSV 导出（只导当前可见结果集，全表流式导出属二期） ----
@@ -7450,6 +7502,22 @@ export default auto(function DbSession (props) {
           {e('dbRun')}
         </Button>
         {
+          // H6a：参数化开关。开着时检测到 :name 会先收值，值走驱动绑定
+          !isRedis
+            ? (
+              <Button
+                size='small'
+                type={sqlParamMode ? 'primary' : 'default'}
+                ghost={sqlParamMode}
+                title={e('dbSqlParamsHintShort')}
+                onClick={() => setSqlParamMode(v => !v)}
+              >
+                {e('dbSqlParams')}
+              </Button>
+              )
+            : null
+        }
+        {
           // A3 格式化：Ctrl/Cmd+Shift+F 同功能
           sqlText.trim()
             ? (
@@ -9526,6 +9594,20 @@ export default auto(function DbSession (props) {
               dialect={dialect}
               loadStructure={loadDiffStructure}
               onClose={closeStructureDiff}
+            />
+            )
+          : null
+      }
+      {/* H6a：命名参数填写（值只走参数绑定，不拼 SQL） */}
+      {
+        !isRedis
+          ? (
+            <DbSqlParamsModal
+              open={sqlParams.open}
+              names={sqlParams.names}
+              initial={sqlParams.initial}
+              onSubmit={submitSqlParams}
+              onCancel={() => setSqlParams(s => ({ ...s, open: false }))}
             />
             )
           : null

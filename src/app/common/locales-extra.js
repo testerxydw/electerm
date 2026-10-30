@@ -832,7 +832,13 @@ const en = {
   dbStructDiffFieldRefTable: 'references',
   dbStructDiffFieldRefColumns: 'ref columns',
   dbStructDiffFieldOnDelete: 'ON DELETE',
-  dbStructDiffFieldOnUpdate: 'ON UPDATE'
+  dbStructDiffFieldOnUpdate: 'ON UPDATE',
+  dbSqlParams: 'params',
+  dbSqlParamsTitle: 'Bind parameters',
+  dbSqlParamsHint: 'Values are sent as bound parameters (never spliced into SQL). Parameterized mode runs a single statement.',
+  dbSqlParamsValue: 'value',
+  dbSqlParamsSingle: 'Parameterized mode supports a single statement only',
+  dbSqlParamsHintShort: 'Run with :name bound as parameters'
 }
 
 // 简体中文
@@ -1649,7 +1655,13 @@ const zhCn = {
   dbStructDiffFieldRefTable: '引用表',
   dbStructDiffFieldRefColumns: '引用列',
   dbStructDiffFieldOnDelete: 'ON DELETE',
-  dbStructDiffFieldOnUpdate: 'ON UPDATE'
+  dbStructDiffFieldOnUpdate: 'ON UPDATE',
+  dbSqlParams: '参数',
+  dbSqlParamsTitle: '填写参数',
+  dbSqlParamsHint: '值以参数绑定发送（不拼进 SQL）。参数化模式只执行单条语句。',
+  dbSqlParamsValue: '值',
+  dbSqlParamsSingle: '参数化模式仅支持单条语句',
+  dbSqlParamsHintShort: '执行时把 :name 作为参数绑定'
 }
 
 module.exports = {

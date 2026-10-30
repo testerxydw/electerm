@@ -757,6 +757,32 @@
   color var(--text-muted)
   font-family var(--db-code-font, var(--font-mono))
   word-break break-all
+// H6a：命名参数面板。参数名与值都走数据面字体，长名按省略号收
+.db-params
+  display flex
+  flex-direction column
+  gap 8px
+.db-params-hint
+  color var(--text-muted)
+  font-size 12px
+.db-params-row
+  display flex
+  align-items center
+  gap 8px
+.db-params-name
+  flex none
+  min-width 120px
+  max-width 200px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--db-code-font, var(--font-mono))
+  color var(--text)
+.db-params-input
+  flex 1 1 auto
+  font-family var(--db-code-font, var(--font-mono))
+.db-params-null
+  flex none
 .db-ddl-pre
   margin 0
   max-height 60vh
