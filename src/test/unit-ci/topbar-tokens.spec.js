@@ -10,6 +10,8 @@ const SHELL_STYL = path.join(ROOT, 'src/client/components/common/session-shell.s
 const SESSION_STYL = path.join(ROOT, 'src/client/components/session/session.styl')
 const TERMINAL_STYL = path.join(ROOT, 'src/client/components/terminal/terminal.styl')
 const DB_STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
+const WEB_STYL = path.join(ROOT, 'src/client/components/web/web.styl')
+const WEB_ADDRESS_BAR = path.join(ROOT, 'src/client/components/web/address-bar.jsx')
 
 // T1 顶栏高度单源（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §1）：
 // --session-bar-h 是单行条唯一高度来源，--session-bar-pad-x 是左右内边距唯一来源。
@@ -76,5 +78,18 @@ describe('T1: 五类顶栏消费 token（反向：裸值回归）', () => {
     const db = stylBlock(load(DB_STYL), '.db-head')
     assert.ok(db.includes('padding 0 var(--session-bar-pad-x)'), 'DB 条 padding 用 token')
     assert.ok(!db.includes('padding 0 10px'), 'DB 条裸 10px 回退')
+  })
+
+  test('web 地址栏有自己的条规则，不再靠 pd1 + antd Input 默认高', () => {
+    const src = load(WEB_ADDRESS_BAR)
+    assert.ok(!src.includes("'web-address-bar pd1'"), 'pd1 已摘除')
+    assert.ok(src.includes("import './web.styl'"), '引入 web.styl')
+
+    const block = stylBlock(load(WEB_STYL), '.web-address-bar')
+    assert.ok(block, '.web-address-bar 规则存在')
+    assert.ok(block.includes('flex none'), '地址栏不参与内容区伸缩')
+    assert.ok(block.includes('min-height var(--session-bar-h)'), 'min-height 用 token')
+    assert.ok(block.includes('line-height var(--session-bar-h)'), 'line-height 用 token')
+    assert.ok(block.includes('padding 0 var(--session-bar-pad-x)'), 'padding 用 token')
   })
 })

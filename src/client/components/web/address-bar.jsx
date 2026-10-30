@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import ZoomControl from '../common/zoom-control'
 import SessionBarActions from '../common/session-bar-actions'
+import './web.styl'
 
 export default function AddressBar (props) {
   const {
@@ -47,7 +48,7 @@ export default function AddressBar (props) {
     }
   ]
   return (
-    <div className='web-address-bar pd1'>
+    <div className='web-address-bar'>
       <Tooltip
         title={content}
       >
