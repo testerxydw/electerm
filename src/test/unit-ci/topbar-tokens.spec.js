@@ -16,6 +16,9 @@ const SFTP_STYL = path.join(ROOT, 'src/client/components/sftp/sftp.styl')
 const SFTP_ENTRY = path.join(ROOT, 'src/client/components/sftp/sftp-entry.jsx')
 const SFTP_ADDRESS_BAR = path.join(ROOT, 'src/client/components/sftp/address-bar.jsx')
 const SFTP_LIST_TABLE = path.join(ROOT, 'src/client/components/sftp/list-table-ui.jsx')
+const SESSION_CONTROL_STYL = path.join(ROOT, 'src/client/components/session/session-control.styl')
+const NO_SESSION_STYL = path.join(ROOT, 'src/client/components/tabs/no-session.styl')
+const MOBILE_STYL = path.join(ROOT, 'src/client/css/mobile.styl')
 
 // T1 顶栏高度单源（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §1）：
 // --session-bar-h 是单行条唯一高度来源，--session-bar-pad-x 是左右内边距唯一来源。
@@ -110,6 +113,19 @@ describe('T1: 五类顶栏消费 token（反向：裸值回归）', () => {
       assert.ok(block.includes('line-height var(--session-bar-h)'), `${sel} line-height 用 token`)
       assert.ok(block.includes('padding 0 var(--session-bar-pad-x)'), `${sel} padding 用 token`)
     }
+  })
+
+  test('守卫补齐：移动端/空状态/mobile.styl 的裸值换 token（反向：裸值回归）', () => {
+    const control = load(SESSION_CONTROL_STYL)
+    assert.ok(control.includes('line-height var(--session-bar-h)'), '移动端标签页条行高用 token')
+    assert.ok(!/line-height 32px/.test(control), '裸 line-height 32px 回退')
+
+    const noSession = load(NO_SESSION_STYL)
+    assert.ok(noSession.includes('top var(--tabs-bar-h)'), '空状态页 top 用 token')
+    assert.ok(!/top 36px/.test(noSession), '裸 top 36px 回退')
+
+    const mobile = load(MOBILE_STYL)
+    assert.ok(!/line-height 36px/.test(mobile), '裸 line-height 36px 回退')
   })
 
   test('sftp 列表高度减式第一项跟着 address 行 42 → 32', () => {
