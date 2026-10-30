@@ -421,6 +421,48 @@ async function delKey (conn, { dbIndex, key, readOnly }) {
   return c.del(key)
 }
 
+// 键数组归一：只收非空字符串，顺带去重。
+// 不复用 normalizeItems（那里 String(x) 兜底）：`[null]` 被 String 成 "null" 就会删掉
+// 一个名叫 null 的真键 —— 批量删除宁可报参数错，也不能猜用户想删哪个。
+function normalizeKeys (fn, keys) {
+  if (!Array.isArray(keys)) {
+    throw new Error(`${fn} requires keys as an array`)
+  }
+  const uniq = new Set()
+  for (const k of keys) {
+    if (typeof k !== 'string' || !k) {
+      throw new Error(`${fn} requires every key to be a non-empty string`)
+    }
+    uniq.add(k)
+  }
+  if (!uniq.size) {
+    throw new Error(`${fn} requires at least one key`)
+  }
+  return [...uniq]
+}
+
+// 单次上限：渲染层按 500 分批是为了"进度可读"，这里 1000 是第二道闸 ——
+// 一次误传整页/整树的键名不该变成一条几十万参数的命令（redis 单条命令也有长度上限）
+const DEL_KEYS_MAX = 1000
+
+/**
+ * 批量删键：一条 UNLINK（不是 N 条 DEL，也不是一条超长 DEL）。
+ * DEL 在超大 key（百万成员的 list/hash/zset）上是同步回收内存，会把 redis 的
+ * 事件循环卡住几秒；UNLINK 只摘 keyspace 引用，内存交后台线程慢慢收。
+ * 返回值是"实际删掉的键数"（不存在的键不计数），所以进度只能拿它累加，
+ * 不能用"发出去几个"当已删除数。
+ */
+async function delKeys (conn, { dbIndex, keys, readOnly }) {
+  checkWritable(readOnly)
+  const list = normalizeKeys('delKeys', keys)
+  if (list.length > DEL_KEYS_MAX) {
+    throw new Error(`delKeys accepts at most ${DEL_KEYS_MAX} keys per call`)
+  }
+  const c = await useDb(conn, dbIndex)
+  const res = await c.unlink(...list)
+  return Number(res) || 0
+}
+
 async function expireKey (conn, { dbIndex, key, seconds, readOnly }) {
   checkWritable(readOnly)
   const c = await useDb(conn, dbIndex)
@@ -609,6 +651,8 @@ module.exports = {
   getKeyDetail,
   setKey,
   delKey,
+  // H7b-3：批量删键（UNLINK，单次上限 1000，分批由渲染侧驱动）
+  delKeys,
   expireKey,
   // D 批类型化写（T12）：全部 checkWritable 前置
   hashSetField,

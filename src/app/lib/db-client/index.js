@@ -75,6 +75,8 @@ const OP_MAP = {
     getKeyDetail: 'getKeyDetail',
     setKey: 'setKey',
     delKey: 'delKey',
+    // H7b-3：批量删键（UNLINK；渲染层分批 500，主进程单次上限 1000）
+    delKeys: 'delKeys',
     expireKey: 'expireKey',
     // D 批类型化写（T12）：hash/set/zset/list/key
     hashSetField: 'hashSetField',
