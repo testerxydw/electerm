@@ -211,3 +211,137 @@ describe('H7b-3 分块与预览纯函数', () => {
     assert.equal(text, 'UNLINK ' + 'x'.repeat(57) + '…', '截断后 57 字符 + 省略号')
   })
 })
+
+// ── 渲染侧接线（源码契约）────────────────────────────────────────────────
+const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
+const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
+
+const sessionSrc = () => fs.readFileSync(SESSION, 'utf8')
+
+describe('H7b-3b 键列表多选与弹层接线', () => {
+  test('键列表行键用键名 + 挂 rowSelection（下标 __rowKey 会随翻页指向别的键）', () => {
+    const src = sessionSrc()
+    const table = /<DbGridTable\n {24}className='db-redis-keys'[\s\S]*?\/>/.exec(src)
+    assert.ok(table, '键列表 DbGridTable 未找到')
+    assert.match(table[0], /rowKey='name'/, '行键必须是键名')
+    assert.doesNotMatch(table[0], /rowKey='__rowKey'/)
+    assert.match(table[0], /rowSelection=\{redisKeyRowSelection\}/)
+  })
+
+  test('勾选存键名、跨页保留、只读时复选框禁用、换库/改过滤即清空', () => {
+    const src = sessionSrc()
+    assert.match(src, /selectedRowKeys: redisKeySel,/)
+    assert.match(src, /preserveSelectedRowKeys: true/, '翻页后行不在 dataSource 里，不保留就只能删本页')
+    assert.match(src, /onChange: keys => setRedisKeySel\(keys\),/)
+    assert.match(src, /getCheckboxProps: \(\) => \(\{ disabled: isReadonly \}\)/)
+    assert.match(
+      src,
+      /useEffect\(\(\) => \{\n {4}setRedisKeySel\(\[\]\)\n {2}\}, \[redisDb, keyList\.match\]\)/,
+      '跨页保留，但换库/改过滤必须清空（键名集合跨库没有意义）'
+    )
+    assert.doesNotMatch(src, /\}, \[redisDb, keyList\.cursor, keyList\.match\]\)/, '翻页不能清勾选')
+  })
+
+  test('跨页勾选有常驻提示 + 一键清空（当前页可能一个都没选）', () => {
+    const src = sessionSrc()
+    assert.match(src, /e\('dbRedisSelCount'\)\.replace\('\{n\}', String\(redisKeySel\.length\)\)/)
+    assert.match(src, /className='db-redis-sel-clear'\n {34}onClick=\{\(\) => setRedisKeySel\(\[\]\)\}/)
+  })
+
+  test('入口只读禁用并说明原因，未勾选不可点', () => {
+    const src = sessionSrc()
+    assert.match(src, /title=\{isReadonly \? e\('dbRedisDelKeysReadonly'\) : ''\}/)
+    assert.match(src, /disabled=\{!redisKeySel\.length \|\| isReadonly \|\| keyList\.loading\}/)
+    assert.match(src, /\{e\('dbRedisDelKeys'\)\}\{redisKeySel\.length \? `\(\$\{redisKeySel\.length\}\)` : ''\}/)
+  })
+
+  test('弹层冻结键名快照：确认后翻页/刷新不改这一批', () => {
+    const src = sessionSrc()
+    assert.match(src, /const keys = redisKeySel\.slice\(\)/)
+    assert.match(src, /setRedisDel\(\{ open: true, keys, running: false, done: 0, error: '' \}\)/)
+  })
+
+  test('生产走 E1：dangerous 级 + 只列前 10 个键的命令文本', () => {
+    const src = sessionSrc()
+    assert.match(src, /level: 'dangerous',\n {6}text: delCommandText\(targets\),\n {6}note: e\('dbRedisDelKeysBody'\)/)
+    assert.match(src, /const ok = await confirmRedisWrite\(\{/)
+    assert.match(src, /if \(!ok\) \{\n {6}return\n {4}\}/, '取消 = 零执行')
+  })
+
+  test('分批 UNLINK：只带 dbIndex + keys（readOnly 由主进程注入，渲染层传的是空子）', () => {
+    const src = sessionSrc()
+    assert.match(src, /for \(const chunk of chunkRedisKeys\(targets\)\) \{/)
+    const call = /'delKeys', \{\n {10}dbIndex: redisDb,\n {10}keys: chunk\n {8}\}\)/.exec(src)
+    assert.ok(call, 'delKeys 调用参数形状变了：readOnly 不该由渲染层传')
+    assert.doesNotMatch(call[0], /readOnly/)
+  })
+
+  test('进度按 unlink 的实际删除数累加（发出去几个不等于删掉几个）', () => {
+    const src = sessionSrc()
+    assert.match(src, /done \+= Number\(n\) \|\| 0/)
+    assert.match(src, /percent=\{delPercent\(redisDel\.done, redisDel\.keys\.length\)\}/)
+  })
+
+  test('中途失败停在弹层：报错 + "已删除 done/total"，且不给重试按钮', () => {
+    const src = sessionSrc()
+    assert.match(src, /error: cleanDbError\(err && err\.message \? err\.message : err\)\n {8}\}\)\)\n {8}return/)
+    assert.match(src, /message=\{redisDel\.error\}/)
+    assert.match(src, /e\('dbRedisDelKeysPartial'\)\n/)
+    // 部分失败后只剩"关闭"：重试会把已删掉的键再发一遍，进度从 0 重来；
+    // "取消"和"关闭"是同一个动作，同时出现只会让人以为还有别的选择
+    assert.match(src, /redisDel\.error\n {18}\? \[\n {20}<Button key='close' onClick=\{closeRedisDel\}>/)
+    assert.doesNotMatch(src, /key='ok'[\s\S]{0,120}redisDel\.error/, '失败后不该再给删除按钮')
+  })
+
+  test('删除中不可取消（已发出的 UNLINK 收不回来）', () => {
+    const src = sessionSrc()
+    assert.match(src, /const closeRedisDel = \(\) => \{\n {4}if \(redisDel\.running\) \{\n {6}return\n {4}\}/)
+    assert.match(src, /<Button key='cancel' onClick=\{closeRedisDel\} disabled=\{redisDel\.running\}>/)
+  })
+
+  test('删完清勾选、清已删键的详情、原页重拉并刷新左侧键数', () => {
+    const src = sessionSrc()
+    assert.match(src, /if \(targets\.includes\(redisKey\)\) \{\n {6}setRedisKey\(''\)\n {6}setRedisDetail\(null\)\n {4}\}/)
+    assert.match(src, /loadRedisKeys\(redisDb, keyList\.cursor, keyList\.match, keyList\.stack\)/, '应原页重拉而不是回第一页')
+    assert.match(src, /message\.success\(e\('dbRedisDelKeysDone'\)\.replace\('\{n\}', String\(done\)\)\)/)
+    assert.match(src, /loadTree\(\)/)
+  })
+
+  test('预览只列 20 个键，余下走"另有 N 个键未列出"', () => {
+    const src = sessionSrc()
+    assert.match(src, /const redisDelPreview = useMemo\(\(\) => delPreview\(redisDel\.keys\), \[redisDel\.keys\]\)/)
+    assert.match(src, /redisDelPreview\.shown\.map\(k => \(/)
+    assert.match(src, /redisDelPreview\.rest\n {20}\?/)
+    assert.match(src, /e\('dbRedisDelKeysMore'\)\.replace\('\{n\}', String\(redisDelPreview\.rest\)\)/)
+    // "另有 N 个"要在滚动列表之外：列表本身截到 220px 高，塞在末尾时正好被截掉
+    const modal = src.slice(src.indexOf("className='db-redis-del'"))
+    const listEnd = modal.indexOf('</div>')
+    const moreAt = modal.indexOf('db-redis-del-more')
+    assert.ok(listEnd >= 0 && moreAt > listEnd, '"另有 N 个"应放在滚动列表之外')
+    assert.doesNotMatch(modal.slice(0, listEnd), /db-redis-del-more/)
+  })
+
+  test('删键文案键全部双语齐备', () => {
+    const extra = require(LOCALES)
+    const src = sessionSrc()
+    const re = /(?:^|[^A-Za-z0-9_$.])e\('(dbRedisDel[A-Za-z]*)'\)/g
+    const keys = [...new Set((src.match(re) || []).map(s => /e\('([A-Za-z]+)'\)$/.exec(s)[1]))]
+    assert.ok(keys.length >= 8, `删键自造键应有 8+，实际 ${keys.length}：${keys.join(',')}`)
+    for (const k of keys) {
+      assert.ok(extra.en[k] !== undefined, `${k} 缺英文词条`)
+      assert.ok(extra.zh_cn[k] !== undefined, `${k} 缺中文词条`)
+    }
+  })
+
+  test('样式：键名走数据面字体链，颜色全部来自 token', () => {
+    const src = fs.readFileSync(STYL, 'utf8')
+    const i = src.indexOf('// H7b-3 批量删键弹层')
+    const j = src.indexOf('// 上下可拖拽分区')
+    assert.ok(i >= 0 && j > i, '删键样式块没找到')
+    const block = src.slice(i, j)
+    assert.match(block, /\.db-redis-del-list\n {4}[\s\S]*?font-family var\(--db-code-font, var\(--font-mono\)\)/)
+    assert.doesNotMatch(block, /font-family var\(--font-mono\)/)
+    assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b/)
+  })
+})

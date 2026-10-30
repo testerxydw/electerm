@@ -996,6 +996,59 @@
     font-family var(--db-code-font, var(--font-mono))
     color var(--text-dark)
 
+// H7b-3 跨页勾选提示：勾选可能整页都不在当前页，这行是唯一"我还选着东西"的证据
+.db-redis-sel-chip
+  display inline-flex
+  align-items center
+  gap 2px
+  color var(--text-muted)
+  font-variant-numeric tabular-nums
+  white-space nowrap
+
+.db-redis-sel-clear
+  padding 0 2px !important
+  height auto !important
+
+// H7b-3 批量删键弹层：键名是数据面（和键列表同一套等宽字体链），
+// 长键名按字符截断而不是撑出横向滚动条
+.db-redis-del
+  .db-redis-del-note
+    margin 0 0 8px
+    color var(--text-dark)
+
+  .db-redis-del-list
+    max-height 220px
+    overflow auto
+    padding 6px 8px
+    border 1px solid var(--border)
+    border-radius var(--radius-sm)
+    background var(--hover-bg)
+    font-family var(--db-code-font, var(--font-mono))
+    font-size 12px
+    line-height 18px
+
+  .db-redis-del-key
+    overflow hidden
+    white-space nowrap
+    text-overflow ellipsis
+    color var(--text)
+
+  .db-redis-del-more
+    margin-top 6px
+    color var(--text-muted)
+
+  .db-redis-del-prog
+    margin-top 10px
+
+  .db-redis-del-prog-text
+    display inline-block
+    margin-top 2px
+    color var(--text-muted)
+    font-variant-numeric tabular-nums
+
+  .db-redis-del-err
+    margin-top 10px
+
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane
   flex 1 1 0

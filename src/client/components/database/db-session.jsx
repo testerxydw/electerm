@@ -5,7 +5,7 @@
  */
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented } from 'antd'
+import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented, Progress } from 'antd'
 import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
@@ -117,6 +117,8 @@ import {
   ancestorKeys,
   DEFAULT_SEPARATOR
 } from '../../common/db-key-tree'
+// H7b-3：批量删键的分批/预览（纯函数，零依赖；一批 500 只为进度可读）
+import { chunkRedisKeys, delPreview, delPercent, delCommandText } from '../../common/db-redis-del'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
 import {
@@ -933,6 +935,10 @@ export default auto(function DbSession (props) {
   // R1：键列表跳页输入（页码，1 基）与过期请求令牌
   const [keyJumpInput, setKeyJumpInput] = useState('')
   const keyJumpTokenRef = useRef(0)
+  // H7b-3：键列表多选存**键名**而不是行下标 —— 翻页/改过滤后下标全指向别的键
+  const [redisKeySel, setRedisKeySel] = useState([])
+  // 批量删键弹层：keys 是"点开时冻结的那批"，done 只由 unlink 的实际删除数累加
+  const [redisDel, setRedisDel] = useState({ open: false, keys: [], running: false, done: 0, error: '' })
   // H7a：键树视图。列表走游标分页（一页一次 IPC），树必须看到全部键名，
   // 所以是"渲染侧驱动的多轮 SCAN"（keysOnly 只要名字，不发 TYPE/TTL）。
   // scanned 是进度（已收唯一键数），truncated 表示撞到 REDIS_TREE_MAX_KEYS 就停手。
@@ -3542,6 +3548,12 @@ export default auto(function DbSession (props) {
     })
   }
 
+  // H7b-3：换库/换过滤就清空勾选 —— 勾选是键名集合，跨库没有意义；
+  // 同一过滤条件内跨页保留（否则一页最多 200 个键，"分批 500"永远只有一批）
+  useEffect(() => {
+    setRedisKeySel([])
+  }, [redisDb, keyList.match])
+
   // R1：键列表跳到第 N 页（1 基）。SCAN 游标不透明，后端从 cursor=0 前向步进
   // target 次并回传沿途每页起始游标；用这条游标链重建 prev 栈，
   // 之后 prev/next 仍是顺序推进（不重复扫描）。目标页超出遍历范围时停在末页后。
@@ -3949,6 +3961,72 @@ export default auto(function DbSession (props) {
     }).catch(err => {
       showErrorModal({ error: err })
     })
+  }
+
+  // ---- H7b-3 批量删键：预览 → 确认（生产再过 E1）→ 分批 UNLINK → 进度 ----
+
+  // 弹层打开时冻结这批键名：随后后台刷新/翻页改了勾选，也不该让"确认时看到的"
+  // 和"实际删掉的"对不上
+  const openRedisDel = () => {
+    const keys = redisKeySel.slice()
+    if (!keys.length) {
+      return
+    }
+    setRedisDel({ open: true, keys, running: false, done: 0, error: '' })
+  }
+
+  const closeRedisDel = () => {
+    if (redisDel.running) {
+      return
+    }
+    setRedisDel({ open: false, keys: [], running: false, done: 0, error: '' })
+  }
+
+  const runRedisDel = async () => {
+    const targets = redisDel.keys
+    // E1：生产连接多一道风险确认（非生产只有这个预览弹层本身）。
+    // 命令文本只列前 10 个键 —— 500 个键名铺满一屏，谁都会直接点"仍要执行"
+    const ok = await confirmRedisWrite({
+      level: 'dangerous',
+      text: delCommandText(targets),
+      note: e('dbRedisDelKeysBody')
+    })
+    if (!ok) {
+      return
+    }
+    setRedisDel(d => ({ ...d, running: true, done: 0, error: '' }))
+    let done = 0
+    for (const chunk of chunkRedisKeys(targets)) {
+      try {
+        const n = await window.pre.runGlobalAsync('dbClientOp', tabId, 'delKeys', {
+          dbIndex: redisDb,
+          keys: chunk
+        })
+        done += Number(n) || 0
+        setRedisDel(d => ({ ...d, done }))
+      } catch (err) {
+        // 前面几批已经删了、回滚不了：停在弹层里让人看到"删到哪儿"
+        setRedisDel(d => ({
+          ...d,
+          running: false,
+          done,
+          error: cleanDbError(err && err.message ? err.message : err)
+        }))
+        return
+      }
+    }
+    setRedisDel({ open: false, keys: [], running: false, done: 0, error: '' })
+    setRedisKeySel([])
+    // 删掉的正好是详情里选中的那个键 → 详情一起清掉，不留一个已不存在的键
+    if (targets.includes(redisKey)) {
+      setRedisKey('')
+      setRedisDetail(null)
+    }
+    message.success(e('dbRedisDelKeysDone').replace('{n}', String(done)))
+    // 原页重拉（不是回第一页）：删的是本页的键，用户还该站在这一页
+    loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
+    // 键数变了 → 同步左侧各 db 的键个数
+    loadTree()
   }
 
   // ---- D 批：EXPLAIN（只读计划分析，设计 §12.1） ----
@@ -5596,6 +5674,21 @@ export default auto(function DbSession (props) {
     () => (keyList.rows || []).map((r, i) => ({ ...r, __rowKey: i })),
     [keyList.rows]
   )
+
+  // H7b-3：行键改用键名，勾选才跟着键走（__rowKey 是下标，翻页后指向别的键）。
+  // preserveSelectedRowKeys：翻页后行不在 dataSource 里，不保留就等于"只删得动本页"
+  const redisKeyRowSelection = useMemo(() => ({
+    selectedRowKeys: redisKeySel,
+    preserveSelectedRowKeys: true,
+    onChange: keys => setRedisKeySel(keys),
+    // 与数据网格同一个坑：不给 columnWidth 时 colgroup 里没有宽度，
+    // 表头/表体两套 table 会把勾选列撑成剩余宽（实测 1894px），键名被挤出视野
+    columnWidth: SEL_COL_W,
+    getCheckboxProps: () => ({ disabled: isReadonly })
+  }), [redisKeySel, isReadonly])
+
+  // 弹层里的键名预览（前 20 个 + 还有多少）
+  const redisDelPreview = useMemo(() => delPreview(redisDel.keys), [redisDel.keys])
 
   // A2：Redis 各类型详情的行键数组（依赖 redisDetail / detailLimit）
   const redisHashRows = useMemo(() => {
@@ -8350,6 +8443,37 @@ export default auto(function DbSession (props) {
                         {renderPageSizeSelect()}
                         {/* H1a-2：键名列宽工具（长键名加宽后一键回到按内容自适应） */}
                         {colFitAllBtn(redisKeysWidths)}
+                        {/* H7b-3：跨页勾选后当前页可能一个都没选，需要常驻的"已选 N"提示
+                            （否则翻一页就看不见自己选了什么，只剩按钮上的数字） */}
+                        {
+                          redisKeySel.length
+                            ? (
+                              <span className='db-redis-sel-chip'>
+                                {e('dbRedisSelCount').replace('{n}', String(redisKeySel.length))}
+                                <Button
+                                  type='link'
+                                  size='small'
+                                  className='db-redis-sel-clear'
+                                  onClick={() => setRedisKeySel([])}
+                                >
+                                  {e('dbRedisSelClear')}
+                                </Button>
+                              </span>
+                              )
+                            : null
+                        }
+                        {/* H7b-3：批量删键入口。只读时禁用并说明原因（主进程还会再拦一道） */}
+                        <Tooltip title={isReadonly ? e('dbRedisDelKeysReadonly') : ''}>
+                          <Button
+                            size='small'
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={!redisKeySel.length || isReadonly || keyList.loading}
+                            onClick={openRedisDel}
+                          >
+                            {e('dbRedisDelKeys')}{redisKeySel.length ? `(${redisKeySel.length})` : ''}
+                          </Button>
+                        </Tooltip>
                       </>
                       )
                 }
@@ -8405,8 +8529,9 @@ export default auto(function DbSession (props) {
                         loading={keyList.loading}
                         columns={redisKeyColumns}
                         dataSource={redisKeyRows}
-                        rowKey='__rowKey'
+                        rowKey='name'
                         pagination={false}
+                        rowSelection={redisKeyRowSelection}
                         onRow={r => ({ onClick: () => selectRedisKey(r.name) })}
                         rowClassName={r => (r.name === redisKey ? 'db-row-selected' : '')}
                       />
@@ -9012,6 +9137,106 @@ export default auto(function DbSession (props) {
               onLoadSlowlog={loadRedisSlowlog}
               onRefreshSlowlog={loadRedisSlowlog}
             />
+            )
+          : null
+      }
+      {/* H7b-3：批量删键。弹层本身就是"预览 + 确认"；生产连接上 E1 还会再问一次。
+          删除过程中不能取消：已经发出去的 UNLINK 收不回来，画一个"取消"只会骗人 */}
+      {
+        isRedis
+          ? (
+            <Modal
+              className='db-redis-del-modal'
+              open={redisDel.open}
+              width={520}
+              title={e('dbRedisDelKeysTitle').replace('{n}', String(redisDel.keys.length))}
+              onCancel={closeRedisDel}
+              footer={
+                // 部分失败后只剩"关闭"：重试会把已经删掉的键再发一遍（unlink 回 0），
+                // 进度会从 0 重来，看着像又删了一次；此时"取消"和"关闭"是同一个动作，
+                // 留两个只会让人以为还有别的选择
+                redisDel.error
+                  ? [
+                    <Button key='close' onClick={closeRedisDel}>
+                      {e('dbRedisDelKeysClose')}
+                    </Button>
+                    ]
+                  : [
+                    <Button key='cancel' onClick={closeRedisDel} disabled={redisDel.running}>
+                      {e('cancel')}
+                    </Button>,
+                    <Button
+                      key='ok'
+                      danger
+                      loading={redisDel.running}
+                      onClick={runRedisDel}
+                    >
+                      {e('dbRedisDelKeys')}
+                    </Button>
+                    ]
+              }
+            >
+              <div className='db-redis-del'>
+                <p className='db-redis-del-note'>
+                  {e('dbRedisDelKeysBody')}
+                </p>
+                <div className='db-redis-del-list'>
+                  {
+                    redisDelPreview.shown.map(k => (
+                      <div key={k} className='db-redis-del-key' title={k}>{k}</div>
+                    ))
+                  }
+                </div>
+                {
+                  // "还有 N 个"放在滚动区外：列表本身会截到 220px 高，
+                  // 塞在列表末尾时（600 个键时正好被截断）等于没写
+                  redisDelPreview.rest
+                    ? (
+                      <div className='db-redis-del-more'>
+                        {e('dbRedisDelKeysMore').replace('{n}', String(redisDelPreview.rest))}
+                      </div>
+                      )
+                    : null
+                }
+                {
+                  redisDel.running || redisDel.done
+                    ? (
+                      <div className='db-redis-del-prog'>
+                        <Progress
+                          percent={delPercent(redisDel.done, redisDel.keys.length)}
+                          size='small'
+                          status={redisDel.error ? 'exception' : 'active'}
+                        />
+                        <span className='db-redis-del-prog-text'>
+                          {
+                            e('dbRedisDelKeysProgress')
+                              .replace('{done}', String(redisDel.done))
+                              .replace('{total}', String(redisDel.keys.length))
+                          }
+                        </span>
+                      </div>
+                      )
+                    : null
+                }
+                {
+                  redisDel.error
+                    ? (
+                      <Alert
+                        className='db-redis-del-err'
+                        type='error'
+                        showIcon
+                        message={redisDel.error}
+                        description={
+                          e('dbRedisDelKeysPartial')
+                            .replace('{done}', String(redisDel.done))
+                            .replace('{total}', String(redisDel.keys.length))
+                        }
+                      />
+                      )
+                    : null
+                }
+              </div>
+            </Modal>
             )
           : null
       }
