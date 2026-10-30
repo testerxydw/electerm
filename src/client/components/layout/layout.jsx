@@ -13,6 +13,7 @@ import calcSessionSize from './session-size-alg'
 import Footer from '../footer/footer-entry'
 import RemoteMonitorBar from '../remote-monitor/remote-monitor-bar-entry'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
+import { resolveBottomStack } from '../../common/bottom-stack'
 import SessionsWrap from '../session/sessions'
 import QuickCommandsFooterBox from '../quick-commands/quick-commands-box'
 import pixed from './pixed'
@@ -55,8 +56,16 @@ export default auto(function Layout (props) {
       !quickCommandsInRightPanel
       ? quickCommandBoxHeight
       : 0
-    // 底栏三合一：底部常显区仅剩一条 footer（statusbar/kbar 已并入）
-    const h = height - footerHeight - monitorHeight - qmPinnedHeight - (shortcutBarVisible ? shortcutBarHeight + shortcutBarKbOffset : 0) + resizeTrigger
+    // 底栏避让唯一和式：session = footer + monitor + qm + shortcut + kbOffset
+    const stack = resolveBottomStack({
+      footer: footerHeight,
+      monitor: monitorHeight,
+      qm: qmPinnedHeight,
+      shortcut: shortcutBarVisible ? shortcutBarHeight : 0,
+      kbOffset: shortcutBarVisible ? shortcutBarKbOffset : 0
+    })
+    // + resizeTrigger 保留：T4 flex 化后再评估是否还需要 1px 强制重排
+    const h = height - stack.session + resizeTrigger
     // 左面板可见即预留宽度（无论是否停靠）：面板列独占左侧，终端不被遮挡。
     // 停靠(pin)仅保留"点击外部不关闭"的行为差异，不再差遮挡行为
     const l = openedSideBar && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth

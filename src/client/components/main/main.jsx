@@ -27,12 +27,14 @@ import {
   isWin,
   quickCommandBoxHeight,
   remoteMonitorBarHeight,
+  shortcutBarHeight,
   terminalRdpType,
   terminalSpiceType,
   terminalVncType,
   textTerminalBgValue
 } from '../../common/constants'
 import { isAIDisabled } from '../../common/ai-feature'
+import { resolveBottomStack } from '../../common/bottom-stack'
 import { ConfigProvider } from 'antd'
 import { NotificationContainer } from '../common/notification'
 import RightSidePanel from '../side-panel-r/side-panel-r'
@@ -205,17 +207,31 @@ export default auto(function Index (props) {
     'is-touch-device': store.isTouchDevice,
     'remote-monitor-bar-on': remoteMonitorBarVisible
   })
+  // 底栏避让与 layout.jsx 同一个和式：浮层各取一个派生值，不再各挑子集
+  const monitorHeight = remoteMonitorBarVisible ? remoteMonitorBarHeight : 0
+  const qmPinnedHeight = pinnedQuickCommandBar &&
+    !quickCommandsInRightPanel &&
+    store.inActiveTerminal
+    ? quickCommandBoxHeight
+    : 0
+  const bottomStack = resolveBottomStack({
+    footer: footerHeight,
+    monitor: monitorHeight,
+    qm: qmPinnedHeight,
+    shortcut: store.shortcutBarVisible ? shortcutBarHeight : 0,
+    kbOffset: store.shortcutBarVisible ? store.shortcutBarKbOffset : 0
+  })
   const ext1 = {
     className: cls,
     style: {
       '--left-side-bar-width': store.leftSideBarWidth + 'px',
-      // 底栏三合一（statusbar/kbar 并入 footer）：底部常显区仅剩一条 footer
-      '--footer-stack-height': `${footerHeight + (remoteMonitorBarVisible ? remoteMonitorBarHeight : 0)}px`,
-      // 右面板据其抬高底部避让：快捷命令盒钉在底栏时占 180px（与 layout.jsx
-      // 的 qmPinnedHeight、term-fullscreen.styl 的 180px 同口径），否则 0
-      '--qm-bar-h': pinnedQuickCommandBar && !quickCommandsInRightPanel && store.inActiveTerminal
-        ? `${quickCommandBoxHeight}px`
-        : '0px'
+      // 过渡期保留（T3 后清理）：底栏三合一后的常显区与钉住的快捷命令带
+      '--footer-stack-height': `${footerHeight + monitorHeight}px`,
+      '--qm-bar-h': `${qmPinnedHeight}px`,
+      // 新口径：footer / 监控条 / 侧栏等浮层各取对应派生值
+      '--below-footer-h': `${bottomStack.belowFooter}px`,
+      '--below-monitor-h': `${bottomStack.belowMonitor}px`,
+      '--bottom-reserved-h': `${bottomStack.reserved}px`
     }
   }
   // Get active tab IDs
