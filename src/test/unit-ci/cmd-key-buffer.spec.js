@@ -16,6 +16,8 @@ const patched = src
   .replace(/import \{ debounce \} from 'lodash-es'/, 'const { debounce } = { debounce: (fn) => fn }')
   .replace(/import \{ refsStatic \} from '[^']*ref\.js'/, 'const { refsStatic } = { refsStatic: { get: () => null } }')
   .replace('export const suggestionsMixin', 'const suggestionsMixin')
+  // 上游 #4629 新增的时间窗常量同样是 ESM 导出, vm 沙箱里需一并去掉
+  .replace('export const exitCloseWindow', 'const exitCloseWindow')
 
 function makeCtx ({ oscActive = false, bufferInput = '' } = {}) {
   const recorded = []

@@ -8,10 +8,12 @@ const {
   resolveUserWidgetEntry,
   isUserWidget,
   importWidget,
+  importWidgetFromSource,
   removeUserWidget,
   getUserWidgetDir
 } = require('./user-widget')
 const { isValidWidgetId } = require('./paths')
+const { sanitizeAIConfig } = require('./ai-config')
 // const log = require('../common/log')
 
 // Store running widget instances
@@ -171,7 +173,11 @@ async function runWidget (widgetId, config) {
         instanceId: instance.instanceId,
         widgetId,
         singleInstance: !!singleInstance,
-        ...result
+        ...result,
+        // A widget may offer an AI config for the user to apply; it is
+        // sanitised here, on the way out of the main process, so the renderer
+        // only ever sees the whitelisted fields (see ./ai-config.js).
+        aiConfig: sanitizeAIConfig(result && result.aiConfig)
       }
     })
     .catch((err) => {
@@ -201,12 +207,28 @@ async function callWidgetFunc (widgetId, funcName, ...args) {
   ) {
     throw new Error(`Widget ${widgetId} does not export the function ${funcName}`)
   }
-  return widget[funcName](...args)
+  const result = await widget[funcName](...args)
+  // same offer as a run result, same sanitising (see ./ai-config.js)
+  if (
+    result &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    Object.prototype.hasOwnProperty.call(result, 'aiConfig')
+  ) {
+    return { ...result, aiConfig: sanitizeAIConfig(result.aiConfig) }
+  }
+  return result
 }
 
 // Install: copy a whole widget folder into <data dir>/widgets/<id>/
 function importWidgetFolder (srcDir, overwrite) {
   return importWidget(srcDir, overwrite)
+}
+
+// Install from a git host: `owner/repo`, a GitHub/AtomGit URL, `owner/repo#ref`
+// or a folder inside the repo (see ./widget-source.js)
+function importWidgetFromUrl (input, overwrite) {
+  return importWidgetFromSource(input, overwrite)
 }
 
 // Uninstall: stop whatever it is running, then delete the folder.
@@ -313,6 +335,7 @@ module.exports = {
   runWidgetFunc,
   callWidgetFunc,
   importWidget: importWidgetFolder,
+  importWidgetFromSource: importWidgetFromUrl,
   deleteWidget,
   resolveWidgetModule
 }

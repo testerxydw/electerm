@@ -436,7 +436,14 @@ export default class AttachAddonCustom {
     if (typeof ev.data === 'string') {
       try {
         const msg = JSON.parse(ev.data)
-        if (msg.action === 'zmodem-event' || msg.action === 'trzsz-event' || msg.action === 'xmodem-event') {
+        const controlActions = [
+          'zmodem-event',
+          'trzsz-event',
+          'xmodem-event',
+          // how the pty ended, consumed by the terminal component
+          'session-exit'
+        ]
+        if (controlActions.includes(msg.action)) {
           return
         }
         // 会话顶栏控制消息 (ssh-handshake-info 等): 交给公共模块写入 store
