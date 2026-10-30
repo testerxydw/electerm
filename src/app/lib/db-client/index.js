@@ -45,7 +45,9 @@ const OP_MAP = {
     executeSql: 'executeSql',
     explainQuery: 'explainQuery',
     listColumns: 'listColumns',
-    getObjectDdl: 'getObjectDdl'
+    getObjectDdl: 'getObjectDdl',
+    // H3b：整库外键（ER 图；只读）
+    listForeignKeys: 'listForeignKeys'
   },
   postgres: {
     getMetadata: 'getMetadata',
@@ -61,7 +63,9 @@ const OP_MAP = {
     executeSql: 'executeSql',
     explainQuery: 'explainQuery',
     listColumns: 'listColumns',
-    getObjectDdl: 'getObjectDdl'
+    getObjectDdl: 'getObjectDdl',
+    // H3b：整 schema 外键（ER 图；只读）
+    listForeignKeys: 'listForeignKeys'
   },
   redis: {
     getMetadata: 'getMetadata',

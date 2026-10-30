@@ -1238,6 +1238,49 @@ async function getObjectDdl (conn, args) {
   }
 }
 
+// ---- H3b 只读 ER 图：整 schema 表 + 外键（设计 §10.2） ----
+// relkind 'r' 普通表 / 'p' 分区父表；分区叶子不单列（它们继承同一套约束，画出来是一簇同构方块）。
+// 外键条目一行一条，列对是两个 text[]（conkey/confkey 按序号对齐）。
+const PG_ER_TABLES = `
+SELECT c.relname AS name
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = $1 AND c.relkind IN ('r', 'p')
+ ORDER BY c.relname`
+
+const PG_ER_FKS = `
+SELECT con.conname AS fk_name,
+       t.relname AS table_name,
+       rn.nspname AS ref_schema,
+       rc.relname AS ref_table,
+       (SELECT array_agg(a.attname ORDER BY k.ord)
+          FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+          JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum) AS columns,
+       (SELECT array_agg(a.attname ORDER BY k.ord)
+          FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord)
+          JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum) AS ref_columns
+  FROM pg_constraint con
+  JOIN pg_class t ON t.oid = con.conrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN pg_class rc ON rc.oid = con.confrelid
+  JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+ WHERE con.contype = 'f' AND n.nspname = $1
+ ORDER BY t.relname, con.conname`
+
+async function listForeignKeys (conn, { schema }) {
+  const c = await getClient(conn)
+  const sch = schema || 'public'
+  const [tables, fks] = await Promise.all([
+    c.query(PG_ER_TABLES, [sch]),
+    c.query(PG_ER_FKS, [sch])
+  ])
+  return require('./er-graph').fromPg({
+    tables: tables.rows || [],
+    fkRows: fks.rows || [],
+    schema: sch
+  })
+}
+
 module.exports = {
   testPostgresConnection,
   acquire,
@@ -1264,6 +1307,7 @@ module.exports = {
   // EXPLAIN 计划解析 / ANALYZE 词法检查）
   groupColumns,
   getReferences,
+  listForeignKeys,
   buildInsertBatch,
   insertBatchParams,
   parsePgPlan,

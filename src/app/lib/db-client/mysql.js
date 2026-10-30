@@ -738,6 +738,46 @@ async function getReferences (conn, { database, table, columns }) {
   }
 }
 
+// ---- H3b 只读 ER 图：整库表 + 外键（设计 §10.2） ----
+// 只取 BASE TABLE：视图没有外键，画成节点只会是孤立方块；
+// 跨库引用（REFERENCED_TABLE_SCHEMA != 当前库）在归一里丢掉，那条边的对端不在这张图里。
+const MY_ER_TABLES = `
+SELECT TABLE_NAME AS name
+  FROM information_schema.TABLES
+ WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+ ORDER BY TABLE_NAME`
+
+const MY_ER_FKS = `
+SELECT k.TABLE_NAME AS table_name,
+       k.CONSTRAINT_NAME AS fk_name,
+       k.COLUMN_NAME AS column_name,
+       k.REFERENCED_TABLE_SCHEMA AS ref_schema,
+       k.REFERENCED_TABLE_NAME AS ref_table,
+       k.REFERENCED_COLUMN_NAME AS ref_column
+  FROM information_schema.KEY_COLUMN_USAGE k
+  JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+    ON rc.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+   AND rc.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+ WHERE k.TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+ ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION`
+
+async function listForeignKeys (conn, { database }) {
+  const dbName = database || conn.dbName
+  if (!dbName) {
+    throw new Error('listForeignKeys requires database')
+  }
+  const pool = await getPool(conn)
+  const [tables, fks] = await Promise.all([
+    pool.query(MY_ER_TABLES, [dbName]),
+    pool.query(MY_ER_FKS, [dbName])
+  ])
+  return require('./er-graph').fromMysql({
+    tables: tables[0] || [],
+    fkRows: fks[0] || [],
+    database: dbName
+  })
+}
+
 // 精确总行数（按需触发；大表会全扫描，故不默认执行）
 async function countRows (conn, { database, table }) {
   const pool = await getPool(conn)
@@ -1425,6 +1465,7 @@ module.exports = {
   groupColumns,
   groupReferences,
   getReferences,
+  listForeignKeys,
   INLINE_LIMIT,
   buildInsertBatch,
   insertBatchParams,
