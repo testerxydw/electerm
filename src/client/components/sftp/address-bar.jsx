@@ -194,7 +194,7 @@ export default function AddressBar (props) {
   }, [type])
 
   return (
-    <div className='pd1y sftp-title-wrap'>
+    <div className='sftp-title-wrap'>
       <div className='sftp-title' ref={inputRef}>
         <Input
           value={path}

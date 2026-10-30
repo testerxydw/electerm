@@ -12,6 +12,10 @@ const TERMINAL_STYL = path.join(ROOT, 'src/client/components/terminal/terminal.s
 const DB_STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const WEB_STYL = path.join(ROOT, 'src/client/components/web/web.styl')
 const WEB_ADDRESS_BAR = path.join(ROOT, 'src/client/components/web/address-bar.jsx')
+const SFTP_STYL = path.join(ROOT, 'src/client/components/sftp/sftp.styl')
+const SFTP_ENTRY = path.join(ROOT, 'src/client/components/sftp/sftp-entry.jsx')
+const SFTP_ADDRESS_BAR = path.join(ROOT, 'src/client/components/sftp/address-bar.jsx')
+const SFTP_LIST_TABLE = path.join(ROOT, 'src/client/components/sftp/list-table-ui.jsx')
 
 // T1 顶栏高度单源（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §1）：
 // --session-bar-h 是单行条唯一高度来源，--session-bar-pad-x 是左右内边距唯一来源。
@@ -91,5 +95,26 @@ describe('T1: 五类顶栏消费 token（反向：裸值回归）', () => {
     assert.ok(block.includes('min-height var(--session-bar-h)'), 'min-height 用 token')
     assert.ok(block.includes('line-height var(--session-bar-h)'), 'line-height 用 token')
     assert.ok(block.includes('padding 0 var(--session-bar-pad-x)'), 'padding 用 token')
+  })
+
+  test('sftp 两行条（title / address）各对齐单行节奏', () => {
+    const entry = load(SFTP_ENTRY)
+    assert.ok(!entry.includes('pd1t pd1b'), 'title 行的 pd1t pd1b 已摘除')
+    assert.ok(!load(SFTP_ADDRESS_BAR).includes("'pd1y sftp-title-wrap'"), 'address 行的 pd1y 已摘除')
+
+    const src = load(SFTP_STYL)
+    for (const sel of ['.sftp-panel-title', '.sftp-title-wrap']) {
+      const block = stylBlock(src, sel)
+      assert.ok(block, `${sel} 规则存在`)
+      assert.ok(block.includes('min-height var(--session-bar-h)'), `${sel} min-height 用 token`)
+      assert.ok(block.includes('line-height var(--session-bar-h)'), `${sel} line-height 用 token`)
+      assert.ok(block.includes('padding 0 var(--session-bar-pad-x)'), `${sel} padding 用 token`)
+    }
+  })
+
+  test('sftp 列表高度减式第一项跟着 address 行 42 → 32', () => {
+    const src = load(SFTP_LIST_TABLE)
+    assert.match(src, /height - 32 - 30 - 32 - 90/, '第一项已改成 32')
+    assert.ok(!src.includes('height - 42 - 30 - 32 - 90'), '旧的 42 残留')
   })
 })

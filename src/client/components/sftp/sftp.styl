@@ -3,8 +3,20 @@
   flex-direction row
 .sftp-section
   flex 1
+// 文件面板的两行条：title / address 各对齐单行节奏（高度口径同 tokens.styl）。
+// 不用 display flex：title 行依赖 .alignright 与 .elli，flex 会同时破坏
+// 右对齐和省略号，而单行高度由 line-height + min-height 已经足够。
+.sftp-panel-title
+  flex none
+  min-height var(--session-bar-h)
+  line-height var(--session-bar-h)
+  padding 0 var(--session-bar-pad-x)
 .sftp-title-wrap
   position relative
+  flex none
+  min-height var(--session-bar-h)
+  line-height var(--session-bar-h)
+  padding 0 var(--session-bar-pad-x)
 .sftp-item
   position relative
   z-index 3

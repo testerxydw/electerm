@@ -363,7 +363,8 @@ export default class FileListTable extends Component {
 
   render () {
     const { fileList, height, type } = this.props
-    const containerHeight = height - 42 - 30 - 32 - 90
+    // 第一项是 address 行高，T1 已对齐 --session-bar-h；T3b 删整条算术
+    const containerHeight = height - 32 - 30 - 32 - 90
     const props = {
       ref: this.containerRef,
       className: 'sftp-table-content overscroll-y relative',
