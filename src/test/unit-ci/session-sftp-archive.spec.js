@@ -132,6 +132,18 @@ describe('sftp archive: 打包', () => {
     assert.ok(inst.client.calls[0].includes('Compress-Archive'))
   })
 
+  // 文件管理器给的远端 Windows 路径是 SFTP 形态（/C:/…），exec 要的是 C:/…
+  test('/C:/ 形态的源路径在发命令前归一，不把 /C: 当目录', async () => {
+    const inst = newSession({ platform: 'windows', respond: ok3 })
+    const r = await inst.archiveExtract({ archivePath: '/C:/data/o.zip', destDir: '/C:/data/out' })
+    const cmd = inst.client.calls[0]
+    assert.equal(inst.client.calls.length, 1)
+    assert.ok(cmd.includes(Buffer.from('C:/data/o.zip', 'utf8').toString('base64')), cmd)
+    assert.ok(cmd.includes(Buffer.from('C:/data/out', 'utf8').toString('base64')), cmd)
+    assert.equal(cmd.includes('/C:/data'), false, cmd)
+    assert.equal(r.destDir, '/C:/data/out')
+  })
+
   test('非法入参在发命令之前就被挡掉（连接上一次都不该碰）', async () => {
     const inst = newSession({ respond: ok3 })
     await assert.rejects(

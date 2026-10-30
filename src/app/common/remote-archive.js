@@ -51,8 +51,18 @@ const badPath = (value, label) => {
   return s
 }
 
+/**
+ * SFTP 侧的远端 Windows 路径写成 `/C:/data`（协议要求前导 /），但 exec 落到
+ * cmd/PowerShell 手里就得是 `C:/data`，否则 `/C:` 被当成根下的一个叫 C: 的目录。
+ * 与 session-sftp.js normalizeWindowsExecPath 同一规则，改一处要记得改另一处。
+ */
+const toExecPath = (value, platform) => {
+  const s = String(value || '')
+  return platform === 'windows' ? s.replace(/^\/([a-zA-Z]:)/, '$1') : s
+}
+
 const assertAbsolute = (value, label, platform) => {
-  const s = badPath(value, label)
+  const s = badPath(toExecPath(value, platform), label)
   if (platform === 'windows') {
     const win = /^[a-zA-Z]:[\\/]|^\\\\[^\\]+\\/
     if (!win.test(s)) {
@@ -165,7 +175,7 @@ function sameParent (sources, platform) {
   if (parts.some(p => !p.base)) {
     throw new Error('sources must not have an empty base name')
   }
-  return { dir, bases: parts.map(p => p.base) }
+  return { dir, abs, bases: parts.map(p => p.base) }
 }
 
 // 归档不能写进被自己打包的目录里：tar 会 "file is the archive; not dumped"
@@ -195,8 +205,10 @@ function planArchiveCreate ({ platform = 'posix', kind = KIND_TAR_GZ, sources, d
   }
   const isWin = platform === 'windows'
   const target = assertAbsolute(dest, 'dest', platform)
-  const { dir, bases } = sameParent(sources, platform)
-  assertDestOutsideSources(target, sources)
+  // 归一化后的源路径再拿去比"归档是不是装在待打包目录里"：
+  // `/C:/x` 与 `C:/x` 混着比会漏判，命令也就带病发出去了
+  const { dir, abs, bases } = sameParent(sources, platform)
+  assertDestOutsideSources(target, abs)
   if (isWin) {
     if (kind === KIND_ZIP) {
       if (!/\.zip$/i.test(target)) {

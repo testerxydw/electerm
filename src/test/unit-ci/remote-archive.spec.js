@@ -209,6 +209,40 @@ describe('remote-archive: 打包命令', () => {
     )
   })
 
+  test('SFTP 写成 /C:/data 的远端 Windows 路径会归一成 C:/data 再用', () => {
+    const r = planArchiveCreate({
+      platform: 'windows',
+      kind: 'tar.gz',
+      sources: ['/C:/data/日志.txt'],
+      dest: '/C:/data/out.tar.gz'
+    })
+    // 命令里只出现归一后的形态：`/C:` 在 cmd/PowerShell 眼里是根下的一个叫 C: 的目录
+    const payloads = [...r.cmd.matchAll(/FromBase64String\('([^']*)'\)/g)]
+      .map(m => Buffer.from(m[1], 'base64').toString('utf8'))
+    assert.deepEqual(payloads, ['C:/data/out.tar.gz', 'C:/data', '日志.txt'])
+
+    const l = planArchiveList({ platform: 'windows', archivePath: '/C:/data/out.zip' })
+    assert.ok(l.cmd.includes(b64('C:/data/out.zip')))
+    const x = planArchiveExtract({ platform: 'windows', archivePath: '/C:/data/o.zip', destDir: '/C:/data' })
+    assert.ok(x.cmd.includes(b64('C:/data')))
+
+    // posix 侧不能跟着剥前导 /
+    const p = planArchiveCreate({ kind: 'tar.gz', sources: ['/data/x'], dest: '/data/o.tar.gz' })
+    assert.equal(p.cmd, 'tar -czf "/data/o.tar.gz" -C "/data" -- "x"')
+  })
+
+  test('归一之后才比"归档是不是装在待打包目录里"，混写也不能漏判', () => {
+    assert.throws(
+      () => planArchiveCreate({
+        platform: 'windows',
+        kind: 'tar.gz',
+        sources: ['/C:/data/proj'],
+        dest: '/C:/data/proj/out.tar.gz'
+      }),
+      /inside a source/
+    )
+  })
+
   test('拒绝：跨目录的源、空源、相对源、未知 kind、非绝对 dest', () => {
     assert.throws(
       () => planArchiveCreate({ kind: 'tar.gz', sources: ['/a/x', '/b/y'], dest: '/a/o.tar.gz' }),
