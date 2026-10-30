@@ -334,6 +334,39 @@ async function scanPage (scan, pageSize, startCursor) {
   return { cursor, items }
 }
 
+// XRANGE 的游标不是页码，而是"上一页最后一条之后"的 ID（闭区间起点）。
+// 前端传回来的 ID 只做形状校验：认不出就退回第一页（'-'），
+// 不把前端传来的任意字符串直接拼进命令参数。
+const STREAM_ID_RE = /^(\d+)-(\d+)$/
+const STREAM_SEQ_MAX = 18446744073709551615n
+
+function streamRangeStart (cursor) {
+  const s = String(cursor || '')
+  return STREAM_ID_RE.test(s) ? s : '-'
+}
+
+// 下一页起点：XRANGE 是闭区间，最后一条必须推进一格（seq+1；seq 已满则 ms+1、seq 归 0），
+// 原样传回会让每页的第一条重复上一页的末条。
+// 不用 `(id` 开区间写法：那是 Redis 6.2 才有的语法，老实例直接报错。
+function nextStreamStart (rows, size) {
+  if (!Array.isArray(rows) || rows.length < size || !rows.length) {
+    return '0'
+  }
+  const m = STREAM_ID_RE.exec(String(rows[rows.length - 1][0] || ''))
+  if (!m) {
+    return '0'
+  }
+  let ms = BigInt(m[1])
+  let seq = BigInt(m[2])
+  if (seq < STREAM_SEQ_MAX) {
+    seq += 1n
+  } else {
+    ms += 1n
+    seq = 0n
+  }
+  return `${ms}-${seq}`
+}
+
 async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
   const c = await useDb(conn, dbIndex)
   const type = await c.type(key)
@@ -345,6 +378,9 @@ async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
   let rows = []
   let nextCursor = '0'
   let total
+  // stream 专用：XINFO 的原始结果（归一在渲染侧纯函数里做，与 INFO/慢日志同一口径）
+  let streamInfo = null
+  let streamGroups = null
   switch (type) {
     case 'string': {
       // 大 string 软上限：超过 256KB 只回传预览（防 IPC 结构化克隆内存翻倍），
@@ -395,11 +431,29 @@ async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
     case 'zset':
       rows = await c.zrange(key, 0, 1000, 'WITHSCORES')
       break
+    case 'stream': {
+      // 元信息与条目是两条命令：XINFO 给长度/首末 ID/组数，XRANGE 给条目本体。
+      // XINFO 被托管实例禁用时回 null（界面出「—」）而不是 0 —— 组数 0 是合法值，
+      // 吞成 0 就分不清"没有消费组"和"拿不到组列表"。
+      streamInfo = await c.xinfo('stream', key).catch(() => null)
+      streamGroups = await c.xinfo('groups', key).catch(() => null)
+      rows = await c.xrange(key, streamRangeStart(cursor), '+', 'COUNT', size)
+      total = await c.xlen(key).catch(() => undefined)
+      nextCursor = typeof total === 'number' && rows.length >= total
+        ? '0'
+        : nextStreamStart(rows, size)
+      break
+    }
     default:
       value = null
   }
   const ttl = await c.ttl(key).catch(() => -1)
-  return { type, value, fields, rows, ttl, nextCursor, total }
+  const detail = { type, value, fields, rows, ttl, nextCursor, total }
+  if (type === 'stream') {
+    detail.streamInfo = streamInfo
+    detail.streamGroups = streamGroups
+  }
+  return detail
 }
 
 function checkWritable (readOnly) {
