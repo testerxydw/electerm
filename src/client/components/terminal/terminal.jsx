@@ -100,6 +100,13 @@ class Term extends Component {
 
   domRef = createRef()
 
+  // xterm 挂载点（.term-wrap-2）的实测尺寸：fit 的触发源。
+  // 布局尺寸以前靠 width/height 传参，全屏/分屏/面板开合时传参与实际容器
+  // 并不同步；实测值才是 fit 该用的口径。
+  termBoxObserver = null
+  termBoxEl = null
+  termBoxSize = null
+
   timers = {}
 
   // Config keys that cannot be applied by a re-render - they are pushed into
@@ -156,9 +163,62 @@ class Term extends Component {
       console.error(e)
       this.handleError({ message: e.message })
     })
+    this.observeTermBox()
     if (this.props.tab.enableSsh === false) {
       this.props.tab.pane = paneMap.fileManager
     }
+  }
+
+  observeTermBox = () => {
+    const el = this.domRef.current
+    if (!el || el === this.termBoxEl) {
+      return
+    }
+    this.unobserveTermBox()
+    this.termBoxEl = el
+    this.termBoxObserver = new ResizeObserver(this.onTermBoxResize)
+    this.termBoxObserver.observe(el)
+    this.onTermBoxResize()
+  }
+
+  unobserveTermBox = () => {
+    this.termBoxObserver?.disconnect()
+    this.termBoxObserver = null
+    this.termBoxEl = null
+    this.termBoxSize = null
+  }
+
+  // 容器尺寸变化 → 一次 fit。隐藏标签（display:none）的实测尺寸为 0，
+  // fitAndRefresh 里的 isElementVisible 守卫会跳过 —— 0 列 fit 会把 shell
+  // 提示符逐字符折行，这是历史 bug 的根因，不能靠 RO 绕开。
+  onTermBoxResize = () => {
+    const el = this.domRef.current
+    if (!el) {
+      return
+    }
+    const width = el.clientWidth
+    const height = el.clientHeight
+    const prev = this.termBoxSize
+    if (prev && prev.width === width && prev.height === height) {
+      return
+    }
+    this.termBoxSize = { width, height }
+    this.fitToContainer()
+  }
+
+  // 字体/连字异步加载完成后单元格尺寸会变（xterm 重测并触发
+  // onDimensionsChange），容器尺寸却没变 —— 只靠 RO 会留下"少几列"的空带。
+  // 用 proposeDimensions 判等，只在不一致时补一次 fit，避免自己 fit 出来的
+  // 尺寸再触发一轮。
+  fitToContainer = () => {
+    if (!this.term || !this.fitAddon) {
+      return
+    }
+    const dims = this.fitAddon.proposeDimensions()
+    if (!dims || (dims.cols === this.term.cols && dims.rows === this.term.rows)) {
+      return
+    }
+    this.fitAndRefresh()
   }
 
   componentDidUpdate (prevProps) {
@@ -222,6 +282,7 @@ class Term extends Component {
   }
 
   componentWillUnmount () {
+    this.unobserveTermBox()
     refs.remove(this.id)
     // this tab id will never be connected again (reload mints a new one)
     clearNeedsInteractiveInput(this.props.tab.id)
@@ -264,6 +325,8 @@ class Term extends Component {
       } catch (_) {}
       this.attachAddon = null
     }
+    this.termDimensionsDisposable?.dispose?.()
+    this.termDimensionsDisposable = null
     if (this.term) {
       this.term.dispose()
       this.term = null

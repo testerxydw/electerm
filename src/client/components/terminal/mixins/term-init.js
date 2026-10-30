@@ -96,6 +96,9 @@ export const initMixin = {
     }
     term.onData(this.onData)
     this.term = term
+    // 单元格尺寸变化不改容器尺寸（字体/连字加载、字号缩放），只有
+    // onDimensionsChange 能捕获；补一次 fit 才不会留下少几列的空带
+    this.termDimensionsDisposable = term.onDimensionsChange(this.fitToContainer)
     term.onSelectionChange(this.onSelectionChange)
     term.attachCustomKeyEventHandler(this.handleKeyboardEvent.bind(this))
     // 容器不可见（隐藏标签 display:none）时不 fit，避免算出 0 列把 shell
