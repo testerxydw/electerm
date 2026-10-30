@@ -146,6 +146,104 @@ async function readKnownHostsFile (knownHostsPath = getKnownHostsPath()) {
   }
 }
 
+function isCanonicalBase64 (value) {
+  if (typeof value !== 'string' || !value) {
+    return false
+  }
+  const blob = Buffer.from(value, 'base64')
+  return blob.length > 0 && blob.toString('base64') === value
+}
+
+function fingerprintFromKeyData (keyData) {
+  return formatSha256Fingerprint(
+    crypto.createHash('sha256').update(Buffer.from(keyData, 'base64')).digest('base64')
+  )
+}
+
+/**
+ * 一行 known_hosts 换成面板上的一行。指纹直接对 keyData 的 wire 字节取
+ * sha256，与连接时 getHostKeyMeta 算的是同一份字节，两处显示必然一致。
+ */
+function buildKnownHostRow (line, lineNo) {
+  const entry = parseKnownHostsLine(line)
+  if (!entry) {
+    return null
+  }
+  const tokens = entry.hosts.split(',').map(token => token.trim()).filter(Boolean)
+  const isHashed = tokens.some(token => token.startsWith('|1|'))
+  const malformed = !isCanonicalBase64(entry.keyData)
+  return {
+    lineNo,
+    hostField: entry.hosts,
+    hosts: tokens.filter(token => !token.startsWith('|1|')),
+    hashed: isHashed,
+    keyType: entry.keyType,
+    marker: entry.marker || '',
+    fingerprint: malformed ? '' : fingerprintFromKeyData(entry.keyData),
+    malformed
+  }
+}
+
+function listKnownHostRows (content = '') {
+  const rows = []
+  String(content).split(/\r?\n/).forEach((line, index) => {
+    const row = buildKnownHostRow(line, index + 1)
+    if (row) {
+      rows.push(row)
+    }
+  })
+  return rows
+}
+
+async function listKnownHosts (knownHostsPath = getKnownHostsPath()) {
+  let stat = null
+  try {
+    stat = await fs.promises.stat(knownHostsPath)
+  } catch (err) {
+    if (!err || err.code !== 'ENOENT') {
+      throw err
+    }
+  }
+  const content = stat ? await fs.promises.readFile(knownHostsPath, 'utf8') : ''
+  return {
+    knownHostsPath,
+    exists: !!stat,
+    mtimeMs: stat ? stat.mtimeMs : null,
+    rows: listKnownHostRows(content)
+  }
+}
+
+/**
+ * 按行号删一条。行号取自「读列表」那一刻，中间 `ssh-keygen -R` 之类的外部改动
+ * 会让它指向另一条，所以删之前用这一行的指纹再核一次，对不上就拒绝而不是删错行。
+ */
+async function removeKnownHostLine (options = {}) {
+  const {
+    lineNo,
+    fingerprint,
+    knownHostsPath = getKnownHostsPath()
+  } = options
+  const target = Number(lineNo)
+  if (!Number.isInteger(target) || target < 1) {
+    throw new Error('known_hosts line number must be a positive integer')
+  }
+  const content = await readKnownHostsFile(knownHostsPath)
+  const lines = content.split(/\r?\n/)
+  const row = buildKnownHostRow(lines[target - 1], target)
+  if (!row) {
+    throw new Error(`known_hosts line ${target} is not a host key entry`)
+  }
+  if (!fingerprint || row.fingerprint !== fingerprint) {
+    throw new Error(`known_hosts line ${target} no longer holds the expected key`)
+  }
+  await fs.promises.writeFile(
+    knownHostsPath,
+    lines.filter((line, index) => index !== target - 1).join('\n'),
+    { mode: 0o600 }
+  )
+  return row
+}
+
 async function checkKnownHosts (options) {
   const {
     host,
@@ -439,19 +537,24 @@ function createHostVerifier (options) {
 
 module.exports = {
   appendKnownHost,
+  buildKnownHostRow,
   buildHostMismatchError,
   buildHostMismatchPrompt,
   buildUnknownHostPrompt,
   checkKnownHosts,
   createHostVerifier,
+  fingerprintFromKeyData,
   formatSha256Fingerprint,
   getHostKeyMeta,
   getKnownHostCandidates,
   getKnownHostsPath,
+  listKnownHostRows,
+  listKnownHosts,
   matchesHashedHost,
   matchesKnownHostField,
   normalizeHost,
   parseKnownHostsLine,
   removeKnownHost,
+  removeKnownHostLine,
   replaceKnownHost
 }

@@ -374,6 +374,31 @@ function initIpc () {
       }
       throw new Error('unknown dbGridViewOp action: ' + action)
     },
+    // G7 SSH 密钥与 known_hosts 面板：所有路径都在主进程算，渲染层只递
+    // 类型/名字/口令这类不含路径的分量——`~/.ssh` 由 os.homedir() 决定，
+    // 交给渲染层等于开一条任意文件读写通道。
+    sshKeyOp: async (action, arg) => {
+      const k = require('../server/ssh-keygen')
+      const h = require('../server/ssh-known-hosts')
+      const a = arg || {}
+      if (action === 'generate') {
+        return k.generateSshKey({
+          type: a.type,
+          name: a.name,
+          passphrase: a.passphrase
+        })
+      }
+      if (action === 'listKnownHosts') {
+        return h.listKnownHosts()
+      }
+      if (action === 'deleteKnownHost') {
+        return h.removeKnownHostLine({ lineNo: a.lineNo, fingerprint: a.fingerprint })
+      }
+      if (action === 'readPublicKey') {
+        return k.readPublicKey({ publicKeyPath: a.publicKeyPath })
+      }
+      throw new Error('unknown sshKeyOp action: ' + action)
+    },
     setPassword,
     checkPassword,
     lookup,
