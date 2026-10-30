@@ -12,6 +12,7 @@ const {
   buildPreview
 } = require('../common/remote-preview.js')
 const { commonExtends } = require('./session-common.js')
+const sessionArchive = require('./session-archive.js')
 const { TerminalBase } = require('./session-base.js')
 const {
   getSizeCount,
@@ -388,6 +389,20 @@ class Sftp extends TerminalBase {
     return platform === 'windows'
       ? getSizeCountWin(output)
       : getSizeCount(output)
+  }
+
+  // G4 归档三兄弟：命令串由 remote-archive 产出，执行与结果整理在 session-archive。
+  // 渲染层只递路径，命令本身不过界。
+  archiveCreate (opts) {
+    return sessionArchive.archiveCreate(this, opts)
+  }
+
+  archiveList (opts) {
+    return sessionArchive.archiveList(this, opts)
+  }
+
+  archiveExtract (opts) {
+    return sessionArchive.archiveExtract(this, opts)
   }
 
   /**

@@ -137,7 +137,7 @@ function defaultArchivePath ({ sources, kind, platform = 'posix' }) {
   if (!Array.isArray(sources) || !sources.length) {
     throw new Error('sources must be a non-empty array')
   }
-  const first = splitPath(sources[0], 'sources[0]', platform)
+  const first = splitPath(assertAbsolute(sources[0], 'sources[0]', platform), 'sources[0]', platform)
   const ext = kind === KIND_ZIP ? '.zip' : '.tar.gz'
   // 已经带对应后缀就别再叠一层 a.tar.gz.tar.gz
   const base = first.base.toLowerCase().endsWith(ext) ? first.base : first.base + ext
@@ -149,7 +149,10 @@ function sameParent (sources, platform) {
   if (!Array.isArray(sources) || !sources.length) {
     throw new Error('sources must be a non-empty array')
   }
-  const parts = sources.map((s, i) => splitPath(s, `sources[${i}]`, platform))
+  // 源必须绝对：`tar -C rel -- x` 里的 rel 是相对 shell 的 cwd（= SSH 用户的
+  // home）解析的，不挡的话会闷声打包错目录里的东西
+  const abs = sources.map((s, i) => assertAbsolute(s, `sources[${i}]`, platform))
+  const parts = abs.map((s, i) => splitPath(s, `sources[${i}]`, platform))
   const dir = parts[0].dir
   // 分隔符按出现的那种归一：`C:\a` 与 `C:/a` 是同一目录，
   // SFTP 列出来的远端 Windows 路径两种写法都有，不该影响能不能打包
@@ -317,6 +320,24 @@ function planArchiveExtract ({ platform = 'posix', archivePath, destDir }) {
   return { cmd: `tar -xf ${q(target)} -C ${q(dir)}`, kind }
 }
 
+/**
+ * 失败详情只回最后几行：tar 找不到目录时能把整页 usage 吐进 stderr，
+ * 原文回传会把确认弹层撑爆，也读不出重点。
+ */
+function errorTail (text, maxLines = 3, maxChars = 600) {
+  const s = String(text || '')
+  if (!s.trim()) {
+    return ''
+  }
+  return s
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean)
+    .slice(-maxLines)
+    .join('\n')
+    .slice(-maxChars)
+}
+
 module.exports = {
   NO_ZIP_MARKER,
   LIST_MAX_ENTRIES,
@@ -331,5 +352,6 @@ module.exports = {
   planArchiveCreate,
   planArchiveList,
   planArchiveExtract,
-  parseArchiveListing
+  parseArchiveListing,
+  errorTail
 }

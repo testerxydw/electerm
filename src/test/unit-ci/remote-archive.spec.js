@@ -209,10 +209,19 @@ describe('remote-archive: 打包命令', () => {
     )
   })
 
-  test('拒绝：跨目录的源、空源、未知 kind、非绝对 dest', () => {
+  test('拒绝：跨目录的源、空源、相对源、未知 kind、非绝对 dest', () => {
     assert.throws(
       () => planArchiveCreate({ kind: 'tar.gz', sources: ['/a/x', '/b/y'], dest: '/a/o.tar.gz' }),
       /same directory/
+    )
+    // `tar -C rel` 的 rel 是按 shell cwd（SSH home）解析的，放过去就是打包错目录
+    assert.throws(
+      () => planArchiveCreate({ kind: 'tar.gz', sources: ['rel/x'], dest: '/a/o.tar.gz' }),
+      /absolute/
+    )
+    assert.throws(
+      () => planArchiveCreate({ platform: 'windows', kind: 'tar.gz', sources: ['rel/x'], dest: 'C:\\a\\o.tar.gz' }),
+      /absolute/
     )
     assert.throws(() => planArchiveCreate({ kind: 'tar.gz', sources: [], dest: '/a/o.tar.gz' }), /non-empty array/)
     assert.throws(() => planArchiveCreate({ kind: '7z', sources: ['/a/x'], dest: '/a/o.7z' }), /unsupported archive kind/)
