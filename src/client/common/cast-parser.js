@@ -162,3 +162,67 @@ export const castFrames = events => {
     .sort((a, b) => a[0] - b[0])
     .map(([ms, idxs]) => ({ ms, idxs }))
 }
+
+/**
+ * 列表页的"时长"：只从尾段往前找第一条能解析的事件行。
+ * 尾段两头都可能是半行——开头是切片边界、结尾是写盘没 flush 完，
+ * 所以从后往前扫而不是取末行；全扫不到就回 null（让调用方显示「—」）。
+ */
+export const castTailDuration = tail => {
+  const lines = String(tail || '').split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    if (!line.startsWith('[')) {
+      continue
+    }
+    let row
+    try {
+      row = JSON.parse(line)
+    } catch (err) {
+      continue
+    }
+    if (!Array.isArray(row) || row.length < 3) {
+      continue
+    }
+    // 认"是不是事件行"要和 parseCast 同一口径，否则 [1,2] 这种残缺数组会被当成时间
+    if (typeof row[1] !== 'string' || !row[1]) {
+      continue
+    }
+    const at = Number(row[0])
+    if (!Number.isFinite(at)) {
+      continue
+    }
+    return Math.max(0, at)
+  }
+  return null
+}
+
+/**
+ * 列表页一行的摘要：主进程只给首尾两段原文，格式解析仍然只在这一处发生。
+ * head 可能是 64KB 截断（末行半行 → 计成坏行，不算格式错误），
+ * 时长优先取尾段（head 内的 duration 只是下界），
+ * 只有 header 真的读不出来才标 invalid——invalid 的行仍可删除、可定位。
+ */
+export const castProbeSummary = (head, tail) => {
+  let parsed = null
+  try {
+    parsed = parseCast(head)
+  } catch (err) {
+    if (!(err instanceof CastFormatError)) {
+      throw err
+    }
+  }
+  if (!parsed) {
+    return { invalid: true, cols: null, rows: null, duration: null, firstCommand: null }
+  }
+  const h = parsed.header || {}
+  const fromTail = castTailDuration(tail)
+  return {
+    // 0 字节文件解析得到 empty + header:null：不是"格式错误"，是"没内容"
+    invalid: false,
+    cols: h.width || null,
+    rows: h.height || null,
+    duration: fromTail === null ? parsed.duration : fromTail,
+    firstCommand: firstCastCommand(parsed.events)
+  }
+}

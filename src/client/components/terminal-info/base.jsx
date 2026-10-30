@@ -10,6 +10,7 @@ import { INFO_PANEL_ITEM_IDS } from '../remote-monitor/monitor-model'
 import { toggleTerminalLog, toggleTerminalLogTimestamp } from '../terminal/terminal-apis'
 import { refs } from '../common/ref'
 import ShowItem from '../common/show-item'
+import RecordingList from '../terminal/recording-list'
 import { osResolve } from '../../common/resolve'
 import createDefaultLogPath from '../../common/default-log-path'
 
@@ -30,7 +31,9 @@ export default class TerminalInfoBase extends Component {
     logFileName: '',
     // 会话录制状态快照 (store.recState[pid]) 与当前时刻（时长展示）
     rec: null,
-    now: 0
+    now: 0,
+    // 录制文件列表弹层（G2）
+    recList: false
   }
 
   componentDidMount () {
@@ -74,6 +77,10 @@ export default class TerminalInfoBase extends Component {
   handleOpenLogDir = (evt) => {
     evt.preventDefault()
     window.pre.runGlobalAsync('openSessionLogDir')
+  }
+
+  handleToggleRecList = () => {
+    this.setState({ recList: !this.state.recList })
   }
 
   handleToggleRecConfig = (key) => {
@@ -258,6 +265,12 @@ export default class TerminalInfoBase extends Component {
           {this.renderRecSetting('recordStripOsc', e('recordStripOsc'))}
           {this.renderRecSetting('recordAvoidPassword', e('recordAvoidPassword'))}
         </div>
+        <div className='pd1b'>
+          <Button size='small' onClick={this.handleToggleRecList}>
+            {e('recordingFiles')}
+          </Button>
+        </div>
+        <RecordingList open={this.state.recList} onClose={this.handleToggleRecList} />
       </div>
     )
   }

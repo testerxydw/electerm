@@ -266,6 +266,9 @@ export default function CastPlayer (props) {
     let dead = false
     let term = null
     const header = load.header || {}
+    // 主题/字体允许父级传入；没传就现场取一次（只在建终端时取，播放帧里不取）
+    const cfg = config && Object.keys(config).length ? config : window.store.config
+    const theme = themeConfig || window.store.getThemeConfig()
     loadTerminal().then(Terminal => {
       if (dead || !boxRef.current) {
         return
@@ -276,10 +279,10 @@ export default function CastPlayer (props) {
         disableStdin: true,
         cursorBlink: false,
         cursorStyle: 'underline',
-        scrollback: config.scrollback,
-        fontFamily: config.fontFamily,
-        fontSize: config.fontSize,
-        theme: themeConfig
+        scrollback: cfg.scrollback,
+        fontFamily: cfg.fontFamily,
+        fontSize: cfg.fontSize,
+        theme
       })
       termRef.current = term
       term.open(boxRef.current)

@@ -206,3 +206,98 @@ describe('G2 cast 解析：命令与进度', () => {
     assert.deepEqual(castFrames([]), [])
   })
 })
+
+describe('G2 cast 列表探测：尾段时长', () => {
+  test('取最后一条事件的时间（列表页据此显示时长）', async () => {
+    const { castTailDuration } = await load()
+    assert.equal(castTailDuration([ev(1, 'o', 'a'), ev(2.5, 'o', 'b')].join('\n')), 2.5)
+  })
+
+  test('末尾半行跳过（写盘 500ms 一批，尾巴本来就不全）', async () => {
+    const { castTailDuration } = await load()
+    const tail = [ev(1, 'o', 'a'), ev(3, 'o', 'x')].join('\n') + '\n[3.9", "o"'
+    assert.equal(castTailDuration(tail), 3)
+  })
+
+  test('开头半行也跳过（尾段是切片出来的，边界一定在行中）', async () => {
+    const { castTailDuration } = await load()
+    assert.equal(castTailDuration('"a"]\n' + ev(7, 'o', 'b')), 7)
+  })
+
+  test('键盘输入事件也算时间（时间线不分类型）', async () => {
+    const { castTailDuration } = await load()
+    assert.equal(castTailDuration([ev(2, 'o', 'a'), ev(4, 'i', 'ls\r')].join('\n')), 4)
+  })
+
+  test('负时间钳到 0；全扫不到回 null（界面画「—」而不是 0 秒）', async () => {
+    const { castTailDuration } = await load()
+    assert.equal(castTailDuration(ev(-3, 'o', 'a')), 0)
+    assert.equal(castTailDuration(''), null)
+    assert.equal(castTailDuration(H), null)
+    assert.equal(castTailDuration([ev('x', 'o', 'a'), '[1,2]', '[9]'].join('\n')), null)
+  })
+})
+
+describe('G2 cast 列表探测：整行摘要', () => {
+  test('小文件（tail 为空）：时长/尺寸/首条命令都来自 head', async () => {
+    const { castProbeSummary } = await load()
+    const s = castProbeSummary(cast(ev(0.1, 'i', 'ls\r'), ev(1.2, 'o', 'file1\n')), '')
+    assert.deepEqual(s, {
+      invalid: false,
+      cols: 80,
+      rows: 24,
+      duration: 1.2,
+      firstCommand: 'ls'
+    })
+  })
+
+  test('大文件：时长取尾段而不是 head 的下界', async () => {
+    const { castProbeSummary } = await load()
+    const head = cast(ev(0.5, 'o', 'a'), ev(1, 'o', 'b'))
+    const s = castProbeSummary(head, ev(120.5, 'o', 'z'))
+    assert.equal(s.duration, 120.5)
+    assert.equal(s.cols, 80)
+  })
+
+  test('没开 recordInput 时首条命令为 null（界面画「—」）', async () => {
+    const { castProbeSummary } = await load()
+    assert.equal(castProbeSummary(cast(ev(1, 'o', 'a')), '').firstCommand, null)
+  })
+
+  test('header 损坏不抛：只标 invalid，其余留空（该行仍可删/可定位）', async () => {
+    const { castProbeSummary } = await load()
+    const bad = '{"version":2,"width":0,"height":24}\n' + ev(1, 'o', 'a')
+    assert.deepEqual(castProbeSummary(bad, ev(9, 'o', 'z')), {
+      invalid: true,
+      cols: null,
+      rows: null,
+      duration: null,
+      firstCommand: null
+    })
+  })
+
+  test('0 字节/只有空白：不是"格式错误"，是"没内容"（时长 0、尺寸空）', async () => {
+    const { castProbeSummary } = await load()
+    const empty = cast()
+    assert.deepEqual(castProbeSummary('', ''), {
+      invalid: false,
+      cols: null,
+      rows: null,
+      duration: 0,
+      firstCommand: null
+    })
+    // 有 header 没事件：尺寸照常显示
+    assert.deepEqual(castProbeSummary(empty, ''), {
+      invalid: false,
+      cols: 80,
+      rows: 24,
+      duration: 0,
+      firstCommand: null
+    })
+  })
+
+  test('残缺数组不算事件（[1,2] 不能当时间用）', async () => {
+    const { castTailDuration } = await load()
+    assert.equal(castTailDuration([ev(1, 'o', 'a'), '[1,2]', '[9]', '[1,"r",[80,24]]'].join('\n')), 1)
+  })
+})

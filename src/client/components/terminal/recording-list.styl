@@ -1,0 +1,60 @@
+// G2：录制文件列表
+//
+// 目录行可能很长（用户自定义 sessionLogPath），省略号截断但 title 里给全文。
+.rec-list
+  display flex
+  flex-direction column
+  gap var(--sp-2)
+
+.rec-list-head
+  display flex
+  align-items center
+  gap var(--sp-2)
+
+.rec-list-dir
+  flex 1 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  color var(--text-muted)
+  font-size var(--fs-sm)
+  font-family var(--font-mono)
+
+// 数值列（大小/时长/时间）等宽右对齐，扫读时能按位比
+.rec-num
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  color var(--text-muted)
+  white-space nowrap
+
+.rec-name
+  display inline-flex
+  align-items center
+  gap 6px
+  min-width 0
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+
+// 坏文件要一眼看出是"读不出来"而不是"没内容"
+.rec-invalid-tag
+  flex none
+  padding 0 6px
+  border-radius var(--radius-pill)
+  background var(--error-bg)
+  color var(--error)
+  font-size var(--fs-xs)
+  white-space nowrap
+
+.rec-cmd
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+
+.rec-dash
+  color var(--text-muted)
+
+.rec-ops
+  display inline-flex
+  align-items center
+  gap 6px
+  white-space nowrap
