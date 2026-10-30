@@ -508,6 +508,145 @@
   display flex
   gap 8px
   margin-bottom 8px
+
+// H3b-3：ER 图弹层。高度按视口给（85vh），画布是唯一的弹性区 ——
+// 弹层默认高度随内容走，图会被上下几条提示挤成一条
+.db-er-modal
+  .ant-modal-container
+    height 85vh
+    display flex
+    flex-direction column
+  .ant-modal-body
+    flex 1 1 auto
+    min-height 0
+    display flex
+    flex-direction column
+.db-er
+  flex 1 1 auto
+  min-height 0
+  display flex
+  flex-direction column
+  gap 8px
+.db-er-err
+  flex none
+.db-er-note
+  flex none
+  padding 4px 8px
+  border-radius var(--radius-xs)
+  background var(--warn-bg)
+  color var(--warn)
+  font-size 12px
+.db-er-head
+  flex none
+  display flex
+  align-items center
+  justify-content space-between
+  gap 12px
+  font-size 12px
+  color var(--text-muted)
+.db-er-zoom
+  font-family var(--db-code-font, var(--font-mono))
+.db-er-canvas
+  position relative
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--surface-1)
+  cursor grab
+  user-select none
+  &.is-dragging
+    cursor grabbing
+// 转圈/空态盖在画布上：图还没到时也保持弹层高度稳定，不闪一下再撑开
+.db-er-center
+  position absolute
+  inset 0
+  display flex
+  align-items center
+  justify-content center
+  color var(--text-muted)
+  font-size 12px
+  pointer-events none
+.db-er-svg
+  display block
+  width 100%
+  height 100%
+.db-er-arrow-head
+  fill var(--text-muted)
+.db-er-arrow-hot
+  fill var(--primary)
+.db-er-edge
+  path
+    fill none
+    stroke var(--border-strong)
+    stroke-width 1.5
+  &.is-hot
+    path
+      stroke var(--primary)
+      stroke-width 2
+  &.is-dim
+    opacity .25
+// 节点底色必须和画布（--surface-1）分开：同色时只剩描边，一排表看起来像空框
+.db-er-node
+  cursor grab
+  rect
+    fill var(--surface-2)
+    stroke var(--border-strong)
+    stroke-width 1
+    transition fill var(--dur-1) var(--ease), stroke var(--dur-1) var(--ease)
+  &:hover rect
+    stroke var(--primary)
+  &.is-selected rect
+    fill var(--accent-wash)
+    stroke var(--primary)
+    stroke-width 2
+  &.is-dim
+    opacity .3
+.db-er-node-name
+  font-size 12px
+  fill var(--text)
+  font-family var(--db-code-font, var(--font-mono))
+.db-er-node-sub
+  font-size 10px
+  fill var(--text-muted)
+  font-family var(--db-code-font, var(--font-mono))
+.db-er-detail
+  flex none
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+  padding 6px 8px
+  border-radius var(--radius-xs)
+  background var(--hover-bg)
+  font-size 12px
+  .ant-btn
+    margin-left auto
+.db-er-detail-title
+  font-family var(--db-code-font, var(--font-mono))
+  font-weight 600
+  color var(--text)
+.db-er-detail-sub
+  color var(--text-muted)
+.db-er-detail-list
+  display flex
+  flex-wrap wrap
+  gap 4px 14px
+  margin 0
+  padding 0
+  list-style none
+  color var(--text)
+  li
+    display flex
+    align-items center
+    gap 6px
+.db-er-detail-fk
+  color var(--text-muted)
+.db-er-detail-col
+  font-family var(--db-code-font, var(--font-mono))
+.db-er-detail-sep
+  color var(--text-muted)
 .db-ddl-pre
   margin 0
   max-height 60vh

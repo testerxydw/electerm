@@ -788,7 +788,18 @@ const en = {
   dbRedisStreamEntries: 'entries',
   dbRedisStreamId: 'id',
   dbRedisStreamFields: 'fields',
-  dbRedisStreamFieldCount: 'field count'
+  dbRedisStreamFieldCount: 'field count',
+  // H3b-3：ER 图（只读）
+  dbErGraph: 'ER diagram',
+  dbErFailed: 'Could not load foreign keys',
+  dbErEmpty: 'No tables in this schema',
+  dbErNoFk: 'No foreign keys defined in this schema - showing tables only',
+  dbErTruncated: 'Large schema ({total} tables): showing {kept} with foreign keys',
+  dbErFkCount: '{n} FKs',
+  dbErHint: 'wheel to zoom · drag the canvas to pan · drag a table to move it · double-click to open',
+  dbErReset: 'reset layout',
+  dbErOpenTable: 'open table',
+  dbErNoFkForTable: 'no foreign keys on this table'
 }
 
 // 简体中文
@@ -1561,7 +1572,18 @@ const zhCn = {
   dbRedisStreamEntries: '条目',
   dbRedisStreamId: 'ID',
   dbRedisStreamFields: '字段',
-  dbRedisStreamFieldCount: '字段数'
+  dbRedisStreamFieldCount: '字段数',
+  // H3b-3：ER 图（只读）
+  dbErGraph: 'ER 图',
+  dbErFailed: '外键信息加载失败',
+  dbErEmpty: '这个库里没有表',
+  dbErNoFk: '本库没有定义外键，只画表',
+  dbErTruncated: '表太多（{total} 张）：只显示有外键关联的 {kept} 张',
+  dbErFkCount: '{n} 个外键',
+  dbErHint: '滚轮缩放 · 拖拽空白处平移 · 拖动表移动位置 · 双击打开表',
+  dbErReset: '重置布局',
+  dbErOpenTable: '打开表',
+  dbErNoFkForTable: '这张表没有外键'
 }
 
 module.exports = {

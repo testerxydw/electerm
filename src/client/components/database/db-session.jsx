@@ -19,6 +19,8 @@ import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
 // H7a-4：Redis 服务器信息弹层（概览 / Keyspace / 原始 INFO）
 import DbRedisInfoModal from './db-redis-info'
+// H3b-3：ER 图（结构页工具条 → 全屏弹层；只读）
+import DbErView from './db-er-view'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
 // H1a-4（网格复用整合）：数据页 / SQL 结果页共用列工厂（差异全部参数化）
 import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
@@ -966,6 +968,10 @@ export default auto(function DbSession (props) {
   // 而这份数据没人盯着看。令牌管"连点刷新时旧响应不覆盖新响应"。
   const [redisInfo, setRedisInfo] = useState({ open: false, loading: false, text: '', error: '' })
   const redisInfoTokenRef = useRef(0)
+  // H3b-3：ER 图。图是整个库/schema 的一张快照，与"当前在看哪张表"无关，
+  // 所以打开时按当前库拉一次即可；令牌管"连点刷新时旧响应不覆盖新响应"
+  const [er, setEr] = useState({ open: false, loading: false, error: '', graph: null })
+  const erTokenRef = useRef(0)
   // H7b-2：慢日志与 INFO 同层弹层、不同命令，状态也分开：
   // INFO 失败不该让慢日志看起来失败，反之亦然。entries=null 是"从没拉过"，[] 是"拉过、空的"
   const [redisSlowlog, setRedisSlowlog] = useState({ loading: false, error: '', entries: null })
@@ -3810,6 +3816,48 @@ export default auto(function DbSession (props) {
     // 慢日志一起清回"从没拉过"：重开时切进该页签会重新拉，
     // 留着上一次的条目会让人以为看到的是当前这段慢日志
     setRedisSlowlog({ loading: false, error: '', entries: null })
+  }
+
+  // H3b-3：ER 图取数。只发 listForeignKeys（MySQL 走 information_schema，
+  // PG 走 pg_constraint），范围是当前库/schema —— 图里的表与本页选中的表无关，
+  // 换表不用重拉，换库才需要（关闭再打开就是新的一次）。
+  const loadErGraph = () => {
+    if (!sel || !sel.database) {
+      return
+    }
+    const target = { database: sel.database, schema: sel.schema || '' }
+    erTokenRef.current++
+    const token = erTokenRef.current
+    setEr(s => ({ ...s, loading: true, error: '' }))
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'listForeignKeys', target).then(graph => {
+      if (token !== erTokenRef.current) {
+        return
+      }
+      setEr({ open: true, loading: false, error: '', graph: graph || null })
+    }).catch(err => {
+      if (token !== erTokenRef.current) {
+        return
+      }
+      // 失败保留上一张图：刷新失败不该把还能看的东西一起收走，报错条会说明情况
+      setEr(s => ({
+        ...s,
+        open: true,
+        loading: false,
+        error: cleanDbError(err && err.message ? err.message : err)
+      }))
+    })
+  }
+
+  const openErGraph = () => {
+    // 先清空旧图：换库后打开，上一张图闪一下再被顶掉会被当成"新库就长这样"
+    setEr({ open: true, loading: true, error: '', graph: null })
+    loadErGraph()
+  }
+
+  const closeErGraph = () => {
+    // 关闭即作废在途请求：关掉再打开不该先看到上一次请求的结果
+    erTokenRef.current++
+    setEr({ open: false, loading: false, error: '', graph: null })
   }
 
   // H7b-2：慢日志。与 INFO 同一个弹层、另一条命令 —— 只在第一次切进"慢日志"页签时拉，
@@ -7724,6 +7772,15 @@ export default auto(function DbSession (props) {
                   : null
               }
               {colFitAllBtn(structWidths)}
+              {/* H3b-3：整库 ER 图。只读，不进 SQL 编辑器；图的范围是当前库/schema */}
+              <Button
+                size='small'
+                icon={<NodeIndexOutlined />}
+                loading={er.loading && er.open}
+                onClick={openErGraph}
+              >
+                {e('dbErGraph')}
+              </Button>
               <Dropdown
                 trigger='click'
                 disabled={!structureV2.columns.length}
@@ -9354,6 +9411,23 @@ export default auto(function DbSession (props) {
               slowlog={redisSlowlog}
               onLoadSlowlog={loadRedisSlowlog}
               onRefreshSlowlog={loadRedisSlowlog}
+            />
+            )
+          : null
+      }
+      {/* H3b-3：ER 图（整库外键一览，只读） */}
+      {
+        !isRedis
+          ? (
+            <DbErView
+              open={er.open}
+              loading={er.loading}
+              error={er.error}
+              graph={er.graph}
+              database={sel && sel.database}
+              onClose={closeErGraph}
+              onRefresh={loadErGraph}
+              onOpenTable={openTable}
             />
             )
           : null
