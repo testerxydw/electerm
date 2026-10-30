@@ -1,0 +1,67 @@
+// G2：cast 回放弹层
+//
+// 画面区宽高等于录制时的 cols/rows（不随窗口重排），所以内容可能比弹层宽：
+// 横向也要能滚，否则右侧列被裁掉且没有任何提示。
+.cast-player
+  display flex
+  flex-direction column
+  gap var(--sp-2)
+
+.cast-player-loading
+  display flex
+  justify-content center
+  padding var(--sp-5) 0
+
+.cast-player-meta
+  color var(--text-muted)
+  font-size var(--fs-sm)
+  font-family var(--font-mono)
+  // 一行放不下的元信息（尺寸/起始时间/事件数/坏行）折行，不裁掉
+  white-space normal
+  word-break break-word
+
+.cast-player-box
+  flex none
+  max-height 60vh
+  max-width 100%
+  overflow auto
+  padding var(--sp-2)
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--surface-0)
+  // xterm 的滚动条只在内容超过容器时出现，这里不抢它的样式
+
+.cast-player-bar
+  display flex
+  align-items center
+  gap var(--sp-2)
+  min-width 0
+
+.cast-player-speeds
+  display flex
+  align-items center
+  gap 4px
+  flex none
+
+// Slider 占满剩余宽度；不给 min-width 0 会被后面的时间/按钮挤成零宽
+.cast-player-scrub
+  flex 1 1 auto
+  min-width 80px
+  margin 0
+
+.cast-player-time
+  flex none
+  color var(--text-muted)
+  font-size var(--fs-sm)
+  font-family var(--font-mono)
+  white-space nowrap
+
+// 输入徽标行：没有输入事件时也要占位，否则播放中整块内容会上下跳
+.cast-player-typed
+  min-height 18px
+  color var(--primary-text)
+  font-size var(--fs-sm)
+  font-family var(--font-mono)
+  white-space nowrap
+  overflow hidden
+  text-overflow ellipsis
