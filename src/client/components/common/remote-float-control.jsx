@@ -2,9 +2,7 @@ import React from 'react'
 import {
   FullscreenExitOutlined,
   AppstoreOutlined,
-  DesktopOutlined,
-  MoreOutlined,
-  DownOutlined
+  MoreOutlined
 } from '@ant-design/icons'
 import { Dropdown } from 'antd'
 import './remote-float-control.styl'
@@ -15,9 +13,6 @@ export default function RemoteFloatControl (props) {
   const {
     isFullScreen,
     onSendCtrlAltDel,
-    screens = [],
-    onSelectScreen,
-    currentScreen,
     fixedPosition = true,
     showExitFullscreen = true,
     className = ''
@@ -49,19 +44,9 @@ export default function RemoteFloatControl (props) {
     })
   }
 
-  if (screens && screens.length > 0) {
-    items.push({
-      key: 'screens',
-      label: 'Select Screen',
-      icon: <DesktopOutlined />,
-      children: screens.map(s => ({
-        key: s.id,
-        label: s.name,
-        onClick: () => onSelectScreen(s.id),
-        icon: currentScreen === s.id ? <DownOutlined /> : null
-      }))
-    })
-  }
+  // 已删除多显示器子菜单：选屏只在 VNC 有，而它已经把入口放在顶栏左侧的 Select
+  // 里，同一个功能两个入口会让用户不知道该点哪个（见
+  // doc/分析-远程会话顶栏差异与统一-2026-10-30.md §4）。RDP/SPICE/DB 一直传的是空数组。
 
   const containerClassName = (fixedPosition ? 'remote-float-control' : 'remote-float-control-inline') + (className ? ' ' + className : '')
   const buttonClassName = fixedPosition ? 'remote-float-btn' : 'remote-float-btn-inline'

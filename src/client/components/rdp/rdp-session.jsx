@@ -24,6 +24,7 @@ import resolutions from './resolutions'
 import { readClipboardAsync } from '../../common/clipboard'
 import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
+import SessionInfo from '../common/session-info'
 import { eventToRemotePos } from '../common/remote-pointer'
 import {
   FALLBACK_DESKTOP,
@@ -787,9 +788,6 @@ export default class RdpSession extends PureComponent {
     return {
       isFullScreen: this.props.fullscreen,
       onSendCtrlAltDel: this.handleSendCtrlAltDel,
-      screens: [],
-      currentScreen: null,
-      onSelectScreen: () => { },
       fixedPosition,
       showExitFullscreen,
       className
@@ -987,11 +985,13 @@ export default class RdpSession extends PureComponent {
       host,
       port,
       username
-    } = this.props.tab
+    } = this.props.tab || {}
     return (
-      <span className='mg2l mg2r'>
-        {username}@{host}:{port}
-      </span>
+      <SessionInfo
+        username={username}
+        host={host}
+        port={port}
+      />
     )
   }
 

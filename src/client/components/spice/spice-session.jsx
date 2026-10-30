@@ -12,6 +12,7 @@ import {
 import * as ls from '../../common/safe-local-storage'
 import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
+import SessionInfo from '../common/session-info'
 import { eventToRemotePos } from '../common/remote-pointer'
 import { resolveScaleViewport } from '../../common/remote-adapt'
 import SwitchLabel from '../common/switch'
@@ -176,9 +177,6 @@ export default class SpiceSession extends PureComponent {
     return {
       isFullScreen: this.props.fullscreen,
       onSendCtrlAltDel: this.handleSendCtrlAltDel,
-      screens: [],
-      currentScreen: null,
-      onSelectScreen: () => {},
       fixedPosition,
       showExitFullscreen,
       className
@@ -320,11 +318,13 @@ export default class SpiceSession extends PureComponent {
       host,
       port,
       username
-    } = this.props.tab
+    } = this.props.tab || {}
     return (
-      <span className='mg2l mg2r'>
-        {username}@{host}:{port}
-      </span>
+      <SessionInfo
+        username={username}
+        host={host}
+        port={port}
+      />
     )
   }
 
