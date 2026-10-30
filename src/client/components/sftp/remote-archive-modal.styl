@@ -24,7 +24,7 @@
     width 80px
     margin-bottom 0
   .ant-select
-    min-width 140px
+    flex 1 1 auto
 
 .remote-archive-name-error
   margin-top 4px
@@ -37,7 +37,9 @@
   color var(--text-dark)
   word-break break-all
 
+// 标签与路径是同一行的两个内联节点，不留这点间距会渲染成「生成到/srv/…」
 .remote-archive-path
+  margin-left 6px
   font-family var(--font-mono)
   color var(--text)
 
