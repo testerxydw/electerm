@@ -241,6 +241,7 @@ export default class RemoteArchiveModal extends React.PureComponent {
           <span className='remote-archive-label'>{e('remoteArchiveKind')}</span>
           <Select
             size='small'
+            className='remote-archive-kind'
             value={kind}
             options={KINDS}
             onChange={this.handleKindChange}
@@ -250,6 +251,7 @@ export default class RemoteArchiveModal extends React.PureComponent {
           <span className='remote-archive-label'>{e('name')}</span>
           <Input
             size='small'
+            className='remote-archive-name-input'
             value={name}
             status={nameError ? 'error' : ''}
             onChange={this.handleNameChange}

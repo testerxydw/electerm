@@ -149,6 +149,8 @@ describe('G4 归档接线契约', () => {
   const LOCALES = 'src/app/common/locales-extra.js'
   const ICONS = 'src/client/components/sys-menu/icons-map.jsx'
   const PURE = 'src/app/common/remote-archive.js'
+  const STYL = 'src/client/components/sftp/remote-archive-modal.styl'
+  const DEMO = 'self-test/remote-archive-ui-demo.js'
 
   const ops = ['archiveCreate', 'archiveList', 'archiveExtract']
 
@@ -238,5 +240,15 @@ describe('G4 归档接线契约', () => {
     assert.match(read(PURE), /noticeKey: 'remoteArchiveNoZip'/)
     assert.ok(/e\(result\.noticeKey\)/.test(codeOf(read(MODAL))))
     assert.equal((locales.match(/\bremoteArchiveNoZip:/g) || []).length, 2)
+  })
+
+  test('自测脚本点到的类名钩子还在组件/样式里（改名会让 CDP 判据假失败）', () => {
+    const demo = read(DEMO)
+    const hooks = [...new Set((demo.match(/'\.remote-archive-[a-z-]+/g) || []).map(s => s.slice(2)))]
+    assert.ok(hooks.length >= 8, '自测脚本只抓到 ' + hooks.length + ' 个钩子，判据大概没在点真 DOM')
+    const where = read(MODAL) + read(STYL)
+    for (const h of hooks) {
+      assert.ok(where.includes(h), h + ' 在组件与样式里都找不到了')
+    }
   })
 })
