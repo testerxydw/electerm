@@ -972,6 +972,30 @@
     min-height 120px
     color var(--text-muted)
 
+  // H7b-2 慢日志页签（同一个弹层、另一条命令）
+  .db-redis-slowlog
+    .db-redis-info-err
+      margin-bottom 8px
+
+  .db-redis-slowlog-status
+    // 状态行放在表格上方而不是 footer：条数与最慢值是"这张表值不值得看"的第一眼判据
+    margin-bottom 6px
+    color var(--text-muted)
+    font-size 12px
+
+  .db-redis-slowlog-num
+    // 耗时列：等宽 + tabular-nums，42.13 ms / 1.50 s 要能竖着比大小
+    font-family var(--db-code-font, var(--font-mono))
+    font-variant-numeric tabular-nums
+
+  // 只右对齐数据格，表头不跟着走（与网格同一口径：表头右对齐会和列名阅读顺序打架）
+  td.db-redis-slowlog-num
+    text-align right
+
+  .db-redis-slowlog-args
+    font-family var(--db-code-font, var(--font-mono))
+    color var(--text-dark)
+
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane
   flex 1 1 0

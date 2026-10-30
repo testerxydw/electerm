@@ -955,6 +955,10 @@ export default auto(function DbSession (props) {
   // 而这份数据没人盯着看。令牌管"连点刷新时旧响应不覆盖新响应"。
   const [redisInfo, setRedisInfo] = useState({ open: false, loading: false, text: '', error: '' })
   const redisInfoTokenRef = useRef(0)
+  // H7b-2：慢日志与 INFO 同层弹层、不同命令，状态也分开：
+  // INFO 失败不该让慢日志看起来失败，反之亦然。entries=null 是"从没拉过"，[] 是"拉过、空的"
+  const [redisSlowlog, setRedisSlowlog] = useState({ loading: false, error: '', entries: null })
+  const redisSlowlogTokenRef = useRef(0)
   const [redisKey, setRedisKey] = useState('')
   const [redisDetail, setRedisDetail] = useState(null)
   // Redis 详情四张表（hash/list/set/zset）"选中的那一格"：{ col, label, rowKey, rowNo }。
@@ -3784,7 +3788,42 @@ export default auto(function DbSession (props) {
   const closeRedisInfo = () => {
     // 关闭即作废在途请求：否则关掉再打开会先看到上一次请求的结果闪一下
     redisInfoTokenRef.current++
+    redisSlowlogTokenRef.current++
     setRedisInfo({ open: false, loading: false, text: '', error: '' })
+    // 慢日志一起清回"从没拉过"：重开时切进该页签会重新拉，
+    // 留着上一次的条目会让人以为看到的是当前这段慢日志
+    setRedisSlowlog({ loading: false, error: '', entries: null })
+  }
+
+  // H7b-2：慢日志。与 INFO 同一个弹层、另一条命令 —— 只在第一次切进"慢日志"页签时拉，
+  // 只看概览的用户不该为 SLOWLOG GET（整段日志拷回来）多付一次往返。
+  const loadRedisSlowlog = () => {
+    redisSlowlogTokenRef.current++
+    const token = redisSlowlogTokenRef.current
+    setRedisSlowlog(s => ({ ...s, loading: true }))
+    // 不传 count：条数上限归后端定（0 在 RESP 里是"取全部"，前端不该有机会传出一个 0）
+    window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisSlowlog', {}).then(res => {
+      if (token !== redisSlowlogTokenRef.current) {
+        return
+      }
+      setRedisSlowlog(s => ({
+        ...s,
+        loading: false,
+        entries: Array.isArray(res) ? res : [],
+        error: ''
+      }))
+    }).catch(err => {
+      if (token !== redisSlowlogTokenRef.current) {
+        return
+      }
+      // entries 留 null：失败不该被记成"拉过、是空的"，否则切回该页签不会再试
+      setRedisSlowlog(s => ({
+        ...s,
+        loading: false,
+        entries: null,
+        error: cleanDbError(err && err.message ? err.message : err)
+      }))
+    })
   }
 
   const redisTreeNodes = useMemo(() => {
@@ -8969,6 +9008,9 @@ export default auto(function DbSession (props) {
               text={redisInfo.text}
               onClose={closeRedisInfo}
               onRefresh={loadRedisInfo}
+              slowlog={redisSlowlog}
+              onLoadSlowlog={loadRedisSlowlog}
+              onRefreshSlowlog={loadRedisSlowlog}
             />
             )
           : null

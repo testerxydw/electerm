@@ -363,20 +363,23 @@ describe('H7a-4 弹层呈现（db-redis-info.jsx）', () => {
   test('首帧才转圈：带旧数据刷新不闪成空板', () => {
     const src = fs.readFileSync(MODAL, 'utf8')
     assert.match(src, /const firstLoading = loading && !hasText/)
-    // Tabs 的门禁是"有没有拿到过原文"，不是"是不是在加载"
-    assert.match(src, /hasText\n {12}\? \(\n {14}<Tabs/)
+    // 首帧之外一律出 Tabs（H7b-2 起门禁从"有没有 INFO"改成"是不是首帧"：
+    // 慢日志是另一条命令，INFO 失败时它仍然该看得到）
+    assert.match(src, /firstLoading\n {12}\? null\n {12}: \(\n {14}<Tabs/)
+    // INFO 那三页仍然只认原文：没有原文就不摆三张空页
+    assert.match(src, /\.\.\.\(hasText \? infoTabItems\(ov, rows, text\) : \[\]\)/)
   })
 
-  test('footer 三个动作齐全，且没有 INFO 原文时不给复制', () => {
+  test('footer 三个动作齐全，且没有可复制内容时不给复制', () => {
     const src = fs.readFileSync(MODAL, 'utf8')
-    assert.match(src, /key='copy'[\s\S]*disabled=\{!String\(text \|\| ''\)\.trim\(\)\}/)
-    assert.match(src, /key='refresh' size='small' loading=\{loading\} onClick=\{onRefresh\}/)
+    assert.match(src, /key='copy'[\s\S]*disabled=\{slowlogOn \? !slRows\.length : !hasText\}/)
+    assert.match(src, /key='refresh' size='small' loading=\{refreshLoading\} onClick=\{onRefreshClick\}/)
     assert.match(src, /key='close'/)
   })
 
   test('失败态不叠加空态提示（"这次没读到"≠"这个实例是空的"）', () => {
     const src = fs.readFileSync(MODAL, 'utf8')
-    assert.match(src, /!loading && !hasText && !error\n {12}\? <div className='db-redis-info-empty'/)
+    assert.match(src, /!loading && !hasText && !error && !slowlogOn\n {12}\? <div className='db-redis-info-empty'/)
   })
 })
 
@@ -463,11 +466,17 @@ describe('H7a-4 文案与样式', () => {
     const extra = require(LOCALES)
     // 上游语言包 + 本地补丁：复用现成 key（close/copy/refresh/os/uptime/memory）靠它们兜底
     const upstream = require('@electerm/electerm-locales').en_us.lang
-    const keys = [...new Set((modal.match(/e\('([A-Za-z]+)'\)/g) || []).map(s => s.slice(3, -2)))]
+    // 只认真正的取词调用：`useState('overview')` 结尾也是 `e('...')`，
+    // 不设边界就会把状态初值当文案键，报出一个根本不存在的缺词条
+    const re = /(?:^|[^A-Za-z0-9_$.])e\('([A-Za-z]+)'\)/g
+    const keys = [...new Set((modal.match(re) || []).map(s => {
+      const m = /e\('([A-Za-z]+)'\)$/.exec(s)
+      return m ? m[1] : s
+    }))]
     assert.ok(keys.length >= 25, `弹层文案键应有 25+ 个，实际 ${keys.length} 个`)
     let own = 0
     for (const k of keys) {
-      if (!/^dbRedisInfo/.test(k)) {
+      if (!/^dbRedis(Info|Slowlog)/.test(k)) {
         const known = k in upstream || extra.en[k] !== undefined
         assert.ok(known, `${k} 既不是自造键也没有现成词条（界面会直接露出 key 原文）`)
         continue
