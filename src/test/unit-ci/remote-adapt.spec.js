@@ -219,4 +219,20 @@ describe('remote-adapt 组件接线契约', () => {
     assert.doesNotMatch(src, /term\.start\(query\)/)
     assert.match(src, /term\.start\(width, height\)/)
   })
+
+  test('R3：scaleViewport 是 RDP 书签字段（表单 + 默认值 + schema）', () => {
+    const form = read('src/client/components/bookmark-form/config/rdp.js')
+    assert.match(form, /name: 'scaleViewport'/)
+    assert.match(form, /scaleViewport: true/)
+    const fix = read('src/client/components/bookmark-form/fix-bookmark-default.js')
+    assert.match(fix, /rdp: \{[\s\S]{0,200}scaleViewport: true/)
+    const schema = read('src/client/components/bookmark-form/bookmark-schema.js')
+    assert.match(schema, /scaleViewport: 'boolean - scale the remote desktop/)
+  })
+
+  test('R6：resolutionAuto 词条 en / zh_cn 成对存在', () => {
+    const extra = require(path.join(ROOT, 'src/app/common/locales-extra.js'))
+    assert.ok(Object.prototype.hasOwnProperty.call(extra.en, 'resolutionAuto'))
+    assert.ok(Object.prototype.hasOwnProperty.call(extra.zh_cn, 'resolutionAuto'))
+  })
 })

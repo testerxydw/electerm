@@ -12,6 +12,7 @@ const rdpConfig = {
   initValues: (props) => {
     return createBaseInitValues(props, terminalRdpType, {
       port: 3389,
+      scaleViewport: true,
       connectionHoppings: [],
       ...getAuthTypeDefault(props)
     })
@@ -31,6 +32,9 @@ const rdpConfig = {
         commonFields.colorTitle,
         { type: 'input', name: 'host', label: () => e('host'), rules: [{ required: true, message: e('host') + ' required' }] },
         commonFields.port,
+        // 与 vnc/spice 同一载体：书签字段能被 profile 覆盖、能同步、能被 AI/MCP 建书签带上；
+        // 会话内工具栏的开关只是按 host 记忆的本机覆盖（优先级见 rdp-session 构造函数）
+        { type: 'switch', name: 'scaleViewport', label: () => e('scaleViewport'), valuePropName: 'checked' },
         { type: 'profileItem', name: '__profile__', label: '', profileFilter: d => !isEmpty(d.rdp) },
         commonFields.username,
         commonFields.password,

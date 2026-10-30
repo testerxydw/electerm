@@ -38,7 +38,10 @@ const defaultValues = {
     shared: true
   },
   rdp: {
-    port: 3389
+    port: 3389,
+    // 与 vnc/spice 同口径：缩放默认开（旧书签缺这个字段时被补齐，
+    // 与 rdp-session 的"未设置即开"默认值一致）
+    scaleViewport: true
   },
   ftp: {
     port: 21,

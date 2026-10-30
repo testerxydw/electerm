@@ -127,7 +127,8 @@ const bookmarkSchema = {
     description: 'string - bookmark description',
     profile: 'string - profile id',
     proxy: 'string - proxy address (socks5://...)',
-    domain: 'string - login domain'
+    domain: 'string - login domain',
+    scaleViewport: 'boolean - scale the remote desktop to fit the window, default is true'
   },
   ftp: {
     type: 'ftp',
