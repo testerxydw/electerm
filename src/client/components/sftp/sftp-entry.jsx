@@ -1307,7 +1307,7 @@ export default class Sftp extends Component {
     )
   }
 
-  renderSection (type, style, width) {
+  renderSection (type, width) {
     const {
       id
     } = this.state
@@ -1369,10 +1369,8 @@ export default class Sftp extends Component {
     return (
       <div
         className={`sftp-section sftp-${type}-section tw-${type}`}
-        style={style}
         key={type}
         onMouseEnter={() => this.onMouseEnterSection(type)}
-        {...style}
       >
         <Spin spinning={loading}>
           <div className='pd1 sftp-panel'>
@@ -1409,28 +1407,15 @@ export default class Sftp extends Component {
       typeMap.remote
     ]
     const {
-      height, width
+      width
     } = this.props
     const shouldRenderRemote = this.shouldRenderRemote()
     if (!shouldRenderRemote) {
-      return (
-        this.renderSection(arr[0], {
-          width,
-          left: 0,
-          top: 0,
-          height
-        }, width)
-      )
+      return this.renderSection(arr[0], width)
     }
-    return arr.map((t, i) => {
-      const style = {
-        width: width / 2,
-        left: i * width / 2,
-        top: 0,
-        height
-      }
-      return this.renderSection(t, style, width / 2)
-    })
+    // 两块面板并排等宽由 CSS flex 均分（.sftp-section flex 1），
+    // width 只用于列表表头的列宽上限，不再参与定位
+    return arr.map((t) => this.renderSection(t, width / 2))
   }
 
   render () {
@@ -1445,11 +1430,9 @@ export default class Sftp extends Component {
         </div>
       )
     }
-    const { height } = this.props
     const all = {
       className: 'sftp-wrap overhide relative',
-      id: `id-${id}`,
-      style: { height }
+      id: `id-${id}`
     }
     return (
       <div

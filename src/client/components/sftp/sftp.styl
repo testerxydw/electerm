@@ -1,8 +1,29 @@
+// 文件面板高度全链路由 flex 分配（T3b）：.term-sftp-box 列 → Splitter →
+// .sftp-pane-wrap → .sftp-wrap → .sftp-section → Spin → .sftp-panel → .file-list
+// → .sftp-table → .sftp-table-content。JS 不再为这条链路下发任何 px 高度。
 .sftp-wrap
+  flex 1 1 0
+  min-height 0
   display flex
   flex-direction row
 .sftp-section
-  flex 1
+  flex 1 1 0
+  min-width 0
+  min-height 0
+  display flex
+  flex-direction column
+  // antd Spin（v6）自带两级包裹：.ant-spin > .ant-spin-container，
+  // 任一级不断高都会让内容退回 auto 高
+  > .ant-spin
+    flex 1 1 0
+    min-height 0
+    display flex
+    flex-direction column
+    > .ant-spin-container
+      flex 1 1 0
+      min-height 0
+      display flex
+      flex-direction column
 // 文件面板的两行条：title / address 各对齐单行节奏（高度口径同 tokens.styl）。
 // 不用 display flex：title 行依赖 .alignright 与 .elli，flex 会同时破坏
 // 右对齐和省略号，而单行高度由 line-height + min-height 已经足够。
@@ -139,12 +160,21 @@
   text-overflow ellipsis
 
 .sftp-file-table-header
+  flex none
   height 30px
 .sftp-table
   z-index 2
+  flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction column
   &:hover
     ::-webkit-scrollbar
       width 12px
+// 滚动容器吃满表头之外的空间：虚拟列表的可视高由 ResizeObserver 实测
+.sftp-table-content
+  flex 1 1 0
+  min-height 0
 .sftp-item
   &.sftp-dragover
     .sftp-file-prop
@@ -173,9 +203,17 @@
 //sftp
 .sftp-panel
   background var(--main)
+  flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction column
 
 .file-list
   // 对齐 v4 草图 ③：列表容器从「贴在背景上」变成「一块面板」
+  flex 1 1 0
+  min-height 0
+  display flex
+  flex-direction column
   background var(--surface-1)
   border-radius var(--radius-sm)
   box-shadow 0 0 0 1px var(--border)
@@ -187,27 +225,12 @@
   font-family var(--font-mono)
   font-size 11px
 
-.pager-wrap
-  z-index 4
-  position relative
-
-.sftp-has-pager
-  .sftp-table-content
-    padding-bottom 42px
-  .pager-wrap
-    position absolute
-    bottom 0
-    left 0
-    width 100%
-    background var(--main)
-    height 40px
-    border-top 1px solid var(--border)
-
 .file-header-context-menu
   position fixed
   z-index 999
 
 .sftp-keyword-bar
+  flex none
   display flex
   align-items center
   justify-content space-between

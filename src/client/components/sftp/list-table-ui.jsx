@@ -27,11 +27,32 @@ export default class FileListTable extends Component {
     super(props)
     this.state = {
       ...this.initFromProps(),
-      scrollTop: 0
+      scrollTop: 0,
+      containerHeight: 0
     }
   }
 
   containerRef = createRef()
+
+  resizeObserver = null
+
+  componentDidMount () {
+    // 列表容器高度由 flex 分配，只有挂载后才知道实际值；PagedList 用它算虚拟窗口
+    if (!this.containerRef.current) {
+      return
+    }
+    this.resizeObserver = new ResizeObserver(([entry]) => {
+      const containerHeight = Math.round(entry.contentRect.height)
+      if (containerHeight !== this.state.containerHeight) {
+        this.setState({ containerHeight })
+      }
+    })
+    this.resizeObserver.observe(this.containerRef.current)
+  }
+
+  componentWillUnmount () {
+    this.resizeObserver?.disconnect()
+  }
 
   onDragOver = e => {
     e.preventDefault()
@@ -362,15 +383,10 @@ export default class FileListTable extends Component {
   }
 
   render () {
-    const { fileList, height, type } = this.props
-    // 第一项是 address 行高，T1 已对齐 --session-bar-h；T3b 删整条算术
-    const containerHeight = height - 32 - 30 - 32 - 90
+    const { fileList, type } = this.props
     const props = {
       ref: this.containerRef,
       className: 'sftp-table-content overscroll-y relative',
-      style: {
-        height: containerHeight
-      },
       draggable: false,
       onScroll: this.onScroll,
       onClick: this.handleClick,
@@ -410,7 +426,7 @@ export default class FileListTable extends Component {
               list={fileList}
               renderItem={this.renderItem}
               scrollTop={this.state.scrollTop}
-              containerHeight={containerHeight}
+              containerHeight={this.state.containerHeight}
             />
           </div>
         </Dropdown>

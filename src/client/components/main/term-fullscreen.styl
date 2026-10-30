@@ -27,6 +27,9 @@
     top 0 !important
     height 100% !important
     width 100% !important
+    // 标签栏在全屏下已隐藏，顶部让位必须归零：终端/远程桌面是 fixed 定位
+    // 看不出来，但 SFTP / web 页会留下 36px 空带（全屏 SFTP 顶部留白的来源）
+    padding-top 0 !important
     .term-wrap
     .session-v-wrap
       position fixed

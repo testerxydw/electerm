@@ -128,9 +128,8 @@ describe('T1: 五类顶栏消费 token（反向：裸值回归）', () => {
     assert.ok(!/line-height 36px/.test(mobile), '裸 line-height 36px 回退')
   })
 
-  test('sftp 列表高度减式第一项跟着 address 行 42 → 32', () => {
+  test('sftp 列表高度减式已由 T3b 删除（T1 的 42→32 中间态不再适用）', () => {
     const src = load(SFTP_LIST_TABLE)
-    assert.match(src, /height - 32 - 30 - 32 - 90/, '第一项已改成 32')
-    assert.ok(!src.includes('height - 42 - 30 - 32 - 90'), '旧的 42 残留')
+    assert.ok(!/height - \d+ - \d+ - \d+ - \d+/.test(src), '高度魔法数回潮')
   })
 })

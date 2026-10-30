@@ -66,7 +66,21 @@
     display flex
 
 .term-sftp-box
+  // 竖向 flex：顶栏 flex none，终端/SFTP 内容吃满剩余高度。全屏时外层
+  // .session-wrap 是 fixed 100%，分栏随 flex 铺满 —— 不再依赖 JS 给的 px 高
+  display flex
+  flex-direction column
+  min-height 0
+  > .ant-splitter
+    flex 1 1 0
+    min-height 0
+    height auto
+// SFTP 单页/分栏的直系容器：高度由 Splitter 面板决定，内部交给 .sftp-wrap
+.sftp-pane-wrap
+  display flex
+  flex-direction column
   height 100%
+  min-height 0
 // 数据库页定高容器（与终端内容区同高）：内容 100% 填充，避免底部伸到底栏之下
 .db-session-box
   overflow hidden
