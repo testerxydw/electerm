@@ -42,4 +42,11 @@ describe('T3a-2/3: DB / web 页不再自己算高', () => {
     assert.ok(!m[0].includes('this.props.height - this.props.tabsHeight'), 'DB 高度算术回退')
     assert.ok(!/style=\{\{ width, height \}\}/.test(m[0]), '内联 height 回退')
   })
+
+  test('web 分支不再传 height（WebSession 不读它，尺寸走 CSS）', () => {
+    const src = load(SESSION_JSX)
+    const m = src.match(/if \(type === terminalWebType\) \{[\s\S]*?\n {4}\}/)
+    assert.ok(m, 'web 分支存在')
+    assert.ok(!m[0].includes('height: this.props.height'), 'web 仍传 height')
+  })
 })

@@ -261,7 +261,6 @@ export default class SessionWrapper extends Component {
       const webProps = {
         tab,
         width: this.props.width,
-        height: this.props.height,
         reloadTab: this.props.reloadTab
       }
       return (
