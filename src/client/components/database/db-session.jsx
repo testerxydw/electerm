@@ -21,6 +21,7 @@ import DbRefsPane from './db-refs-pane'
 import DbRedisInfoModal from './db-redis-info'
 // H3b-3：ER 图（结构页工具条 → 全屏弹层；只读）
 import DbErView from './db-er-view'
+import DbStructureDiff from './db-structure-diff'
 import { ColHead, DbColMenu, useColMenu, useColWidths } from './db-col-resize'
 // H1a-4（网格复用整合）：数据页 / SQL 结果页共用列工厂（差异全部参数化）
 import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
@@ -972,6 +973,9 @@ export default auto(function DbSession (props) {
   // 所以打开时按当前库拉一次即可；令牌管"连点刷新时旧响应不覆盖新响应"
   const [er, setEr] = useState({ open: false, loading: false, error: '', graph: null })
   const erTokenRef = useRef(0)
+  // H4：结构对比。两张表的选择、取数与差异状态都在弹层里；这里只提供表清单、
+  // 取数通道和"从哪张表开始比"
+  const [structDiff, setStructDiff] = useState({ open: false, base: null })
   // H7b-2：慢日志与 INFO 同层弹层、不同命令，状态也分开：
   // INFO 失败不该让慢日志看起来失败，反之亦然。entries=null 是"从没拉过"，[] 是"拉过、空的"
   const [redisSlowlog, setRedisSlowlog] = useState({ loading: false, error: '', entries: null })
@@ -1267,6 +1271,55 @@ export default auto(function DbSession (props) {
     }
     return out
   }, [isRedis, metadata])
+
+  // H4：结构对比的候选表 —— 同连接、当前库里的表（v1 不比跨库）。走已加载的
+  // metadata，零请求；只收表不收视图：视图没有索引/外键，比出来全是"仅在 A"
+  const diffTables = useMemo(() => {
+    if (isRedis) {
+      return []
+    }
+    const out = []
+    const walk = (database, schema, nodes) => {
+      for (const node of nodes || []) {
+        if (!node || !node.name) {
+          continue
+        }
+        if (node.type === 'table' || !node.type) {
+          out.push({ database, schema, table: node.name, nodeType: 'table' })
+          continue
+        }
+        if (node.type === 'group') {
+          continue
+        }
+        if (Array.isArray(node.children)) {
+          walk(database, node.type === 'schema' ? node.name : schema, node.children)
+        }
+      }
+    }
+    for (const db of metadata || []) {
+      if (!db || !db.name) {
+        continue
+      }
+      if (sqlDbName && String(db.name).toLowerCase() !== String(sqlDbName).toLowerCase()) {
+        continue
+      }
+      for (const child of db.children || []) {
+        if (!child) {
+          continue
+        }
+        if (child.type === 'schema') {
+          walk(db.name, child.name, child.children)
+        } else {
+          walk(db.name, '', [child])
+        }
+      }
+    }
+    return out.sort((a, b) => {
+      const x = [a.schema, a.table].filter(Boolean).join('.')
+      const y = [b.schema, b.table].filter(Boolean).join('.')
+      return x < y ? -1 : x > y ? 1 : 0
+    })
+  }, [isRedis, metadata, sqlDbName])
 
   // U1c：打开一张表（树点击 / 空态"最近表" / 空态"导入到…"共用同一条路径）。
   // 返回 promise：导入向导要等结构与首屏数据落定后再弹，否则列映射是空的
@@ -3858,6 +3911,28 @@ export default auto(function DbSession (props) {
     // 关闭即作废在途请求：关掉再打开不该先看到上一次请求的结果
     erTokenRef.current++
     setEr({ open: false, loading: false, error: '', graph: null })
+  }
+
+  // H4：结构对比取数。refresh 让主进程跳过结构缓存 —— 刚 ALTER 过的表在 60s
+  // TTL 内还会返回旧结构，拿它对比会得出看不出来的错误结论
+  const loadDiffStructure = useCallback(target => window.pre.runGlobalAsync(
+    'dbClientOp', tabId, 'getTableStructure', {
+      database: target.database,
+      schema: target.schema || '',
+      table: target.table,
+      refresh: true
+    }
+  ), [tabId])
+
+  const openStructureDiff = () => {
+    setStructDiff({
+      open: true,
+      base: sel ? { database: sel.database, schema: sel.schema || '', table: sel.table } : null
+    })
+  }
+
+  const closeStructureDiff = () => {
+    setStructDiff({ open: false, base: null })
   }
 
   // H7b-2：慢日志。与 INFO 同一个弹层、另一条命令 —— 只在第一次切进"慢日志"页签时拉，
@@ -7781,6 +7856,14 @@ export default auto(function DbSession (props) {
               >
                 {e('dbErGraph')}
               </Button>
+              {/* H4：两张表结构对比（同连接同库）。只读，不生成任何 DDL */}
+              <Button
+                size='small'
+                icon={<DiffOutlined />}
+                onClick={openStructureDiff}
+              >
+                {e('dbStructDiff')}
+              </Button>
               <Dropdown
                 trigger='click'
                 disabled={!structureV2.columns.length}
@@ -9428,6 +9511,21 @@ export default auto(function DbSession (props) {
               onClose={closeErGraph}
               onRefresh={loadErGraph}
               onOpenTable={openTable}
+            />
+            )
+          : null
+      }
+      {/* H4：结构对比（同连接同库两张表，只读） */}
+      {
+        !isRedis
+          ? (
+            <DbStructureDiff
+              open={structDiff.open}
+              base={structDiff.base}
+              tables={diffTables}
+              dialect={dialect}
+              loadStructure={loadDiffStructure}
+              onClose={closeStructureDiff}
             />
             )
           : null
