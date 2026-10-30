@@ -13,6 +13,7 @@ import * as ls from '../../common/safe-local-storage'
 import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
+import { resolveScaleViewport } from '../../common/remote-adapt'
 import SwitchLabel from '../common/switch'
 import './spice.styl'
 
@@ -28,7 +29,12 @@ async function loadSpiceModule () {
 export default class SpiceSession extends PureComponent {
   constructor (props) {
     const scaleViewportId = `spice-scale-view-${props.tab.host}`
-    const scaleViewport = ls.getItemJSON(scaleViewportId, false)
+    // 与 RDP 同一口径（R1/S1）：本机逐 host 记忆 > 书签字段（含 profile 合并）> 默认开；
+    // 显式关过的 host 仍保持关闭
+    const scaleViewport = resolveScaleViewport(
+      ls.getItemJSON(scaleViewportId, null),
+      window.store.applyProfile(deepCopy(props.tab || {})).scaleViewport
+    )
     super(props)
     this.state = {
       loading: false,

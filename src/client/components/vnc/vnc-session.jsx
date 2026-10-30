@@ -19,6 +19,10 @@ import { copy, readClipboard } from '../../common/clipboard'
 import VncForm from './vnc-form'
 import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
+import {
+  RESIZE_MERGE_MS,
+  shouldReLayout
+} from '../../common/remote-adapt'
 import './vnc.styl'
 
 // noVNC module imports — loaded dynamically
@@ -66,6 +70,7 @@ export default class VncSession extends PureComponent {
     delete this.rfb
     clearTimeout(this.timer)
     clearTimeout(this.screenTimer)
+    clearTimeout(this.layoutTimer)
   }
 
   setStatus = status => {
@@ -99,9 +104,19 @@ export default class VncSession extends PureComponent {
     }
   }
 
+  // 视口变化：旧实现每个 ResizeObserver 帧直接重排一次，而重排会写 noVNC 的两个
+  // setter 并触发 canvas 尺寸计算。这里：
+  // 1. 忽略小于阈值的抖动（滚动条、DPR 取整）；
+  // 2. 把一次拖窗/侧栏动画内的连续变化合并成一次重排。
   handleViewportResize = (width, height) => {
-    this.viewSize = { width, height }
-    this.updateViewLayout()
+    const next = { width, height }
+    this.viewSize = next
+    if (!shouldReLayout(this.lastLayoutSize, next)) {
+      return
+    }
+    this.lastLayoutSize = next
+    clearTimeout(this.layoutTimer)
+    this.layoutTimer = setTimeout(this.updateViewLayout, RESIZE_MERGE_MS)
   }
 
   buildWsUrl = (port, type = 'vnc', extra = '') => {
@@ -571,29 +586,51 @@ export default class VncSession extends PureComponent {
       return
     }
 
-    // keep noVNC scaling in sync with our fit state, then re-run autoscale so
-    // our patched single screen logic sees the new viewport size
-    const fit = this.getFit()
-    this.rfb.scaleViewport = fit
-    this.rfb.clipViewport = clipViewport
-
-    if (fit && this.rfb._display) {
-      this.rfb._display.autoscale(container.clientWidth, container.clientHeight)
+    // 本次重排对齐的是哪个尺寸（handleViewportResize 的抖动比较基准）
+    if (this.viewSize) {
+      this.lastLayoutSize = { ...this.viewSize }
     }
 
-    // Handle scrolling to the selected screen
-    clearTimeout(this.timer)
-    this.timer = setTimeout(() => {
-      if (currentScreen === 'all') {
-        container.scrollTo(0, 0)
-      } else {
-        const screen = screens.find(s => s.id === currentScreen)
-        if (screen) {
-          const scale = this.rfb._display.scale
-          container.scrollTo(screen.x * scale, screen.y * scale)
+    // keep noVNC scaling in sync with our fit state, then re-run autoscale so
+    // our patched single screen logic sees the new viewport size.
+    // noVNC 的 scaleViewport / clipViewport setter 不判等：每次赋值都会跑
+    // _updateScale / viewportChangeSize + viewportChangePos，尺寸真变时还要重
+    // 分配 canvas backing store 并整屏 blit，所以只在值确实变了时才写。
+    const fit = this.getFit()
+    if (this.appliedFit !== fit) {
+      this.appliedFit = fit
+      this.rfb.scaleViewport = fit
+    }
+    if (this.appliedClip !== clipViewport) {
+      this.appliedClip = clipViewport
+      this.rfb.clipViewport = clipViewport
+    }
+
+    if (fit && this.rfb._display) {
+      // 尺寸用 shell 实测值，不再读 container.clientWidth：旧实现同一个回调里
+      // 先写 style 再读布局，每帧一次强制同步布局
+      const { width, height } = this.calcCanvasSize()
+      this.rfb._display.autoscale(width, height)
+    }
+
+    // Handle scrolling to the selected screen —— 选屏与缩放比例都没变时重挂定时器
+    // 没有意义（滚动位置已对），旧实现是每次重排都挂一个 50ms 定时器
+    const scale = this.rfb._display ? this.rfb._display.scale : 1
+    const scrollKey = `${currentScreen}@${scale}`
+    if (scrollKey !== this.appliedScrollKey) {
+      this.appliedScrollKey = scrollKey
+      clearTimeout(this.timer)
+      this.timer = setTimeout(() => {
+        if (currentScreen === 'all') {
+          container.scrollTo(0, 0)
+        } else {
+          const screen = screens.find(s => s.id === currentScreen)
+          if (screen) {
+            container.scrollTo(screen.x * scale, screen.y * scale)
+          }
         }
-      }
-    }, 50)
+      }, 50)
+    }
   }
 
   handleSelectScreen = (id) => {

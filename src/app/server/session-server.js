@@ -110,13 +110,15 @@ if (type === 'rdp') {
   })
 } else if (type === 'vnc') {
   app.ws('/vnc/:pid', function (ws, req) {
-    const { query } = req
     verify(req)
     markConnected()
     const { pid } = req.params
     const term = terminals(pid)
     term.ws = ws
-    term.start(query)
+    // 与 rdp 路由一致：session-vnc 的 start(width, height) 要的是两个值，
+    // 之前传整个 query 会把对象当成宽（仅用于记录，VNC 桌面尺寸由 server 定）
+    const { width, height } = req.query
+    term.start(width, height)
     log.debug('ws: connected to vnc session ->', pid)
     ws.on('error', (err) => {
       log.error(err)
@@ -132,6 +134,8 @@ if (type === 'rdp') {
     markConnected()
     const { pid } = req.params
     const term = terminals(pid)
+    // session-spice 的 start(query, ws) 收的是整个 query 对象（与 vnc 不同，别改坏），
+    // 尺寸字段它不读：SPICE 的桌面尺寸由 server 下发，客户端的 width/height 仅用于拼 wsUrl
     log.debug('ws: connected to spice session ->', pid)
     term.start(query, ws)
     ws.on('error', (err) => {

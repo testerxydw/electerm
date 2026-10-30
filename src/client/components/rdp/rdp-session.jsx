@@ -25,6 +25,14 @@ import { readClipboardAsync } from '../../common/clipboard'
 import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
+import {
+  FALLBACK_DESKTOP,
+  clampManualSize,
+  isAutoRes,
+  isNumericSize,
+  resolveInitialSize,
+  resolveScaleViewport
+} from '../../common/remote-adapt'
 import SwitchLabel from '../common/switch'
 import HelpIcon from '../common/help-icon'
 import Modal from '../common/modal'
@@ -71,9 +79,19 @@ async function loadWasmModule () {
 export default class RdpSession extends PureComponent {
   constructor (props) {
     const id = `rdp-reso-${props.tab.host}`
-    const resObj = ls.getItemJSON(id, resolutions[1])
+    // 三态读取：null = 从未设置过。从未设置（或历史存到了 res-auto 这种非数值
+    // 值）一律走"自动（跟随窗口）"，用户显式选过的数值尺寸继续尊重
+    const resObj = ls.getItemJSON(id, null)
+    const autoRes = !isNumericSize(resObj)
+    const initSize = autoRes
+      ? FALLBACK_DESKTOP
+      : clampManualSize(resObj)
     const scaleViewportId = `rdp-scale-view-${props.tab.host}`
-    const scaleViewport = ls.getItemJSON(scaleViewportId, false)
+    // 优先级（R3）：本机逐 host 记忆 > 书签字段（含 profile 合并）> 默认开
+    const scaleViewport = resolveScaleViewport(
+      ls.getItemJSON(scaleViewportId, null),
+      window.store.applyProfile(deepCopy(props.tab || {})).scaleViewport
+    )
     const swapCtrlCmd = ls.getItemJSON(swapCtrlCmdLsKey(props.tab.host), false)
     super(props)
     this.canvasRef = createRef()
@@ -81,12 +99,18 @@ export default class RdpSession extends PureComponent {
       loading: false,
       scaleViewport,
       swapCtrlCmd,
-      ...resObj,
+      autoRes,
+      id: autoRes ? 'res-auto' : resObj.id,
+      width: initSize.width,
+      height: initSize.height,
       hasRemoteFiles: false,
       downloadBtnDisabled: true,
       uploadReady: false,
       showCredPrompt: false
     }
+    // SessionShell 实测到的视口，首连尺寸由它决定。子组件先于父组件挂载，
+    // 所以这里拿到的是 null —— 连接要等视口量到之后再发起（见 componentDidMount）
+    this.viewSize = null
     this.session = null
     this.fileTransfer = null
     this.fileUploadInProgress = false
@@ -96,7 +120,15 @@ export default class RdpSession extends PureComponent {
   }
 
   componentDidMount () {
-    this.remoteInit()
+    // React 先跑子组件的 componentDidMount，SessionShell 的实测回调在父组件那一轮
+    // 才发生（同一提交阶段内、同步）。挂到微任务等它跑完，首连位图尺寸才拿得到真实
+    // 视口；直接同步调用会永远退化成 FALLBACK_DESKTOP，"跟随窗口"名存实亡。
+    Promise.resolve().then(() => {
+      if (this._unmounting) {
+        return
+      }
+      this.remoteInit()
+    })
   }
 
   componentWillUnmount () {
@@ -128,6 +160,35 @@ export default class RdpSession extends PureComponent {
   // windowed; the switch is not reachable in fullscreen anyway
   getFit = () => {
     return !!this.props.fullscreen || !!this.state.scaleViewport
+  }
+
+  // 视口实测回调。本批次只把它用作"首连位图尺寸"的依据：
+  // 已连上时不去改 canvas 属性（写 canvas.width 会重分配 backing store 并清屏，
+  // 画面会白一下），运行中重谈分辨率属于批次 C。
+  handleViewportResize = (width, height) => {
+    this.viewSize = { width, height }
+    if (this.session || !this.state.autoRes) {
+      return
+    }
+    const size = resolveInitialSize({
+      measured: this.viewSize,
+      manual: null
+    })
+    if (size.width !== this.state.width || size.height !== this.state.height) {
+      this.setState({
+        width: size.width,
+        height: size.height
+      })
+    }
+  }
+
+  // 首连尺寸：手选数值尺寸优先，否则取实测视口（夹到上限），都量不到时用占位值
+  resolveConnectSize = () => {
+    const { autoRes, width, height } = this.state
+    return resolveInitialSize({
+      measured: this.viewSize,
+      manual: autoRes ? null : { width, height }
+    })
   }
 
   setStatus = status => {
@@ -201,7 +262,7 @@ export default class RdpSession extends PureComponent {
     } = r
     this.pid = pid
 
-    const { width, height } = this.state
+    const { width, height } = this.resolveConnectSize()
     const extra = `&width=${width}&height=${height}`
     const proxyAddress = this.buildWsUrl(port, 'rdp', extra)
 
@@ -319,7 +380,11 @@ export default class RdpSession extends PureComponent {
       canvas.height = ds.height
 
       this.setState({
-        loading: false
+        loading: false,
+        // 自动模式下把画布属性对齐到服务端实际给出的尺寸，
+        // 否则 render 里的 width/height 与真位图不一致，指针落点会偏
+        width: ds.width,
+        height: ds.height
       })
 
       canvas.focus()
@@ -329,6 +394,11 @@ export default class RdpSession extends PureComponent {
         this.log(`Session ended: ${info.reason()}`, 'info')
         this.onSessionEnd(session)
       }).catch((e) => {
+        // 原地重连（handleReInit / onCredSubmit）会 shutdown 旧会话，旧 run()
+        // 迟到的 reject 不是新连接的失败，弹错误窗会把用户误导成"连不上"
+        if (this._unmounting || this.session !== session) {
+          return
+        }
         this.showError(e)
         this.onSessionEnd(session)
       })
@@ -654,10 +724,10 @@ export default class RdpSession extends PureComponent {
   }
 
   handleReInit = () => {
+    // 对齐 VNC：原地断开重连。reloadTab 会重建整个 tab（丢掉会话上下文），
+    // 而改分辨率/改缩放并不需要重来一次
     this.cleanup()
-    this.props.reloadTab(
-      this.props.tab
-    )
+    this.remoteInit()
   }
 
   handleReload = () => {
@@ -667,9 +737,14 @@ export default class RdpSession extends PureComponent {
   }
 
   getAllRes = () => {
+    // res-auto 不再被 slice(1) 排除在外：它是"自动（跟随窗口）"的入口，
+    // 排在第一位；非数值宽高在 handleResChange / 构造函数里统一按自动处理
+    const auto = resolutions.filter(isAutoRes)
+    const fixed = resolutions.filter(d => !isAutoRes(d))
     return [
+      ...auto,
       ...this.props.resolutions,
-      ...resolutions.slice(1)
+      ...fixed
     ]
   }
 
@@ -677,7 +752,17 @@ export default class RdpSession extends PureComponent {
     const res = this.getAllRes().find(d => d.id === v)
     const id = `rdp-reso-${this.props.tab.host}`
     ls.setItemJSON(id, res)
-    this.setState(res, this.handleReInit)
+    const autoRes = isAutoRes(res)
+    const size = resolveInitialSize({
+      measured: this.viewSize,
+      manual: autoRes ? null : res
+    })
+    this.setState({
+      autoRes,
+      id: res.id,
+      width: size.width,
+      height: size.height
+    }, this.handleReInit)
   }
 
   handleScaleViewChange = (v) => {
@@ -834,19 +919,21 @@ export default class RdpSession extends PureComponent {
         <Select
           {...sleProps}
         >
-          {
-            this.getAllRes().map(d => {
-              const v = d.id
-              return (
-                <Option
-                  key={v}
-                  value={v}
-                >
-                  {d.width}x{d.height}
-                </Option>
-              )
-            })
-          }
+          {this.getAllRes().map(d => {
+            const v = d.id
+            // res-auto 的宽高是 'auto' 字符串，不能当成 "auto x auto" 渲染
+            const label = isAutoRes(d)
+              ? window.translate('resolutionAuto')
+              : `${d.width}x${d.height}`
+            return (
+              <Option
+                key={v}
+                value={v}
+              >
+                {label}
+              </Option>
+            )
+          })}
         </Select>
         <EditOutlined
           onClick={this.handleEditResolutions}
@@ -916,6 +1003,7 @@ export default class RdpSession extends PureComponent {
         loading={loading}
         fit={this.getFit()}
         wrapClassName='rdp-session-wrap'
+        onViewportResize={this.handleViewportResize}
         controlLeft={this.renderControlLeft()}
         controlRight={this.renderControlRight()}
         floatControl={<RemoteFloatControl {...controlProps} />}

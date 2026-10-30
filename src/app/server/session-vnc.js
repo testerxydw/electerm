@@ -41,6 +41,9 @@ class TerminalVnc extends TerminalBase {
 
     this.ws.on('message', this.onMsg)
     this.ws.on('close', this.kill)
+    // 仅供日志/诊断：VNC 的帧缓冲尺寸由 server 端决定（客户端发 SetDesktopSize
+    // 才会改），中继不碰这两个值。路由必须按 (width, height) 传，
+    // 之前把整个 query 当 width 递进来，这里记录到的是个对象
     this.width = width
     this.height = height
   }
