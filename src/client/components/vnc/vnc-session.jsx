@@ -19,8 +19,12 @@ import { copy, readClipboard } from '../../common/clipboard'
 import VncForm from './vnc-form'
 import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
+import SessionInfo from '../common/session-info'
+import SwitchLabel from '../common/switch'
+import * as ls from '../../common/safe-local-storage'
 import {
   RESIZE_MERGE_MS,
+  resolveScaleViewport,
   shouldReLayout
 } from '../../common/remote-adapt'
 import './vnc.styl'
@@ -39,8 +43,17 @@ async function loadVncModule () {
 const { Option } = Select
 const e = window.translate
 
+// 本机逐 host 的缩放开关记忆（与 rdp-scale-view- / spice-scale-view- 同一命名）
+const scaleViewportLsKey = (host) => `vnc-scale-view-${host}`
+
 export default class VncSession extends PureComponent {
   constructor (props) {
+    // 缩放优先级与 RDP/SPICE 同一口径（R1/R3）：本机逐 host 记忆 > 书签字段
+    // （含 profile 合并）> 默认开。原来只有书签这一层，会话内改不了
+    const scaleViewport = resolveScaleViewport(
+      ls.getItemJSON(scaleViewportLsKey(props.tab?.host), null),
+      window.store.applyProfile(deepCopy(props.tab || {})).scaleViewport
+    )
     super(props)
     this.state = {
       types: [],
@@ -48,7 +61,8 @@ export default class VncSession extends PureComponent {
       loading: false,
       name: '',
       screens: [],
-      currentScreen: '0'
+      currentScreen: '0',
+      scaleViewport
     }
   }
 
@@ -80,14 +94,13 @@ export default class VncSession extends PureComponent {
     })
   }
 
-  // fullscreen always fills the screen, the per tab setting only applies
-  // windowed; the switch is not reachable in fullscreen anyway
+  // fullscreen always fills the screen, the per host setting only applies
+  // windowed —— 所以栏内开关在全屏下置灰，否则会显示"关"而画面其实在缩放
   getFit = () => {
     if (this.props.fullscreen) {
       return true
     }
-    const { scaleViewport = true } = this.props.tab
-    return !!scaleViewport
+    return !!this.state.scaleViewport
   }
 
   // viewport box measured by the shell, used as the size hint for the server.
@@ -137,10 +150,6 @@ export default class VncSession extends PureComponent {
 
   getControlProps = (options = {}) => {
     const {
-      screens,
-      currentScreen
-    } = this.state
-    const {
       fixedPosition = true,
       showExitFullscreen = true,
       className = ''
@@ -149,9 +158,6 @@ export default class VncSession extends PureComponent {
     return {
       isFullScreen: this.props.fullscreen,
       onSendCtrlAltDel: this.handleSendCtrlAltDel,
-      screens: screens.length > 1 ? screens : [],
-      currentScreen,
-      onSelectScreen: this.handleSelectScreen,
       fixedPosition,
       showExitFullscreen,
       className
@@ -193,7 +199,6 @@ export default class VncSession extends PureComponent {
       type,
       term: terminalType,
       viewOnly = false,
-      scaleViewport = true,
       clipViewport = false,
       qualityLevel = 3, // 0-9, lower = faster performance
       compressionLevel = 1, // 0-9, lower = faster performance
@@ -244,7 +249,9 @@ export default class VncSession extends PureComponent {
     // `scaleViewport` plus the size of the mount node.
     const vncOpts = {
       clipViewport,
-      scaleViewport,
+      // 首连缩放取决策后的值（本机记忆 > 书签 > 默认开），不直接用 tab 字段，
+      // 否则栏内开关的记忆只在重连后才生效、而首连又是从 tab 读 —— 两层会打架
+      scaleViewport: this.state.scaleViewport,
       viewOnly,
       qualityLevel, // JPEG quality 0-9, lower = faster
       compressionLevel, // Compression 0-9, lower = faster
@@ -640,6 +647,16 @@ export default class VncSession extends PureComponent {
     // updateViewLayout will be called by componentDidUpdate
   }
 
+  // 栏内缩放开关：写本机记忆并马上重排。noVNC 的 scaleViewport 是 live 的（setter
+  // 会跑 _updateScale），不必重连；updateViewLayout 里的 appliedFit 判等保证只有
+  // 真变化才写 setter。
+  handleScaleViewChange = (v) => {
+    ls.setItemJSON(scaleViewportLsKey(this.props.tab?.host), v)
+    this.setState({
+      scaleViewport: v
+    }, this.updateViewLayout)
+  }
+
   getDom = () => {
     return this.domRef.current
   }
@@ -659,11 +676,14 @@ export default class VncSession extends PureComponent {
       host,
       port,
       username
-    } = this.props.tab
+    } = this.props.tab || {}
     return (
-      <span className='mg2l mg2r'>
-        <b>{name}</b> {username}@{host}:{port}
-      </span>
+      <SessionInfo
+        name={name}
+        username={username}
+        host={host}
+        port={port}
+      />
     )
   }
 
@@ -693,15 +713,16 @@ export default class VncSession extends PureComponent {
     )
   }
 
-  render () {
-    const { loading } = this.state
-    const floatProps = this.getControlProps()
-    const inlineProps = this.getControlProps({
-      fixedPosition: false,
-      showExitFullscreen: false,
-      className: 'mg1l'
-    })
-    const controlLeft = (
+  renderControlLeft = () => {
+    const scaleProps = {
+      checked: this.getFit(),
+      onChange: this.handleScaleViewChange,
+      label: window.translate('scaleViewport'),
+      className: 'mg1l',
+      // 全屏时 fit 被 getFit 强制打开，开关不参与，置灰以免自相矛盾
+      disabled: !!this.props.fullscreen
+    }
+    return (
       <>
         <ReloadOutlined
           onClick={this.handleReInit}
@@ -709,22 +730,38 @@ export default class VncSession extends PureComponent {
         />
         {this.renderScreensSelect()}
         {this.renderInfo()}
+        <SwitchLabel
+          {...scaleProps}
+        />
       </>
     )
-    const controlRight = (
+  }
+
+  renderControlRight = () => {
+    const contrlProps = this.getControlProps({
+      fixedPosition: false,
+      showExitFullscreen: false,
+      className: 'mg1l'
+    })
+    return (
       <>
         {this.props.fullscreenIcon()}
-        <RemoteFloatControl {...inlineProps} />
+        <RemoteFloatControl {...contrlProps} />
       </>
     )
+  }
+
+  render () {
+    const { loading } = this.state
+    const floatProps = this.getControlProps()
     return (
       <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='vnc-session-wrap'
         onViewportResize={this.handleViewportResize}
-        controlLeft={controlLeft}
-        controlRight={controlRight}
+        controlLeft={this.renderControlLeft()}
+        controlRight={this.renderControlRight()}
         floatControl={<RemoteFloatControl {...floatProps} />}
         overlay={this.renderConfirm()}
       >
