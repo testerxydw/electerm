@@ -272,12 +272,12 @@ export default class SessionWrapper extends Component {
       )
     }
     if (type === terminalRdpType || type === terminalVncType || type === terminalSpiceType) {
+      // 尺寸一律走 SessionShell 的 ResizeObserver（实测），不要再下发
+      // width/height：全屏时布局高是旧值，传下去只会变成错误的首连尺寸
       const rdpProps = {
         tab: this.props.tab,
         ...pick(this.props, [
           'resolutions',
-          'height',
-          'width',
           'tabsHeight',
           'pinned',
           'delTab',

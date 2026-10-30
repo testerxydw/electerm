@@ -104,16 +104,20 @@ export default class VncSession extends PureComponent {
   }
 
   // viewport box measured by the shell, used as the size hint for the server.
-  // Falls back to the layout props before the first measurement.
+  // The shell's RO callback lands after this child's componentDidMount, so the
+  // first connect measures the mount node itself; the layout props are not used
+  // (in fullscreen they still describe the windowed box).
   calcCanvasSize = () => {
     const { width, height } = this.viewSize || {}
     if (width && height) {
       return { width, height }
     }
-    const { width: w, height: h } = this.props
+    const el = this.getDom()
+    const w = el && el.clientWidth
+    const h = el && el.clientHeight
     return {
-      width: w - 10,
-      height: h - 80
+      width: w || window.innerWidth,
+      height: h || window.innerHeight
     }
   }
 

@@ -128,15 +128,19 @@ export default class SpiceSession extends PureComponent {
     return `ws://${host}:${port}/${type}/${id}?token=${tokenElecterm}${extra}`
   }
 
+  // 首连在 SessionShell 的 RO 回调之前（子组件先 mount），直接量挂载点；
+  // 上层布局宽高在全屏时是陈旧值，不再作为兜底
   calcCanvasSize = () => {
     const { width, height } = this.viewSize || {}
     if (width && height) {
       return { width, height }
     }
-    const { width: w, height: h } = this.props
+    const el = this.domRef.current
+    const w = el && el.clientWidth
+    const h = el && el.clientHeight
     return {
-      width: w - 10,
-      height: h - 80
+      width: w || window.innerWidth,
+      height: h || window.innerHeight
     }
   }
 

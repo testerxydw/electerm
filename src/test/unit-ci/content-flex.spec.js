@@ -10,6 +10,9 @@ const SESSION_JSX = path.join(ROOT, 'src/client/components/session/session.jsx')
 const SFTP_STYL = path.join(ROOT, 'src/client/components/sftp/sftp.styl')
 const SFTP_ENTRY = path.join(ROOT, 'src/client/components/sftp/sftp-entry.jsx')
 const SFTP_LIST_TABLE = path.join(ROOT, 'src/client/components/sftp/list-table-ui.jsx')
+const RDP_JSX = path.join(ROOT, 'src/client/components/rdp/rdp-session.jsx')
+const VNC_JSX = path.join(ROOT, 'src/client/components/vnc/vnc-session.jsx')
+const SPICE_JSX = path.join(ROOT, 'src/client/components/spice/spice-session.jsx')
 
 // T3 内容区 flex 化（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §3/§4）：
 // .session-wrap 是竖向 flex 容器，页根 flex 1 1 0 + min-height 0，
@@ -129,5 +132,32 @@ describe('T3b-a: sftp 面板高度改为 flex 分配', () => {
     const m = src.match(/\.session-wrap\.session-current\n[\s\S]*?\n {4}\.term-wrap/)
     assert.ok(m, '全屏 session-wrap 块存在')
     assert.match(m[0], /padding-top 0 !important/, '全屏时 padding-top 未归零')
+  })
+})
+
+describe('T3b-b: remote 不再接收布局宽高', () => {
+  test('session.jsx 的 rdpProps 不再 pick width/height', () => {
+    const src = load(SESSION_JSX)
+    const m = src.match(/if \(type === terminalRdpType[\s\S]*?\.\.\.pick\(this\.props, \[[\s\S]*?\]\)/)
+    assert.ok(m, 'rdpProps 存在')
+    assert.ok(!/'width'/.test(m[0]), 'width 仍在 pick 列表')
+    assert.ok(!/'height'/.test(m[0]), 'height 仍在 pick 列表')
+  })
+
+  test('RDP / VNC / SPICE 源码零 props.width / props.height 读取', () => {
+    for (const p of [RDP_JSX, VNC_JSX, SPICE_JSX]) {
+      const src = load(p)
+      assert.ok(!/props\.(?:width|height)\b/.test(src), path.basename(p) + ' 仍在读 props.width/height')
+    }
+  })
+
+  test('VNC / SPICE 首连尺寸量挂载点（反向：-10/-80 猜测回潮）', () => {
+    for (const p of [VNC_JSX, SPICE_JSX]) {
+      const src = load(p)
+      const m = src.match(/calcCanvasSize = \(\) => \{[\s\S]*?\n {2}\}/)
+      assert.ok(m, path.basename(p) + ' calcCanvasSize 存在')
+      assert.ok(m[0].includes('clientWidth') && m[0].includes('clientHeight'), '按挂载点实测')
+      assert.ok(!/- 10\b|- 80\b/.test(m[0]), '旧的 -10 / -80 猜测')
+    }
   })
 })
