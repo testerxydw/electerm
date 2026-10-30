@@ -509,11 +509,12 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     }
   })
 
-  test('重新执行 = 新一轮列宽：runSql 清 SQL 手动宽，且只清这一处', () => {
+  test('重新执行 = 新一轮列宽：新结果路径清 SQL 手动宽，且只清这一处', () => {
     const src = read()
     assert.equal((src.match(/setSqlColWidths\(\{\}\)/g) || []).length, 1, '清空只能出现在新结果集路径')
-    const run = src.slice(src.indexOf('const runSql = async'))
-    const upto = run.slice(0, run.indexOf('setSqlColWidths({})'))
+    const at = src.indexOf('setSqlColWidths({})')
+    // 清空在"发请求"那个函数里（runSql 拆出 runSqlNow 后仍成立，按名字锚会误伤）
+    const upto = src.slice(src.lastIndexOf('const runSql', at), at)
     assert.ok(upto.includes('setSqlResult({'), '清空必须挂在新结果落地之后（翻页/本地过滤不走这里，列宽要留住）')
     // 表结构 / Redis 键列表不共用 SQL 的那份 map，各自切数据时宽度自然重算
     assert.ok(!/setStructColWidths\(\{\}\)|setRedisColWidths\(\{\}\)/.test(src), '另外两处的自适应宽随行集重算，无需手动清')

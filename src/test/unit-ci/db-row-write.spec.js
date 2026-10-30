@@ -450,7 +450,7 @@ describe('B1 wiring: renderer 接线', () => {
 
   test('mysql executeSql 同连接先 USE 再执行（修复 No database selected）', () => {
     const msrc = fs.readFileSync(path.join(ROOT, 'src/app/lib/db-client/mysql.js'), 'utf8')
-    const block = msrc.match(/async function executeSql \(conn, \{ sql, database, readOnly \}\)[\s\S]*?\n\}/)
+    const block = msrc.match(/async function executeSql \(conn, \{ sql, database, readOnly(?:, params)? \}\)[\s\S]*?\n\}/)
     assert.ok(block, 'executeSql signature must accept database')
     assert.ok(block[0].includes('getConnection'), 'must acquire single connection')
     assert.ok(block[0].includes("'USE ' + quoteIdent(database)"), 'must USE db on same connection')
