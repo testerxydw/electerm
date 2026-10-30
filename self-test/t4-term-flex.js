@@ -51,8 +51,13 @@ class Cdp {
       this.ws.on('open', resolve)
       this.ws.on('error', reject)
     })
+    this.events = []
     this.ws.on('message', d => {
       const m = JSON.parse(d.toString())
+      if (m.id === undefined) {
+        this.events.push(m)
+        return
+      }
       const cb = this.pending.get(m.id)
       if (cb) {
         this.pending.delete(m.id)
@@ -146,6 +151,7 @@ window.__t4 = () => {
     id,
     tabs: st.tabs.length,
     split: !!splitter,
+    splitterClient: splitter ? { w: splitter.clientWidth, h: splitter.clientHeight } : null,
     box: rect(box),
     boxClient: box ? { w: box.clientWidth, h: box.clientHeight } : null,
     pane: rect(pane),
@@ -182,7 +188,7 @@ const probe = async cdp => JSON.parse(await cdp.eval('JSON.stringify(window.__t4
 // 沿分栏方向拖动 150px；方向由 splitter 的 orientation 类名决定
 const dragSplitter = async (cdp, drag) => {
   const r = JSON.parse(await cdp.eval(`(() => {
-    const sp = document.querySelector('.term-sftp-box > .ant-splitter')
+    const sp = document.querySelector('.session-wrap.session-current .term-sftp-box > .ant-splitter')
     const d = sp && sp.querySelector(':scope > .ant-splitter-bar .ant-splitter-bar-dragger')
     if (!d) return 'null'
     const b = d.getBoundingClientRect()
@@ -296,6 +302,11 @@ const main = async () => {
   const dragged = await dragSplitter(cdp, 150)
   await sleep(900)
   const vDrag = await probe(cdp)
+  const errs = cdp.events.filter(e => e.method === 'Runtime.exceptionThrown')
+  if (errs.length) {
+    console.log('PAGE ERRORS: ' + JSON.stringify(errs.map(e => e.params?.exceptionDetails?.exception?.description || e.params?.exceptionDetails?.text)))
+    cdp.events.length = 0
+  }
   const pane0Before = pane0
   const pane0After = vDrag.panes[0]
   // 方向：以哪一维变了为准（垂直分栏动的是高度）
@@ -304,7 +315,7 @@ const main = async () => {
   check('拖拽分栏：比例按实测像素变化（±150px）',
     dragged && (changedW !== 0 || changedH !== 0) &&
     (Math.abs(Math.abs(changedW) - 150) <= 12 || Math.abs(Math.abs(changedH) - 150) <= 12),
-    { dragged, changedW, changedH, before: pane0Before, after: pane0After })
+    { dragged, changedW, changedH, before: pane0Before, after: pane0After, splitterClient: vDrag.splitterClient })
   check('拖拽后终端重新 fit 到新尺寸',
     fits(vDrag).ok && (vDrag.cols !== vSplit.cols || vDrag.rows !== vSplit.rows) &&
     vDrag.box.w === pane0After.w && vDrag.box.h === pane0After.h,

@@ -213,13 +213,6 @@ export default class SessionWrapper extends Component {
     this.editTab(update)
   }
 
-  computePosition = (index) => {
-    return {
-      left: 0,
-      top: 0
-    }
-  }
-
   getWidth = () => {
     return this.props.width
   }
@@ -239,7 +232,7 @@ export default class SessionWrapper extends Component {
       // 数据库页自己渲染 32px 工具条（.db-head，高度 = --session-bar-h），
       // 内容高由 .session-wrap 的竖向 flex 分配（T3a）：页面根不再需要
       // "H - tabsHeight" 这类算术，也不会随顶栏高度变化而失效
-      const { width } = this.calcTermWidthHeight()
+      const width = this.getWidth()
       const dbProps = {
         tab,
         width
@@ -278,7 +271,6 @@ export default class SessionWrapper extends Component {
         tab: this.props.tab,
         ...pick(this.props, [
           'resolutions',
-          'tabsHeight',
           'pinned',
           'delTab',
           'config',
@@ -340,10 +332,6 @@ export default class SessionWrapper extends Component {
       (sshSftpSplitView && this.canSplitView())
       ? 'terms-box'
       : 'terms-box hide'
-    const {
-      width,
-      height
-    } = this.calcTermWidthHeight()
     const themeConfig = copy(window.store.getThemeConfig())
     const logName = sanitizeFilename(`${tab.title ? tab.title + '_' : ''}${tab.host ? tab.host + '_' : ''}${tab.id}`)
     const pops = {
@@ -356,18 +344,11 @@ export default class SessionWrapper extends Component {
         [
           'onChangePane',
           'setCwd'
-        ]),
-      ...this.computePosition(),
-      width,
-      height
+        ])
     }
     return (
       <div
         className={cls}
-        style={{
-          width,
-          height
-        }}
       >
         <Term
           logName={logName}
@@ -407,27 +388,6 @@ export default class SessionWrapper extends Component {
     const direction = this.getSplitDirection()
     const [, size2] = this.state.splitSize
     return direction === 'leftRight' ? size2 * width / 100 : width
-  }
-
-  calcTermWidthHeight = () => {
-    const width = this.getWidth()
-    const height = this.props.computeHeight(
-      this.props.height
-    )
-    if (!this.canSplitView() || !this.props.tab.sshSftpSplitView) {
-      return {
-        width,
-        height
-      }
-    }
-    const direction = this.getSplitDirection()
-    const [size1] = this.state.splitSize
-    const w = direction === 'leftRight' ? size1 * width / 100 : width
-    const h = direction === 'leftRight' ? height : size1 * height / 100
-    return {
-      width: w,
-      height: h
-    }
   }
 
   renderSftp = () => {
@@ -545,15 +505,12 @@ export default class SessionWrapper extends Component {
 
   onSplitResize = (sizes) => {
     const direction = this.getSplitDirection()
-    const {
-      width
-    } = this.props
-    // antd Splitter 的 onResize/onResizeEnd 给的是**像素**值，除以容器在该方向上
-    // 的实际尺寸才是百分比。纵向分屏暂沿用 computeHeight(height)（普通窗口下与
-    // flex 分配出的容器高一致）；全屏下的实测分母在 T4 一并替换
+    // antd Splitter 的 onResize/onResizeEnd 给的是**像素**值，除以容器在该方向上的
+    // 实测尺寸才是百分比。不能用布局 props：全屏/面板开合后 props 与实际容器不同步
+    const splitter = this.getDom()?.querySelector(':scope > .ant-splitter')
     const all = direction === 'leftRight'
-      ? width
-      : this.props.computeHeight(this.props.height)
+      ? (splitter?.clientWidth || this.props.width)
+      : (splitter?.clientHeight || this.props.height)
     const size = sizes.map(d => d * 100 / all)
     this.setState({
       splitSize: size
@@ -576,10 +533,7 @@ export default class SessionWrapper extends Component {
       orientation: layout,
       onResize: this.onSplitResize,
       onResizeEnd: this.onSplitResize,
-      className: notSplitVew ? 'not-split-view' : '',
-      style: {
-        width: this.props.width + 'px'
-      }
+      className: notSplitVew ? 'not-split-view' : ''
     }
     const paneProps = {
       min: '20%',

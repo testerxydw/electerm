@@ -132,11 +132,12 @@ describe('S2: DB session.jsx compensation removed', () => {
     assert.ok(!/this\.props\.computeHeight/.test(body), 'db branch must not call computeHeight')
   })
 
-  test('terminal computeHeight keeps both deductions (reverse: guard the 36+32 contract)', () => {
-    const src = load(SESSIONS)
-    const m = src.match(/computeHeight = \(height\) => \{[\s\S]*?\n {2}\}/)
-    assert.ok(m, 'computeHeight found')
-    assert.match(m[0], /height\s*-\s*\n?\s*tabsHeight\s*-\s*\n?\s*termControlHeight/, 'must deduct tabsHeight + termControlHeight')
+  test('terminal computeHeight deleted (T4: flex allocates the height)', () => {
+    const sessions = load(SESSIONS)
+    const session = load(SESSION)
+    assert.ok(!sessions.includes('computeHeight'), 'sessions.jsx 仍有 computeHeight')
+    assert.ok(!session.includes('computeHeight'), 'session.jsx 仍调用 computeHeight')
+    assert.ok(!/'tabsHeight'/.test(session), 'tabsHeight 传参链残留')
   })
 
   test('session.jsx no longer imports termControlHeight (unused after S2)', () => {

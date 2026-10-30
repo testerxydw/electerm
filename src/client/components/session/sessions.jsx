@@ -3,9 +3,6 @@ import Session from './session.jsx'
 
 import { pick } from 'lodash-es'
 import classNames from 'classnames'
-import {
-  termControlHeight
-} from '../../common/constants.js'
 import pixed from '../layout/pixed'
 
 export default class Sessions extends Component {
@@ -23,19 +20,6 @@ export default class Sessions extends Component {
   // Function to edit tab properties using store.editItem
   editTab = (id, update) => {
     window.store.updateTab(id, update)
-  }
-
-  // 终端高度 = 布局高 - tabsHeight(36, 顶部标签栏, token 镜像 --tabs-bar-h)
-  //          - termControlHeight(32, 顶栏高, token 镜像 --session-bar-h)
-  // JS 扣减与 CSS 变量双源（JS 拿不到 CSS 变量），值由 s2-tokens.spec.js 锁定；
-  // 缺一会让终端底部溢出被裁(遮挡光标)或留缝隙
-  computeHeight = (height) => {
-    const {
-      tabsHeight
-    } = this.props
-    return height -
-      tabsHeight -
-      termControlHeight
   }
 
   computeSessionStyle = (batch) => {
@@ -78,7 +62,6 @@ export default class Sessions extends Component {
           'resolutions',
           'fileOperation',
           'pinnedQuickCommandBar',
-          'tabsHeight',
           'appPath',
           'pinned',
           'fullscreen'
@@ -86,7 +69,6 @@ export default class Sessions extends Component {
         config,
         ...pick(this, [
           'reloadTab',
-          'computeHeight',
           'delTab',
           'editTab'
         ]),

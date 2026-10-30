@@ -65,7 +65,8 @@ export const resizeMixin = {
       return
     }
     term.options.fontSize = next
-    window.store.triggerResize()
+    // 字号变了但容器尺寸没变，RO 不会触发；直接补一次 fit（propose 判等）
+    this.fitToContainer()
     if (this.originalFontSize == null) {
       this.originalFontSize = next - changed
     }
@@ -80,7 +81,7 @@ export const resizeMixin = {
       return
     }
     term.options.fontSize = this.originalFontSize
-    window.store.triggerResize()
+    this.fitToContainer()
     this.setState({ fontSizeChanged: false })
     term.focus()
   }

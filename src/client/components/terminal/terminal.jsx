@@ -1,5 +1,5 @@
 import { Component, createRef } from 'react'
-import { isEqual, pick } from 'lodash-es'
+import { isEqual } from 'lodash-es'
 import {
   Spin,
   Dropdown,
@@ -230,20 +230,6 @@ class Term extends Component {
       this.props.pane !== prevProps.pane &&
       this.props.pane === paneMap.terminal
     )
-    const names = [
-      'width',
-      'height',
-      'left',
-      'top'
-    ]
-    if (
-      !isEqual(
-        pick(this.props, names),
-        pick(prevProps, names)
-      )
-    ) {
-      this.onResize()
-    }
     if (shouldChange && this.term) {
       this.term.focus()
       // 标签从 display:none 变为可见时，延迟到下一动画帧再 fit，读取正确布局
@@ -423,7 +409,7 @@ class Term extends Component {
 
   render () {
     const { loading } = this.state
-    const { height, width, left, top, fullscreen } = this.props
+    const { fullscreen } = this.props
     const { id } = this.props.tab
     const isActive = this.isActiveTerminal()
     const cls = classnames(
@@ -433,13 +419,14 @@ class Term extends Component {
         'terminal-not-active': !isActive
       }
     )
+    // 铺满 .terms-box：尺寸由外层 flex 分配，fit 只看实测容器
     const prps1 = {
       className: cls,
       style: {
-        height,
-        width,
-        left,
-        top,
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
         zIndex: 10
       },
       onDrop: this.onDrop,
@@ -477,8 +464,7 @@ class Term extends Component {
     const barProps = {
       matchIndex: this.state.matchIndex,
       matches: this.state.searchResults,
-      totalLines: this.state.totalLines,
-      height
+      totalLines: this.state.totalLines
     }
     const spin = loading ? <Spin className='loading-wrapper' spinning={loading} /> : null
     return (
