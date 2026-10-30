@@ -122,12 +122,12 @@ describe('F/H: tabs / footer 高度 token 与左缘对齐', () => {
 })
 
 describe('S2: DB session.jsx compensation removed', () => {
-  test('DB branch computes height as height - tabsHeight (no +termControlHeight)', () => {
+  test('DB branch no longer does its own height math (T3a: flex allocates it)', () => {
     const src = load(SESSION)
     const m = src.match(/if \(type === terminalDatabaseType\) \{[\s\S]*?\n {4}\}/)
     assert.ok(m, 'db branch found')
     const body = m[0]
-    assert.match(body, /height - this\.props\.tabsHeight/, 'db height = layout height - tabs bar')
+    assert.ok(!body.includes('this.props.tabsHeight'), 'db height math must stay removed')
     assert.ok(!body.includes('termControlHeight'), 'compensation must not come back')
     assert.ok(!/this\.props\.computeHeight/.test(body), 'db branch must not call computeHeight')
   })
