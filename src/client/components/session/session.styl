@@ -50,14 +50,20 @@
   background var(--main)
 .session-wrap
   display none
+  // 竖向 flex 容器：页根自己声明"顶栏 flex none / 内容 flex 1"，
+  // 内容区可用高由浏览器分配，不再靠 JS 扣减（T3/T4）
+  flex-direction column
   position absolute
   overflow hidden
   z-index 3
   // 让位顶部标签栏；与 JS 扣减镜像见 tokens.styl --tabs-bar-h（init-state tabsHeight）
   padding-top var(--tabs-bar-h)
   box-shadow var(--shadow-1)
+  > *
+    flex 1 1 0
+    min-height 0
   &.session-batch-active
-    display block
+    display flex
 
 .term-sftp-box
   height 100%
