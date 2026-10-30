@@ -8,8 +8,9 @@
   // quick-commands-box.jsx 的 qmStyle.left 动态避让, 不在此固定
   left var(--left-side-bar-width, 43px)
   right 0
-  // 底栏三合一：statusbar/kbar 已并入本条，直接贴底
-  bottom 0
+  // 底栏三合一：statusbar/kbar 已并入本条；其下方只剩快捷键条 + 软键盘
+  // （--below-footer-h 由 main.jsx 从 resolveBottomStack 注入，无快捷键条时 = 0）
+  bottom var(--below-footer-h, 0px)
   z-index 200
 
 .terminal-footer-flex

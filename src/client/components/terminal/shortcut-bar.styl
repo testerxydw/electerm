@@ -1,6 +1,6 @@
 // shortcut-bar
-// sits in reserved space at the bottom of the viewport (see layout.jsx +
-// .shortcut-bar-on rule below). Height tracks --shortcut-bar-h which the
+// sits in reserved space at the bottom of the viewport (layout.jsx subtracts
+// it from the session height). Height tracks --shortcut-bar-h which the
 // component sets from the shortcutBarHeight constant.
 
 .shortcut-bar
@@ -99,21 +99,9 @@
 
     display none
 
-// while the bar is visible, lift the footer + reserve space so nothing is
-// covered (terminal area is shrunk by layout.jsx via store.shortcutBarVisible;
-// --shortcut-bar-kb-offset raises both bar + footer above a page-overlaying
-// system input panel on iOS / HarmonyOS)
-.shortcut-bar-on
-  .main-footer
-    bottom calc(var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px))
-  .remote-monitor-bar
-    bottom calc(var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px) + 30px)
-  // The right panel lifts itself via its own bottom calc, which already
-  // includes --shortcut-bar-h + --shortcut-bar-kb-offset (right-side-panel.styl);
-  // the vars are set by shortcut-bar.jsx while the bar is on. Mobile is
-  // excluded there by its full-screen drawer override (mobile.styl).
-  .qm-wrap-tooltip
-    bottom calc(var(--footer-stack-height, 30px) + var(--shortcut-bar-h, 44px) + var(--shortcut-bar-kb-offset, 0px))
+// 底栏抬升不再在这里按 body 类补位：footer / 监控条 / 侧栏 / 右面板 / 快捷
+// 命令带统一读 main.jsx 注入的 --below-footer-h / --below-monitor-h /
+// --bottom-reserved-h（值来自 resolveBottomStack，快捷键条 + 软键盘已计入）。
 
 // --- edit modal -----------------------------------------------------------
 

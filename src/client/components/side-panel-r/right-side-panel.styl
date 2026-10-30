@@ -4,14 +4,9 @@
   // Stay below the tab bar (--tabs-bar-h) — the panel never covers it in
   // either pin state; pin only changes where quick commands live.
   top var(--tabs-bar-h)
-  // Stay above the whole bottom stack so the footer chrome is never covered:
-  // footer (+ optional monitor row) via --footer-stack-height (main.jsx), the
-  // pinned quick-command box (180px) via --qm-bar-h (main.jsx), and the
-  // shortcut bar via its vars (shortcut-bar.jsx sets/removes them). Two cases
-  // move or remove the footer, and are handled where their sibling rules
-  // already live — see shortcut-bar.styl (.shortcut-bar-on lifts the footer)
-  // and term-fullscreen.styl (rdp/vnc/spice fullscreen hides it).
-  bottom calc(var(--footer-stack-height, 30px) + var(--qm-bar-h, 0px) + var(--shortcut-bar-h, 0px) + var(--shortcut-bar-kb-offset, 0px))
+  // 避让整个底部常显栈（footer + 监控条 + 快捷键条 + 软键盘），
+  // 唯一来源是 main.jsx 注入的 --bottom-reserved-h（resolveBottomStack）
+  bottom var(--bottom-reserved-h, var(--footer-stack-height, 30px))
   z-index 200
   background var(--main)
   color var(--text)

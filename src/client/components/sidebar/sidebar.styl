@@ -5,8 +5,9 @@
   position absolute
   left 0
   top 0
-  // 避让底部常显区（三合一后的单条 footer），否则面板底部内容被遮挡
-  bottom var(--footer-stack-height, 30px)
+  // 避让整个底部常显栈（footer + 监控条 + 快捷键条 + 软键盘），
+  // 否则快捷键条（z-index 400）会压住面板底部
+  bottom var(--bottom-reserved-h, var(--footer-stack-height, 30px))
   z-index 200
   width 0
   overflow-y scroll

@@ -36,7 +36,6 @@ export const filePropMinWidth = 1
 export const contextMenuHeight = 28
 export const contextMenuWidth = 280
 export const contextMenuPaddingTop = 10
-export const sftpControlHeight = 42 + 30
 export const sidebarWidth = 50
 export const maxHistory = 50
 export const maxTransport = 5

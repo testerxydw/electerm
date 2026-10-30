@@ -56,7 +56,7 @@
 // visible; the session shrinks to sit on top of the footer. RDP/VNC/Spice
 // fullscreen stays footer-less — main.jsx excludes those GUI tab types from
 // fs-with-footer, so the footer never covers the remote desktop.
-// --footer-stack-height includes the 30px footer and the optional monitor row.
+// --bottom-reserved-h = footer + 监控条 + 快捷键条 + 软键盘（main.jsx 注入）
 .fullscreen.fs-with-footer
   .main-footer
     display block
@@ -81,14 +81,13 @@
     display none
   .session-wrap.session-current
     .term-wrap
-      height calc(100% - var(--footer-stack-height, 30px) - var(--shortcut-bar-h, 0px) - var(--shortcut-bar-kb-offset, 0px)) !important
+      height calc(100% - var(--bottom-reserved-h, var(--footer-stack-height, 30px))) !important
     // 数据库页：内容区定高容器在内联样式里钉的是布局高（非全屏高度），
     // 全屏时改成固定铺满（底栏保留时让出底栏）
     .db-session-box
-      bottom var(--footer-stack-height, 30px) !important
-  // pinned quick-command bar (180px, same as quickCommandBoxHeight) sits
-  // between terminal and footer — reserve its space too
+      bottom calc(var(--bottom-reserved-h, var(--footer-stack-height, 30px)) + var(--qm-bar-h, 0px)) !important
+  // pinned quick-command bar sits between terminal and footer — reserve its space too
   &.qm-pinned
     .session-wrap.session-current
       .term-wrap
-        height calc(100% - var(--footer-stack-height, 30px) - 180px - var(--shortcut-bar-h, 0px) - var(--shortcut-bar-kb-offset, 0px)) !important
+        height calc(100% - var(--bottom-reserved-h, var(--footer-stack-height, 30px)) - var(--qm-bar-h, 0px)) !important

@@ -196,12 +196,12 @@ function ShortcutBar (props) {
     store.shortcutBarKbOffset = offset
   }, [kbOffset, store.shortcutBarVisible])
 
-  // reserve layout space + lift the footer while the bar is shown.
-  // expose the bar height as a CSS var so the .styl + footer-lift rule stay
-  // in sync with the shortcutBarHeight constant consumed by layout.jsx.
+  // expose the bar height as a CSS var so .shortcut-bar's own height stays in
+  // sync with the shortcutBarHeight constant consumed by layout.jsx.
+  // 底栏抬升由 main.jsx 注入的 --below-* / --bottom-reserved-h 负责，
+  // 不再依赖 body 类补位。
   useEffect(() => {
     const on = !!store.shortcutBarVisible
-    document.body.classList.toggle('shortcut-bar-on', on)
     if (on) {
       document.documentElement.style.setProperty(
         '--shortcut-bar-h',
@@ -209,7 +209,6 @@ function ShortcutBar (props) {
       )
     }
     return () => {
-      document.body.classList.remove('shortcut-bar-on')
       document.documentElement.style.removeProperty('--shortcut-bar-h')
     }
   }, [store.shortcutBarVisible])

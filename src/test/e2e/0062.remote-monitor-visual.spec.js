@@ -126,10 +126,11 @@ test('remote monitor styles, panel geometry and mobile overflow', async () => {
       const bounds = document.querySelector('.remote-monitor-bar').getBoundingClientRect()
       return bounds.left === 0 && bounds.width === window.innerWidth
     })
+    // 底栏抬升现在由 main.jsx 从 store 算出的 --below-* / --bottom-reserved-h
+    // 驱动，所以模拟"快捷键条 + 软键盘"必须改 store，不能只加 body 类
     await page.evaluate(() => {
-      document.body.classList.add('shortcut-bar-on')
-      document.documentElement.style.setProperty('--shortcut-bar-h', '44px')
-      document.documentElement.style.setProperty('--shortcut-bar-kb-offset', '240px')
+      window.store.shortcutBarKbOffset = 240
+      window.store.shortcutBarVisible = true
     })
     await page.waitForFunction(() => {
       const monitor = document.querySelector('.remote-monitor-bar').getBoundingClientRect()
@@ -138,9 +139,8 @@ test('remote monitor styles, panel geometry and mobile overflow', async () => {
       return Math.abs(monitor.bottom - footer.top) < 1 && Math.abs(terminal.bottom - monitor.top) < 1
     })
     await page.evaluate(() => {
-      document.body.classList.remove('shortcut-bar-on')
-      document.documentElement.style.removeProperty('--shortcut-bar-h')
-      document.documentElement.style.removeProperty('--shortcut-bar-kb-offset')
+      window.store.shortcutBarVisible = false
+      window.store.shortcutBarKbOffset = 0
       window.store.toggleSessFullscreen(false)
       window.store.updateTab(window.store.activeTabId, { status: 'success' })
     })

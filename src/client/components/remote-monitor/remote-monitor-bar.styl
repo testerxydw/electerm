@@ -1,6 +1,7 @@
 .remote-monitor-bar
   position absolute
-  bottom 30px
+  // 坐在 footer 之上：footer + 快捷键条 + 软键盘（main.jsx 注入）
+  bottom var(--below-monitor-h, var(--footer-h, 30px))
   z-index 188
   overflow hidden
   display flex
