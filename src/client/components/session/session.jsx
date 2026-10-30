@@ -237,20 +237,17 @@ export default class SessionWrapper extends Component {
     } = tab
     if (type === terminalDatabaseType) {
       // 数据库页自己渲染 32px 工具条（.db-head，高度 = --session-bar-h），
-      // "控制条"位置由页面内部消化 —— 与终端不同，DB 无 SessionControl，
-      // 故只让位顶部标签栏（tabsHeight），不再走 computeHeight 的"扣 36+32
-      // 再加回 32"补偿（S2：两种写法同值 H-36，去补偿后语义清晰）
+      // 内容高由 .session-wrap 的竖向 flex 分配（T3a）：页面根不再需要
+      // "H - tabsHeight" 这类算术，也不会随顶栏高度变化而失效
       const { width } = this.calcTermWidthHeight()
-      const height = this.props.height - this.props.tabsHeight
       const dbProps = {
         tab,
-        width,
-        height
+        width
       }
       return (
         <div
           className='db-session-box'
-          style={{ width, height }}
+          style={{ width }}
         >
           <LazyBoundary>
             <DbSession
