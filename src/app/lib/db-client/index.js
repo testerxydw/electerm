@@ -381,7 +381,10 @@ function resetStructureCache (inst) {
 async function structureCached (inst, adapter, args, opMs, onTimeout, connOverride) {
   const key = structureKey(args)
   const cache = inst.structureCache || resetStructureCache(inst)
-  if (cache.values.has(key)) {
+  // H4：结构对比弹层要"当下这一版"（刚 ALTER 过、60s 还没到），refresh:true
+  // 跳过新鲜值直接查库；查回来照常写缓存，后续读方拿到的是这次的新结果
+  const refresh = args && args.refresh === true
+  if (!refresh && cache.values.has(key)) {
     const at = cache.ts.get(key) || 0
     if (Date.now() - at < STRUCTURE_TTL) {
       return cache.values.get(key)
@@ -408,8 +411,10 @@ async function structureCached (inst, adapter, args, opMs, onTimeout, connOverri
     err => {
       cache.inflight.delete(key)
       // 过期后重查失败（网络抖动/权限临时变化）：有旧值就继续用旧的，
-      // 总比让表头整块变空好；TTL 会在下次请求时再试
-      if (cache.values.has(key)) {
+      // 总比让表头整块变空好；TTL 会在下次请求时再试。
+      // 强制刷新（refresh）不兜底：调用方要的是本地最新结构，悄悄给旧值
+      // 会让"对比结果"拿一份过期结构去比，错得看不出来
+      if (!refresh && cache.values.has(key)) {
         return cache.values.get(key)
       }
       throw err
