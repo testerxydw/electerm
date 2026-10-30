@@ -1,0 +1,102 @@
+// G7 设置面板：密钥生成向导 + known_hosts 列表
+// 颜色全部走 token（css 契约测试会点名非 includes 的硬编码色值）
+
+.ssh-key-wizard
+  .ssh-key-type
+    width 160px
+
+  .ssh-key-name,
+  .ssh-key-pass,
+  .ssh-key-pass2
+    width 220px
+
+.ssh-key-name-tip
+  margin-top 4px
+  font-size 12px
+  color var(--text-dark)
+
+.ssh-key-result
+  margin 12px 0
+  padding 10px 12px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+
+.ssh-key-result-line
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+  margin-bottom 6px
+
+.ssh-key-result-label
+  flex none
+  width 88px
+  font-size 12px
+  color var(--text-dark)
+
+// 路径与 ssh-copy-id 命令都是原文，等宽且允许折断，不然长路径会把行撑爆
+.ssh-key-result-path,
+.ssh-key-result-cmd
+  font-family var(--font-mono)
+  font-size 12px
+  color var(--text)
+  word-break break-all
+
+.ssh-key-result-manual
+  margin-bottom 6px
+  font-size 12px
+  color var(--text-dark)
+
+.ssh-key-pub
+  font-family var(--font-mono)
+  font-size 12px
+
+.ssh-key-bookmark
+  min-width 180px
+
+.ssh-key-known-head
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+  margin-bottom 8px
+
+.ssh-key-known-mtime
+  font-size 12px
+  color var(--text-dark)
+
+.ssh-key-known-list
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  overflow hidden
+
+// 主机 / 算法 / 指纹 / 标记 / 操作：指纹最长，给它最大的比例
+.ssh-key-known-row
+  display grid
+  grid-template-columns minmax(120px, 1.4fr) minmax(96px, 1fr) minmax(150px, 2fr) 96px 64px
+  align-items center
+  gap 8px
+  padding 6px 10px
+  border-bottom 1px solid var(--border)
+  font-size 12px
+
+  &:last-child
+    border-bottom none
+
+  &:hover
+    background var(--main-light)
+
+.ssh-key-known-fp
+  font-family var(--font-mono)
+
+.ssh-key-known-actions
+  display flex
+  justify-content flex-end
+
+.ssh-key-known-empty
+  padding 16px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--text-dark)
+  text-align center

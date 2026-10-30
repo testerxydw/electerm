@@ -3,7 +3,8 @@ import {
   settingShortcutsId,
   settingTerminalId,
   settingAiId,
-  settingPasswordsId
+  settingPasswordsId,
+  settingSshKeyId
 } from '../common/constants'
 import { isAIDisabled } from './ai-feature'
 
@@ -30,6 +31,10 @@ export default () => {
     {
       id: settingPasswordsId,
       title: e('password')
+    },
+    {
+      id: settingSshKeyId,
+      title: e('sshKeys')
     }
   ]
   if (isAIDisabled()) {
