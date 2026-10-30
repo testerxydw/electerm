@@ -26,6 +26,7 @@ import { buildGridColumns, CELL_ELLIPSIS } from './db-grid-columns'
 // 与过滤输入（数据页 / SQL 结果同一外观，状态仍归各自页面）
 import { DbGridPager, DbGridFilter } from './db-grid-pager'
 import { DbCellMenu } from './db-cell-menu'
+import { parseXinfoStream, parseXinfoGroups, parseXrangeEntries } from '../../common/db-redis-stream'
 // H1：行详情（SQL 结果 Modal 承载；H2 数据网格底部"行"页签复用同一渲染体）
 import { DbRowDetail, DbRowDetailModal } from './db-row-detail'
 import {
@@ -211,6 +212,10 @@ const SQL_VALUE_SPLIT_KEY = 'electerm-db-sql-value-split'
 const REDIS_VALUE_SPLIT_KEY = 'electerm-db-redis-value-split'
 // Redis hash/set 详情每页条数（后端 HSCAN/SSCAN 游标分页）
 const REDIS_DETAIL_PAGE = 200
+// 拿不到就出「—」，不冒充 0：INFO/慢日志/Stream 三处同一口径
+// （0 在长度/组数/滞后量里都是合法值，混进"没拿到"就分不清）
+const NA = '—'
+const dash = v => (v === null || v === undefined ? NA : String(v))
 // R1：键列表深跳阈值（页）。SCAN 无 offset，跳页要从 cursor=0 前向步进，
 // 深跳前先弹确认，避免误触后长时间等待
 const REDIS_KEY_JUMP_WARN_PAGES = 500
@@ -5732,7 +5737,36 @@ export default auto(function DbSession (props) {
     return list
   }, [redisDetail, detailLimit])
 
-  // 当前详情类型对应的那份行数组（四张表各有一份 memo，值面板按 rowKey 回查用同一份，
+  // H7b-4：stream 的三份派生数据 —— 元信息/消费组/条目都是原始回包，
+  // 形状随 RESP 与 Redis 版本变，归一放在 common/db-redis-stream.js（可直测）
+  const redisStreamInfo = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'stream') {
+      return null
+    }
+    return parseXinfoStream(d.streamInfo)
+  }, [redisDetail])
+
+  const redisStreamGroups = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'stream') {
+      return null
+    }
+    // null 与 [] 是两件事：null = 拿不到组列表（XINFO 被禁），[] = 真的没有组
+    return d.streamGroups === null || d.streamGroups === undefined
+      ? null
+      : parseXinfoGroups(d.streamGroups)
+  }, [redisDetail])
+
+  const redisStreamEntries = useMemo(() => {
+    const d = redisDetail
+    if (!d || d.type !== 'stream') {
+      return []
+    }
+    return parseXrangeEntries(d.rows)
+  }, [redisDetail])
+
+  // 当前详情类型对应的那份行数组（五张表各有一份 memo，值面板按 rowKey 回查用同一份，
   // 不复制值 —— 一个大 value 拷一次没必要）
   const redisDetailRows = useMemo(() => {
     const d = redisDetail
@@ -5751,8 +5785,11 @@ export default auto(function DbSession (props) {
     if (d.type === 'zset') {
       return redisZsetRows
     }
+    if (d.type === 'stream') {
+      return redisStreamEntries
+    }
     return []
-  }, [redisDetail, redisHashRows, redisListRows, redisSetRows, redisZsetRows])
+  }, [redisDetail, redisHashRows, redisListRows, redisSetRows, redisZsetRows, redisStreamEntries])
 
   // H1a-2b：Redis 详情的列宽（内存态，与表结构/键列表同一处理：详情不是"某张表的视角"，
   // 写进视角没有归属）。手动宽按**键类型分桶**存（`{ hash: { value: 720 }, zset: { member: 400 } }`）：
@@ -8145,6 +8182,187 @@ export default auto(function DbSession (props) {
           />
           {renderMoreBtn(Math.ceil((d.rows || []).length / 2))}
         </>
+      )
+    } else if (d.type === 'stream') {
+      // H7b-4：只读 —— XINFO 给元信息与消费组，XRANGE 给条目。
+      // 不提供 XADD/XDEL/XACK：stream 的写入语义（上游生产者、消费组 ack）
+      // 不是"双击改一格"能表达的东西，给个半吊子入口比没有更糟。
+      const info = redisStreamInfo || {}
+      const groups = redisStreamGroups
+      const groupCount = groups === null ? info.groups : groups.length
+      const entriesTotal = typeof d.total === 'number' ? d.total : null
+      body = (
+        // 值面板打开时收起消费组：上下分区只剩一半高度，元信息 + 组表就能
+        // 把条目表挤成 0 —— 组数是次要信息（元信息条里仍有"消费组 N"），
+        // 正在看的条目才是主体
+        <div className={'db-redis-stream' + (redisCellInfo ? ' db-redis-stream-compact' : '')}>
+          <div className='db-redis-stream-meta'>
+            <span className='db-redis-stream-stat'>
+              <span className='db-redis-stream-k'>{e('dbRedisStreamStatLength')}</span>
+              <span className='db-redis-stream-v'>{dash(info.length)}</span>
+            </span>
+            <span className='db-redis-stream-stat'>
+              <span className='db-redis-stream-k'>{e('dbRedisStreamStatFirst')}</span>
+              <span className='db-redis-stream-v db-redis-stream-mono'>{dash(info.firstId)}</span>
+            </span>
+            <span className='db-redis-stream-stat'>
+              <span className='db-redis-stream-k'>{e('dbRedisStreamStatLast')}</span>
+              <span className='db-redis-stream-v db-redis-stream-mono'>{dash(info.lastId)}</span>
+            </span>
+            <span className='db-redis-stream-stat'>
+              <span className='db-redis-stream-k'>{e('dbRedisStreamStatGroups')}</span>
+              <span className='db-redis-stream-v'>{dash(groupCount)}</span>
+            </span>
+            <span className='db-redis-stream-stat'>
+              <span className='db-redis-stream-k'>{e('dbRedisStreamStatAdded')}</span>
+              <span className='db-redis-stream-v'>{dash(info.entriesAdded)}</span>
+            </span>
+            <Button
+              size='small'
+              className='db-redis-stream-refresh'
+              icon={<ReloadOutlined />}
+              loading={detailLoading}
+              onClick={() => selectRedisKey(redisKey)}
+            >
+              {e('dbRedisStreamRefresh')}
+            </Button>
+          </div>
+          <div className='db-redis-stream-head db-redis-stream-groups-head'>
+            <span className='db-redis-stream-title'>{e('dbRedisStreamGroupsTitle')}</span>
+            {
+              groups === null
+                ? <span className='db-redis-stream-note'>{e('dbRedisStreamGroupsUnknown')}</span>
+                : groups.length === 0
+                  ? <span className='db-redis-stream-note'>{e('dbRedisStreamNoGroups')}</span>
+                  : null
+            }
+          </div>
+          {
+            groups && groups.length
+              ? (
+                <DbGridTable
+                  size='small'
+                  pagination={false}
+                  columns={[
+                    {
+                      title: e('dbRedisStreamGroupName'),
+                      dataIndex: 'name',
+                      key: 'name',
+                      ellipsis: CELL_ELLIPSIS,
+                      className: 'db-redis-stream-mono',
+                      render: v => renderCell(v)
+                    },
+                    {
+                      title: e('dbRedisStreamConsumers'),
+                      dataIndex: 'consumers',
+                      key: 'consumers',
+                      width: 90,
+                      render: v => dash(v)
+                    },
+                    {
+                      title: e('dbRedisStreamPending'),
+                      dataIndex: 'pending',
+                      key: 'pending',
+                      width: 90,
+                      render: v => dash(v)
+                    },
+                    {
+                      title: e('dbRedisStreamLastDelivered'),
+                      dataIndex: 'lastDeliveredId',
+                      key: 'lastDeliveredId',
+                      width: 180,
+                      className: 'db-redis-stream-mono',
+                      ellipsis: CELL_ELLIPSIS,
+                      render: v => renderCell(v)
+                    },
+                    {
+                      title: e('dbRedisStreamLag'),
+                      dataIndex: 'lag',
+                      key: 'lag',
+                      width: 80,
+                      render: v => dash(v)
+                    }
+                  ]}
+                  dataSource={groups}
+                  rowKey='name'
+                  className='db-redis-stream-groups-table'
+                />
+                )
+              : null
+          }
+          <div className='db-redis-stream-head'>
+            <span className='db-redis-stream-title'>{e('dbRedisStreamEntries')}</span>
+            <span className='db-redis-stream-note'>
+              {dash(redisStreamEntries.length) + (entriesTotal === null ? '' : ' / ' + entriesTotal)}
+            </span>
+          </div>
+          <DbGridTable
+            size='small'
+            pagination={false}
+            columns={[
+              {
+                title: (
+                  <ColHead
+                    label={e('dbRedisStreamId')}
+                    colKey='id'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
+                dataIndex: 'id',
+                key: 'id',
+                width: redisDetailWidthOf('id'),
+                ellipsis: CELL_ELLIPSIS,
+                className: 'db-redis-stream-mono',
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'id',
+                    head: e('dbRedisStreamId'),
+                    wide: wideColumnWidth(redisStreamEntries, 'id')
+                  })
+                }),
+                render: v => renderCell(v)
+              },
+              {
+                title: (
+                  <ColHead
+                    label={e('dbRedisStreamFields')}
+                    colKey='preview'
+                    wg={redisDetailWidths}
+                    hint={e('dbColResizeHint')}
+                  />
+                ),
+                dataIndex: 'preview',
+                key: 'preview',
+                width: redisDetailWidthOf('preview'),
+                ellipsis: CELL_ELLIPSIS,
+                // 单击 = 完整字段（多行原文），网格里只放单行摘要
+                onCell: redisCellProps('text', e('dbRedisStreamFields')),
+                onHeaderCell: () => ({
+                  onContextMenu: ev => colMenu.openColMenu(ev, {
+                    wg: redisDetailWidths,
+                    key: 'preview',
+                    head: e('dbRedisStreamFields'),
+                    wide: wideColumnWidth(redisStreamEntries, 'preview')
+                  })
+                }),
+                render: v => renderCell(v)
+              },
+              {
+                title: e('dbRedisStreamFieldCount'),
+                dataIndex: 'fieldCount',
+                key: 'fieldCount',
+                width: 90,
+                render: v => dash(v)
+              }
+            ]}
+            dataSource={redisStreamEntries}
+            rowKey='__rowKey'
+            className='db-redis-stream-entries-table'
+          />
+          {renderScanMore(d)}
+        </div>
       )
     } else {
       body = <span className='db-cell-null'>{e('dbUnsupportedType').replace('{type}', d.type)}</span>

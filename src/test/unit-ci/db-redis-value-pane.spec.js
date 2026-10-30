@@ -178,12 +178,12 @@ describe('redisCellInfo：面板数据按 rowKey 现取（真实源码）', () =
     assert.equal(got.meta, '')
   })
 
-  test('四张表的行数组取自同一份 memo（不复制大值）', () => {
+  test('五张表的行数组取自同一份 memo（不复制大值）', () => {
     const src = codeOf(jsx())
-    const m = /const redisDetailRows = useMemo\(\(\) => \{([\s\S]*?)\n {2}\}, \[redisDetail, redisHashRows, redisListRows, redisSetRows, redisZsetRows\]\)/
+    const m = /const redisDetailRows = useMemo\(\(\) => \{([\s\S]*?)\n {2}\}, \[redisDetail, redisHashRows, redisListRows, redisSetRows, redisZsetRows, redisStreamEntries\]\)/
       .exec(src)
     assert.ok(m, 'redisDetailRows memo 的依赖表变了')
-    for (const t of ['hash', 'list', 'set', 'zset']) {
+    for (const t of ['hash', 'list', 'set', 'zset', 'stream']) {
       assert.ok(m[1].includes("d.type === '" + t + "'") || new RegExp("'" + t + "'").test(m[1]),
         'redisDetailRows 少了 ' + t + ' 分支')
     }

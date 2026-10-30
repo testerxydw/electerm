@@ -698,18 +698,19 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     }
   })
 
-  test('Redis 详情 6 个内容列已接列宽：列头与三源选宽同时到位，写入路径不受影响', () => {
+  test('Redis 详情 8 个内容列已接列宽：列头与三源选宽同时到位，写入路径不受影响', () => {
     const src = read()
-    // 10 处 = 表结构 1 + 键列表 3 + 详情 6（数据页 / SQL 结果的 ColHead 已并入
-    // 列工厂，工厂里那份构造点 + 两个调用点覆盖两处网格）。序号列与删除按钮列
-    // 不参与量宽，见下面两条例外
-    assert.equal((src.match(/<ColHead/g) || []).length, 10, '详情 6 个内容列都要挂 ColHead')
+    // 12 处 = 表结构 1 + 键列表 3 + 详情 8（原有 6 + Stream 条目表 ID/字段 2；
+    // 数据页 / SQL 结果的 ColHead 已并入列工厂，工厂里那份构造点 + 两个调用点
+    // 覆盖两处网格）。消费组表是固定宽的窄表、序号列与删除按钮列不参与量宽，
+    // 见下面两条例外
+    assert.equal((src.match(/<ColHead/g) || []).length, 12, '详情 8 个内容列都要挂 ColHead')
     const colSrc = readCols()
     assert.equal((colSrc.match(/<ColHead/g) || []).length, 1, '列工厂只保一份 ColHead 构造点')
-    assert.equal((src.match(/wg=\{redisDetailWidths\}/g) || []).length, 6, '详情列头缺一列')
-    assert.equal((src.match(/width: redisDetailWidthOf\('/g) || []).length, 6,
-      '详情 6 列的宽必须走三源 picker')
-    assert.equal((src.match(/wg: redisDetailWidths,/g) || []).length, 6, '详情列缺右键菜单绑定')
+    assert.equal((src.match(/wg=\{redisDetailWidths\}/g) || []).length, 8, '详情列头缺一列')
+    assert.equal((src.match(/width: redisDetailWidthOf\('/g) || []).length, 8,
+      '详情 8 列的宽必须走三源 picker')
+    assert.equal((src.match(/wg: redisDetailWidths,/g) || []).length, 8, '详情列缺右键菜单绑定')
     // 手动宽按**键类型分桶**存：hash 的 value 与 list 的 value 是同名字段，共用一份
     // 就是拖一处改另一处；分桶同时让列头菜单的"自适应全部列"只清当前这一张表
     const detailHook = hookOf(src, 'redisDetailWidths')
@@ -722,7 +723,8 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     // 例外钉住：4 个删除按钮列 + 1 个序号列仍是写死宽（按钮列没有"内容"可量，
     // 序号列宽度由位数决定，交给自适应只会让操作列忽宽忽窄）
     assert.equal((src.match(/width: 60/g) || []).length, 4, '删除按钮列应保持 60 固定')
-    assert.equal((src.match(/width: 80/g) || []).length, 1, '序号列应保持 80 固定')
+    assert.equal((src.match(/width: 80/g) || []).length, 2,
+      '80 固定宽：序号列 + Stream 消费组的滞后列')
     // 接线不能碰写路径：双击行内编辑的每一列都还得在（D 批的 LSET/HSET/SREM/ZADD 入口）
     assert.equal((src.match(/onDoubleClick: \(\) => editRedisCell/g) || []).length, 4,
       '详情双击进编辑的那 4 列被接线弄丢了')

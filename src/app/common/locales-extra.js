@@ -769,7 +769,26 @@ const en = {
   dbHomeImport: 'Import into table',
   dbHomeRecent: 'Tables',
   dbHomeRecentHint: 'first {n} tables of the loaded metadata',
-  dbHomeNoTables: 'No table loaded yet - refresh metadata'
+  dbHomeNoTables: 'No table loaded yet - refresh metadata',
+  // H7b-4：Redis Stream 详情（只读）
+  dbRedisStreamStatLength: 'length',
+  dbRedisStreamStatFirst: 'first id',
+  dbRedisStreamStatLast: 'last id',
+  dbRedisStreamStatGroups: 'groups',
+  dbRedisStreamStatAdded: 'entries added',
+  dbRedisStreamRefresh: 'refresh',
+  dbRedisStreamGroupsTitle: 'consumer groups',
+  dbRedisStreamGroupsUnknown: 'XINFO unavailable on this instance',
+  dbRedisStreamNoGroups: 'no consumer groups',
+  dbRedisStreamGroupName: 'name',
+  dbRedisStreamConsumers: 'consumers',
+  dbRedisStreamPending: 'pending',
+  dbRedisStreamLastDelivered: 'last delivered',
+  dbRedisStreamLag: 'lag',
+  dbRedisStreamEntries: 'entries',
+  dbRedisStreamId: 'id',
+  dbRedisStreamFields: 'fields',
+  dbRedisStreamFieldCount: 'field count'
 }
 
 // 简体中文
@@ -1523,7 +1542,26 @@ const zhCn = {
   dbHomeImport: '导入到表',
   dbHomeRecent: '表',
   dbHomeRecentHint: '已加载元数据里的前 {n} 张',
-  dbHomeNoTables: '还没有加载到表，先刷新元数据'
+  dbHomeNoTables: '还没有加载到表，先刷新元数据',
+  // H7b-4：Redis Stream 详情（只读）
+  dbRedisStreamStatLength: '长度',
+  dbRedisStreamStatFirst: '首条 ID',
+  dbRedisStreamStatLast: '末条 ID',
+  dbRedisStreamStatGroups: '消费组',
+  dbRedisStreamStatAdded: '累计写入',
+  dbRedisStreamRefresh: '刷新',
+  dbRedisStreamGroupsTitle: '消费者组',
+  dbRedisStreamGroupsUnknown: '该实例不支持 XINFO',
+  dbRedisStreamNoGroups: '没有消费者组',
+  dbRedisStreamGroupName: '名称',
+  dbRedisStreamConsumers: '消费者',
+  dbRedisStreamPending: '待确认',
+  dbRedisStreamLastDelivered: '最后投递',
+  dbRedisStreamLag: '滞后',
+  dbRedisStreamEntries: '条目',
+  dbRedisStreamId: 'ID',
+  dbRedisStreamFields: '字段',
+  dbRedisStreamFieldCount: '字段数'
 }
 
 module.exports = {

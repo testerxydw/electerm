@@ -1185,6 +1185,75 @@
   text-overflow ellipsis
   white-space nowrap
 
+// H7b-4 Stream 详情（只读）：元信息条 + 消费组表 + 条目表
+// 键名/ID/组名都是「要照着敲」的东西，走数据面字体链（--db-code-font），
+// 没有就是等宽回落 —— 不要在弹层/详情里另起一套字号
+// 撑满分区高度：条目表要拿确定高度才能内部滚动（与 hash/list 详情同一个前提），
+// 写成 flex none 的话它的 flex-basis 0 在 auto 高度父级里塌成 0 → 整张表看不见
+.db-redis-stream
+  display flex
+  flex-direction column
+  gap 6px
+  flex 1 1 0
+  min-height 0
+
+// 消费组通常个位数：不给弹性高度，最多 180px 自己滚
+.db-redis-stream-groups-table
+  flex none
+  max-height 180px
+
+// 值面板打开 = 上下分区只剩一半高度，消费组让位给条目表（组数仍在元信息条里）
+.db-redis-stream-compact
+  .db-redis-stream-groups-head
+  .db-redis-stream-groups-table
+    display none
+
+.db-redis-stream-entries-table
+  flex 1 1 0
+  min-height 0
+
+.db-redis-stream-meta
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 12px
+  padding 6px 0
+  border-bottom 1px solid var(--border)
+  color var(--text)
+  font-size 12px
+
+.db-redis-stream-stat
+  display inline-flex
+  align-items baseline
+  gap 4px
+
+.db-redis-stream-k
+  color var(--text-muted)
+
+.db-redis-stream-v
+  color var(--text)
+
+.db-redis-stream-mono
+  font-family var(--db-code-font, var(--font-mono))
+
+.db-redis-stream-refresh
+  margin-left auto
+
+.db-redis-stream-head
+  display flex
+  align-items center
+  gap 8px
+  margin-top 2px
+
+.db-redis-stream-title
+  font-size 12px
+  font-weight 500
+  color var(--text)
+
+.db-redis-stream-note
+  font-size 12px
+  color var(--text-muted)
+
 // 表结构区（列定义网格）：撑满 tabpane（块级父级里 flex-basis 不生效，必须 height 100%），
 // flex 列布局让 .db-grid-table-wrap 拿到确定高度并内部滚动
 .db-struct-area
