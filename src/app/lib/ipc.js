@@ -277,6 +277,13 @@ function initIpc () {
     }
     return dir
   }
+  // G2 回放: 列目录/读文件/探测/删除/定位都限定在会话日志目录内的 .cast,
+  // 渲染层只递裸文件名, 越界由 session-recordings.js 的 resolveInDir 拒掉。
+  const listRecordings = async () => require('./session-recordings').listRecordings(getSessionLogDir())
+  const readRecording = async (name) => require('./session-recordings').readRecording(getSessionLogDir(), name)
+  const probeRecordings = async (names) => require('./session-recordings').probeRecordings(getSessionLogDir(), names)
+  const deleteRecording = async (name) => require('./session-recordings').deleteRecording(getSessionLogDir(), name)
+  const showRecordingInFolder = async (name) => shell.showItemInFolder(require('./session-recordings').resolveInDir(getSessionLogDir(), name))
   const asyncGlobals = {
     confirmExit: () => {
       globalState.set('confirmExit', true)
@@ -386,6 +393,11 @@ function initIpc () {
     createRecordFile,
     appendRecFile,
     openSessionLogDir,
+    listRecordings,
+    readRecording,
+    probeRecordings,
+    deleteRecording,
+    showRecordingInFolder,
     doUpgrade: (...args) => upgrade().doUpgrade(...args),
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
     checkMigrate,
