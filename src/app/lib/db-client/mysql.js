@@ -1144,9 +1144,44 @@ async function listColumns (conn, { database } = {}) {
   return { tables: groupColumns(rows) }
 }
 
-async function executeSql (conn, { sql, database, readOnly }) {
+// H6a：参数化执行的前提是"一条语句一个参数归属"。
+// 驱动对"多语句 + 参数"的支持不一致（mysql2 会把参数摊到各语句），
+// 分不清哪个 ? 属于哪句就会给错值，所以参数化模式只放行单条语句。
+function assertParamMode (sql, params) {
+  if (params === undefined || params === null) {
+    return
+  }
+  if (!Array.isArray(params)) {
+    throw new Error('params must be an array')
+  }
+  const masked = maskSqlText(sql)
+  let count = 0
+  let hasText = false
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === ';') {
+      if (hasText) {
+        count++
+      }
+      hasText = false
+      continue
+    }
+    if (/\S/.test(c)) {
+      hasText = true
+    }
+  }
+  if (hasText) {
+    count++
+  }
+  if (count > 1) {
+    throw new Error('parameterized execution supports a single statement only')
+  }
+}
+
+async function executeSql (conn, { sql, database, readOnly, params }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
+  assertParamMode(sql, params)
   // 耗时从进函数起算（含取连接），是用户视角的"这条 SQL 花了多久"
   const started = Date.now()
   const pool = await getPool(conn)
@@ -1158,7 +1193,10 @@ async function executeSql (conn, { sql, database, readOnly }) {
     if (database) {
       await c.query('USE ' + quoteIdent(database))
     }
-    const [rows, fields] = await c.query(sql)
+    // 值走驱动绑定（mysql2 负责转义），不在主进程拼 SQL
+    const [rows, fields] = Array.isArray(params) && params.length
+      ? await c.query(sql, params)
+      : await c.query(sql)
     return {
       results: normalizeResults(rows, fields),
       elapsedMs: Date.now() - started

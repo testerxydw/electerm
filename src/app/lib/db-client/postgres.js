@@ -1013,13 +1013,50 @@ async function listColumns (conn, { schema } = {}) {
   }
 }
 
-async function executeSql (conn, { sql, readOnly }) {
+// H6a：见 mysql 适配器同名函数。pg 驱动对多语句 + values 的支持是
+// "整串当一条简单查询"，参数归属同样无法保证，参数化模式只放行单条
+function assertParamMode (sql, params) {
+  if (params === undefined || params === null) {
+    return
+  }
+  if (!Array.isArray(params)) {
+    throw new Error('params must be an array')
+  }
+  const masked = maskSqlText(sql)
+  let count = 0
+  let hasText = false
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === ';') {
+      if (hasText) {
+        count++
+      }
+      hasText = false
+      continue
+    }
+    if (/\S/.test(c)) {
+      hasText = true
+    }
+  }
+  if (hasText) {
+    count++
+  }
+  if (count > 1) {
+    throw new Error('parameterized execution supports a single statement only')
+  }
+}
+
+async function executeSql (conn, { sql, readOnly, params }) {
   // 先做只读校验（不触网），被拒时无需建立连接
   checkReadonly(sql, readOnly)
+  assertParamMode(sql, params)
   // 耗时从进函数起算（含取连接），是用户视角的"这条 SQL 花了多久"
   const started = Date.now()
   const c = await getClient(conn)
-  const res = await c.query(sql)
+  // 值走 values 绑定（驱动负责转义），不在主进程拼 SQL
+  const res = await (Array.isArray(params) && params.length
+    ? c.query({ text: sql, values: params })
+    : c.query(sql))
   // pg 执行多语句时返回结果数组（每条语句一个 result），统一为 results
   const list = Array.isArray(res) ? res : [res]
   return {
