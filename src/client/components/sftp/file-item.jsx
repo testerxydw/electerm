@@ -14,6 +14,7 @@ import copy from 'json-deep-copy'
 import { pick, some } from 'lodash-es'
 import Input from '../common/input-auto-focus'
 import resolve from '../../common/resolve'
+import { isArchiveName } from '../../common/remote-archive'
 import normalizeRemotePath from '../../common/normalize-remote-path'
 import { addClass, removeClass } from '../../common/class'
 import {
@@ -384,6 +385,27 @@ export default class FileSection extends React.Component {
       file: this.state.file,
       sftp: this.props.sftp,
       onDownload: this.doTransfer
+    })
+  }
+
+  // 归档的源 = 当前选中项（右键的那项没在多选里时退回它自己）；
+  // 同目录是主进程的硬规则，这里不预检，让报错说话
+  archiveFiles = () => {
+    const files = this.shouldShowSelectedMenu()
+      ? this.props.getSelectedFiles()
+      : [this.state.file]
+    refsStatic.get('remote-archive-modal')?.showCreate({
+      files,
+      sftp: this.props.sftp,
+      onDone: () => this.props.remoteList()
+    })
+  }
+
+  extractArchive = () => {
+    refsStatic.get('remote-archive-modal')?.showExtract({
+      file: this.state.file,
+      sftp: this.props.sftp,
+      onDone: () => this.props.remoteList()
     })
   }
 
@@ -1037,6 +1059,7 @@ export default class FileSection extends React.Component {
     const {
       file: {
         type,
+        name,
         isDirectory,
         size,
         id,
@@ -1136,6 +1159,29 @@ export default class FileSection extends React.Component {
         icon: 'EyeOutlined',
         text: e('filePreview')
       })
+    }
+    // 远程归档：打包全靠 exec 通道，SFTP-only 的会话与 FTP 都没有这条通道，
+    // 入口不给出来比点了报错好（enableSsh !== false 与 gotoFolderInTerminal 同判据）
+    const canArchive = isRemote &&
+      isRealFile &&
+      hasHost &&
+      enableSsh !== false &&
+      !this.props.isFtp
+    if (canArchive) {
+      res.push({
+        func: 'archiveFiles',
+        icon: 'FileZipOutlined',
+        text: shouldShowSelectedMenu
+          ? `${e('remoteArchivePack')}:${e('selected')}(${len})`
+          : e('remoteArchivePack')
+      })
+      if (!isDirectory && isArchiveName(name)) {
+        res.push({
+          func: 'extractArchive',
+          icon: 'FolderOpenOutlined',
+          text: e('remoteArchiveExtract')
+        })
+      }
     }
     if (isRealFile) {
       res.push({

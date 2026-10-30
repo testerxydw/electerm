@@ -1,0 +1,112 @@
+// 远程归档弹层（G4）：源清单 / 格式与名字 / 解压前的归档清单 / 结果与 stderr 尾巴
+// 颜色全走 token，不新增硬编码色值（css 契约测试会点名非 includes 的 styl）
+
+// 共享 Modal 的页脚默认 text-align right，这里要让「无法中断」那句和按钮分列两端
+.remote-archive-modal
+  .custom-modal-footer
+    display flex
+    align-items center
+    justify-content flex-end
+    gap 8px
+
+.remote-archive-label
+  font-size 12px
+  color var(--text-dark)
+  margin-bottom 4px
+
+.remote-archive-row
+  display flex
+  align-items center
+  gap 8px
+  margin-top 8px
+  .remote-archive-label
+    flex none
+    width 80px
+    margin-bottom 0
+  .ant-select
+    min-width 140px
+
+.remote-archive-name-error
+  margin-top 4px
+  font-size 12px
+  color var(--error)
+
+.remote-archive-dest
+  margin-top 8px
+  font-size 12px
+  color var(--text-dark)
+  word-break break-all
+
+.remote-archive-path
+  font-family var(--font-mono)
+  color var(--text)
+
+// 清单与源列表都是远端给的原文，等宽 + 不换行，横向滚动统一由容器负责
+.remote-archive-block
+  margin-top 8px
+
+.remote-archive-list
+  margin 0
+  padding 8px 10px
+  max-height 32vh
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-family var(--font-mono)
+  font-size 12px
+  line-height 18px
+  white-space pre
+  color var(--text)
+
+.remote-archive-list-sources
+  max-height 20vh
+
+.remote-archive-banner
+  display flex
+  align-items center
+  gap 8px
+  padding 4px 8px
+  margin-bottom 6px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--text-dark)
+
+.remote-archive-error
+  margin-top 10px
+  padding 8px 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--error)
+
+.remote-archive-result
+  margin-top 4px
+  padding 8px 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  word-break break-all
+
+// 降级提示（远端没装 zip）：正文用满对比度的 --text，只用左边一条 warn 色带标警告
+.remote-archive-notice
+  margin-top 6px
+  padding-left 8px
+  border-left 3px solid var(--warn)
+  color var(--text)
+
+.remote-archive-detail
+  margin 6px 0 0
+  padding 6px 8px
+  background var(--hover-bg)
+  border-radius var(--radius-sm)
+  font-family var(--font-mono)
+  font-size 12px
+  white-space pre-wrap
+  word-break break-all
+  color var(--text)
+
+.remote-archive-running
+  font-size 12px
+  color var(--text-dark)
+  margin-right auto
