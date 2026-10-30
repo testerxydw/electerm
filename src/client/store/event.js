@@ -26,13 +26,7 @@ export default Store => {
     refs.get('term-' + window.store.activeTabId)?.term?.selectAll()
   }
 
-  Store.prototype.triggerResize = function () {
-    window.store.resizeTrigger = window.store.resizeTrigger ? 0 : 1
-    window.dispatchEvent(new Event('resize'))
-  }
-
   Store.prototype.toggleSessFullscreen = function (fullscreen) {
     window.store.fullscreen = fullscreen
-    setTimeout(window.store.triggerResize, 500)
   }
 }

@@ -10,6 +10,10 @@ const TERM_INIT = path.join(ROOT, 'src/client/components/terminal/mixins/term-in
 const SESSION = path.join(ROOT, 'src/client/components/session/session.jsx')
 const SESSIONS = path.join(ROOT, 'src/client/components/session/sessions.jsx')
 const SESSION_STYL = path.join(ROOT, 'src/client/components/session/session.styl')
+const LAYOUT = path.join(ROOT, 'src/client/components/layout/layout.jsx')
+const EVENT = path.join(ROOT, 'src/client/store/event.js')
+const INIT_STATE = path.join(ROOT, 'src/client/store/init-state.js')
+const MAIN = path.join(ROOT, 'src/client/components/main/main.jsx')
 
 // T4 终端内容区 flex 化（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §5）：
 // fit 的触发源从"布局 props 变化"换成"容器实测尺寸变化"，隐藏标签的
@@ -103,5 +107,12 @@ describe('T4-b: 终端内容区改由 flex 铺满', () => {
     assert.ok(reset[0].includes('this.fitToContainer()'), 'reset 未直接 fit')
     assert.ok(!zoom[0].includes('triggerResize'), 'zoom 仍靠 triggerResize')
     assert.ok(!reset[0].includes('triggerResize'), 'reset 仍靠 triggerResize')
+  })
+
+  test('T4-c: triggerResize / resizeTrigger 全仓退役（反向：1px 重排复活）', () => {
+    for (const file of [TERMINAL, TERM_RESIZE, LAYOUT, EVENT, INIT_STATE, MAIN]) {
+      assert.ok(!load(file).includes('triggerResize'), `${file} 仍引用 triggerResize`)
+      assert.ok(!load(file).includes('resizeTrigger'), `${file} 仍引用 resizeTrigger`)
+    }
   })
 })

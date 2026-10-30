@@ -143,7 +143,6 @@ export class StartupQueue {
 
   runInitScript = (localShell) => {
     const { term } = this
-    window.store.triggerResize()
     const {
       startDirectory,
       runScripts

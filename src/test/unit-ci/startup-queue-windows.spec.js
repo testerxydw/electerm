@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 
 global.window = {
   et: { isWin: true, isMac: false },
-  store: { triggerResize: () => {} },
+  store: {},
   initFolder: ''
 }
 

@@ -43,7 +43,6 @@ export default auto(function Layout (props) {
       openedSideBar,
       rightPanelVisible,
       rightPanelWidth,
-      resizeTrigger,
       inActiveTerminal,
       shortcutBarVisible,
       shortcutBarKbOffset
@@ -64,8 +63,7 @@ export default auto(function Layout (props) {
       shortcut: shortcutBarVisible ? shortcutBarHeight : 0,
       kbOffset: shortcutBarVisible ? shortcutBarKbOffset : 0
     })
-    // + resizeTrigger 保留：T4 flex 化后再评估是否还需要 1px 强制重排
-    const h = height - stack.session + resizeTrigger
+    const h = height - stack.session
     // 左面板可见即预留宽度（无论是否停靠）：面板列独占左侧，终端不被遮挡。
     // 停靠(pin)仅保留"点击外部不关闭"的行为差异，不再差遮挡行为
     const l = openedSideBar && !isMobile ? leftSideBarWidth + leftSidePanelWidth : leftSideBarWidth

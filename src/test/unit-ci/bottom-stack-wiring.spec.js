@@ -23,11 +23,11 @@ const CONSTANTS = path.join(ROOT, 'src/client/common/constants.js')
 const load = p => fs.readFileSync(p, 'utf8')
 
 describe('T2: layout.jsx / main.jsx 接线', () => {
-  test('layout.jsx 用 resolveBottomStack 的 session，保留 resizeTrigger', () => {
+  test('layout.jsx 用 resolveBottomStack 的 session，不再靠 1px 重排', () => {
     const src = load(LAYOUT)
     assert.ok(src.includes('resolveBottomStack({'), '调用纯函数')
     assert.ok(src.includes('height - stack.session'), '会话高减 session')
-    assert.ok(src.includes('+ resizeTrigger'), 'D6：T2 保留 1px 重排')
+    assert.ok(!src.includes('resizeTrigger'), 'T4-c：1px 强制重排已删（RO 驱动 fit）')
     assert.ok(!/height - footerHeight - monitorHeight/.test(src), '手写和式不得回归')
   })
 

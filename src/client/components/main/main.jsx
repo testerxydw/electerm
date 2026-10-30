@@ -75,7 +75,8 @@ export default auto(function Index (props) {
   useEffect(() => {
     const { store } = props
     window.addEventListener('resize', store.onResize)
-    setTimeout(store.triggerResize, 200)
+    // store.height 初值是占位的 500，挂载后校准一次实测窗口高度
+    setTimeout(store.onResize, 200)
     const { ipcOnEvent } = window.pre
     ipcOnEvent('checkupdate', store.onCheckUpdate)
     ipcOnEvent('open-about', store.openAbout)

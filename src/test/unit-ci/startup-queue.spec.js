@@ -2,7 +2,7 @@ const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
 
 global.window = global.window || {}
-global.window.store = { triggerResize: () => {} }
+global.window.store = {}
 global.window.initFolder = ''
 
 const loadModule = () => import('../../client/components/terminal/startup-queue.js')

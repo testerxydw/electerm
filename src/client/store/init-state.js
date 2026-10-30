@@ -147,7 +147,6 @@ export default () => {
     }),
     layout,
     prevLayout: layout,
-    resizeTrigger: 0,
     currentLayoutBatch: 0,
     activeTabId0: '',
     activeTabId1: '',
