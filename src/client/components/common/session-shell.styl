@@ -25,8 +25,12 @@
   flex-wrap wrap
   align-items center
   justify-content space-between
-  row-gap 4px
-  padding 4px 8px
+  // 高度口径见 tokens.styl --session-bar-h：单行 = 32，换行后 n 行 = 32n。
+  // 行盒已含上下呼吸，row-gap 留 0，否则换行高会变成 32n+4(n-1)。
+  min-height var(--session-bar-h)
+  line-height var(--session-bar-h)
+  row-gap 0
+  padding 0 var(--session-bar-pad-x)
   z-index 300
 
 .remote-session-control-left
@@ -34,7 +38,7 @@
   display flex
   flex-wrap wrap
   align-items center
-  row-gap 4px
+  row-gap 0
   min-width 0
 
 .remote-session-control-right

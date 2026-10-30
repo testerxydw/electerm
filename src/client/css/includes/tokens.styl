@@ -85,6 +85,9 @@
   // 与 JS 侧 src/client/common/constants.js 的 termControlHeight=32 互为镜像
   // （JS 布局扣减拿不到 CSS 变量），两值必须同步，由 s2-tokens.spec.js 锁定
   --session-bar-h 32px
+  // 会话顶栏左右内边距：终端/DB/remote/web/sftp 五类顶栏共用
+  // （原 8/10/5 三套；统一后只改这一处）
+  --session-bar-pad-x 10px
   // 顶部标签栏高度：布局预留、渲染高度与 store/init-state.js tabsHeight=36
   // 三处同源；.tabs 渲染高必须等于该值，否则 tab 底部会压住终端顶栏
   --tabs-bar-h 36px
