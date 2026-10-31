@@ -321,6 +321,16 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
       const s = view.state.selection.main
       return s.from === s.to ? '' : view.state.doc.sliceString(s.from, s.to)
     },
+    // AI 第一批：选区区间（折叠选区返回 {start,end} 且 start===end）。
+    // 与 getValue() 同一份文档，偏移才能对上 planSqlInsertion 算出的区间
+    getSelectionRange () {
+      const view = viewRef.current
+      if (!view) {
+        return null
+      }
+      const s = view.state.selection.main
+      return { start: s.from, end: s.to }
+    },
     // 光标处插入（B-1 收藏"插入光标"/B-3 模板菜单共用）：
     // 有选区则替换选区，无选区在光标处插入；插入后光标落在文本尾部。
     // 走 dispatch 而不是 onChange 回写全文——保留撤销栈，且不丢光标位置
@@ -333,6 +343,27 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
       view.dispatch({
         changes: { from: sel.from, to: sel.to, insert: text },
         selection: { anchor: sel.from + text.length },
+        scrollIntoView: true
+      })
+      view.focus()
+      return true
+    },
+    // AI 第一批：按明确区间替换（planSqlInsertion 的产物）。
+    // 同样走 dispatch —— 撤销栈、光标位置都保留；越界偏移夹到文档范围内，
+    // 不让一次 AI 插入把编辑器推进非法状态
+    replaceRange (text, start, end) {
+      const view = viewRef.current
+      if (!view || typeof text !== 'string') {
+        return false
+      }
+      const len = view.state.doc.length
+      const clamp = v => Math.max(0, Math.min(Number(v) || 0, len))
+      const from = clamp(start)
+      const rawTo = end === undefined || end === null ? from : clamp(end)
+      const to = Math.max(from, rawTo)
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
         scrollIntoView: true
       })
       view.focus()
