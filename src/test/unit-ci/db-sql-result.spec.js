@@ -525,3 +525,51 @@ describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', (
     }
   })
 })
+
+describe('db-sql-result: 编辑器底部状态（方言 / 只读 / 选区字符数）', () => {
+  const src = fs.readFileSync(SESSION, 'utf8')
+  const editor = fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-sql-editor.jsx'), 'utf8')
+  const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
+  const status = src.slice(src.indexOf("className='db-sql-status'"), src.indexOf("className='db-sql-result'"))
+
+  test('选区字符数由编辑器回传：docChanged / selectionSet 都要报，折叠选区报 0', () => {
+    assert.ok(/onSelectionChange = null/.test(editor), '编辑器没接选区回调')
+    assert.ok(/\(update\.docChanged \|\| update\.selectionSet\) && cbRef\.current\.onSelectionChange/.test(editor),
+      '只有改文档才报会漏掉"只拖动选区"的情况')
+    assert.ok(/s\.from === s\.to\s*\?\s*0/.test(editor), '折叠选区必须报 0，而不是段落长度')
+    assert.ok(/Array\.from\(update\.state\.doc\.sliceString\(s\.from, s\.to\)\)\.length/.test(editor),
+      '字符数要按码点算（中文/emoji 各算 1 个）')
+  })
+
+  test('会话接线：状态存 sqlSelChars，编辑器回调直连 setter，全文长度按码点算', () => {
+    assert.ok(/const \[sqlSelChars, setSqlSelChars\] = useState\(0\)/.test(src), '选区字符数没落状态')
+    assert.ok(/onSelectionChange=\{setSqlSelChars\}/.test(src), '编辑器回调没接上状态')
+    assert.ok(/const sqlCharCount = Array\.from\(sqlText\)\.length/.test(src),
+      '全文长度没按码点算，与选区计数会不一致')
+    // 这一行在 error / !ready 两个提前 return 之后：再用 useMemo 会让两态之间的
+    // hook 数量对不上（实测崩在依赖比较里），只能算普通常量
+    assert.ok(!/sqlCharCount = useMemo/.test(src), '提前 return 之后不能新增 hook')
+  })
+
+  test('状态栏三段：方言走引擎显示名、只读才出现、字符数按"有无选区"二选一', () => {
+    assert.ok(status.length > 0, '找不到状态栏渲染块')
+    assert.ok(/dbTypeLabelMap\[tab\.dbType\] \|\| tab\.dbType/.test(status), '方言没走引擎显示名')
+    assert.ok(/isReadonly\s*\?\s*<span className='db-sql-status-readonly'>/.test(status), '只读牌不是条件渲染')
+    assert.ok(/sqlSelChars > 0/.test(status), '字符数没按有无选区分支')
+    assert.ok(/\.replace\('\{sel\}', sqlSelChars\)[\s\S]*?\.replace\('\{total\}', sqlCharCount\)/.test(status),
+      '选中口径要同时给出选中数与全文数')
+    assert.ok(/e\('dbSqlChars'\)\.replace\('\{n\}', sqlCharCount\)/.test(status), '无选区时没显示全文长度')
+  })
+
+  test('只读牌从工具行挪到状态栏（不重复出现）', () => {
+    const bar = src.slice(src.indexOf("className='db-sql-bar'"), src.indexOf("className='db-sql-status'"))
+    assert.ok(!/dbReadOnly/.test(bar), '工具行里还留着只读牌，会和状态栏重复')
+  })
+
+  test('三条文案走词条，en + zh 各一条且都被引用', () => {
+    for (const k of ['dbSqlDialect', 'dbSqlChars', 'dbSqlSelChars']) {
+      assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
+      assert.ok(new RegExp("e\\('" + k + "'\\)").test(src), k + ' 没被用上')
+    }
+  })
+})

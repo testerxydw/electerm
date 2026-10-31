@@ -1527,6 +1527,104 @@ const main = async () => {
     md2Lines[4].includes('c\\`d') && md2Lines[5] === '|  |',
     { fired: runD6.fired, lines: md2Lines.length, rows: md2Lines.slice(2) })
 
+  // ---------- U3) 编辑器底部状态：方言 / 只读 / 选区字符数 ----------
+  await cdp.eval(`(() => {
+    window.__sqlStatus = () => {
+      const bar = [...document.querySelectorAll('.db-sql-status')].filter(window.__vis)[0]
+      if (!bar) return JSON.stringify({ exists: 0 })
+      const txt = sel => {
+        const el = bar.querySelector(sel)
+        return el ? String(el.textContent).trim() : ''
+      }
+      return JSON.stringify({
+        exists: 1,
+        dialect: txt('.db-sql-status-dialect'),
+        readonly: bar.querySelector('.db-sql-status-readonly') ? 1 : 0,
+        chars: txt('.db-sql-status-chars')
+      })
+    }
+    return 'status-probe-ready'
+  })()`)
+  // 期望值从词条现算；无选区走 dbSqlChars，有选区走 dbSqlSelChars
+  const expStatus = async (sel, total) => cdp.eval(
+    sel
+      ? `String(window.translate('dbSqlSelChars')).replace('{sel}', ${sel}).replace('{total}', ${total})`
+      : `String(window.translate('dbSqlChars')).replace('{n}', ${total})`
+  )
+  const key = (type, extra) => cdp.call('Input.dispatchKeyEvent', { type, ...extra })
+  const CTRL_A = { modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 }
+  const ARROW_LEFT = { key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37, nativeVirtualKeyCode: 37 }
+  const ARROW_RIGHT = { key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39 }
+
+  await cdp.eval('window.__focusSql()')
+  await sleep(150)
+  // 先清空再写入 8 个 ASCII 字符：期望值不依赖前面跑过的 SQL
+  await key('rawKeyDown', CTRL_A)
+  await key('keyUp', CTRL_A)
+  await sleep(100)
+  await cdp.call('Input.insertText', { text: 'SELECT 1' })
+  await sleep(300)
+  const st0 = JSON.parse(await cdp.eval('window.__sqlStatus()'))
+  const expChars8 = await expStatus(0, 8)
+  check('U3-1 编辑器底部状态：方言走引擎显示名、无选区时显示全文长度',
+    st0.exists === 1 && st0.dialect === 'MySQL' && st0.readonly === 0 && st0.chars === expChars8,
+    { ...st0, exp: expChars8 })
+
+  await key('rawKeyDown', CTRL_A)
+  await key('keyUp', CTRL_A)
+  await sleep(250)
+  const stSel = JSON.parse(await cdp.eval('window.__sqlStatus()'))
+  const expSel8 = await expStatus(8, 8)
+  check('U3-2 全选后报"已选 8 / 8 字符"（选区与全文同源）',
+    stSel.chars === expSel8, { ...stSel, exp: expSel8 })
+
+  // 先按 → 把全选折叠到文末（← 会折到选区起点 = 0，之后 Shift+← 扩不出来），
+  // 再 Shift+← 三次向左扩 3 个字符
+  await key('rawKeyDown', ARROW_RIGHT)
+  await key('keyUp', ARROW_RIGHT)
+  await sleep(150)
+  for (let i = 0; i < 3; i++) {
+    await key('rawKeyDown', { ...ARROW_LEFT, modifiers: 8 })
+    await key('keyUp', { ...ARROW_LEFT, modifiers: 8 })
+  }
+  await sleep(250)
+  const st3 = JSON.parse(await cdp.eval('window.__sqlStatus()'))
+  const expSel3 = await expStatus(3, 8)
+  check('U3-3 部分选区按码点计数（Shift+← ×3 → 已选 3 / 8 字符）',
+    st3.chars === expSel3, { ...st3, exp: expSel3 })
+
+  await key('rawKeyDown', ARROW_RIGHT)
+  await key('keyUp', ARROW_RIGHT)
+  await sleep(250)
+  const stBack = JSON.parse(await cdp.eval('window.__sqlStatus()'))
+  check('U3-4 折叠选区后回到全文长度（选中态不残留）',
+    stBack.chars === expChars8, { ...stBack, exp: expChars8 })
+
+  const stGeo = await cdp.jeval(`(() => {
+    const bar = [...document.querySelectorAll('.db-sql-status')].filter(window.__vis)[0]
+    if (!bar) return JSON.stringify({ exists: 0 })
+    const cs = getComputedStyle(bar)
+    const r = bar.getBoundingClientRect()
+    return JSON.stringify({
+      exists: 1,
+      h: Math.round(r.height),
+      fs: cs.fontSize,
+      color: cs.color,
+      items: [...bar.children].filter(window.__vis).length
+    })
+  })()`)
+  check('U3-5 状态栏高度不塌（≥14px）、字号 11px、三段都在',
+    stGeo.exists === 1 && stGeo.h >= 14 && stGeo.fs === '11px' && stGeo.items >= 2,
+    stGeo)
+  console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '9-status-light.png')))
+  if (cfg0.theme && cfg0.theme !== lightId) {
+    await cdp.eval('window.store.setTheme(' + JSON.stringify(cfg0.theme) + ')')
+    await sleep(900)
+    console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '10-status-dark.png')))
+    await cdp.eval('window.store.setTheme(' + JSON.stringify(lightId) + ')')
+    await sleep(600)
+  }
+
   const hard = cdpRef.events.filter(l => /uncaught|error|Error|Cannot|Warning:/.test(String(l)))
   check('F22 渲染层没有新增硬错误（过滤全程无 uncaught/React 报错）',
     hard.length === 0, hard.slice(0, 6))

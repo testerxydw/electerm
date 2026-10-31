@@ -271,15 +271,17 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     opts = null,
     className = '',
     // D 批：编辑器选区右键「解释所选」回调（无选区走浏览器默认菜单）
-    onExplainSelection = null
+    onExplainSelection = null,
+    // U3：选区字符数变化（无选区报 0），供编辑器底部状态栏显示
+    onSelectionChange = null
   } = props
 
   const hostRef = useRef(null)
   const viewRef = useRef(null)
   // 回调放 ref：EditorView 只创建一次，扩展里读到的必须是"最新"回调，
   // 否则父组件重渲染后 Ctrl+Enter 会调到上一轮闭包（旧 sqlText）
-  const cbRef = useRef({ onChange, onRun, onFormat, onExplainSelection })
-  cbRef.current = { onChange, onRun, onFormat, onExplainSelection }
+  const cbRef = useRef({ onChange, onRun, onFormat, onExplainSelection, onSelectionChange })
+  cbRef.current = { onChange, onRun, onFormat, onExplainSelection, onSelectionChange }
 
   // 补全配置同理：source 在 view 生命周期里只注册一次，配置必须走 ref
   const cfgRef = useRef({})
@@ -464,6 +466,14 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
         EditorView.updateListener.of(update => {
           if (update.docChanged && cbRef.current.onChange) {
             cbRef.current.onChange(update.state.doc.toString())
+          }
+          // 选区字符数：按码点算（中文/emoji 各算 1 个），与用户对"字符数"的直觉一致
+          if ((update.docChanged || update.selectionSet) && cbRef.current.onSelectionChange) {
+            const s = update.state.selection.main
+            const n = s.from === s.to
+              ? 0
+              : Array.from(update.state.doc.sliceString(s.from, s.to)).length
+            cbRef.current.onSelectionChange(n)
           }
         }),
         // 页内查找的 DOM 分支靠它认出"这段文本在编辑器里"，不参与命中计数

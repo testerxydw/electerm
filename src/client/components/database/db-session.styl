@@ -1134,6 +1134,30 @@
   gap 8px
   flex none
 
+// U3：编辑器底部状态（方言 / 只读 / 字符数）。三样都是"当前编辑状态"，
+// 固定 16px 高、不参与伸缩；字符数靠右，长 SQL 时也不会把方言挤走
+.db-sql-status
+  display flex
+  align-items center
+  gap 10px
+  flex none
+  min-height 16px
+  font-size var(--fs-xs)
+  line-height 16px
+  color var(--text-muted)
+
+.db-sql-status-chars
+  margin-left auto
+  white-space nowrap
+
+.db-sql-status-readonly
+  padding 0 6px
+  border-radius var(--radius-pill)
+  background var(--warn-bg)
+  color var(--warn)
+  line-height 14px
+  white-space nowrap
+
 .db-sql-result
   flex 1 1 0
   min-height 0

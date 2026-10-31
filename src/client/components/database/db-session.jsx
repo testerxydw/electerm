@@ -807,6 +807,8 @@ export default auto(function DbSession (props) {
 
   // SQL 编辑器状态（MVP：textarea + Ctrl/Cmd+Enter 执行）
   const [sqlText, setSqlText] = useState('')
+  // U3：编辑器选区字符数（无选区为 0），底部状态栏显示
+  const [sqlSelChars, setSqlSelChars] = useState(0)
   // A-7：补全关键字大小写。照 dbPageSize 的先例走客户端 config，
   // 不进主进程默认表（那边没有数据库分区，加键要连带改设置面板结构）
   const [sqlKeywordCase, setSqlKeywordCase] = useState(getSqlKeywordCase)
@@ -7603,6 +7605,12 @@ export default auto(function DbSession (props) {
     </div>
   )
 
+  // U3：全文码点数（状态栏"共 N 字符"）；按码点算，与选区计数同一口径。
+  // 这里刻意不用 useMemo：本行在 error / !ready 两个提前 return 之后，
+  // 多一个 hook 会让"加载态 → 就绪态"的渲染间 hook 数量对不上，React 在
+  // 就绪态直接崩在 memo 的依赖比较里（实测过一次，错误栈只剩 minified 帧）
+  const sqlCharCount = Array.from(sqlText).length
+
   const sqlArea = (
     <div className='db-sql-area'>
       <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
@@ -7620,6 +7628,7 @@ export default auto(function DbSession (props) {
           tables={sqlTables}
           columns={sqlColumns}
           opts={sqlEditorOpts}
+          onSelectionChange={setSqlSelChars}
         />
       </Suspense>
       <div className='db-sql-bar'>
@@ -7892,11 +7901,27 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+      </div>
+      {/* U3：编辑器底部状态。只读牌原先挂在工具行末尾，挪到这里和方言/字符数
+          排成一行——三样都是"当前编辑状态"，不该夹在动作按钮中间 */}
+      <div className='db-sql-status'>
+        <span className='db-sql-status-dialect' title={e('dbSqlDialect')}>
+          {dbTypeLabelMap[tab.dbType] || tab.dbType}
+        </span>
         {
           isReadonly
-            ? <Tag>{e('dbReadOnly')}</Tag>
+            ? <span className='db-sql-status-readonly'>{e('dbReadOnly')}</span>
             : null
         }
+        <span className='db-sql-status-chars'>
+          {
+            sqlSelChars > 0
+              ? e('dbSqlSelChars')
+                .replace('{sel}', sqlSelChars)
+                .replace('{total}', sqlCharCount)
+              : e('dbSqlChars').replace('{n}', sqlCharCount)
+          }
+        </span>
       </div>
       <div className='db-sql-result'>
         {
