@@ -111,14 +111,28 @@ describe('H6c 接线契约（真实源码抽取）', () => {
     assert.match(src, /if \(!fn\) \{\s*return false\s*\}/)
   })
 
+  it('关闭守卫同时覆盖事务与未保存文件，且先事务后文件', () => {
+    const src = sessionSrc()
+    assert.match(src, /!txSupported && !sqlFileDirty/)
+    const guard = src.slice(src.indexOf('guards[tabId] = async () =>'))
+    const txAt = guard.indexOf("e('dbTxCloseTitle')")
+    const fileAt = guard.indexOf("e('dbSqlFileCloseTitle')")
+    assert.ok(txAt > 0, '事务确认还在')
+    assert.ok(fileAt > txAt, '文件确认要排在事务确认之后')
+    assert.match(guard, /e\('dbSqlFileCloseWarn'\)\.replace\('\{file\}', sqlFileBaseName\(sqlFile && sqlFile\.path\)\)/)
+  })
+
   it('两种语言的词条都在，且占位符一致', () => {
     const src = locales()
     for (const key of [
       'dbSqlFileOpen', 'dbSqlFileSave', 'dbSqlFileOpened', 'dbSqlFileSaved',
-      'dbSqlFileReadErr', 'dbSqlFileWriteErr'
+      'dbSqlFileReadErr', 'dbSqlFileWriteErr', 'dbSqlFileReplaceTitle',
+      'dbSqlFileReplaceWarn', 'dbSqlFileReplaceOk', 'dbSqlFileCloseTitle',
+      'dbSqlFileCloseWarn', 'dbSqlFileDiscard'
     ]) {
       assert.equal((src.match(new RegExp('\\b' + key + ':', 'g')) || []).length, 2, key + ' 应中英各一条')
     }
     assert.equal((src.match(/dbSqlFileOpened: '[^']*\{file\}[^']*'/g) || []).length, 2)
+    assert.equal((src.match(/dbSqlFileCloseWarn: '[^']*\{file\}[^']*'/g) || []).length, 2)
   })
 })

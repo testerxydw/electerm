@@ -2133,30 +2133,47 @@ export default auto(function DbSession (props) {
   // H6c：未保存的 .sql 也挂在这里；两者都在时按"先事务、后文件"串行确认，
   // 任一步取消就不关
   useEffect(() => {
-    if (!txSupported || !tabId || !window.store) {
+    if (!tabId || !window.store || (!txSupported && !sqlFileDirty)) {
       return undefined
     }
     const guards = window.store.txCloseGuards || (window.store.txCloseGuards = {})
-    guards[tabId] = () => new Promise(resolve => {
-      if (!txActive) {
-        resolve(true)
-        return
+    guards[tabId] = async () => {
+      if (txSupported && txActive) {
+        const ok = await new Promise(resolve => {
+          Modal.confirm({
+            title: e('dbTxCloseTitle'),
+            content: (txPending ? e('dbTxCloseWarn') : e('dbTxCloseEmpty'))
+              .replace('{n}', String(txPending)),
+            okText: e('dbTxRollback'),
+            cancelText: e('cancel'),
+            okButtonProps: { danger: true },
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false)
+          })
+        })
+        if (!ok) {
+          return false
+        }
       }
-      Modal.confirm({
-        title: e('dbTxCloseTitle'),
-        content: (txPending ? e('dbTxCloseWarn') : e('dbTxCloseEmpty'))
-          .replace('{n}', String(txPending)),
-        okText: e('dbTxRollback'),
-        cancelText: e('cancel'),
-        okButtonProps: { danger: true },
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false)
-      })
-    })
+      if (sqlFileDirty) {
+        return await new Promise(resolve => {
+          Modal.confirm({
+            title: e('dbSqlFileCloseTitle'),
+            content: e('dbSqlFileCloseWarn').replace('{file}', sqlFileBaseName(sqlFile && sqlFile.path)),
+            okText: e('dbSqlFileDiscard'),
+            cancelText: e('cancel'),
+            okButtonProps: { danger: true },
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false)
+          })
+        })
+      }
+      return true
+    }
     return () => {
       delete guards[tabId]
     }
-  }, [txSupported, tabId, txActive, txPending])
+  }, [txSupported, tabId, txActive, txPending, sqlFile, sqlFileDirty])
 
   const startEdit = (row, col) => {
     if (!canEditCell) {
@@ -3827,9 +3844,31 @@ export default auto(function DbSession (props) {
 
   // H6c：当前缓冲是否已有"会被打开动作覆盖"的内容。
   // 绑定文件且没改过 → 覆盖等于重读同一份，不必问；草稿非空或已脏 → 问一声
+  const sqlBufferReplacable = () => (
+    sqlFile ? !sqlFileDirty : !sqlText.trim()
+  )
+
+  const confirmReplaceBuffer = () => new Promise(resolve => {
+    if (sqlBufferReplacable()) {
+      resolve(true)
+      return
+    }
+    Modal.confirm({
+      title: e('dbSqlFileReplaceTitle'),
+      content: e('dbSqlFileReplaceWarn'),
+      okText: e('dbSqlFileReplaceOk'),
+      cancelText: e('cancel'),
+      onOk: () => resolve(true),
+      onCancel: () => resolve(false)
+    })
+  })
+
   // H6c：打开 .sql。对话框走主进程（preload 的 openDialog 已带上次目录记忆），
   // 读文件走统一的 ws fs 通道（utf8）
   const openSqlFile = async () => {
+    if (!(await confirmReplaceBuffer())) {
+      return
+    }
     let files
     try {
       files = await window.api.openDialog(sqlOpenDialogOptions())
