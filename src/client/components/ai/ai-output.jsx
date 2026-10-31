@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { copy } from '../../common/clipboard'
 import Link from '../common/external-link'
-import { Tag, Popconfirm, Button, Alert, message } from 'antd'
+import { Tag, Popconfirm, Button, Alert } from 'antd'
 import {
   CopyOutlined,
   PlayCircleOutlined,
@@ -11,6 +11,9 @@ import {
   FlagOutlined,
   FlagFilled
 } from '@ant-design/icons'
+// 提示统一走应用自己的 message 通道（与数据库页、会话页同一套样式与容器），
+// 而不是 antd 的静态实例——静态实例不读主题，同一屏里会出现两种浮层
+import message from '../common/message'
 import getBrand from './get-brand'
 import CopyIcon from './copy-icon'
 // AI 第一批：SQL 代码块能落回数据库会话页的编辑器。

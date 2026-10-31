@@ -15,8 +15,9 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Modal, Button, Input, Alert, Tag, Segmented, Spin, message } from 'antd'
+import { Modal, Button, Input, Alert, Tag, Segmented, Spin } from 'antd'
 import { RobotOutlined, LoadingOutlined, CopyOutlined } from '@ant-design/icons'
+import message from '../common/message'
 import { copy } from '../../common/clipboard'
 import { appendMandatoryGuardrails } from '../ai/ai-guardrails'
 import { buildSqlAiPrompt, parseSqlFromAiResponse } from '../../common/db-sql-ai'
