@@ -70,6 +70,13 @@ describe('T3a-2/3: DB / web 页不再自己算高', () => {
     assert.ok(m, 'web 分支存在')
     assert.ok(!m[0].includes('height: this.props.height'), 'web 仍传 height')
   })
+
+  test('DB 容器自己吃 flex（反向：inline height 删了但 flex 没补 → 内容高为 0）', () => {
+    const block = stylBlock(load(SESSION_STYL), '.db-session-box')
+    assert.ok(block, '.db-session-box 块存在')
+    assert.ok(block.includes('flex 1 1 0'), '.db-session-box 未参与 flex 分配')
+    assert.ok(block.includes('min-height 0'), '.db-session-box 缺 min-height 0')
+  })
 })
 
 describe('T3b-a: sftp 面板高度改为 flex 分配', () => {

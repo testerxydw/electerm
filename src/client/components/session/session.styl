@@ -88,8 +88,13 @@
   min-height 0
 .term-sftp-box .ant-splitter-panel > .terms-box
   height 100%
-// 数据库页定高容器（与终端内容区同高）：内容 100% 填充，避免底部伸到底栏之下
+// 数据库页定高容器（与终端内容区同高）：内容 100% 填充，避免底部伸到底栏之下。
+// 必须自己吃 flex：T3a-2 删掉内联 height 后，它是 .term-sftp-box（flex 列）的子项，
+// 默认 flex 0 1 auto 会让高度退化为内容高 → 子级 height 100% 解析成 auto →
+// .db-body 的 flex 1 1 0 塌成 0（SQL 结果网格只剩 2px 边框，实测于 2026-10-31）。
 .db-session-box
+  flex 1 1 0
+  min-height 0
   overflow hidden
 .web-session-wrap
   height 100%
