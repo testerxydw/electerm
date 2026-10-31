@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -86,6 +86,15 @@ import { formatSql } from '../../common/db-sql-format'
 // 这里不会把任何编辑器代码拖进主 chunk
 import { flattenTables, indexColumns } from '../../common/db-sql-complete'
 import { SQL_EDITOR_OPTIONS, readSqlEditorOpts, toggleSqlEditorOpt } from '../../common/db-sql-opts'
+import {
+  sqlFileBaseName,
+  isSqlFileDirty,
+  sqlFileTabLabel,
+  sqlOpenDialogOptions,
+  sqlSaveDialogOptions,
+  withSqlExt
+} from '../../common/sql-file'
+import fs from '../../common/fs'
 import { dbTypeLabelMap } from '../../common/constants'
 // E1：危险 SQL 分级 + 连接级安全带。两个模块都是零依赖纯函数（时间经 now 注入），
 // 判定逻辑与 UI 解耦，单测可直接跑源码
@@ -855,6 +864,10 @@ export default auto(function DbSession (props) {
 
   // SQL 编辑器状态（MVP：textarea + Ctrl/Cmd+Enter 执行）
   const [sqlText, setSqlText] = useState('')
+  // H6c：当前编辑器绑定的 .sql 文件。null = 尚未落盘的草稿；
+  // savedText 是上次读写时的原文，脏标记按它原样比较（判断在 common/sql-file）
+  const [sqlFile, setSqlFile] = useState(null)
+  const sqlFileDirty = !!sqlFile && isSqlFileDirty(sqlText, sqlFile.savedText)
   // U3：编辑器选区字符数（无选区为 0），底部状态栏显示
   const [sqlSelChars, setSqlSelChars] = useState(0)
   // A-7：补全关键字大小写。照 dbPageSize 的先例走客户端 config，
@@ -2116,7 +2129,9 @@ export default auto(function DbSession (props) {
   }
 
   // 未提交时关 tab 必须确认（主进程无论如何都会先回滚，这里只防手滑丢数据）。
-  // delTab 是关闭标签的唯一入口（✕ / Ctrl+W / 会话列表），把守卫挂在那条路径上
+  // delTab 是关闭标签的唯一入口（✕ / Ctrl+W / 会话列表），把守卫挂在那条路径上。
+  // H6c：未保存的 .sql 也挂在这里；两者都在时按"先事务、后文件"串行确认，
+  // 任一步取消就不关
   useEffect(() => {
     if (!txSupported || !tabId || !window.store) {
       return undefined
@@ -3807,6 +3822,58 @@ export default auto(function DbSession (props) {
     const formatted = formatSql(sqlText)
     if (formatted) {
       setSqlText(formatted)
+    }
+  }
+
+  // H6c：当前缓冲是否已有"会被打开动作覆盖"的内容。
+  // 绑定文件且没改过 → 覆盖等于重读同一份，不必问；草稿非空或已脏 → 问一声
+  // H6c：打开 .sql。对话框走主进程（preload 的 openDialog 已带上次目录记忆），
+  // 读文件走统一的 ws fs 通道（utf8）
+  const openSqlFile = async () => {
+    let files
+    try {
+      files = await window.api.openDialog(sqlOpenDialogOptions())
+    } catch (err) {
+      message.error(e('dbSqlFileReadErr') + ' ' + (err && err.message ? err.message : err))
+      return
+    }
+    if (!files || !files.length) {
+      return
+    }
+    const filePath = files[0]
+    try {
+      const text = await fs.readFile(filePath)
+      setSqlText(text)
+      setSqlFile({ path: filePath, savedText: text })
+      message.success(e('dbSqlFileOpened').replace('{file}', sqlFileBaseName(filePath)))
+    } catch (err) {
+      message.error(e('dbSqlFileReadErr') + ' ' + (err && err.message ? err.message : err))
+    }
+  }
+
+  // H6c：保存 .sql。没有绑定路径时弹保存对话框；保存成功后 savedText 跟上，
+  // 脏标记自然消失
+  const saveSqlFile = async () => {
+    let filePath = sqlFile && sqlFile.path
+    if (!filePath) {
+      let res
+      try {
+        res = await window.api.saveDialog(sqlSaveDialogOptions(''))
+      } catch (err) {
+        message.error(e('dbSqlFileWriteErr') + ' ' + (err && err.message ? err.message : err))
+        return
+      }
+      if (!res || res.canceled || !res.filePath) {
+        return
+      }
+      filePath = withSqlExt(res.filePath)
+    }
+    try {
+      await fs.writeFile(filePath, sqlText)
+      setSqlFile({ path: filePath, savedText: sqlText })
+      message.success(e('dbSqlFileSaved').replace('{file}', sqlFileBaseName(filePath)))
+    } catch (err) {
+      message.error(e('dbSqlFileWriteErr') + ' ' + (err && err.message ? err.message : err))
     }
   }
 
@@ -7682,6 +7749,7 @@ export default auto(function DbSession (props) {
           onChange={setSqlText}
           onRun={runSql}
           onFormat={formatSqlEditor}
+          onSave={saveSqlFile}
           onExplainSelection={openExplain}
           readOnly={isReadonly}
           dbType={tab.dbType}
@@ -7702,6 +7770,28 @@ export default auto(function DbSession (props) {
         >
           {e('dbRun')}
         </Button>
+        {
+          // H6c：打开 / 保存 .sql。保存按钮在文件脏时高亮，和页签的 • 同一信号
+          !isRedis
+            ? (
+              <>
+                <Button
+                  size='small'
+                  icon={<FolderOpenOutlined />}
+                  title={e('dbSqlFileOpen')}
+                  onClick={openSqlFile}
+                />
+                <Button
+                  size='small'
+                  type={sqlFileDirty ? 'primary' : 'default'}
+                  icon={<SaveOutlined />}
+                  title={e('dbSqlFileSave')}
+                  onClick={saveSqlFile}
+                />
+              </>
+              )
+            : null
+        }
         {
           // H6a：参数化开关。开着时检测到 :name 会先收值，值走驱动绑定
           !isRedis
@@ -9261,7 +9351,17 @@ export default auto(function DbSession (props) {
         items={[
           // U1c：没选中表时数据页显示工作台首页，而不是一张标题为空的网格
           { key: 'data', label: e('dbDataTab'), forceRender: true, children: sel ? dataArea : workspaceHome },
-          { key: 'sql', label: 'SQL', forceRender: true, children: sqlArea },
+          {
+            key: 'sql',
+            // H6c：绑定文件后页签显示文件名，完整路径在 title 里；脏了补 •
+            label: (
+              <span title={sqlFile && sqlFile.path ? sqlFile.path : undefined}>
+                {sqlFileTabLabel(sqlFile && sqlFile.path, sqlFileDirty)}
+              </span>
+            ),
+            forceRender: true,
+            children: sqlArea
+          },
           {
             key: 'structure',
             label: e('tableStructure'),

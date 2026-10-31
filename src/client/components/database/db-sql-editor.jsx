@@ -259,6 +259,8 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
     onChange,
     onRun,
     onFormat,
+    // H6c：Ctrl/Cmd+S 保存到绑定的 .sql（没有绑定文件时由父组件弹保存对话框）
+    onSave,
     readOnly = false,
     dbType,
     placeholder = '',
@@ -280,8 +282,8 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
   const viewRef = useRef(null)
   // 回调放 ref：EditorView 只创建一次，扩展里读到的必须是"最新"回调，
   // 否则父组件重渲染后 Ctrl+Enter 会调到上一轮闭包（旧 sqlText）
-  const cbRef = useRef({ onChange, onRun, onFormat, onExplainSelection, onSelectionChange })
-  cbRef.current = { onChange, onRun, onFormat, onExplainSelection, onSelectionChange }
+  const cbRef = useRef({ onChange, onRun, onFormat, onSave, onExplainSelection, onSelectionChange })
+  cbRef.current = { onChange, onRun, onFormat, onSave, onExplainSelection, onSelectionChange }
 
   // 补全配置同理：source 在 view 生命周期里只注册一次，配置必须走 ref
   const cfgRef = useRef({})
@@ -446,6 +448,19 @@ const SqlCodeEditor = forwardRef(function SqlCodeEditor (props, ref) {
             preventDefault: true,
             run: () => {
               cbRef.current.onFormat && cbRef.current.onFormat()
+              return true
+            }
+          },
+          {
+            // H6c：Mod-s 保存 .sql。不接的话会落到浏览器默认"保存网页"
+            key: 'Mod-s',
+            preventDefault: true,
+            run: () => {
+              const fn = cbRef.current.onSave
+              if (!fn) {
+                return false
+              }
+              fn()
               return true
             }
           },
