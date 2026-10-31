@@ -178,10 +178,21 @@ const PROBE = `
       placeholder: window.__fInput() ? String(window.__fInput().placeholder) : '',
       pagesize: vis(t.querySelectorAll('.db-grid-pagesize')).length,
       buttons: vis(t.querySelectorAll('button')).length,
-      pager: vis(t.querySelectorAll('.ant-pagination')).length,
-      pages: vis(t.querySelectorAll('.ant-pagination-item')).map(x => x.innerText.trim()),
+      // 分页器已换成与数据页同一份 DbGridPager（没有 antd 页码按钮）：
+      // 末页从跳页框 placeholder（'1-25'）读，当前页从 .db-grid-page-no 解析
+      pager: vis(t.querySelectorAll('.db-grid-pager')).length,
+      maxPage: (() => {
+        const i = vis(t.querySelectorAll('.db-grid-pager .db-grid-jump input'))[0]
+        const m = i ? String(i.getAttribute('placeholder') || '').match(/([0-9]+)[^0-9]*$/) : null
+        return m ? Number(m[1]) : -1
+      })(),
+      current: (() => {
+        const el = vis(t.querySelectorAll('.db-grid-pager .db-grid-page-no'))[0]
+        const m = el ? String(el.innerText || '').match(/([0-9]+)/) : null
+        return m ? Number(m[1]) : -1
+      })(),
       totalText: (() => {
-        const el = vis(t.querySelectorAll('.ant-pagination-total-text'))[0]
+        const el = vis(t.querySelectorAll('.db-grid-pager .db-grid-total'))[0]
         return el ? String(el.innerText || '').trim() : ''
       })()
     })
@@ -545,7 +556,7 @@ const main = async () => {
   const t0s = await readTools(cdp)
   const firstHash0 = Number(await cdp.eval('window.__firstIdHash()'))
   check('T1 真表 5000 行到位、25 页、分页器在工具行',
-    run2.ok && t0s.pager === 1 && t0s.pages.includes(String(WANTED / PAGE)), pick(t0s, ['pages', 'totalText']))
+    run2.ok && t0s.pager === 1 && t0s.maxPage === WANTED / PAGE, pick(t0s, ['maxPage', 'totalText']))
 
   // 参照：同一谓词交给数据库（先记 max/min，后面既当参照也当"首末行是否指对"的锚）
   const mm = await runSql(cdp, SQL_MINMAX, 'window.__rows().length === 1', 'minmax')
@@ -579,9 +590,9 @@ const main = async () => {
     tTop.changed && hitTop.exists === 1 && hitTop.m > PAGE && hitTop.m >= topN,
     pick(hitTop, ['m', 't', 'emptyCls']))
   check('T5 分页口径换成命中数：页数 = ceil(命中/每页)，底纹总数跟着',
-    toolsTop.pager === 1 && toolsTop.pages.includes(String(Math.ceil(hitTop.m / PAGE))) &&
+    toolsTop.pager === 1 && toolsTop.maxPage === Math.ceil(hitTop.m / PAGE) &&
     String(toolsTop.totalText).indexOf(String(hitTop.m)) >= 0,
-    { m: hitTop.m, pages: toolsTop.pages, totalText: toolsTop.totalText })
+    { m: hitTop.m, maxPage: toolsTop.maxPage, totalText: toolsTop.totalText })
   check('T6 纯前端过滤：过滤期间 executeSql 一次都没再发',
     Number(await cdp.eval('window.__execN')) === execBefore,
     { before: execBefore, after: await cdp.eval('window.__execN') })
@@ -617,9 +628,9 @@ const main = async () => {
   const firstHashClear = Number(await cdp.eval('window.__firstIdHash()'))
   check('V2 点 × 清空：回到 5000 行、25 页、首行又是 max id（过滤没留副作用）',
     cleared === 'ok' && (await cdp.eval('window.__fValue()')) === '' &&
-    (await readHit(cdp)).exists === 0 && afterClear.pages.includes(String(WANTED / PAGE)) &&
+    (await readHit(cdp)).exists === 0 && afterClear.maxPage === WANTED / PAGE &&
     firstHashClear === djb2(maxId),
-    { cleared, pages: afterClear.pages, sameAnchor: firstHashClear === djb2(maxId) })
+    { cleared, maxPage: afterClear.maxPage, sameAnchor: firstHashClear === djb2(maxId) })
   const selCell = await clickCell(cdp, 'id', 0)
   const bar = await cdp.jeval('window.__bar()')
   check('V3 清空后单击首格：行号仍是结果内绝对下标（第 1 行）',
@@ -687,6 +698,34 @@ const main = async () => {
         return ''
       }
     }
+    window.__rDetail = () => {
+      const m = [...document.querySelectorAll('.ant-modal')]
+        .filter(window.__vis)
+        .find(x => x.querySelector('.db-row-detail'))
+      if (!m) return JSON.stringify({ open: 0 })
+      const items = [...m.querySelectorAll('.db-row-detail-item')].filter(window.__vis)
+      const txt = el => String((el || {}).textContent || '').trim()
+      return JSON.stringify({
+        open: 1,
+        title: txt(m.querySelector('.ant-modal-title')),
+        fields: items.map(x => txt(x.querySelector('.db-row-detail-field'))),
+        valueHashes: items.map(x => Number(window.__hash(txt(x.querySelector('.db-row-detail-value'))))),
+        // 长值默认折叠并带省略号，哈希对不上是正常的：逐项标出来，节点侧只对未折叠的比
+        truncated: items.map(x => /…$/.test(txt(x.querySelector('.db-row-detail-value'))) ? 1 : 0),
+        copyBtns: items.filter(x => x.querySelector('.ant-btn-text')).length,
+        footerBtns: [...m.querySelectorAll('.ant-modal-footer button')].filter(window.__vis).length
+      })
+    }
+    window.__rDetailClose = () => {
+      const m = [...document.querySelectorAll('.ant-modal')]
+        .filter(window.__vis)
+        .find(x => x.querySelector('.db-row-detail'))
+      if (!m) return 'no-modal'
+      const b = [...m.querySelectorAll('.ant-modal-footer button')].filter(window.__vis)[1]
+      if (!b) return 'no-btn'
+      b.click()
+      return 'ok'
+    }
     return 'v6-probe'
   })()`)
   const v6CellHash = Number(await cdp.eval('window.__hash(String(window.__tdOf("id", 0).textContent).trim())'))
@@ -696,10 +735,45 @@ const main = async () => {
   const v6Pick = await cdp.eval('window.__rPick(0)')
   await sleep(400)
   const v6ClipHash = Number(await cdp.eval('window.__clipHash()'))
-  check('V6 真库右键菜单：表头/五项齐、复制值与单元格哈希一致（不打印真实内容）',
+  check('V6 真库右键菜单：表头/六项齐、复制值与单元格哈希一致（不打印真实内容）',
     v6Probe === 'v6-probe' && v6Open === 'ok' && v6Menu.open === 1 &&
-    v6Menu.head === 'id' && v6Menu.n === 5 && v6Pick === 'ok' && v6ClipHash === v6CellHash,
+    v6Menu.head === 'id' && v6Menu.n === 6 && v6Pick === 'ok' && v6ClipHash === v6CellHash,
     { open: v6Menu.open, head: v6Menu.head, n: v6Menu.n, pick: v6Pick, sameHash: v6ClipHash === v6CellHash })
+
+  // V7：真库行详情 Modal —— 字段序与结果列同源、值取自被右键那一行；
+  // 只比哈希（长值折叠的跳过），任何真实内容都不进 node 日志
+  const v7Cells = []
+  for (const c of ['id', 'operate_type', 'level', 'status']) {
+    v7Cells.push(Number(await cdp.eval(`window.__hash(String(window.__tdOf(${JSON.stringify(c)}, 0).textContent).trim())`)))
+  }
+  const v7Open = await cdp.eval('window.__rCtx("id", 0)')
+  await sleep(250)
+  const v7Pick = await cdp.eval('window.__rPick(4)')
+  await sleep(450)
+  const v7 = JSON.parse(await cdp.eval('window.__rDetail()'))
+  const v7ExpTitle = String(await cdp.eval("String(window.translate('dbRowDetailTitle'))"))
+  const v7Match = v7.open === 1
+    ? v7.valueHashes.filter((h, i) => !v7.truncated[i] && h === v7Cells[i]).length
+    : 0
+  const v7Close = await cdp.eval('window.__rDetailClose()')
+  await sleep(450)
+  const v7After = JSON.parse(await cdp.eval('window.__rDetail()'))
+  check('V7 真库行详情：4 字段按结果列序、未折叠值哈希逐项一致、关闭后从 DOM 移除',
+    v7Open === 'ok' && v7Pick === 'ok' && v7.open === 1 &&
+    v7.title === v7ExpTitle &&
+    v7.fields.join(',') === 'id,operate_type,level,status' &&
+    v7.copyBtns === 4 && v7.footerBtns === 2 && v7Match >= 3 &&
+    v7Close === 'ok' && v7After.open === 0,
+    {
+      pick: v7Pick,
+      title: v7.title === v7ExpTitle,
+      fields: v7.fields.join(','),
+      copyBtns: v7.copyBtns,
+      footerBtns: v7.footerBtns,
+      hashMatches: v7Match,
+      truncated: v7.truncated,
+      closed: v7After.open
+    })
   return finish()
 }
 
