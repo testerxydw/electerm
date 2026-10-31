@@ -32,16 +32,28 @@ const numOr0 = v => {
   return Number.isFinite(n) && n >= 0 ? n : 0
 }
 
+// 权限只在拿得到的时候带：传输层 `options.mode` 认的是 stat 的原始 mode（含类型位），
+// 拿不到就留给传输层用远端已有的值，别用 0 当"权限是 000"传过去。
+const modeOf = v => {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
 /** 本地 `readdirStatAsync` 的条目 -> 中间形状。 */
 export function localEntryToNode (e) {
   const st = e || {}
-  return {
+  const node = {
     name: st.name,
     size: numOr0(st.size),
     mtimeMs: numOr0(st.mtimeMs),
     isDirectory: st.isDirectory === true,
     isSymbolicLink: st.isSymbolicLink === true
   }
+  const mode = modeOf(st.mode)
+  if (mode !== undefined) {
+    node.mode = mode
+  }
+  return node
 }
 
 /**
@@ -56,13 +68,18 @@ export function remoteEntryToNode (e) {
   if (mtimeMs > 0 && mtimeMs < 1e11) {
     mtimeMs = mtimeMs * 1000
   }
-  return {
+  const node = {
     name: it.name,
     size: numOr0(it.size),
     mtimeMs,
     isDirectory: it.type === 'd' || it.isDirectory === true,
     isSymbolicLink: it.type === 'l' || it.isSymbolicLink === true || it.isSymbol === true
   }
+  const mode = modeOf(it.mode)
+  if (mode !== undefined) {
+    node.mode = mode
+  }
+  return node
 }
 
 const byName = (a, b) => {
@@ -185,13 +202,18 @@ export async function walkTree (opts = {}) {
         continue
       }
       const rel = cur.rel ? cur.rel + '/' + it.name : String(it.name)
-      res.entries.push({
+      const node = {
         relPath: rel,
         name: String(it.name),
         size: numOr0(it.size),
         mtimeMs: numOr0(it.mtimeMs),
         isDirectory: !!it.isDirectory
-      })
+      }
+      const mode = modeOf(it.mode)
+      if (mode !== undefined) {
+        node.mode = mode
+      }
+      res.entries.push(node)
       if (it.isDirectory) {
         if (cur.depth + 1 > maxDepth) {
           // 目录本身进树（不然界面看不见该建它），但它的内容不再往下读

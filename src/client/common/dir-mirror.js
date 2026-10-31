@@ -74,11 +74,20 @@ export function indexTree (entries) {
   return { map, duplicates }
 }
 
-const toFile = e => ({
-  relPath: normalizeRelPath(e.relPath),
-  size: sizeOr(e.size, 0),
-  mtimeMs: numOr0(e.mtimeMs)
-})
+// 权限原样带过去（执行层要用它上传），拿不到就不带这个键：
+// 单测钉的是"没有 mode 的输入 -> 没有 mode 的输出"，不能塞一个 undefined 进去。
+const toFile = e => {
+  const out = {
+    relPath: normalizeRelPath(e.relPath),
+    size: sizeOr(e.size, 0),
+    mtimeMs: numOr0(e.mtimeMs)
+  }
+  const mode = Number(e.mode)
+  if (Number.isFinite(mode) && mode > 0) {
+    out.mode = mode
+  }
+  return out
+}
 
 const toDir = e => ({
   relPath: normalizeRelPath(e.relPath),

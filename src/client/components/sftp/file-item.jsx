@@ -409,6 +409,20 @@ export default class FileSection extends React.Component {
     })
   }
 
+  // 目录镜像（G5）：源 = 右键的本地目录，目标默认落到远端当前目录。
+  // 弹层自己会先做一次差异预演，这里不预先判断两端有没有差异
+  mirrorDir = () => {
+    const { sftp, tab, remotePath } = this.props
+    const file = this.state.file
+    refsStatic.get('dir-mirror-modal')?.showMirror({
+      dir: resolve(file.path, file.name),
+      remotePath,
+      sftp,
+      tab,
+      onDone: () => this.props.remoteList()
+    })
+  }
+
   getExt = (name = '') => {
     const parts = String(name).split('.')
     if (parts.length < 2) {
@@ -1182,6 +1196,22 @@ export default class FileSection extends React.Component {
           text: e('remoteArchiveExtract')
         })
       }
+    }
+    // 目录镜像（G5）：只给本地真实目录，且这一侧必须有 SFTP 会话——
+    // FTP 没有 mkdir/rm 的同步语义，SFTP-only 会话（enableSsh === false）反倒能用，
+    // 但镜像全程只走 sftp.*，所以判据取 hasHost + sftp 存在 + 非 FTP
+    const canMirrorDir = isLocal &&
+      isRealFile &&
+      isDirectory &&
+      hasHost &&
+      !!this.props.sftp &&
+      !this.props.isFtp
+    if (canMirrorDir) {
+      res.push({
+        func: 'mirrorDir',
+        icon: 'SwapOutlined',
+        text: e('dirMirrorMenu')
+      })
     }
     if (isRealFile) {
       res.push({

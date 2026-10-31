@@ -5,6 +5,7 @@ import FileInfoModal from '../sftp/file-info-modal'
 import FileCompareModal from '../sftp/file-compare-modal'
 import FilePreviewModal from '../sftp/file-preview-modal'
 import RemoteArchiveModal from '../sftp/remote-archive-modal'
+import DirMirrorModal from '../sftp/dir-mirror-modal'
 import UpdateCheck from './upgrade'
 import SettingModal from '../setting-panel/setting-modal'
 import TextEditor from '../text-editor/text-editor-entry'
@@ -411,6 +412,7 @@ export default auto(function Index (props) {
         <FileCompareModal />
         <FilePreviewModal />
         <RemoteArchiveModal />
+        <DirMirrorModal />
         <SettingModal store={store} />
         <MoveItemModal store={store} />
         <div

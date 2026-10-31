@@ -1,0 +1,194 @@
+// 目录镜像弹层（G5）：源/目标 / 判断依据与删除勾选 / 差异汇总与明细 / 执行结果
+// 颜色全走 token，不新增硬编码色值（css 契约测试会点名非 includes 的 styl）
+
+// 共享 Modal 的页脚默认右对齐，这里要让「正在采集」那句和按钮分列两端
+.dir-mirror-modal
+  .custom-modal-footer
+    display flex
+    align-items center
+    justify-content flex-end
+    gap 8px
+
+.dir-mirror-label
+  font-size 12px
+  color var(--text-dark)
+  margin-bottom 4px
+
+.dir-mirror-paths
+  display flex
+  gap 12px
+
+.dir-mirror-field
+  flex 1 1 50%
+  min-width 0
+
+.dir-mirror-path
+  font-family var(--font-mono)
+  font-size 12px
+  color var(--text)
+  padding 4px 6px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  word-break break-all
+
+.dir-mirror-field-error
+  margin-top 4px
+  font-size 12px
+  color var(--error)
+
+.dir-mirror-options
+  display flex
+  flex-direction column
+  gap 6px
+  margin-top 10px
+
+.dir-mirror-option
+  display flex
+  align-items center
+  gap 8px
+  flex-wrap wrap
+  .dir-mirror-label
+    flex none
+    width 80px
+    margin-bottom 0
+  .ant-select
+    min-width 180px
+
+.dir-mirror-hint
+  font-size 12px
+  color var(--text-dark)
+
+.dir-mirror-warn-line
+  font-size 12px
+  color var(--warn)
+  padding-left 8px
+  border-left 3px solid var(--warn)
+
+.dir-mirror-notice
+  margin-top 10px
+  padding 6px 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--text-dark)
+
+.dir-mirror-summary
+  margin-top 10px
+
+.dir-mirror-nums
+  display flex
+  flex-wrap wrap
+  gap 6px 14px
+  font-size 12px
+  color var(--text)
+
+.dir-mirror-num-danger
+  color var(--error)
+
+.dir-mirror-bytes
+  margin-top 4px
+  font-size 12px
+  color var(--text-dark)
+
+.dir-mirror-clean
+  margin-top 6px
+  font-size 12px
+  color var(--text-dark)
+
+.dir-mirror-notes
+  margin 6px 0 0
+  padding-left 18px
+  font-size 12px
+  line-height 18px
+  color var(--text-dark)
+
+// 明细：等宽、单行、横向滚动；分组只用一小段色带 + 一个标签，不整行涂色
+.dir-mirror-plan
+  margin-top 8px
+  max-height 30vh
+  overflow auto
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+
+.dir-mirror-plan-row
+  display flex
+  align-items center
+  gap 8px
+  padding 2px 8px
+  font-family var(--font-mono)
+  font-size 12px
+  line-height 18px
+  border-left 3px solid var(--border)
+
+.dir-mirror-plan-group
+  flex none
+  width 56px
+  font-size 11px
+  color var(--text-dark)
+
+.dir-mirror-plan-path
+  flex 1 1 auto
+  min-width 0
+  white-space pre
+  overflow hidden
+  text-overflow ellipsis
+  color var(--text)
+
+.dir-mirror-plan-size
+  flex none
+  font-size 11px
+  color var(--text-dark)
+
+.dir-mirror-plan-create
+  border-left-color var(--primary)
+
+.dir-mirror-plan-overwrite
+  border-left-color var(--warn)
+
+.dir-mirror-plan-createDirs
+  border-left-color var(--primary)
+
+.dir-mirror-plan-blocked
+.dir-mirror-plan-delete
+  border-left-color var(--error)
+
+.dir-mirror-plan-more
+  padding 4px 8px
+  font-size 12px
+  color var(--text-dark)
+
+.dir-mirror-error
+  margin-top 10px
+  padding 8px 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--error)
+
+.dir-mirror-result
+  margin-top 10px
+  padding 8px 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  font-size 12px
+  color var(--text)
+
+.dir-mirror-result-hint
+  margin-top 4px
+  color var(--text-dark)
+
+.dir-mirror-detail
+  margin 6px 0 0
+  padding 6px 8px
+  background var(--hover-bg)
+  border-radius var(--radius-sm)
+  font-family var(--font-mono)
+  font-size 12px
+  white-space pre-wrap
+  word-break break-all
+  color var(--text)
+
+.dir-mirror-running
+  font-size 12px
+  color var(--text-dark)
+  margin-right auto
