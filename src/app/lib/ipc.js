@@ -399,6 +399,24 @@ function initIpc () {
       }
       throw new Error('unknown sshKeyOp action: ' + action)
     },
+    // G8 审计中心：只给"看"的能力——列会话日志目录、读某个 .log 的尾部、在文件管理器里定位。
+    // 不删不改（删录制另有 G2 的入口），渲染层永远只递裸文件名，路径由主进程拼。
+    auditOp: async (action, arg) => {
+      const a = require('./audit-files')
+      const dir = getSessionLogDir()
+      const a2 = arg || {}
+      if (action === 'list') {
+        return a.listAuditFiles(dir)
+      }
+      if (action === 'readTail') {
+        return a.readLogTail(dir, a2.name, a2.lines)
+      }
+      if (action === 'show') {
+        shell.showItemInFolder(a.resolveAny(dir, a2.name))
+        return true
+      }
+      throw new Error('unknown auditOp action: ' + action)
+    },
     setPassword,
     checkPassword,
     lookup,

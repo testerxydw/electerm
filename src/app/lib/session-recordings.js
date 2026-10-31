@@ -5,8 +5,9 @@
  * 两边各懂一遍 cast 格式必然漂移，这里只搬字节。
  *
  * dir 由调用方（ipc.js）传入，便于单测用临时目录隔离。
- * 渲染层只递文件名：`resolveInDir` 是防越界的唯一位置（取 basename + 认 .cast
+ * 渲染层只递文件名：`resolveInDir` 是防越界的唯一位置（取 basename + 认扩展名
  * + 解析后仍在目录内），少一道都可能被 `../../` 或别的盘外路径钻过去。
+ * G8 的 `audit-files.js` 复用这把闸读 `.log`——防越界写两遍迟早漂移成两套。
  */
 
 const fs = require('fs')
@@ -23,21 +24,21 @@ const PROBE_TAIL = 8 * 1024
 // 单次探测的文件数上限（列表分页大小远小于它）
 const PROBE_MAX = 100
 
-function resolveInDir (dir, name) {
+function resolveInDir (dir, name, ext = EXT) {
   const s = String(name || '')
   // 只收裸文件名：带分隔符（含绝对路径）直接拒。
   // 不"顺手取 basename"——那会把 ../x/secret.cast 变成目录里的 secret.cast，
   // 读错文件还不报错，报错才诚实。
   if (!s || s !== path.basename(s)) {
-    throw new Error('recording name must be a bare file name')
+    throw new Error('name must be a bare file name')
   }
-  if (!s.endsWith(EXT)) {
-    throw new Error('recording name must end with ' + EXT)
+  if (!s.endsWith(ext)) {
+    throw new Error('name must end with ' + ext)
   }
   const full = path.resolve(dir, s)
   const rel = path.relative(path.resolve(dir), full)
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error('recording path escapes the log dir')
+    throw new Error('path escapes the log dir')
   }
   return full
 }
@@ -132,6 +133,7 @@ module.exports = {
   PROBE_HEAD,
   PROBE_TAIL,
   resolveInDir,
+  readRange,
   listRecordings,
   readRecording,
   probeRecordings,
