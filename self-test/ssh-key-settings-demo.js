@@ -455,8 +455,8 @@ const main = async () => {
   check('书签写入私钥路径', bm.privateKeyPath === path.join(SSH_DIR, 'g7apply'), bm)
   check('书签里粘贴的私钥内容被清空（内容优先于路径）', bm.privateKeyLen === 0, bm)
   check('书签认证方式切成私钥', bm.authType === 'privateKey', bm)
-  check('口令与私钥内容不在书签里',
-    (await jev("JSON.stringify(window.store.bookmarks.find(b => b.id === 'g74-demo-bm')).indexOf('passphrase')")) < 0)
+  check('书签里既没口令也没有粘贴的私钥内容',
+    !(await jev("(() => { const s = JSON.stringify(window.store.bookmarks.find(b => b.id === 'g74-demo-bm')) || ''; return s.indexOf('g7-passphrase-123') >= 0 || s.indexOf('PASTED-PRIVATE-KEY-CONTENT') >= 0 })()")))
   await shot('apply-bookmark')
 
   // 复制：公钥行与 ssh-copy-id 命令
@@ -484,11 +484,10 @@ const main = async () => {
   check('删除单条后给出已删除提示', !!delMsg, delMsg)
   await sleep(900)
   const after = fs.readFileSync(KNOWN, 'utf8').split('\n')
-  check('删的正是那一行（alpha 主机不再出现）',
-    !after.some(l => l.indexOf('g7-alpha.example') >= 0) ||
-      after.filter(l => l.indexOf('g7-alpha.example') >= 0 && l.indexOf('ssh-') >= 0).length === 0)
+  check('删的正是那一行（alpha 主机条目不再出现）',
+    after.filter(l => /^g7-alpha\.example\s/.test(l)).length === 0)
   check('其余条目一行没少（哈希/撤销/双主机都还在）',
-    snapshotBefore.split('\n').filter(l => l.indexOf('g7-alpha') >= 0 && /^g7-alpha/.test(l)).length === 1 &&
+    /^g7-alpha\.example\s/.test(snapshotBefore.split('\n').find(l => /^g7-alpha/.test(l)) || '') &&
       fs.readFileSync(KNOWN, 'utf8').indexOf('|1|' + salt) >= 0 &&
       fs.readFileSync(KNOWN, 'utf8').indexOf('@revoked g7-delta.example') >= 0 &&
       fs.readFileSync(KNOWN, 'utf8').indexOf('g7-beta.example,g7-gamma.example') >= 0)
