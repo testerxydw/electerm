@@ -960,7 +960,34 @@ const en = {
   knownHostsMalformed: 'unparsable entry',
   knownHostsDeleteConfirm: 'Delete this known host entry?',
   knownHostsDeleted: 'Entry deleted',
-  knownHostsStale: 'known_hosts changed outside this panel; the list has been refreshed'
+  knownHostsStale: 'known_hosts changed outside this panel; the list has been refreshed',
+  // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
+  auditCenter: 'Audit center',
+  auditTime: 'Time',
+  auditUser: 'User',
+  auditArtifact: 'Artifact',
+  auditDetail: 'Detail',
+  auditConnType: 'Connection',
+  auditDays: 'Date',
+  auditNoTime: 'No timestamp',
+  auditKindSession: 'Session',
+  auditKindTransfer: 'Transfer',
+  auditKindLog: 'Log',
+  auditKindRecording: 'Recording',
+  auditExportCsv: 'Export CSV',
+  auditExportMarkdown: 'Export Markdown',
+  auditOpenLogDir: 'Open log folder',
+  auditDirMissing: 'Session log folder does not exist yet — run a session with logging on, or set the path in Settings.',
+  auditHostFilterNote: 'Filtering by host hides rows whose host cannot be read from the file name; those rows are never guessed.',
+  auditLogTail: 'Log tail',
+  auditTailOnlyLog: 'Only .log files have a readable tail; recordings open in the player.',
+  auditTailEmpty: 'Nothing inside the tail window.',
+  auditOmitted: 'earlier lines not read',
+  auditWindowOnly: 'tail window only',
+  auditShowFirst: 'listed first',
+  auditTimelineEmpty: 'No rows match these filters.',
+  auditNoArtifact: 'This row comes from history; it has no log file of its own.',
+  auditDetailEmpty: 'Select a row to see its detail.'
 }
 
 // 简体中文
@@ -1905,7 +1932,34 @@ const zhCn = {
   knownHostsMalformed: '无法解析的条目',
   knownHostsDeleteConfirm: '删除这条已知主机记录？',
   knownHostsDeleted: '已删除',
-  knownHostsStale: 'known_hosts 已被外部改动，列表已刷新，请重新确认'
+  knownHostsStale: 'known_hosts 已被外部改动，列表已刷新，请重新确认',
+  // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
+  auditCenter: '审计中心',
+  auditTime: '时间',
+  auditUser: '用户',
+  auditArtifact: '产物',
+  auditDetail: '详情',
+  auditConnType: '连接方式',
+  auditDays: '日期',
+  auditNoTime: '无时刻',
+  auditKindSession: '连接',
+  auditKindTransfer: '传输',
+  auditKindLog: '日志',
+  auditKindRecording: '录制',
+  auditExportCsv: '导出 CSV',
+  auditExportMarkdown: '导出 Markdown',
+  auditOpenLogDir: '打开日志目录',
+  auditDirMissing: '会话日志目录还不存在：先开一次带日志的会话，或在设置里指定路径。',
+  auditHostFilterNote: '按主机筛选时，文件名里解不出主机的行不会出现——这类行不做猜测，宁少不假。',
+  auditLogTail: '日志尾部',
+  auditTailOnlyLog: '只有 .log 有可读的尾部；录制请用回放器打开。',
+  auditTailEmpty: '尾部窗口里没有内容。',
+  auditOmitted: '行更早内容未读',
+  auditWindowOnly: '仅读到尾部窗口',
+  auditShowFirst: '仅列出前',
+  auditTimelineEmpty: '当前筛选条件下没有记录。',
+  auditNoArtifact: '这条来自历史记录，本身不对应日志文件。',
+  auditDetailEmpty: '选中一行查看它的详情。'
 }
 
 module.exports = {

@@ -45,6 +45,10 @@ class MenuBtn extends PureComponent {
     window.store.openAbout()
   }
 
+  openAuditCenter = () => {
+    window.store.openAuditCenter()
+  }
+
   openSetting = () => {
     window.store.openSetting()
   }
@@ -137,6 +141,12 @@ class MenuBtn extends PureComponent {
         text: e('about')
       },
       {
+        key: 'openAuditCenter',
+        func: 'openAuditCenter',
+        icon: 'HistoryOutlined',
+        text: e('auditCenter')
+      },
+      {
         key: 'openSetting',
         func: 'openSetting',
         icon: 'SettingOutlined',
@@ -204,8 +214,8 @@ class MenuBtn extends PureComponent {
   // Only show menus listed in window.et.sysMenus, when it is defined,
   // eg: window.et.sysMenus = ['onNewSsh', 'bookmarks', 'openSetting', 'close']
   // available keys: onNewSsh, addTab, bookmarks, history, sessions, layout,
-  // openAbout, openSetting, openDevTools, zoom, minimize, maximize, reload,
-  // onCheckUpdate, restart, close
+  // openAbout, openAuditCenter, openSetting, openDevTools, zoom, minimize,
+  // maximize, reload, onCheckUpdate, restart, close
   filterMenus = (items) => {
     const { sysMenus } = window.et || {}
     if (!Array.isArray(sysMenus)) {

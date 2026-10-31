@@ -33,6 +33,7 @@ import {
   EyeOutlined,
   SwapOutlined,
   SendOutlined,
+  HistoryOutlined,
   PushpinOutlined,
   PushpinFilled
 } from '@ant-design/icons'
@@ -71,6 +72,7 @@ export default {
   EyeOutlined,
   SwapOutlined,
   SendOutlined,
+  HistoryOutlined,
   PushpinOutlined,
   PushpinFilled
 }

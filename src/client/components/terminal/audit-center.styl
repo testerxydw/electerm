@@ -1,0 +1,296 @@
+// G8：审计中心
+//
+// 三栏定宽 + 中栏自适应：左栏是筛选器（窄），中栏是时间线（吃剩余），
+// 右栏是详情与日志尾部（定宽，否则日志一长就把时间线挤没）。
+.audit-center
+  display flex
+  align-items stretch
+  gap var(--sp-3)
+  height 62vh
+
+.audit-col
+  min-height 0
+  display flex
+  flex-direction column
+  gap var(--sp-2)
+
+.audit-col-filters
+  flex 0 0 210px
+  overflow-y auto
+  padding-right var(--sp-1)
+
+.audit-col-timeline
+  flex 1 1 auto
+  min-width 0
+
+.audit-col-detail
+  flex 0 0 320px
+  min-width 0
+  overflow-y auto
+  padding-right var(--sp-1)
+
+.audit-search
+  flex none
+
+// ---- 左栏：三组候选（类型 / 主机 / 日期）----
+.audit-facet
+  display flex
+  flex-direction column
+  gap var(--sp-1)
+
+.audit-facet-title
+  display flex
+  align-items center
+  gap 6px
+  color var(--text-muted)
+  font-size var(--fs-xs)
+  letter-spacing .02em
+
+.audit-facet-mark
+  flex none
+  width 14px
+  height 14px
+  line-height 13px
+  text-align center
+  border 1px solid var(--border)
+  border-radius var(--radius-pill)
+  color var(--text-muted)
+  font-size 10px
+  cursor help
+
+.audit-facet-list
+  display flex
+  flex-direction column
+  gap 2px
+  max-height 168px
+  overflow-y auto
+
+.audit-facet-item
+  display flex
+  align-items center
+  gap var(--sp-2)
+  padding 3px var(--sp-2)
+  border-radius var(--radius-xs)
+  cursor pointer
+  transition background var(--dur-1) var(--ease)
+
+  &:hover
+    background var(--hover-bg)
+
+  // 选中态用主色浸染 + 主色文字：审计里"筛了哪些"必须一眼看见
+  &.on
+    background var(--active-bg)
+    color var(--primary-text)
+
+    .audit-facet-count
+      color var(--primary-text)
+
+.audit-facet-label
+  flex 1 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-size var(--fs-sm)
+
+.audit-facet-count
+  flex none
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+  color var(--text-muted)
+
+.audit-facet-empty
+  padding var(--sp-1) var(--sp-2)
+  color var(--text-muted)
+  font-size var(--fs-xs)
+
+.audit-filter-foot
+  display flex
+  align-items center
+  justify-content space-between
+  gap var(--sp-2)
+  margin-top auto
+  padding-top var(--sp-2)
+  border-top 1px solid var(--border)
+
+.audit-count-summary
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+  color var(--text-muted)
+
+// ---- 中栏：时间线 ----
+.audit-alert
+  flex none
+
+.audit-num,
+.audit-artifact
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  white-space nowrap
+
+.audit-num
+  color var(--text-muted)
+
+.audit-host
+  font-size var(--fs-sm)
+
+.audit-artifact
+  color var(--text-muted)
+
+.audit-dash
+  color var(--text-muted)
+
+.audit-kind
+  display inline-flex
+  align-items center
+  gap 4px
+  font-size var(--fs-sm)
+
+// 连接历史把"连过几次"并进同一行，只在大于 1 时出现
+.audit-count
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+  color var(--primary-text)
+
+.audit-row
+  cursor pointer
+
+.audit-row-on > td
+  background var(--active-bg)
+
+.audit-dir
+  flex none
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  color var(--text-muted)
+  font-size var(--fs-xs)
+  font-family var(--font-mono)
+
+// ---- 右栏：详情 + 日志尾部 ----
+.audit-detail
+  display flex
+  flex-direction column
+  gap var(--sp-3)
+
+.audit-detail-empty
+  padding var(--sp-5) var(--sp-3)
+  color var(--text-muted)
+  font-size var(--fs-sm)
+  text-align center
+
+.audit-detail-head
+  display flex
+  align-items baseline
+  justify-content space-between
+  gap var(--sp-2)
+
+.audit-detail-kind
+  font-size var(--fs)
+  color var(--primary-text)
+
+.audit-detail-time
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  color var(--text-muted)
+
+.audit-kv
+  display flex
+  flex-direction column
+  gap 2px
+
+.audit-kv-row
+  display flex
+  align-items flex-start
+  gap var(--sp-2)
+  padding 2px 0
+  border-bottom 1px solid var(--border)
+
+  &:last-child
+    border-bottom none
+
+.audit-kv-key
+  flex 0 0 76px
+  color var(--text-muted)
+  font-size var(--fs-xs)
+
+.audit-kv-val
+  flex 1 1 auto
+  min-width 0
+  font-size var(--fs-sm)
+  font-family var(--font-mono)
+
+// 产物名与详情可能是长路径：允许断行，完整值在 title 里
+.audit-kv-wrap
+  word-break break-all
+
+.audit-detail-ops
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 6px
+
+.audit-detail-note
+  color var(--text-muted)
+  font-size var(--fs-xs)
+
+.audit-tail
+  display flex
+  flex-direction column
+  gap var(--sp-1)
+
+.audit-tail-title
+  display flex
+  align-items baseline
+  justify-content space-between
+  gap var(--sp-2)
+  color var(--text-muted)
+  font-size var(--fs-xs)
+
+.audit-tail-meta
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+
+.audit-tail-pre
+  margin 0
+  padding var(--sp-2)
+  max-height 34vh
+  overflow auto
+  background var(--surface-0)
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+
+.audit-tail-line
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+  line-height 1.5
+  white-space pre-wrap
+  word-break break-all
+
+.audit-tail-empty,
+.audit-tail-error
+  padding var(--sp-2)
+  color var(--text-muted)
+  font-size var(--fs-xs)
+  background var(--surface-0)
+  border-radius var(--radius-xs)
+
+.audit-tail-error
+  color var(--error)
+  background var(--error-bg)
+
+// 窄窗口（分屏/小屏）：右栏收到下方，中栏保持可用
+@media (max-width: 1180px)
+  .audit-center
+    height auto
+    flex-wrap wrap
+
+  .audit-col-filters
+    flex 1 1 100%
+    flex-direction row
+    flex-wrap wrap
+    overflow-y visible
+
+  .audit-col-detail
+    flex 1 1 100%
+    overflow-y visible

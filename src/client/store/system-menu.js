@@ -53,6 +53,15 @@ export default Store => {
     }
   }
 
+  // G8 审计中心：开关只是标志位，数据（三来源合并/过滤/导出）都在组件里算
+  Store.prototype.openAuditCenter = function () {
+    window.store.showAuditCenter = true
+  }
+
+  Store.prototype.closeAuditCenter = function () {
+    window.store.showAuditCenter = false
+  }
+
   Store.prototype.onNewSsh = function () {
     const { store } = window
     store.storeAssign({

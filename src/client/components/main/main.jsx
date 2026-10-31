@@ -67,6 +67,7 @@ import './term-fullscreen.styl'
 
 const Resolutions = lazy(() => import('../rdp/resolution-edit'))
 const InfoModal = lazy(() => import('../sidebar/info-modal.jsx'))
+const AuditCenter = lazy(() => import('../terminal/audit-center.jsx'))
 const AIConfigModal = lazy(() => import('../ai/ai-config-modal'))
 // window opacity is electron-only: lazy so the web app never loads the chunk
 const Opacity = lazy(() => import('../common/opacity'))
@@ -439,6 +440,19 @@ export default auto(function Index (props) {
           <LazyBoundary>
             <Suspense fallback={null}>
               <InfoModal {...infoModalProps} />
+            </Suspense>
+          </LazyBoundary>
+        )}
+        {/* G8 审计中心：三来源合并在组件里做，这里只给两份历史（store 的代理数组可直接读） */}
+        {store.showAuditCenter && (
+          <LazyBoundary>
+            <Suspense fallback={null}>
+              <AuditCenter
+                open={store.showAuditCenter}
+                history={store.history}
+                transferHistory={store.transferHistory}
+                onClose={() => store.closeAuditCenter()}
+              />
             </Suspense>
           </LazyBoundary>
         )}
