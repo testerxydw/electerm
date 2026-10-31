@@ -1388,6 +1388,20 @@ const main = async () => {
   check('E3 多结果集：总耗时标在每个页签旁（两页签共享一份 123 ms）',
     tabs.length === 2 && tabs.every(t => t.includes(expSuffix)),
     { tabs, expSuffix })
+
+  // 页签还各自带本结果集行数（原始口径）：两集分别是 10000 行与 2 行，
+  // 行数在耗时后缀之前；期望值同样从词条现算
+  const expRowParts = [
+    await cdp.eval("' · ' + String(window.translate('dbSqlRows')).replace('{rows}', 10000)"),
+    await cdp.eval("' · ' + String(window.translate('dbSqlRows')).replace('{rows}', 2)")
+  ]
+  const rowOrders = tabs.map((t, i) => ({
+    hasRows: t.includes(expRowParts[i]),
+    rowsBeforeElapsed: t.indexOf(expRowParts[i]) >= 0 && t.indexOf(expRowParts[i]) < t.indexOf(expSuffix)
+  }))
+  check('E4 多结果集页签各自带行数（10000 / 2，原始口径），且排在总耗时之前',
+    tabs.length === 2 && rowOrders.every(x => x.hasRows && x.rowsBeforeElapsed),
+    { tabs, expRowParts, rowOrders })
   await cdp.eval('window.__sqlMode = "one"')
   await runSql(cdp)
 

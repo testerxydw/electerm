@@ -435,6 +435,18 @@ describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
     assert.ok(/dbSqlElapsedTotal/.test(block), '页签标题没带总耗时')
     assert.ok(/sqlResult\.elapsedMs !== null/.test(block), 'null 时不能往页签标题拼 undefined')
   })
+
+  test('页签标题带各自行数（原始口径），且空结果集不拼"0 行"', () => {
+    const block = src.slice(
+      src.indexOf("className='db-sql-results-tabs'"),
+      src.indexOf('db-sql-results-tabs') + 2000)
+    assert.ok(/Array\.isArray\(r\.rows\) \? r\.rows\.length : 0/.test(block),
+      '页签行数没从结果集自己的 rows 取')
+    assert.ok(/if \(nRows > 0\)\s*\{\s*labelParts\.push\(e\('dbSqlRows'\)\.replace\('\{rows\}', nRows\)\)/.test(block),
+      '页签标题没按"有行才拼行数"处理')
+    assert.ok(/labelParts\.join\(' · '\)/.test(block), '页签标题没按固定分隔符拼接')
+    assert.ok(!/view\.matched/.test(block), '页签行数不能用激活页签的命中数（切页签会跳）')
+  })
 })
 
 describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', () => {

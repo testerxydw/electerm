@@ -5254,16 +5254,24 @@ export default auto(function DbSession (props) {
       <Tabs
         size='small'
         className='db-sql-results-tabs'
-        items={results.map((r, i) => ({
-          key: String(i),
+        items={results.map((r, i) => {
+          // 页签在下面、正文在上面，切走后只剩标题可认；行数取该结果集原始口径
+          // （过滤后的命中数随激活页签，写进标题会在切换时来回跳）
+          const labelParts = [e('dbResultN').replace('{n}', i + 1)]
+          const nRows = Array.isArray(r.rows) ? r.rows.length : 0
+          if (nRows > 0) {
+            labelParts.push(e('dbSqlRows').replace('{rows}', nRows))
+          }
           // 多结果集共享一份总耗时，标在每个页签旁（各结果集不单独计时）
-          label: e('dbResultN').replace('{n}', i + 1) + (
-            sqlResult.elapsedMs !== null
-              ? ' · ' + e('dbSqlElapsedTotal').replace('{ms}', sqlResult.elapsedMs)
-              : ''
-          ),
-          children: renderOne(r, i)
-        }))}
+          if (sqlResult.elapsedMs !== null) {
+            labelParts.push(e('dbSqlElapsedTotal').replace('{ms}', sqlResult.elapsedMs))
+          }
+          return {
+            key: String(i),
+            label: labelParts.join(' · '),
+            children: renderOne(r, i)
+          }
+        })}
       />
     )
   }
