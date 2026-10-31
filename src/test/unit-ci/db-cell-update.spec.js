@@ -184,7 +184,8 @@ describe('T5 wiring: renderer no longer builds SQL', () => {
     const INDEX = path.join(ROOT, 'src/app/lib/db-client/index.js')
     const src = fs.readFileSync(INDEX, 'utf8')
     const hits = src.match(/updateCell: 'updateCell'/g) || []
-    assert.equal(hits.length, 2, 'mysql and postgres must register updateCell')
+    // H8a：sqlite 也是可写 SQL 引擎，同样注册 updateCell
+    assert.equal(hits.length, 3, 'mysql, postgres and sqlite must register updateCell')
   })
 })
 

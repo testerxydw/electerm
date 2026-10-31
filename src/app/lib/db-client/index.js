@@ -15,7 +15,8 @@ const DB_ADAPTER = {
   tidb: 'mysql',
   oceanbase: 'mysql',
   postgres: 'postgres',
-  redis: 'redis'
+  redis: 'redis',
+  sqlite: 'sqlite'
 }
 
 const testers = {
@@ -23,7 +24,8 @@ const testers = {
   tidb: opts => require('./mysql').testMysqlConnection(opts),
   oceanbase: opts => require('./mysql').testMysqlConnection(opts),
   postgres: opts => require('./postgres').testPostgresConnection(opts),
-  redis: opts => require('./redis').testRedisConnection(opts)
+  redis: opts => require('./redis').testRedisConnection(opts),
+  sqlite: opts => require('./sqlite').testSqliteConnection(opts)
 }
 
 // per-tab client instances: { tabId: { dbType, conn, close, tunnel } }
@@ -65,6 +67,23 @@ const OP_MAP = {
     listColumns: 'listColumns',
     getObjectDdl: 'getObjectDdl',
     // H3b：整 schema 外键（ER 图；只读）
+    listForeignKeys: 'listForeignKeys'
+  },
+  sqlite: {
+    getMetadata: 'getMetadata',
+    getPageData: 'getPageData',
+    describeTable: 'describeTable',
+    getTableStructure: 'getTableStructure',
+    getReferences: 'getReferences',
+    updateCell: 'updateCell',
+    insertRow: 'insertRow',
+    deleteRows: 'deleteRows',
+    updateCells: 'updateCells',
+    countRows: 'countRows',
+    executeSql: 'executeSql',
+    explainQuery: 'explainQuery',
+    listColumns: 'listColumns',
+    getObjectDdl: 'getObjectDdl',
     listForeignKeys: 'listForeignKeys'
   },
   redis: {
@@ -159,7 +178,10 @@ function resolvePort (dbBookmark) {
 
 async function buildConn (dbBookmark, sshBookmark) {
   const dbType = dbBookmark.dbType
-  const useTunnel = !!sshBookmark
+  // SQLite 是本地文件，没有 host/port，也无从走 SSH 隧道：
+  // 连接表单本身不提供隧道选项，这里再兜一层，避免历史数据里残留的
+  // sshTunnelBookmarkId 把本地文件连接拖进一条注定失败的隧道
+  const useTunnel = !!sshBookmark && dbType !== 'sqlite'
   const dbHost = useTunnel ? '127.0.0.1' : (dbBookmark.dbHost || '127.0.0.1')
   let tunnel = null
   if (useTunnel) {
@@ -432,8 +454,13 @@ async function structureCached (inst, adapter, args, opMs, onTimeout, connOverri
 // 且结构面板/表头已经把它查热了，这里几乎不会多一次远端查询。
 
 function dialectOf (inst) {
-  // tidb/oceanbase 走 mysql 协议，词法与占位符都同 mysql
-  return DB_ADAPTER[inst.dbType] === 'postgres' ? 'postgres' : 'mysql'
+  // tidb/oceanbase 走 mysql 协议，词法与占位符都同 mysql；
+  // sqlite 有独立词法（双引号标识符、无 # 注释、无反斜杠转义），不能并到 mysql
+  const adapter = DB_ADAPTER[inst.dbType]
+  if (adapter === 'postgres' || adapter === 'sqlite') {
+    return adapter
+  }
+  return 'mysql'
 }
 
 // 是否需要走校验：**同步**判定。
@@ -940,7 +967,8 @@ async function closeAllDbTabs () {
   await Promise.all([
     require('./mysql').closeMysqlConnection(),
     require('./postgres').closePostgresConnection(),
-    require('./redis').closeRedisConnection()
+    require('./redis').closeRedisConnection(),
+    require('./sqlite').closeSqliteConnection()
   ].map(p => p.catch(() => {})))
 }
 

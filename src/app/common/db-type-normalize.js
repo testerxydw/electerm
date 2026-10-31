@@ -187,6 +187,46 @@ function normalizePgType (dataTypeID) {
 }
 
 /**
+ * SQLite 声明类型 → 归一类型名（H8a）。
+ *
+ * SQLite 是动态类型：`StatementSync.columns()[].type` 给的是建表时的**声明类型**
+ * （`VARCHAR(20)` / `INTEGER` / `DATETIME`），而且允许任意字符串（`FOO` 也合法）。
+ * 这里按 SQLite 的类型亲和性规则（https://sqlite.org/datatype3.html §3.1）归一，
+ * 只为了对齐数据页那套格式化词表；认不出的按 `numeric`（亲和性 NUMERIC），
+ * 不猜成字符串 —— 声明了奇怪类型却存数字的列，右对齐比左对齐更不容易读错。
+ *
+ * @param {string} declared 声明类型（可带长度/精度，可空）
+ * @returns {string} 归一类型名（与 db-format-value 的 NUMBER_TYPES/DATE_TYPES 同源），
+ *   无声明类型（表达式结果 / 允许省略类型的列）返回 ''，按"未知即字符串"处理 ——
+ *   这里不能回落到 blob：`SELECT 1+1` 的列没有声明类型，标成二进制会让前端
+ *   把数字当字节串呈现
+ */
+function normalizeSqliteType (declared) {
+  const raw = String(declared === null || declared === undefined ? '' : declared).trim()
+  if (!raw) {
+    return ''
+  }
+  const t = raw.toUpperCase()
+  // 日期/时间先判：它们在亲和性上属 NUMERIC，但展示层要知道这是时间才能本地化
+  if (/DATE|TIME/.test(t)) {
+    return 'datetime'
+  }
+  if (t.includes('INT')) {
+    return 'integer'
+  }
+  if (/CHAR|CLOB|TEXT/.test(t)) {
+    return 'text'
+  }
+  if (t.includes('BLOB')) {
+    return 'blob'
+  }
+  if (/REAL|FLOA|DOUB/.test(t)) {
+    return 'real'
+  }
+  return 'numeric'
+}
+
+/**
  * 把驱动的字段元数据数组转成契约里的 `columns`。
  *
  * 与 `fields` **同长同序**是这条契约的唯一硬要求（前端按 `name` 查类型，但导出侧
@@ -217,5 +257,6 @@ module.exports = {
   PG_TYPE_NAMES,
   normalizeMysqlType,
   normalizePgType,
+  normalizeSqliteType,
   toColumns
 }

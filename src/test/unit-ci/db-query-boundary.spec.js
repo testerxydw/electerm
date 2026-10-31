@@ -145,7 +145,8 @@ describe('T11 exact row count', () => {
     const INDEX = path.join(ROOT, 'src/app/lib/db-client/index.js')
     const src = fs.readFileSync(INDEX, 'utf8')
     const mapHits = src.match(/countRows: 'countRows'/g) || []
-    assert.equal(mapHits.length, 2, 'mysql/postgres must register countRows')
+    // H8a：sqlite 同样按需精确计数（SELECT COUNT(*)）
+    assert.equal(mapHits.length, 3, 'mysql/postgres/sqlite must register countRows')
     assert.match(src, /countRows: 60000/, 'countRows needs a 60s timeout')
     const redisMap = src.match(/redis: \{[\s\S]*?\n\s{2}\}/)[0]
     assert.ok(!redisMap.includes('countRows'), 'redis has no total row count')

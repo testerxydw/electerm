@@ -517,12 +517,13 @@ describe('F0 接线：op 注册与缓存', () => {
 
   test('两个 SQL 引擎注册 getTableStructure，Redis 不注册（调用即报 unsupported）', () => {
     const hits = indexSrc.match(/getTableStructure: 'getTableStructure'/g) || []
-    assert.equal(hits.length, 2)
+    // H8a：mysql / postgres / sqlite 都有结构契约
+    assert.equal(hits.length, 3)
     // 只取 OP_MAP 里的 redis 块（后面的 dbClientOp 分支当然会提到这个 op 名）
     const redisBlock = (indexSrc.match(/redis: \{[\s\S]*?\n {2}\}/) || [''])[0]
     assert.ok(!redisBlock.includes('getTableStructure'), 'redis must not advertise table structure')
     // 但适配器方法名必须真实存在，否则 op 注册成了空指针
-    for (const f of [MYSQL_JS, POSTGRES_JS]) {
+    for (const f of [MYSQL_JS, POSTGRES_JS, path.join(ROOT, 'src/app/lib/db-client/sqlite.js')]) {
       assert.ok(fs.readFileSync(f, 'utf8').includes('async function getTableStructure'))
     }
   })

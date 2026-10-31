@@ -164,14 +164,19 @@ function isDigit (ch) {
 }
 
 /**
- * 方言归一：只有 pg 与 mysql 两套词法，其他取值一律按 mysql 处理
- * （与 db-grid-view.js 的 normalizeDialect 口径一致）
+ * 方言归一：pg / sqlite / mysql 三套词法，其他取值一律按 mysql 处理
+ * （与 db-grid-view.js 的 normalizeDialect 口径一致）。
+ * sqlite 不能并进 mysql：SQLite 的 `'...'` **没有**反斜杠转义（`'a\'` 在 SQLite 里
+ * 于第二个引号处结束，后面的内容是真 SQL），按 mysql 口径掩码会把注入面当成字符串放过。
  * @param {string} dialect 方言
- * @returns {'mysql'|'postgres'} 归一后的方言
+ * @returns {'mysql'|'postgres'|'sqlite'} 归一后的方言
  */
 function normalizeDialect (dialect) {
   const d = String(dialect === null || dialect === undefined ? '' : dialect).toLowerCase()
-  return d === 'postgres' || d === 'postgresql' || d === 'pg' ? 'postgres' : 'mysql'
+  if (d === 'postgres' || d === 'postgresql' || d === 'pg') {
+    return 'postgres'
+  }
+  return d === 'sqlite' || d === 'sqlite3' ? 'sqlite' : 'mysql'
 }
 
 /**
@@ -259,6 +264,8 @@ function readDollarTag (src, i) {
  * 掩码字符串字面量（替换成等长空白，保留换行）。
  * mysql：'...'（反斜杠转义）与 "..."（同为字符串字面量）；反引号是标识符，**不掩码**。
  * pg：'...'（'' 转义）、E'...'（反斜杠转义）、$tag$...$tag$；"..." 是标识符，**不掩码**。
+ * sqlite：'...'（只有 '' 转义，反斜杠是普通字符）；"..." / `` `...` `` / `[...]` 都是标识符，
+ *   **不掩码**。把 sqlite 当成 mysql 会为 `'a\' OR 1=1 --'` 这类写法掩出一条假字符串。
  * @param {string} sql 原文
  * @param {string} dialect 方言
  * @returns {string} 与原文等长的掩码串
@@ -292,12 +299,22 @@ function maskLiterals (sql, dialect) {
         i = end
         continue
       }
-      // pg：双引号是标识符，留给 tokenize 做白名单校验
-      i++
+      // pg/sqlite：双引号是标识符，留给 tokenize 做白名单校验。
+      // 跳过标识符内容（不掩码）而不是逐字符 i++：否则标识符里的单引号
+      // （`"a'b"`）会被后面那轮当成字符串起点，把后续真语句掩进"假字面量"
+      i = scanQuoted(sql, i, '"', false)
       continue
     }
-    if (d === 'mysql' && ch === '`') {
-      // 反引号标识符不掩码，但跳过其内容，避免内部引号被误当字面量起点
+    if (d === 'sqlite' && ch === '[') {
+      // SQLite 的 [ident] 与反引号标识符一样跳过内容，避免内部引号被当成字面量起点；
+      // 未闭合时停在串尾（用户还没写完不算错误，闭合与否不影响安全性）
+      const close = sql.indexOf(']', i + 1)
+      i = close === -1 ? sql.length : close + 1
+      continue
+    }
+    if ((d === 'mysql' || d === 'sqlite') && ch === '`') {
+      // 反引号标识符（SQLite 为兼容 MySQL 保留）不掩码，但跳过其内容，
+      // 避免内部引号被误当字面量起点
       i = scanQuoted(sql, i, '`', false)
       continue
     }

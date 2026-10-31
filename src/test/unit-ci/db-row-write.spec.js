@@ -288,8 +288,9 @@ describe('B1 insertRow/deleteRows: postgres', () => {
 describe('B1 wiring: OP_MAP 注册', () => {
   test('mysql 与 postgres 适配器均注册 insertRow/deleteRows', () => {
     const src = fs.readFileSync(INDEX_JS, 'utf8')
-    assert.equal((src.match(/insertRow: 'insertRow'/g) || []).length, 2)
-    assert.equal((src.match(/deleteRows: 'deleteRows'/g) || []).length, 2)
+    // H8a：sqlite 是第三个可写 SQL 引擎
+    assert.equal((src.match(/insertRow: 'insertRow'/g) || []).length, 3)
+    assert.equal((src.match(/deleteRows: 'deleteRows'/g) || []).length, 3)
     // redis 不得注册写行 op
     const redisBlock = src.match(/redis: \{[\s\S]*?\n {2}\}/)
     assert.ok(redisBlock, 'redis op block not found')
