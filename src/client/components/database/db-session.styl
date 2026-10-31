@@ -794,6 +794,80 @@
   white-space pre
   color var(--text)
 
+// AI 第一批：生成/修复/优化弹层 + 错误条动作
+.db-sql-ai
+  display flex
+  flex-direction column
+  gap 8px
+.db-sql-ai-chips
+  display flex
+  flex-wrap wrap
+  gap 4px
+.db-sql-ai-source
+  margin 0
+  max-height 140px
+  overflow auto
+  padding 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main)
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  white-space pre-wrap
+  word-break break-all
+  color var(--text)
+.db-sql-ai-loading
+  display flex
+  align-items center
+  gap 6px
+  font-size 12px
+  color var(--text-muted)
+.db-sql-ai-head
+  display flex
+  align-items center
+  justify-content space-between
+  gap 8px
+  margin-bottom 6px
+  font-size 12px
+  color var(--text-muted)
+.db-sql-ai-pre
+  margin 0
+  max-height 40vh
+  overflow auto
+  padding 10px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main)
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  white-space pre
+  color var(--text)
+.db-sql-ai-raw
+  margin 0
+  max-height 120px
+  overflow auto
+  font-size 12px
+  white-space pre-wrap
+  word-break break-all
+.db-sql-ai-strategy
+  display flex
+  align-items center
+  gap 8px
+  flex-wrap wrap
+  margin-top 8px
+.db-sql-ai-hint
+  font-size 12px
+  color var(--text-muted)
+.db-sql-ai-spacer
+  flex 1 1 auto
+.db-sql-ai-footer
+  display flex
+  align-items center
+  gap 8px
+.db-sql-error-actions
+  display inline-flex
+  gap 2px
+
 // T4 PG 跨库连接入口与确认弹窗
 .db-tree-connect
   margin-left 6px

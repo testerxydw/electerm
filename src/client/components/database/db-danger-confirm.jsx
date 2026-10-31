@@ -17,7 +17,9 @@ import { DownOutlined, UpOutlined } from '@ant-design/icons'
 const e = window.translate
 
 // 等级 → 词条 key（颜色/样式由 CSS 类负责，见 db-session.styl）
-const LEVEL_LABEL_KEY = {
+// 导出给 AI 生成弹层复用：那里要在"插入前"就把风险分级显示出来，
+// 词条映射只此一份，别处不要再抄一遍
+export const LEVEL_LABEL_KEY = {
   read: 'dbRiskRead',
   transaction: 'dbRiskTransaction',
   write: 'dbRiskWrite',
