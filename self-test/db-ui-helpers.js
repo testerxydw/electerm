@@ -360,7 +360,23 @@ const buildHelpers = splitKey => `
       title: b.getAttribute('title') || '',
       disabled: String(!!b.disabled)
     }))
-  window.__gotoPage = n => {
+  window.__gotoPage = async n => {
+    // H1a-4 起 SQL 结果分页是 DbGridPager：没有页码按钮，跳页 = 写跳页框再点 Go。
+    // Go 在草稿落进 state 前是禁用的，必须等一拍（调用方走 eval 的 awaitPromise）。
+    const box = window.__one('.db-sql-result-tools .db-grid-pager')
+    if (box) {
+      const jump = [...box.querySelectorAll('.db-grid-jump input')].filter(window.__vis)[0]
+      if (!jump) return 'no-jump'
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(jump, String(n))
+      jump.dispatchEvent(new Event('input', { bubbles: true }))
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const go = [...box.querySelectorAll('button')].filter(window.__vis).pop()
+      if (!go) return 'no-go'
+      if (go.disabled) return 'go-disabled'
+      go.click()
+      return 'ok'
+    }
     const item = window.__one('.db-sql-result-tools .ant-pagination-item-' + n)
     if (!item) return 'no-page-' + n
     const a = item.querySelector('a') || item
@@ -583,7 +599,8 @@ class Cdp {
   }
 
   async eval (expression) {
-    const r = await this.call('Runtime.evaluate', { expression, returnByValue: true })
+    // awaitPromise：夹具里的跳页/等待类表达式是 async 的，结果要等 Promise 落地
+    const r = await this.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
     const details = r.result && r.result.exceptionDetails
     if (details) {
       throw new Error('eval failed: ' + (details.exception && details.exception.description) + ' :: ' + expression.slice(0, 80))
