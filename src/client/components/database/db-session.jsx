@@ -300,6 +300,34 @@ const countTreeLeaves = nodes => (nodes || []).reduce(
   (n, node) => n + (isLeafNode(node) ? 1 : countTreeLeaves(node.children)),
   0
 )
+// U4：Redis 类型芯片 / TTL 芯片。键列表、键详情头部、string 值面板共用同一份，
+// 避免三处各写一遍颜色与文案。未知类型不着色，仍显示原文
+const REDIS_KEY_TYPES = ['string', 'hash', 'list', 'set', 'zset', 'stream']
+const RedisTypeChip = ({ type }) => {
+  const t = String(type || '').toLowerCase()
+  if (!t) {
+    return null
+  }
+  return (
+    <span className={'db-redis-type-chip' + (REDIS_KEY_TYPES.includes(t) ? ' is-' + t : '')}>
+      {t}
+    </span>
+  )
+}
+const RedisTtlChip = ({ ttl }) => {
+  const n = Number(ttl)
+  const has = Number.isFinite(n) && n > 0
+  const text = has ? n + 's' : e('dbNone')
+  return (
+    <span
+      className={'db-redis-ttl-chip' + (has ? '' : ' is-none')}
+      title={e('dbTtlMeta').replace('{ttl}', text)}
+    >
+      <ClockCircleOutlined />
+      {text}
+    </span>
+  )
+}
 // 分组节点标题走 i18n；组名本身是稳定英文 token（routines/triggers/events），
 // 不随界面语言变化 —— 展开键与树过滤都按它匹配
 const DB_GROUP_LABEL = {
@@ -5985,7 +6013,7 @@ export default auto(function DbSession (props) {
           wide: wideColumnWidth(keyList.rows || [], 'type')
         })
       }),
-      render: v => renderCell(v)
+      render: v => <RedisTypeChip type={v} />
     },
     {
       title: (
@@ -6008,7 +6036,7 @@ export default auto(function DbSession (props) {
           wide: wideColumnWidth(keyList.rows || [], 'ttl')
         })
       }),
-      render: v => renderCell(v)
+      render: v => <RedisTtlChip ttl={v} />
     }
   ], [renderCell, langCode, redisKeysFitted, redisColWidths, redisKeysLive, keyList.rows])
 
@@ -8306,12 +8334,18 @@ export default auto(function DbSession (props) {
       body = (
         <DbValuePane
           title={redisKey}
-          meta={
-            e('dbTypeMeta').replace('{type}', d.type) + ' - ' +
-            e('dbTtlMeta').replace('{ttl}', d.ttl > 0 ? d.ttl + 's' : e('dbNone')) + ' - ' +
-            e('dbChars').replace('{n}', stringValue.length) +
-            (stringTruncated ? ` (preview truncated, ${d.total} bytes total)` : '')
-          }
+          meta={(
+            <span className='db-redis-meta'>
+              <RedisTypeChip type={d.type} />
+              <RedisTtlChip ttl={d.ttl} />
+              <span>{e('dbChars').replace('{n}', stringValue.length)}</span>
+              {
+                stringTruncated
+                  ? <span>{`(preview truncated, ${d.total} bytes total)`}</span>
+                  : null
+              }
+            </span>
+          )}
           value={stringValue}
           patterns={keywordPatterns}
           themeConfig={themeConfig}
@@ -8820,8 +8854,8 @@ export default auto(function DbSession (props) {
             ? (
               <div className='db-redis-detail-bar'>
                 <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
-                <span className='db-grid-page-no'>{e('dbTypeMeta').replace('{type}', d.type)}</span>
-                <span className='db-grid-page-no'>{e('dbTtlMeta').replace('{ttl}', d.ttl > 0 ? d.ttl + 's' : e('dbNone'))}</span>
+                <RedisTypeChip type={d.type} />
+                <RedisTtlChip ttl={d.ttl} />
                 {
                   // D 批 T12：按类型显隐的添加控件（只读全部禁用）
                   d.type === 'hash'

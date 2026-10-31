@@ -1571,6 +1571,48 @@
   gap 8px
   flex none
 
+// U4：Redis 类型芯片 —— 键列表、详情头部、string 值面板三处共用。
+// 形状统一为胶囊，颜色靠 --success/--primary-text/--info/--warn/--error/--text-muted
+// 区分；底色用 hover 档，保证 11px 字在深浅主题里都够读
+.db-redis-type-chip
+  display inline-block
+  padding 0 6px
+  border 1px solid var(--border)
+  border-radius var(--radius-pill)
+  background var(--hover-bg)
+  color var(--text-dark)
+  font-size var(--fs-xs)
+  line-height 16px
+  &.is-string
+    border-color var(--success)
+  &.is-hash
+    border-color var(--primary-text)
+  &.is-list
+    border-color var(--info)
+  &.is-set
+    border-color var(--warn)
+  &.is-zset
+    border-color var(--error)
+  &.is-stream
+    border-color var(--text-muted)
+
+// U4：TTL 芯片 —— 有时限显示时钟 + 秒数，无时限显示弱化文案
+.db-redis-ttl-chip
+  display inline-flex
+  align-items center
+  gap 4px
+  color var(--text-dark)
+  font-size var(--fs-xs)
+  font-variant-numeric tabular-nums
+  &.is-none
+    color var(--text-muted)
+
+// string 值面板头部的元信息：芯片与字符数同排
+.db-redis-meta
+  display inline-flex
+  align-items center
+  gap 8px
+
 .db-redis-key-name
   max-width 40%
   overflow hidden

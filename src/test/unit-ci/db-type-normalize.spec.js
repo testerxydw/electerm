@@ -300,9 +300,10 @@ describe('接线契约（真实源码抽取）', () => {
     // antd 的 render(text, record, index) 会把整行对象当关键字、行下标当类型传进来
     const codeLines = (jsx() + '\n' + colFactory()).split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l))
     assert.equal(codeLines.filter(l => /render: renderCell\b/.test(l)).length, 0)
-    // 显式表态（拿类型 or 明说不拿）不靠参数位置的巧合：调用点 10 处（原 6 处
-    // + Stream 组表 2 处、条目表 2 处）+ 列工厂 1 处
-    assert.equal((jsx().match(/render: v => renderCell\(/g) || []).length, 10)
+    // 显式表态（拿类型 or 明说不拿）不靠参数位置的巧合：调用点 8 处（原 6 处
+    // + Stream 组表 2 处、条目表 2 处；Redis 键列表的类型/TTL 两列已改成芯片，
+    // 不再走 renderCell）+ 列工厂 1 处
+    assert.equal((jsx().match(/render: v => renderCell\(/g) || []).length, 8)
     assert.equal((colFactory().match(/renderCell\(v, filterKw, dataType\)/g) || []).length, 2)
   })
 
