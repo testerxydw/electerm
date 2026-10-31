@@ -80,6 +80,9 @@ module.exports = exports.default = {
   apiPathAI: '/chat/completions',
   authHeaderNameAI: 'Authorization: Bearer',
   proxyAI: '',
+  // 模型能不能收图片：auto = 看预置标注和模型名猜；on/off = 用户显式覆盖。
+  // 判定只影响输入侧提示与发送前闸门，不构成任何保证（中转站改名后名字读不出来）
+  supportsImageAI: 'auto',
   sessionLogPath: '',
   // 会话录制 (T5-4f): 输出+键盘输入 / 剥离 shell 集成序列 / 密码提示自动避录
   recordInput: false,

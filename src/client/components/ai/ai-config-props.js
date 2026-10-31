@@ -8,7 +8,8 @@ export const aiConfigsArr = [
   'apiPathAI',
   'languageAI',
   'proxyAI',
-  'contextLengthAI'
+  'contextLengthAI',
+  'supportsImageAI'
 ]
 
 // Keys that may legitimately be empty. `aiConfigMissing` only forces the
@@ -18,10 +19,13 @@ export const optionalAIConfigsArr = [
   'apiKeyAI',
   'proxyAI',
   'nameAI',
-  'contextLengthAI'
+  'contextLengthAI',
+  // 老配置里没有这一项，值为空时按 auto 走；列成"可空"才不会一开面板就反复弹设置窗
+  'supportsImageAI'
 ]
 
+// 显式带 .js：node 的 ESM loader 不补扩展名，单测要能直接 import 这个模块
 export {
   defaultAIPresets,
   getAIPresets
-} from './ai-presets'
+} from './ai-presets.js'

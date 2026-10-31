@@ -934,6 +934,8 @@ export default (Store) => {
       'dataSyncSelected',
       'baseURLAI',
       'modelAI',
+      // 跟着模型走的能力位：不是密钥，换机后模型名还在但能力判定不该重来
+      'supportsImageAI',
       'roleAI',
       'languageAI',
       'proxyAI',

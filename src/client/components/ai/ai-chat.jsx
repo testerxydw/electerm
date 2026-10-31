@@ -206,7 +206,10 @@ export default function AIChat (props) {
         'apiKeyAI',
         'proxyAI',
         'languageAI',
-        'authHeaderNameAI'
+        'authHeaderNameAI',
+        // 能力位跟着条目存：历史重放时用的是"当时那次发送"的判定口径，
+        // 用户事后把 off 改成 on 不该让已经发过的条目换个说法
+        'supportsImageAI'
       ]),
       timestamp: Date.now(),
       id: chatId

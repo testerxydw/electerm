@@ -6,7 +6,8 @@ import {
   AutoComplete,
   Alert,
   Select,
-  Space
+  Space,
+  Radio
 } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { ReloadOutlined } from '@ant-design/icons'
@@ -366,6 +367,26 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
           rules={[{ required: true, message: 'Please input or select a model!' }]}
         >
           {renderModelInput()}
+        </Form.Item>
+
+        {/*
+          图片能力是"当前这个模型"的属性，所以紧跟模型。三态而不是开关：
+          没有任何标准接口能读出模态支持（/models 不给），中转站的模型名又是自己起的，
+          auto 只能给"预置标注 → 模型名"两层猜测，判错时靠 on/off 覆盖。
+        */}
+        <Form.Item
+          label={e('aiSupportsImage')}
+          name='supportsImageAI'
+          tooltip={e('aiSupportsImageTip')}
+        >
+          <Radio.Group
+            optionType='button'
+            options={[
+              { label: e('aiSupportsImageAuto'), value: 'auto' },
+              { label: e('aiSupportsImageOn'), value: 'on' },
+              { label: e('aiSupportsImageOff'), value: 'off' }
+            ]}
+          />
         </Form.Item>
 
         <Form.Item
