@@ -145,6 +145,17 @@ describe('G5 镜像弹层：接线契约', () => {
     assert.deepEqual(miss, [], '缺词条：' + miss.join(', '))
   })
 
+  test('打开即预演：源目录要落进 state，且预演在 setState 回调里跑', () => {
+    const src = codeOf(read(MODAL))
+    const body = src.slice(src.indexOf('showMirror ('), src.indexOf('handleClose ='))
+    assert.match(body, /this\.setState\(\{[\s\S]*?localDir,[\s\S]*?\}, \(\) => \{\n\s*this\.handleScan\(\)/,
+      'showMirror 要把源目录写进 state，并在状态落地后再采集')
+    // 紧跟在 setState 之后调用会读到旧 state：采集拿到的 root 是空串，
+    // 界面只报「1 个目录读取失败」，看起来像远端坏了。
+    assert.equal(/this\.setState\(\{[\s\S]*?\}\)\n\s*this\.handleScan\(\)/.test(body), false,
+      '预演不能紧跟在 setState 之后调用')
+  })
+
   test('搬运字节全交给现有传输队列：弹层里没有 upload / writeFile / 自建并发', () => {
     const src = codeOf(read(MODAL))
     assert.match(src, /window\.store\.addTransferList\(uploads\)/)

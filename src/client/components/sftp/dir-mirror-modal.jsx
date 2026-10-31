@@ -136,10 +136,14 @@ export default class DirMirrorModal extends React.PureComponent {
     this.setState({
       ...EMPTY_STATE,
       visible: true,
+      localDir,
       remoteDir: typeof remotePath === 'string' ? remotePath : ''
+    }, () => {
+      // 打开即预演：右键选完目录还要多点一次按钮，而那一次点了也可能什么都没变。
+      // 放在 setState 回调里而不是紧跟着调用：预演读的是 this.state 里的两个目录，
+      // 状态没落地就先跑，源目录拿到的是空串。
+      this.handleScan()
     })
-    // 打开即预演：右键选完目录还要多点一次按钮，而那一次点了也可能什么都没变
-    this.handleScan()
   }
 
   handleClose = () => {
