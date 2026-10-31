@@ -84,7 +84,9 @@ export default function AIOutput ({ item }) {
         selectionRange: selection && selection.range,
         strategy: 'cursor'
       })
-      target.insertSql(code, plan)
+      // 写 plan.text：策略层可能给它补了分隔换行（光标紧贴非空白字符时），
+      // 传原始 code 会让"两句话粘成一句"（实机截图量到过）
+      target.insertSql(plan.text, plan)
       message.success(e('dbAiInserted'))
     }
 

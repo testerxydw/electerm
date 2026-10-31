@@ -419,11 +419,27 @@ export function planSqlInsertion (opts = {}) {
   }
   // strategy === 'cursor'：就用上面算好的 insertAt（有选区时选区退化为光标）
 
+  let outText = String(text == null ? '' : text)
+  // 纯插入（既没替换选区也没整篇替换）时补一个换行：不补就会写出
+  // "SELECT a FROM tSELECT b FROM t" —— 两句话粘成一句，看着像 AI 生成的 SQL 坏了，
+  // 其实缺的是分隔。只在紧挨着非空白字符的那一侧补，且产出自己已带首尾空白时不再补。
+  // 替换选区不补：人选中的就是那一段，落点边界由人定，不该被偷偷加宽。
+  if (kind === 'insert' && start === end && outText) {
+    const before = start > 0 ? doc.charAt(start - 1) : ''
+    const after = start < docLen ? doc.charAt(start) : ''
+    if (before && !/\s/.test(before) && !/^\s/.test(outText)) {
+      outText = '\n' + outText
+    }
+    if (after && !/\s/.test(after) && !/\s$/.test(outText)) {
+      outText = outText + '\n'
+    }
+  }
+
   return {
     kind,
     start,
     end,
-    text: String(text == null ? '' : text),
+    text: outText,
     willReplaceAll: kind === 'replace-all',
     willReplaceSelection
   }

@@ -3318,7 +3318,9 @@ export default auto(function DbSession (props) {
       selectionRange: range,
       strategy: strategy || 'auto'
     })
-    sqlAiTarget.insertSql(text, plan)
+    // 写的是 plan.text，不是原始 text：策略层可能给它补了分隔换行（光标处插入紧贴
+    // 非空白字符时），传原文等于把补的分隔又丢掉
+    sqlAiTarget.insertSql(plan.text, plan)
     setSqlAi(s => ({ ...s, open: false }))
     message.success(plan.willReplaceAll ? e('dbAiInsertedAll') : e('dbAiInserted'))
   }

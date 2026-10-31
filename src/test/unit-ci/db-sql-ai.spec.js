@@ -217,4 +217,29 @@ describe('planSqlInsertion：落哪个区间', () => {
     assert.equal(p.start, CUR.length)
     assert.equal(p.kind, 'insert')
   })
+
+  it('光标处插入一整段：紧贴非空白字符才补换行，别把两句话粘成一句', () => {
+    const doc = 'SELECT a FROM t'
+    // 对话面板"插入编辑器"走的就是文末光标插入
+    const atEnd = ai.planSqlInsertion({ text: 'SELECT b FROM u', currentText: doc, strategy: 'cursor' })
+    assert.equal(atEnd.text, '\nSELECT b FROM u')
+    assert.equal(doc.slice(0, atEnd.start) + atEnd.text + doc.slice(atEnd.end),
+      'SELECT a FROM t\nSELECT b FROM u')
+    // 中间插入：两侧都紧挨字符 → 两头都补
+    assert.equal(
+      ai.planSqlInsertion({ text: 'X', currentText: 'AB', selectionRange: { start: 1, end: 1 } }).text,
+      '\nX\n'
+    )
+    // 已有分隔（换行）或产出自己带首尾空白 → 不重复补
+    assert.equal(ai.planSqlInsertion({ text: 'X', currentText: 'A\n', strategy: 'cursor' }).text, 'X')
+    assert.equal(ai.planSqlInsertion({ text: '  X  ', currentText: 'A', strategy: 'cursor' }).text, '  X  ')
+    // 空文档与整篇替换不补（补了白多一个空行）
+    assert.equal(ai.planSqlInsertion({ text: 'X', currentText: '', strategy: 'cursor' }).text, 'X')
+    assert.equal(ai.planSqlInsertion({ text: 'X', currentText: doc, strategy: 'replace' }).text, 'X')
+    // 替换选区不补：落点边界是人选中的，不该被偷偷加宽
+    assert.equal(
+      ai.planSqlInsertion({ text: 'X', currentText: doc, selectionRange: { start: 8, end: 9 } }).text,
+      'X'
+    )
+  })
 })

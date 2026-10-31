@@ -393,12 +393,23 @@ const generateInDialog = async (cdp, instruction) => {
   return { ok: fired && previewed, call }
 }
 
-// 真鼠标点进编辑器：只有真实点击才会把 CodeMirror 的焦点与选区放对
+// 真鼠标点进编辑器：只有真实点击才会把 CodeMirror 的焦点与选区放对。
+// 一次不中就重来（上限 3 次）：弹层关闭后 .ant-modal-wrap 的淡出还在原位时，
+// 点击会被遮罩吃掉 —— 实测过一次落空，后面"撤销 / 选区 / 执行失败"三条一起红，
+// 看着像产品缺陷，其实断的是用例自己的前置
 const focusEditor = async cdp => {
-  const p = JSON.parse(await cdp.eval('window.__edXY()'))
-  await cdp.click(p.x, p.y)
-  await sleep(200)
-  return await cdp.eval('window.__edFocused()')
+  let ok = false
+  for (let i = 0; i < 3 && ok !== true; i++) {
+    if (i) await sleep(300)
+    const raw = await cdp.eval('window.__edXY()')
+    // 'no-editor'（编辑器还没挂载 / 页签已关）时 JSON.parse 会抛，把整轮结果一起带走
+    if (String(raw).charAt(0) !== '{') continue
+    const p = JSON.parse(raw)
+    await cdp.click(p.x, p.y)
+    await sleep(200)
+    ok = await cdp.eval('window.__edFocused()')
+  }
+  return ok
 }
 
 // 全选编辑器内容（随后 insertText 就是整篇替换，doc 起点确定）
@@ -591,13 +602,16 @@ const main = async () => {
     { doc: afterInsert.slice(0, 90), toast: await cdp.eval('window.__toast()') })
   await cdp.shot(path.join(SHOT_DIR, '2-inserted-not-executed.png'))
 
-  await focusEditor(cdp)
+  const f2ok = await focusEditor(cdp)
   await cdp.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'z', code: 'KeyZ', keyCode: 90, modifiers: 2 })
   await cdp.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', code: 'KeyZ', keyCode: 90, modifiers: 2 })
   await sleep(350)
   const undone = await cdp.eval('window.__doc()')
+  // 撤不动有两种成因：句柄没走 dispatch（产品缺陷），或按键根本没进编辑器（用例前置塌了）。
+  // 把焦点与命中元素一起报出来，否则后面几步会跟着一起红，看不出断在哪
   push('D) Ctrl+Z 能撤回这次插入（句柄走 dispatch，不是整篇回写 state）',
-    undone.indexOf('LIMIT 10') < 0 && /SELECT note FROM typed_tbl/.test(undone), undone.slice(0, 60))
+    f2ok === true && undone.indexOf('LIMIT 10') < 0 && /SELECT note FROM typed_tbl/.test(undone),
+    { doc: undone.slice(0, 60), focused: f2ok, diag: await cdp.eval('window.__edDiag()') })
 
   // ---------- 选区优先：双击选词后开"AI 优化" ----------
   const xy = JSON.parse(await cdp.eval('window.__wordXY("typed_tbl", 1)'))
@@ -607,7 +621,8 @@ const main = async () => {
   await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: xy.x, y: xy.y, button: 'left', clickCount: 2, buttons: 0 })
   await sleep(300)
   push('双击选中一个词（DOM 选区真的存在）',
-    /typed_tbl/.test(await cdp.eval('window.__selText()')), await cdp.eval('window.__selText()'))
+    /typed_tbl/.test(await cdp.eval('window.__selText()')),
+    { sel: await cdp.eval('window.__selText()'), diag: await cdp.eval('window.__edDiag()') })
   await cdp.eval('window.__clickBarBtn("bulb")')
   await waitFor(cdp, '!!window.__modal()', 'optimize dialog')
   const srcOpt = await cdp.eval('window.__src()')
@@ -635,6 +650,11 @@ const main = async () => {
   await selectAllEditor(cdp)
   await cdp.call('Input.insertText', { text: 'SELECT boom FROM typed_tbl' })
   await sleep(200)
+  // 「执行一条会失败的语句」是这一组用例的前置：insertText 落空（焦点不在编辑器）时
+  // 跑的是上一条能成功的 SQL，错误条自然不出现——那会让后面三条一起红
+  push('把会失败的语句写进 doc（错误条用例的前置）',
+    /boom/.test(await cdp.eval('window.__doc()')),
+    { doc: (await cdp.eval('window.__doc()')).slice(0, 60), diag: await cdp.eval('window.__edDiag()') })
   await cdp.eval('window.__clickRunSql()')
   push('A) 执行失败后错误条出现，且带两个动作（复制原文 / AI 修复）',
     await waitFor(cdp, '/copy/.test(window.__errActionIcons()) && /bug/.test(window.__errActionIcons())', 'error actions', 8000),
@@ -704,8 +724,10 @@ const main = async () => {
   push('E) 对话里的 SQL 块插入当前会话页编辑器（' + clickedIcon + '）',
     clickedIcon === 'ok' && await waitFor(cdp, 'window.__doc().indexOf("WHERE id = 3") >= 0', 'chat insert', 5000))
   const docAfter = await cdp.eval('window.__doc()')
-  push('E) 点击时解析目标：插入不覆盖已有语句，并提示"未执行"',
+  push('E) 点击时解析目标：插入不覆盖已有语句、另起一行，并提示"未执行"',
+    // 换行由 planSqlInsertion 补：不补就会出现 "typed_tblSELECT tag ..." 这种两句话粘一句
     docAfter.indexOf('WHERE id = 3') >= 0 && docAfter.length > docBefore.length &&
+    /\nSELECT tag FROM typed_tbl WHERE id = 3;/.test(docAfter) &&
     hits(RE.inserted).test(await cdp.eval('window.__toast()')),
     { before: docBefore.slice(0, 40), after: docAfter.slice(0, 110) })
   await cdp.shot(path.join(SHOT_DIR, '6-chat-insert.png'))
@@ -720,9 +742,15 @@ const main = async () => {
     hits(RE.noTarget).test(await cdp.eval('window.__toast()')),
     { toast: await cdp.eval('window.__toast()') })
 
-  const hard = cdpRef.events.filter(l =>
-    /Cannot read|is not a function|TypeError|uncaught|Warning:/.test(String(l)))
-  push('G) 渲染层没有新增硬错误（桩之外的 fetch 失败不算）', hard.length === 0, hard.slice(0, 6))
+  // 只留"代码坏了"这一类：刷页时旧文档在途的懒加载会被撕掉，
+  // Chrome 报的是 TypeError: Failed to fetch dynamically imported module + 404，
+  // 那是网络/换页噪声，不是渲染层缺陷（真缺陷长这样：Cannot read / is not a function）
+  const netNoise = /Failed to fetch dynamically imported module|Failed to load resource/
+  const hard = cdpRef.events.filter(l => {
+    const s = String(l)
+    return !netNoise.test(s) && /Cannot read|is not a function|TypeError|uncaught|Warning:/.test(s)
+  })
+  push('G) 渲染层没有新增硬错误（换页撕掉的懒加载不算）', hard.length === 0, hard.slice(0, 6))
 
   console.log('\nrenderer events (' + cdpRef.events.length + '):')
   cdpRef.events.slice(-20).forEach(l => console.log('  ' + l))

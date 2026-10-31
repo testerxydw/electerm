@@ -53,7 +53,8 @@ describe('db-sql-ai 接线：会话页登记编辑器目标', () => {
     assert.match(fn, /editor\.getValue\(\)/, '没取实时全文，区间会错位')
     assert.match(fn, /editor\.getSelectionRange/, '没取实时选区')
     assert.match(fn, /planSqlInsertion\(\{[\s\S]*strategy: strategy \|\| 'auto'/, '策略没传给纯函数')
-    assert.match(fn, /sqlAiTarget\.insertSql\(text, plan\)/, '没走目标插入')
+    assert.match(fn, /sqlAiTarget\.insertSql\(plan\.text, plan\)/,
+      '没走目标插入（写的是 plan.text：分隔换行由策略层补）')
     assert.ok(!/runSql/.test(fn), 'AI 插入路径不得执行 SQL')
   })
 
@@ -114,6 +115,10 @@ describe('db-sql-ai 接线：AI 回复代码块', () => {
     assert.match(OUTPUT, /strategy: 'cursor'/,
       '对话里插入必须是光标插入：不能悄悄吃掉编辑器里的既有选区')
     assert.match(OUTPUT, /message\.warning\(e\('dbAiInsertNoTarget'\)\)/, '没有目标时要有说明')
+  })
+
+  test('对话侧插入写的也是 plan.text，不是原始 code（实机截图量到过两句粘一句）', () => {
+    assert.match(OUTPUT, /target\.insertSql\(plan\.text, plan\)/, '对话侧插入写回了原始 code')
   })
 })
 
