@@ -3,19 +3,28 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { copy } from '../../common/clipboard'
 import Link from '../common/external-link'
-import { Tag, Popconfirm, Button, Alert } from 'antd'
+import { Tag, Popconfirm, Button, Alert, message } from 'antd'
 import {
   CopyOutlined,
   PlayCircleOutlined,
+  ImportOutlined,
   FlagOutlined,
   FlagFilled
 } from '@ant-design/icons'
 import getBrand from './get-brand'
 import CopyIcon from './copy-icon'
+// AI 第一批：SQL 代码块能落回数据库会话页的编辑器。
+// 目标按活动 tab 从登记表取（点击时解析，不在渲染期解析——历史条目是 memo 的，
+// 切 tab 不会重渲染，渲染期解析出来的可用性会过期）
+import { getActiveSqlTarget } from '../../common/db-sql-ai-target'
+import { planSqlInsertion, looksLikeSql } from '../../common/db-sql-ai'
 
 const e = window.translate
 
 const enableAIFlag = !!(window.et && window.et.enableAIFlag)
+
+// 代码块语言标注 → 是不是 SQL（围栏标的是 ```mysql / ```postgresql 之类）
+const SQL_LANG_RE = /language-(sql|mysql|mariadb|tidb|postgres|postgresql|pgsql|tsql|sqlserver|oracle|plsql)\b/i
 
 export default function AIOutput ({ item }) {
   const outputRef = useRef(null)
@@ -54,6 +63,28 @@ export default function AIOutput ({ item }) {
       copy(code)
     }
 
+    // SQL 块：落回当前数据库会话页的编辑器。只写不执行——执行仍由用户按运行、
+    // 并照旧过危险 SQL 确认闸门。策略固定用 cursor：对话里插入不该悄悄吃掉
+    // 用户在编辑器里已有的选区
+    const isSqlBlock = SQL_LANG_RE.test(className) || looksLikeSql(code)
+
+    const insertToSqlEditor = () => {
+      const target = getActiveSqlTarget()
+      if (!target || !target.isAvailable || !target.isAvailable()) {
+        message.warning(e('dbAiInsertNoTarget'))
+        return
+      }
+      const selection = target.getSelection ? target.getSelection() : null
+      const plan = planSqlInsertion({
+        text: code,
+        currentText: target.getDocText ? target.getDocText() : '',
+        selectionRange: selection && selection.range,
+        strategy: 'cursor'
+      })
+      target.insertSql(code, plan)
+      message.success(e('dbAiInserted'))
+    }
+
     const runInTerminal = () => {
       // Filter out comments from the code before running
       const filteredCode = code
@@ -79,14 +110,28 @@ export default function AIOutput ({ item }) {
     return (
       <div className='code-block'>
         <div className='code-block-actions alignright'>
+          {
+            // SQL 块给"插入编辑器"，并且不给"在终端运行"——把一段 SQL 丢进
+            // shell 只会得到 command not found，而它看起来像是执行过了
+            isSqlBlock
+              ? (
+                <ImportOutlined
+                  className='code-action-icon pointer iblock'
+                  onClick={insertToSqlEditor}
+                  title={e('dbAiInsert')}
+                />
+                )
+              : (
+                <PlayCircleOutlined
+                  className='code-action-icon pointer mg1l iblock'
+                  onClick={runInTerminal}
+                />
+                )
+          }
           <CopyOutlined
             className='code-action-icon pointer iblock'
             onClick={copyToClipboard}
             title={e('copy')}
-          />
-          <PlayCircleOutlined
-            className='code-action-icon pointer mg1l iblock'
-            onClick={runInTerminal}
           />
         </div>
         <pre>
