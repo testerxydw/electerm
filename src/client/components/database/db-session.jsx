@@ -6,11 +6,10 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
-import { refsStatic } from '../common/ref'
 import DbConnError, { cleanDbError } from './db-conn-error'
 import SessionBarActions from '../common/session-bar-actions'
 import SearchBar from '../common/search-bar'
@@ -91,6 +90,10 @@ import { dbTypeLabelMap } from '../../common/constants'
 // E1：危险 SQL 分级 + 连接级安全带。两个模块都是零依赖纯函数（时间经 now 注入），
 // 判定逻辑与 UI 解耦，单测可直接跑源码
 import { classifySql } from '../../common/db-sql-risk'
+// AI 第一批：提示词/落编辑器策略都是纯函数（db-sql-ai.js），回复解析在弹层里做；
+// 会话页只负责把编辑器句柄登记到目标表、把弹层的产出落到编辑器
+import { buildSqlAiPrompt, planSqlInsertion } from '../../common/db-sql-ai'
+import { registerSqlTarget, unregisterSqlTarget } from '../../common/db-sql-ai-target'
 import {
   BYPASS_TTL_MS,
   bypassLeftMinutes,
@@ -108,6 +111,8 @@ import DbDangerConfirm from './db-danger-confirm'
 import DbViewBar from './db-view-bar'
 // E2-3b 命令面板：打分/分组是纯函数层（db-quick-open.js），组件只管展示与键盘
 import DbQuickOpen from './db-quick-open'
+// AI 第一批：生成/修复/优化共用弹层（只填编辑器，不执行）
+import DbSqlAiDialog from './db-sql-ai-dialog'
 // C 批：导出到文件（四步向导，走主进程流式导出）/ 导入 CSV/TSV（映射向导）
 import DbExportDialog from './db-export-dialog'
 import DbImportDialog from './db-import-dialog'
@@ -3159,6 +3164,115 @@ export default auto(function DbSession (props) {
     }
   }
 
+  // ---- AI 第一批：把本 tab 的 SQL 编辑器登记给 AI 侧 ----
+  // 上下文（当前表 / 列缓存 / 只读）每次渲染刷进 ref，登记出去的对象保持稳定：
+  // 依赖变化来回注销重登，在严格模式/热更下会把刚登记的新句柄删掉
+  const sqlAiCtxRef = useRef(null)
+  sqlAiCtxRef.current = {
+    dbType: tab.dbType,
+    database: (sel && sel.database) || '',
+    schema: (sel && sel.schema) || '',
+    table: (sel && sel.table) || '',
+    columns: structureV2.columns || [],
+    readOnly: !!isReadonly
+  }
+
+  // 契约只暴露"写编辑器"的能力（没有 runSql）——AI 拿不到任何执行路径，
+  // 危险语句仍由用户按执行时的 confirmSqlRisk 拦
+  const sqlAiTarget = useMemo(() => ({
+    // 编辑器是懒挂载的：句柄没就绪时 AI 侧的动作要禁用而不是静默改 state
+    isAvailable: () => !!sqlEditorRef.current,
+    getDocText: () => (sqlEditorRef.current
+      ? sqlEditorRef.current.getValue()
+      : ''),
+    getSelection: () => {
+      const editor = sqlEditorRef.current
+      if (!editor) {
+        return { text: '', range: null }
+      }
+      return {
+        text: editor.getSelectionText(),
+        range: editor.getSelectionRange ? editor.getSelectionRange() : null
+      }
+    },
+    getContext: () => sqlAiCtxRef.current,
+    insertSql (text, plan) {
+      const editor = sqlEditorRef.current
+      const p = plan || {}
+      const docLen = editor ? editor.getValue().length : 0
+      const start = Number.isFinite(p.start) ? p.start : 0
+      const end = Number.isFinite(p.end) ? p.end : docLen
+      // 首选：按 planSqlInsertion 给的精确区间替换（保留撤销栈）
+      if (editor && editor.replaceRange && editor.replaceRange(text, start, end)) {
+        return true
+      }
+      if (p.kind === 'replace-all') {
+        setSqlText(text)
+        return true
+      }
+      const ok = editor && editor.insertText(text)
+      if (!ok) {
+        setSqlText(t => (t ? t + '\n' + text : text))
+      }
+      return true
+    }
+  }), [])
+
+  useEffect(() => {
+    // redis 没有 SQL 编辑器，不登记（AI 侧按"活动 tab 有没有目标"判定）
+    if (isRedis) {
+      return undefined
+    }
+    registerSqlTarget(tabId, sqlAiTarget)
+    return () => unregisterSqlTarget(tabId, sqlAiTarget)
+  }, [tabId, isRedis, sqlAiTarget])
+
+  // ---- AI 第一批：生成 / 修复 / 优化弹层 ----
+  // 打开时把"当时的整段 + 选区 + 错误原文"快照进来：弹层开着的时候用户可能又改了
+  // 编辑器，用实时值发请求会让"我明明选的是这一句"变成概率事件
+  const [sqlAi, setSqlAi] = useState({
+    open: false,
+    mode: 'generate',
+    sql: '',
+    selection: '',
+    error: ''
+  })
+
+  const openSqlAi = (mode) => {
+    const editor = sqlEditorRef.current
+    const doc = editor ? editor.getValue() : sqlText
+    const sel = editor && editor.getSelectionText ? editor.getSelectionText() : ''
+    // 修复/优化没有内容可交给模型；生成只要一句需求
+    if (mode !== 'generate' && !String(sel || doc || '').trim()) {
+      message.warning(e('dbExplainEmptySql'))
+      return
+    }
+    setSqlAi({
+      open: true,
+      mode,
+      sql: doc || '',
+      selection: sel || '',
+      error: mode === 'fix' ? (sqlResult.error || '') : ''
+    })
+  }
+
+  // 落编辑器：区间在**插入这一刻**按编辑器实时状态重算（选区可能在等模型回复的
+  // 十几秒里被用户动过），弹层只决定策略。执行仍由用户按运行触发，过 confirmSqlRisk
+  const insertAiSql = (text, strategy) => {
+    const editor = sqlEditorRef.current
+    const doc = editor ? editor.getValue() : sqlText
+    const range = editor && editor.getSelectionRange ? editor.getSelectionRange() : null
+    const plan = planSqlInsertion({
+      text,
+      currentText: doc,
+      selectionRange: range,
+      strategy: strategy || 'auto'
+    })
+    sqlAiTarget.insertSql(text, plan)
+    setSqlAi(s => ({ ...s, open: false }))
+    message.success(plan.willReplaceAll ? e('dbAiInsertedAll') : e('dbAiInserted'))
+  }
+
   const pickFavorite = (item) => {
     insertToEditor(item.sql)
     openSqlHistory(false)
@@ -3487,23 +3601,31 @@ export default auto(function DbSession (props) {
   }
 
   // ---- AI 联动（B-7）：把当前 SQL 交给右侧 AI 面板解释 ----
-  // 复用既有 explainWithAi 的机制：refsStatic 里注册的 AIChat 暴露 setPrompt/handleSubmit，
-  // 这里先打开 AI 面板、填充提示词，再触发提交。500/1200ms 两步是 state 更新
-  // 与面板挂载的时序缓冲（explainWithAi 同款），保证 setPrompt 落地后再 submit
+  // 提示词由 buildSqlAiPrompt 组装：带方言、带当前库表与列清单、选区优先于整段，
+  // 回复语言跟 AI 配置走（以前这里硬编码中文，切英文界面也照样吐中文）。
+  // 递交走 store.pendingAiPrompt，不再用 500/1200ms 两个魔法延时——面板是懒加载的，
+  // 延时只是在猜它什么时候挂好。
   const askAiAboutSql = (sql) => {
-    const text = (sql || '').trim()
+    const editor = sqlEditorRef.current
+    const selection = editor && editor.getSelectionText ? editor.getSelectionText() : ''
+    const text = (selection || sql || '').trim()
     if (!text) {
       message.warning(e('dbExplainEmptySql'))
       return
     }
-    window.store.handleOpenAIPanel()
-    setTimeout(() => {
-      window.store.aiPendingSqlPrompt = `请解释以下 SQL 语句：\n\n${text}`
-      refsStatic.get('AIChat')?.setPrompt(window.store.aiPendingSqlPrompt)
-    }, 500)
-    setTimeout(() => {
-      refsStatic.get('AIChat')?.handleSubmit()
-    }, 1200)
+    const ctx = sqlAiCtxRef.current || {}
+    const built = buildSqlAiPrompt({
+      mode: 'explain',
+      sql,
+      selection,
+      dbType: ctx.dbType || tab.dbType,
+      database: ctx.database,
+      schema: ctx.schema,
+      table: ctx.table,
+      columns: ctx.columns,
+      language: (window.store.config || {}).languageAI
+    })
+    window.store.setPendingAiPrompt(built.prompt)
   }
 
   // B-3 模板插入：key 取 SQL_TEMPLATES；withTable 用当前选中表（列清单来自
@@ -7628,6 +7750,29 @@ export default auto(function DbSession (props) {
               )
             : null
         }
+        {
+          // AI 第一批：生成（自然语言 → SQL）与优化（选区/整段重写）。
+          // 两个入口都只把结果填进编辑器，不碰 runSql——执行照旧过 E1 危险确认
+          !isRedis
+            ? (
+              <>
+                <Button
+                  size='small'
+                  icon={<RobotOutlined />}
+                  title={e('dbAiGen')}
+                  onClick={() => openSqlAi('generate')}
+                />
+                <Button
+                  size='small'
+                  icon={<BulbOutlined />}
+                  disabled={!sqlText.trim()}
+                  title={e('dbAiOptimize')}
+                  onClick={() => openSqlAi('optimize')}
+                />
+              </>
+              )
+            : null
+        }
         <Popover
           placement='bottomLeft'
           trigger='click'
@@ -7747,8 +7892,34 @@ export default auto(function DbSession (props) {
       </div>
       <div className='db-sql-result'>
         {
+          // 错误条带两个动作：复制原文（贴到别处问/记 issue），以及"AI 修复"
+          // ——修复会把语句 + 方言 + 表结构 + 错误原文一起交给模型，结果只填编辑器
           sqlResult.error
-            ? <Alert type='error' showIcon message={sqlResult.error} />
+            ? (
+              <Alert
+                type='error'
+                showIcon
+                message={sqlResult.error}
+                action={
+                  <span className='db-sql-error-actions'>
+                    <Button
+                      size='small'
+                      type='text'
+                      icon={<CopyOutlined />}
+                      title={e('dbCopyError')}
+                      onClick={() => copy(sqlResult.error)}
+                    />
+                    <Button
+                      size='small'
+                      type='text'
+                      icon={<BugOutlined />}
+                      title={e('dbAiFix')}
+                      onClick={() => openSqlAi('fix')}
+                    />
+                  </span>
+                }
+              />
+              )
             : null
         }
         <Spin spinning={sqlResult.loading}>
@@ -9260,6 +9431,17 @@ export default auto(function DbSession (props) {
           description={e('dbConnectOtherHint')}
         />
       </Modal>
+      {/* AI 第一批：生成/修复/优化共用弹层。只填编辑器，不执行 */}
+      <DbSqlAiDialog
+        open={sqlAi.open}
+        mode={sqlAi.mode}
+        context={sqlAiCtxRef.current}
+        sql={sqlAi.sql}
+        selection={sqlAi.selection}
+        error={sqlAi.error}
+        onClose={() => setSqlAi(s => ({ ...s, open: false }))}
+        onInsert={insertAiSql}
+      />
       {/* E1 危险语句确认：受控 Modal（production 下要带库名输入框，Modal.confirm 拿不到状态） */}
       <DbDangerConfirm
         open={!!riskGate}
