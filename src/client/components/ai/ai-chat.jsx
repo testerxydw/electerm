@@ -28,6 +28,7 @@ import {
   readTextAttachment,
   validateAttachmentTotal,
   buildAttachmentsBlock,
+  isDuplicateAttachment,
   formatSize
 } from './ai-attachments'
 import './ai.styl'
@@ -126,32 +127,45 @@ export default function AIChat (props) {
     let totalTooLarge = false
     const next = [...attachments]
     for (const file of Array.from(files)) {
-      if (next.some(a => a.name === file.name && a.size === file.size)) {
+      // 先粗筛同名同尺寸（省一次读取），真正的去重看内容指纹：
+      // 截图文件名几乎都是 image.png，只比 name+size 会误丢第二张
+      const sameNameSize = next.some(a => a.name === file.name && a.size === file.size)
+      const { attachment, error } = await readTextAttachment(file)
+      if (error === 'notTextFile') {
+        notText.push(file.name)
+        continue
+      }
+      if (!attachment) {
+        continue
+      }
+      if (sameNameSize && isDuplicateAttachment(next, attachment)) {
         continue
       }
       if (!validateAttachmentTotal(next, file.size)) {
         totalTooLarge = true
         continue
       }
-      const { attachment, error } = await readTextAttachment(file)
-      if (error === 'notTextFile') {
-        notText.push(file.name)
-        continue
-      }
-      if (attachment) {
-        next.push(attachment)
-      }
+      next.push(attachment)
     }
     setAttachments(next)
     if (totalTooLarge) {
-      message.error('attachment too big')
+      message.error(e('aiAttachmentTooBig'))
     }
     if (notText.length) {
-      message.error(`attachment only support text files: ${notText.join(', ')}`)
+      message.error(`${e('aiAttachmentTextOnly')}: ${notText.join(', ')}`)
     }
   }
 
-  const handleSubmit = useCallback(function () {
+  // `overridePrompt` is the "send this text, not what is in the box" path: an
+  // external caller (terminal, database page) hands the panel a finished prompt.
+  // Passing the text in -- instead of setPrompt-then-submit -- is what removes
+  // the timer guessing: the old callers waited 500ms and 1200ms for the panel to
+  // mount and lost the message whenever the panel won the race later. The draft
+  // in the box is deliberately left alone, because it is not this request's
+  // input and wiping it would cost the user their typing.
+  const handleSubmit = useCallback(function (overridePrompt) {
+    const isOverride = typeof overridePrompt === 'string'
+    const text = isOverride ? overridePrompt : prompt
     if (window.store.aiConfigMissing()) {
       window.store.toggleAIConfig()
     }
@@ -161,19 +175,21 @@ export default function AIChat (props) {
     // landing in that window never reaches the panel -- leaving the icon looking
     // enabled while a run is in flight, which let a second agent turn through.
     if (isAgent && window.store.agentRunning) return
-    if (!prompt.trim() && !attachments.length) return
+    if (!text.trim() && !(isOverride ? '' : attachments.length)) return
 
     const chatId = uid()
-    const block = buildAttachmentsBlock(attachments)
+    const block = isOverride ? '' : buildAttachmentsBlock(attachments)
     const promptWithAttachments = block
-      ? (prompt.trim() ? prompt + '\n\n' + block : block)
-      : prompt
+      ? (text.trim() ? text + '\n\n' + block : block)
+      : text
+    // 外部递交的那一句不带面板附件：附件属于输入框里的草稿，不是这次请求的输入
+    const entryAttachments = isOverride
+      ? []
+      : attachments.map(a => ({ name: a.name, size: a.size, truncated: a.truncated }))
     const chatEntry = {
-      prompt,
+      prompt: text,
       promptWithAttachments,
-      attachments: attachments.map(({ name, size, truncated }) => ({
-        name, size, truncated
-      })),
+      attachments: entryAttachments,
       response: '',
       isStreaming: false,
       pending: true,
@@ -199,13 +215,39 @@ export default function AIChat (props) {
     // Reassign rather than push: the store only notifies on a property write,
     // and the transcript is keyed off the array identity.
     window.store.aiChatHistory = [...window.store.aiChatHistory, chatEntry]
-    setPrompt('')
-    setAttachments([])
+    if (!isOverride) {
+      setPrompt('')
+      setAttachments([])
+    }
 
+    // Keep the newest, not the oldest: the previous `slice(0, MAX_HISTORY)`
+    // dropped the entry that had just been appended, so the 501st message of a
+    // session was written to the store and then thrown away.
     if (window.store.aiChatHistory.length > MAX_HISTORY) {
-      window.store.aiChatHistory = window.store.aiChatHistory.slice(0, MAX_HISTORY)
+      window.store.aiChatHistory = window.store.aiChatHistory.slice(-MAX_HISTORY)
     }
   }, [prompt, attachments, mode, currentChatSessionId])
+
+  // 外部递交过来的 prompt（终端"解释输出"/数据库页"AI 解释"）。
+  // 由面板在拿到它的这一次渲染里消费，而不是让调用方猜面板挂载要多久：
+  // nonce 保证同一份递交只发一次，切走再回来不会重复发。
+  const pendingConsumedRef = useRef(0)
+  useEffect(() => {
+    const p = props.pendingAiPrompt
+    if (!p || !p.text || p.nonce === pendingConsumedRef.current) {
+      return
+    }
+    pendingConsumedRef.current = p.nonce
+    // 消费即清：面板切走再切回来（重新挂载）不该把同一段话再发一遍
+    if (window.store.pendingAiPrompt === p) {
+      window.store.pendingAiPrompt = null
+    }
+    if (p.autoSubmit) {
+      handleSubmit(p.text)
+    } else {
+      setPrompt(p.text)
+    }
+  }, [props.pendingAiPrompt, handleSubmit])
 
   function renderHistory () {
     if (props.showChatSessions) {
@@ -328,6 +370,11 @@ export default function AIChat (props) {
   }
 
   const handleKeyPress = (evt) => {
+    // 输入法组字中的回车是"选定候选词"，不是"发送"。以前只看 shiftKey，
+    // 中文/日文输入法定词时按回车会把半截 prompt 直接发出去。
+    if (evt.nativeEvent && (evt.nativeEvent.isComposing || evt.keyCode === 229)) {
+      return
+    }
     if (!evt.shiftKey) {
       evt.preventDefault()
       if (!submitDisabled) {

@@ -49,20 +49,45 @@ export async function readTextAttachment (file) {
   if (truncated) {
     content += '\n...[truncated]'
   }
-  return {
-    attachment: {
-      id: uid(),
-      name: file.name,
-      size: file.size,
-      truncated,
-      content
-    }
+  const attachment = {
+    id: uid(),
+    name: file.name,
+    size: file.size,
+    truncated,
+    content
   }
+  attachment.fingerprint = attachmentFingerprint(attachment)
+  return { attachment }
 }
 
 export function validateAttachmentTotal (list, extraSize = 0) {
   const total = list.reduce((s, a) => s + a.size, 0) + extraSize
   return total <= MAX_ATTACHMENT_TOTAL_SIZE
+}
+
+// FNV-1a over the content. Cheap, and good enough to tell "same file added
+// twice" from "second screenshot that happens to have the same name and size".
+function fnv1a (str) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 11)) >>> 0
+  }
+  return h.toString(16)
+}
+
+// 去重身份。以前只看 name + size，而截图文件名几乎都是 image.png，
+// 两张同样大小（同分辨率屏幕连拍）的截图会被误判成"同一个附件"而丢掉第二张。
+export function attachmentFingerprint (attachment) {
+  const name = String((attachment && attachment.name) || '')
+  const size = Number((attachment && attachment.size) || 0)
+  const content = String((attachment && attachment.content) || '')
+  return name + ':' + size + ':' + fnv1a(content)
+}
+
+export function isDuplicateAttachment (list, attachment) {
+  const fp = attachmentFingerprint(attachment)
+  return (list || []).some(a => a.fingerprint === fp)
 }
 
 export function formatSize (n) {

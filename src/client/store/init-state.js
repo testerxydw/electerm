@@ -125,6 +125,9 @@ export default () => {
     // carries tool schemas and tool results that the session history does
     // not, so it publishes its own figure here (see components/ai/agent.js)
     aiContextInfo: null,
+    // 外部（终端 / 数据库页）递交给 AI 面板的一句话：{ text, autoSubmit, nonce }
+    // 面板消费后置空，见 store/common.js 的 setPendingAiPrompt
+    pendingAiPrompt: null,
     currentChatSessionId: window.localStorage.getItem(lastAiChatSessionIdKey) || '',
     showChatSessions: false,
 

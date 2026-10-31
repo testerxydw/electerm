@@ -361,6 +361,8 @@ export default auto(function Index (props) {
     rightPanelTab,
     agentRunning: store.agentRunning,
     aiContextInfo: store.aiContextInfo,
+    // 外部递交给面板的一句话（终端解释输出 / 数据库页 AI 解释），面板挂载后消费
+    pendingAiPrompt: store.pendingAiPrompt,
     aiAutoCompress: store.aiAutoCompress,
     currentChatSessionId: store.currentChatSessionId,
     showChatSessions: store.showChatSessions
