@@ -285,6 +285,9 @@ export default class DirMirrorModal extends React.PureComponent {
     this.setState({
       phase: 'ready',
       progress: null,
+      // 上一次「执行被闸挡下」的红字只对当时那一次点击成立：
+      // 用户改判据、改勾选或重新预演之后情况已经变了，留着它等于指着没坏的地方说坏
+      error: '',
       diff,
       canDelete: !!(lw.complete && rw.complete),
       summary: planSummary(diff),

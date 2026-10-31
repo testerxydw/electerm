@@ -184,6 +184,9 @@ describe('G5 镜像弹层：接线契约', () => {
     const mode = src.slice(src.indexOf('handleModeChange ='), src.indexOf('handleDeleteExtraChange ='))
     assert.match(mode, /this\.applyDiff\(\)/)
     assert.equal(mode.includes('handleScan'), false, '改判据不该重新采集')
+    // 重算之后上一条"执行被闸挡下"的红字要清掉，否则它会一直指着已经没问题的地方
+    const apply = src.slice(src.indexOf('applyDiff (lw'), src.indexOf('localPathOf'))
+    assert.match(apply, /error: ''/)
   })
 
   test('明细有渲染上限，且截断要写在界面上', () => {
