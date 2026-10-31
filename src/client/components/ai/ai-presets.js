@@ -90,10 +90,13 @@ export const defaultAIPresets = [
     apiPathAI: '/messages',
     modelAI: 'claude-sonnet-4-5',
     authHeaderNameAI: 'x-api-key',
+    // `vision` 是给图片能力判定用的标注（ai-image-capability.js 的第二层）。
+    // 名字读不出模态的模型——中转站改名、聚合网关的别名——只能靠这里标；
+    // 不标的条目会落到名字启发式，读不出来就是"未识别"，不拦发送。
     modelAIs: [
-      { value: 'claude-sonnet-4-5' },
-      { value: 'claude-opus-4-1' },
-      { value: 'claude-haiku-4-5' }
+      { value: 'claude-sonnet-4-5', vision: true },
+      { value: 'claude-opus-4-1', vision: true },
+      { value: 'claude-haiku-4-5', vision: true }
     ],
     siteUrl: 'https://console.anthropic.com/settings/keys?utm_source=electerm_app&utm_medium=link&utm_campaign=electerm'
   },
