@@ -899,35 +899,54 @@
   font-size 10px
   line-height 14px
 
-// B2：库内对象分组（过程与函数 / 触发器 / 事件）的 G 标记。
-// 与 schema 的 S 标记同一套视觉语言；行高必须与其它树节点严格一致，
-// 故沿用 inline-block + 10px 字号，不加 vertical-align
-.db-tree-group-mark
-  padding 0 3px
-  border 1px solid var(--border)
-  border-radius var(--radius-xs)
-  color var(--text-dark)
-  font-size 10px
+// U4：库内对象分组（过程与函数 / 触发器 / 事件）不再用 G 字块，改用与叶子同源的
+// 形状图标；行高必须与其它树节点严格一致，故固定 14px 盒 + 12px 字号，
+// 不用 inline-flex 包文字（实测 inline-flex 会把树行从 24px 撑到 25px）
+.db-tree-obj-icon
+  display inline-block
+  width 14px
+  height 14px
   line-height 14px
+  margin-right 4px
+  font-size 12px
+  text-align center
+  vertical-align -2px
+  color var(--text-dark)
 
-// F0：视图叶子节点的 V 标记（与 .db-tree-schema-mark 同一套视觉语言：
-// 小方块 + 单字母）。视图在树里与表同名同形，没有标记就分不出来
-// 关键：不能用 inline-flex 包文字。实测 inline-flex 会把树行从 24px 撑到 25px
-// （baseline 对齐留 descent），加 vertical-align:middle 更是到 26px——
-// 整棵树的行高必须严格一致，否则滚动时行会一高一低地抖
+// 形状靠图标本身区分，颜色只做辅助（全部走 token，不写裸色值）
+.db-tree-obj-icon
+  &.is-view
+    color var(--info)
+  &.is-procedure
+    color var(--primary-text)
+  &.is-function
+    color var(--success)
+  &.is-trigger,
+  &.is-group-trigger
+    color var(--warn)
+  &.is-event,
+  &.is-group-event
+    color var(--text-muted)
+  &.is-group-routine
+    color var(--primary-text)
+
+// 计数徽标：分组/schema 下可打开的对象数，与 Redis 树的计数同一视觉口径
+.db-tree-count
+  margin-left 6px
+  color var(--text-muted)
+  font-size var(--fs-xs)
+  font-variant-numeric tabular-nums
+
+// U4：树的悬停/选中对齐数据网格（hover=--hover-bg，选中=--active-bg）
+.db-tree
+  .ant-tree-node-content-wrapper:hover
+    background var(--hover-bg)
+  .ant-tree-node-content-wrapper.ant-tree-node-selected
+    background var(--active-bg)
+
+// F0/U4：对象叶子的图标 + 名称包装（不能用 inline-flex 包文字，见上）
 .db-tree-view
   display inline
-
-.db-tree-view-mark
-  display inline-block
-  margin-right 4px
-  padding 0 3px
-  border 1px solid var(--border)
-  border-radius var(--radius-xs)
-  color var(--text-dark)
-  font-size 10px
-  line-height 14px
-  vertical-align text-bottom
 
 // PG 表结构主键徽标（列定义网格）
 .db-pk-tag

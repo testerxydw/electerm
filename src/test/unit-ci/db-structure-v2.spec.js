@@ -565,11 +565,11 @@ describe('视图在树里的呈现（源码守卫）', () => {
     assert.ok(leafWin().includes('nodeType: node.type'), 'leaf must expose nodeType')
   })
 
-  test('视图叶子有 V 标记，表没有', () => {
-    assert.ok(leafWin().includes("node.type === 'view'"), 'view must be distinguished')
-    assert.ok(leafWin().includes('db-tree-view-mark'), 'view must render a marker')
+  test('视图叶子有形状图标标记，表没有', () => {
+    assert.ok(leafWin().includes('DB_OBJECT_ICONS[node.type]'), 'view must be distinguished')
+    assert.ok(leafWin().includes('db-tree-obj-icon'), 'view must render a marker')
     // 样式必须真的存在（否则只是个没样式的 span，和表名连在一起更难读）
-    assert.ok(/\.db-tree-view-mark/.test(styl), 'marker style missing')
+    assert.ok(/\.db-tree-obj-icon/.test(styl), 'marker style missing')
     assert.ok(/\.db-tree-view\b/.test(styl), 'view wrapper style missing')
   })
 

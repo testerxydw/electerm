@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -280,6 +280,26 @@ const DB_OBJECT_MARKS = {
   event: 'E'
 }
 const isDbObjectType = type => Object.prototype.hasOwnProperty.call(DB_OBJECT_MARKS, type)
+// U4：非表对象改用形状图标（眼睛/代码/fx/闪电/时钟），颜色由 `.is-<type>` 走 token。
+// 单字母标记只留给命令面板的窄 hint 位置（树里已不再显示字母）。
+const DB_OBJECT_ICONS = {
+  view: <EyeOutlined />,
+  procedure: <CodeOutlined />,
+  function: <FunctionOutlined />,
+  trigger: <ThunderboltOutlined />,
+  event: <ClockCircleOutlined />
+}
+// 分组节点（过程与函数 / 触发器 / 事件）用同类图标，和组内叶子对得上
+const DB_GROUP_ICONS = {
+  routine: <CodeOutlined />,
+  trigger: <ThunderboltOutlined />,
+  event: <ClockCircleOutlined />
+}
+// 计数徽标：分组/ schema 下有多少个可打开的对象（表/视图/过程/函数/触发器/事件）
+const countTreeLeaves = nodes => (nodes || []).reduce(
+  (n, node) => n + (isLeafNode(node) ? 1 : countTreeLeaves(node.children)),
+  0
+)
 // 分组节点标题走 i18n；组名本身是稳定英文 token（routines/triggers/events），
 // 不随界面语言变化 —— 展开键与树过滤都按它匹配
 const DB_GROUP_LABEL = {
@@ -5405,14 +5425,19 @@ export default auto(function DbSession (props) {
     // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
     const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
       if (isLeafNode(node)) {
-        // F0：视图与表在树里同名同形，不给标记就分不出哪个是视图（点开也看不出）。
-        // B2：过程(P)/函数(F)/触发器(T)/事件(E) 同理，统一用「小方块 + 单字母」
-        const mark = node.type === 'view' ? 'V' : (DB_OBJECT_MARKS[node.type] || '')
+        // F0/U4：视图与表在树里同名同形；非表对象用形状图标标记（眼睛/代码/fx/闪电/时钟），
+        // 颜色由 .is-<type> 走 token。表本身不加图标，与对象区分开
+        const icon = DB_OBJECT_ICONS[node.type]
         return {
-          title: mark
+          title: icon
             ? (
               <span className='db-tree-view'>
-                <span className='db-tree-view-mark'>{mark}</span>
+                <span
+                  className={'db-tree-obj-icon is-' + node.type}
+                  aria-hidden='true'
+                >
+                  {icon}
+                </span>
                 {treeTitle(node.name)}
               </span>
               )
@@ -5434,8 +5459,14 @@ export default auto(function DbSession (props) {
         return {
           title: (
             <span className='db-tree-schema'>
-              <span className='db-tree-group-mark'>G</span>
+              <span
+                className={'db-tree-obj-icon is-group-' + node.group}
+                aria-hidden='true'
+              >
+                {DB_GROUP_ICONS[node.group] || <CodeOutlined />}
+              </span>
               {treeTitle(e(DB_GROUP_LABEL[node.group] || 'dbRoutines'))}
+              <span className='db-tree-count'>{(node.children || []).length}</span>
             </span>
           ),
           key: nodeKey(dbName, schema, node.name),
@@ -5448,6 +5479,7 @@ export default auto(function DbSession (props) {
           <span className='db-tree-schema'>
             <span className='db-tree-schema-mark'>S</span>
             {treeTitle(node.name)}
+            <span className='db-tree-count'>{countTreeLeaves(node.children)}</span>
           </span>
         ),
         key: nodeKey(dbName, node.name),
@@ -5754,7 +5786,7 @@ export default auto(function DbSession (props) {
               id: nodeKey(db.name, schema, node.name),
               title: node.name,
               subtitle: schema ? `${db.name}.${schema}` : db.name,
-              // 与树的视图标记共用同一视觉语言（小字 V/P/F/T/E），不算文案不进词条
+              // 树里已改用形状图标；面板这一列窄，仍用单字母简称（不算文案，不进词条）
               hint: node.type === 'view' ? 'V' : (DB_OBJECT_MARKS[node.type] || ''),
               run: () => onSelectTree(null, {
                 node: {

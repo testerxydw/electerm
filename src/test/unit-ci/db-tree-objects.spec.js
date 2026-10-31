@@ -223,6 +223,50 @@ describe('B2 前端契约', () => {
     assert.match(jsx, /'getObjectDdl'/)
   })
 
+  test('U4：五类对象各有图标，分组图标与组内叶子同源', () => {
+    const block = jsx.match(/const DB_OBJECT_ICONS = \{([\s\S]*?)\n\}/)
+    assert.ok(block, 'DB_OBJECT_ICONS not found')
+    for (const t of ['view', 'procedure', 'function', 'trigger', 'event']) {
+      assert.match(block[1], new RegExp(t + ': <\\w+Outlined />'), `${t} 缺图标`)
+    }
+    const group = jsx.match(/const DB_GROUP_ICONS = \{([\s\S]*?)\n\}/)
+    assert.ok(group, 'DB_GROUP_ICONS not found')
+    for (const g of ['routine', 'trigger', 'event']) {
+      assert.match(group[1], new RegExp(g + ': <\\w+Outlined />'), `${g} 分组缺图标`)
+    }
+  })
+
+  test('U4：分组/schema 计数徽标，计数只数叶子对象', () => {
+    assert.match(jsx, /const countTreeLeaves = nodes =>/)
+    // 分组节点用 children 长度；schema 用递归叶子数（分组容器自身不算）
+    assert.match(jsx, /db-tree-count'>\{\(node\.children \|\| \[\]\)\.length\}/)
+    assert.match(jsx, /db-tree-count'>\{countTreeLeaves\(node\.children\)\}/)
+    // 递归体引用自身，必须连同 const 声明一起求值（只取箭头表达式会 ReferenceError）
+    const src = jsx.match(/^const countTreeLeaves = [\s\S]*?\n\)\n/m)[0]
+    const fn = vm.runInNewContext(
+      src + '; countTreeLeaves',
+      { isLeafNode: n => ['table', 'view', 'procedure', 'function', 'trigger', 'event'].includes(n.type) }
+    )
+    assert.equal(fn([
+      { type: 'table' },
+      { type: 'view' },
+      { type: 'group', children: [{ type: 'procedure' }, { type: 'function' }] }
+    ]), 4)
+  })
+
+  test('U4：树的悬停/选中用数据网格同一套 token', () => {
+    const styl = read(path.join(ROOT, 'src/client/components/database/db-session.styl'))
+    assert.match(styl, /\.ant-tree-node-content-wrapper:hover\n\s+background var\(--hover-bg\)/)
+    assert.match(styl, /\.ant-tree-node-content-wrapper\.ant-tree-node-selected\n\s+background var\(--active-bg\)/)
+    // 图标颜色全部走 token；不允许出现裸色值
+    const iconBlock = styl.slice(styl.indexOf('.db-tree-obj-icon\n'), styl.indexOf('.db-tree-count'))
+    assert.ok(iconBlock.length > 0)
+    for (const t of ['is-view', 'is-procedure', 'is-function', 'is-trigger', 'is-event']) {
+      assert.ok(iconBlock.includes('&.' + t), `${t} 颜色未定义`)
+    }
+    assert.equal(/#[0-9a-fA-F]{3,8}|rgba?\(/.test(iconBlock), false, '图标颜色不得写裸色值')
+  })
+
   test('分组文案中英齐全', () => {
     const loc = read(LOCALES)
     for (const k of ['dbRoutines', 'dbTriggers', 'dbEvents']) {
