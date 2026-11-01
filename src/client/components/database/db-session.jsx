@@ -116,6 +116,7 @@ import {
   isBypassed,
   markAsked,
   muteLowWrite,
+  readOnlyHintKey,
   shouldConfirm
 } from '../../common/db-safe-guard'
 import DbDangerConfirm from './db-danger-confirm'
@@ -9494,7 +9495,7 @@ export default auto(function DbSession (props) {
           {/* 只读开关常驻工具条：切换后主进程白名单同步生效（不用重开连接）。
               它与生产标记同属"风险"组：一个说连接本身危险，一个说当前是否允许写。
               文案与"系统库"同一个位置同一个样式，两个开关并排时不靠 tooltip 才分得清 */}
-          <Tooltip title={`${e('readOnly')} — ${e('readOnlyHint')}`}>
+          <Tooltip title={`${e('readOnly')} — ${e(readOnlyHintKey(tab.dbType))}`}>
             <span className='db-sys-toggle'>
               <span className='db-tool-label'>{e('readOnly')}</span>
               <Switch

@@ -26,7 +26,7 @@ const RISK_EXPORTS = '({ RISK_READ, RISK_WRITE, RISK_TRANSACTION, RISK_DDL, ' +
 const GUARD_EXPORTS = '({ BYPASS_TTL_MS, ASKED_LIMIT, createGuardState, dbConnKey, ' +
   'shouldConfirm, grantBypass, clearBypass, isBypassed, bypassLeftMs, ' +
   'bypassLeftMinutes, markAsked, muteLowWrite, unmuteLowWrite, resetGuardState, ' +
-  'cancelPendingGate })'
+  'cancelPendingGate, readOnlyHintKey })'
 
 // 源码里的 `export ` 前缀去掉即可在同一段脚本里访问内部声明
 function loadFrom (file, exportsExpr) {
@@ -65,7 +65,8 @@ const {
   bypassLeftMinutes,
   markAsked,
   muteLowWrite,
-  cancelPendingGate
+  cancelPendingGate,
+  readOnlyHintKey
 } = guard
 
 // 组件接线（db-session.jsx / db-danger-confirm.jsx）只能读源码断言 —— 那两个文件是 JSX，
@@ -892,6 +893,64 @@ describe('db-safe-guard: 只读模式下不许"临时解除"', () => {
 
   test('span 挂载点是 inline-flex（否则 flex item 会拉成整行热区）', () => {
     assert.match(STYL, /\.db-prod-bypass-wrap\n {2}display inline-flex\n/)
+  })
+})
+
+describe('db-safe-guard: 只读提示按引擎选词条（不拿 MySQL 口径套别处）', () => {
+  const readWhitelist = file => {
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8')
+    const line = (src.split('\n').find(l => l.includes('SQL_READONLY_RE =')) || '')
+    const inner = (line.match(/\(([^)]*)\)/) || ['', ''])[1]
+    return inner.split('|').map(w => w.trim().toUpperCase()).filter(Boolean)
+  }
+
+  test('sqlite 的词条 = 主进程白名单，不多承诺一条也不少承诺一条', () => {
+    const verbs = readWhitelist('src/app/lib/db-client/sqlite.js')
+    assert.ok(verbs.includes('PRAGMA') && verbs.includes('VALUES'),
+      '读出来的白名单不对，先修这条测试自己：' + verbs.join(','))
+    for (const locale of [EXTRA_LOCALES.en.readOnlyHintSqlite, EXTRA_LOCALES.zh_cn.readOnlyHintSqlite]) {
+      assert.ok(locale, '缺 readOnlyHintSqlite 词条')
+      // 括号里是"这些写法没有"的反向说明，只比括号前的部分
+      const head = String(locale).split(/[（(]/)[0]
+      for (const v of verbs) {
+        assert.ok(head.includes(v), 'SQLite 词条没提主进程允许的 ' + v + '：' + locale)
+      }
+      assert.ok(!/SHOW/.test(head) && !/DESC/.test(head),
+        'SQLite 没有 SHOW / DESC，写进"允许"清单就是空头承诺：' + locale)
+    }
+  })
+
+  test('redis 的词条不谈 SQL 关键词：那里拦的是写键/删键/改 TTL', () => {
+    assert.equal(readOnlyHintKey('redis'), 'readOnlyHintRedis')
+    for (const locale of [EXTRA_LOCALES.en.readOnlyHintRedis, EXTRA_LOCALES.zh_cn.readOnlyHintRedis]) {
+      assert.ok(locale, '缺 readOnlyHintRedis 词条')
+      assert.ok(!/SELECT/i.test(locale), 'Redis 没有 SQL 白名单，别提 SELECT：' + locale)
+      assert.ok(/TTL/.test(locale), 'Redis 只读拦的包括改 TTL，词条要说：' + locale)
+    }
+  })
+
+  test('mysql / pg / 空类型退回原词条（口径不变）', () => {
+    assert.equal(readOnlyHintKey('mysql'), 'readOnlyHint')
+    assert.equal(readOnlyHintKey('mariadb'), 'readOnlyHint')
+    assert.equal(readOnlyHintKey('postgresql'), 'readOnlyHint')
+    assert.equal(readOnlyHintKey(''), 'readOnlyHint')
+    assert.equal(readOnlyHintKey(undefined), 'readOnlyHint')
+    const verbs = readWhitelist('src/app/lib/db-client/mysql.js')
+    const head = String(EXTRA_LOCALES.zh_cn.readOnlyHint).split(/[（(]/)[0]
+    for (const v of ['SELECT', 'SHOW', 'DESC', 'EXPLAIN']) {
+      assert.ok(verbs.includes(v) && head.includes(v), v + ' 两边要对上：' + head + ' / ' + verbs)
+    }
+  })
+
+  test('大小写与空白不敏感（tab.dbType 各处写法不统一）', () => {
+    assert.equal(readOnlyHintKey('SQLite'), 'readOnlyHintSqlite')
+    assert.equal(readOnlyHintKey(' redis '), 'readOnlyHintRedis')
+  })
+
+  test('接线：Tooltip 按引擎取词条', () => {
+    assert.match(SESSION_JSX, /e\(readOnlyHintKey\(tab\.dbType\)\)/,
+      '只读开关的 Tooltip 还在写死 MySQL 口径')
+    assert.match(SESSION_JSX, /\n {2}readOnlyHintKey,\n/, '必须从 db-safe-guard 导入')
   })
 })
 

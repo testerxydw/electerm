@@ -309,3 +309,25 @@ export function cancelPendingGate (holder) {
   resolve(false)
   return true
 }
+
+/**
+ * 只读开关的提示词条按引擎选。
+ * 白名单的权威在主进程各适配器的 `SQL_READONLY_RE` / `checkWritable`：
+ * MySQL/PG 认 `SHOW`/`DESC`，本地文件引擎（SQLite）不认这两个、却允许 `VALUES`/`PRAGMA`，
+ * Redis 根本没有语句而是按键写拦截。三个口径共用一句 MySQL 文案，等于一边承诺了两条
+ * 会被拒的写法，一边漏了两条能用的写法。
+ * @param {string} dbType 会话引擎（tab.dbType）
+ * @returns {string} 词条 key
+ */
+export function readOnlyHintKey (dbType) {
+  const t = String(dbType || '').trim().toLowerCase()
+  // 本地单文件引擎：白名单与服务器型数据库不同（不认 SHOW/DESC，认 VALUES/PRAGMA）
+  if (t === 'sqlite') {
+    return 'readOnlyHintSqlite'
+  }
+  // 键值存储：没有 SQL 白名单，拦的是写键/写字段/删键/改 TTL
+  if (t === 'redis') {
+    return 'readOnlyHintRedis'
+  }
+  return 'readOnlyHint'
+}
