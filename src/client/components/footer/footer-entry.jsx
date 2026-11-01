@@ -34,6 +34,7 @@ import QmRecordStatus from '../quick-commands/qm-record-status'
 import QmPrompt from '../quick-commands/qm-prompt'
 import BroadcastModal from '../session/broadcast-modal.jsx'
 import TunnelRuntime from '../terminal/tunnel-runtime.jsx'
+import VaultLock from '../setting-panel/vault-lock.jsx'
 
 const e = window.translate
 
@@ -414,6 +415,9 @@ export default auto(function FooterEntry (props) {
         {/* 终端日志依赖真实终端实例：rdp/vnc/spice/database 页无终端，
             inTerminalTab 单口径会漏放按钮（点开是空白面板），加 hasShellSession */}
         {inActiveTerminal && props.store.hasShellSession && renderInfoIcon()}
+        {/* G6 主密码保险库：建了库才出现，锁着给"解锁"，解锁后点一下能立刻锁。
+            锁和钥匙都在主进程，Web 版没有这条通道，连状态都不该去问一次 */}
+        {!window.et.isWebApp && <VaultLock />}
         {!isMobile && renderGlobalActions()}
       </div>
     </div>

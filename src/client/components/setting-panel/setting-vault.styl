@@ -1,0 +1,94 @@
+// G6-3 主密码 Vault：设置页 + 底栏锁头 + 解锁弹窗
+// 颜色/圆角全部走 token（css 契约测试会点名硬编码值）
+
+.setting-vault
+  .vault-intro
+    font-size 12px
+    color var(--text-dark)
+    line-height 1.6
+
+  .vault-head
+    display flex
+    align-items center
+    flex-wrap wrap
+    gap 8px
+
+  .vault-meta
+    font-size 12px
+    color var(--text-dark)
+
+  // 两字中文按钮在 antd 里会被拉开成"锁 定"，chip 文案自己不带空格
+  .vault-state-tag
+    margin-inline-end 0
+
+  .vault-block
+    padding 10px 12px
+    margin-bottom 12px
+    border 1px solid var(--border)
+    border-radius var(--radius-sm)
+
+  .vault-block-title
+    font-size 13px
+
+  .vault-pass,
+  .vault-pass2,
+  .vault-current,
+  .vault-new,
+  .vault-new2,
+  .vault-disable-pass,
+  .vault-disable-recovery,
+  .vault-unlock-input
+    max-width 320px
+
+  .vault-autolock-num
+    width 88px
+
+  // 恢复码是唯一"错过就没了"的东西：等宽、整段可选、给足对比度
+  .vault-recovery
+    margin-top 10px
+
+  .vault-recovery-code
+    margin 8px 0
+    padding 8px 10px
+    border 1px dashed var(--border)
+    border-radius var(--radius-sm)
+    background var(--main-light)
+    font-family var(--font-mono)
+    font-size 13px
+    letter-spacing 1px
+    word-break break-all
+    user-select text
+
+  .vault-recovery-warn
+    margin-bottom 8px
+
+.vault-lock-chip
+  display inline-flex
+  align-items center
+  gap 4px
+  font-size 12px
+
+  .vault-lock-chip-icon
+    cursor pointer
+
+  // 锁着 = 有事要做，给主色；已解锁只是状态说明，不该抢眼神
+  &.locked
+    color var(--primary)
+
+  &.unlocked
+    color var(--text-dark)
+
+.vault-unlock-modal
+  .vault-unlock-modal-intro
+    margin-bottom 10px
+    font-size 12px
+    color var(--text-dark)
+    line-height 1.6
+
+  .vault-unlock-modal-input
+    width 100%
+
+  .vault-unlock-modal-foot
+    display flex
+    justify-content flex-end
+    gap 8px

@@ -4,7 +4,8 @@ import {
   settingTerminalId,
   settingAiId,
   settingPasswordsId,
-  settingSshKeyId
+  settingSshKeyId,
+  settingVaultId
 } from '../common/constants'
 import { isAIDisabled } from './ai-feature'
 
@@ -35,10 +36,20 @@ export default () => {
     {
       id: settingSshKeyId,
       title: e('sshKeys')
+    },
+    {
+      id: settingVaultId,
+      title: e('vault')
     }
   ]
+  let out = list
   if (isAIDisabled()) {
-    return list.filter(item => item.id !== settingAiId)
+    out = out.filter(item => item.id !== settingAiId)
   }
-  return list
+  // 保险库是主进程能力（KEK/DEK 只在主进程内存里）：Web 版没有这条通道，
+  // 摆一个点开只会报错的页签不如不摆
+  if (window.et && window.et.isWebApp) {
+    out = out.filter(item => item.id !== settingVaultId)
+  }
+  return out
 }

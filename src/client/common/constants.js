@@ -328,6 +328,7 @@ export const settingAiId = 'setting-ai'
 export const settingCommonId = 'setting-common'
 export const settingPasswordsId = 'setting-passwords'
 export const settingSshKeyId = 'setting-ssh-key'
+export const settingVaultId = 'setting-vault'
 // Built in items the user is not allowed to delete: the two settings tabs,
 // the default bookmark group and the two built in terminal themes.
 // Keep this an explicit id list. A prefix test like `id.startsWith('default')`

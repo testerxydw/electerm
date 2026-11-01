@@ -8,6 +8,7 @@ import SyncSetting from '../setting-sync/setting-sync'
 import Shortcuts from '../shortcuts/shortcuts'
 import SettingPasswords from './setting-passwords'
 import SettingSshKey from './setting-ssh-key'
+import SettingVault from './setting-vault'
 import List from './list'
 import {
   settingMap,
@@ -16,7 +17,8 @@ import {
   settingAiId,
   settingShortcutsId,
   settingPasswordsId,
-  settingSshKeyId
+  settingSshKeyId,
+  settingVaultId
 } from '../../common/constants'
 import { aiConfigsArr } from '../ai/ai-config-props'
 import { pick } from 'lodash-es'
@@ -88,6 +90,8 @@ export default auto(function TabSettings (props) {
       editItem: store.editItem
     }
     elem = <SettingSshKey {...sshKeyProps} />
+  } else if (sid === settingVaultId) {
+    elem = <SettingVault />
   } else {
     elem = (
       <SettingCommon
