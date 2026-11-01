@@ -1,6 +1,7 @@
 import { agentTools, executeToolCall } from './agent-tools'
 import { appendMandatoryGuardrails } from './ai-guardrails'
-import { buildAgentMessages, summarizeContext, CONTEXT_DANGER_PERCENT } from './ai-context'
+import { buildAgentMessages, summarizeContext, buildUserContent, CONTEXT_DANGER_PERCENT } from './ai-context'
+import { resolveImage } from './ai-image-cache'
 import {
   shouldAutoCompress,
   canCompact,
@@ -103,7 +104,9 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
     const messages = buildAgentMessages({
       systemPrompt: buildAgentSystemPrompt(config),
       conversationMessages,
-      prompt: chatEntry.promptWithAttachments || chatEntry.prompt
+      // string when the turn has no picture, part array when it has one --
+      // buildUserContent keeps the old shape for the text-only case
+      prompt: buildUserContent(chatEntry, resolveImage)
     })
     const toolCallsLog = []
     let accumulatedContent = ''

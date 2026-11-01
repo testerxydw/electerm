@@ -17,6 +17,7 @@ export default function AiContextIndicator ({ info }) {
     tokens,
     messagesTokens,
     toolsTokens,
+    images,
     windowSize,
     windowSource,
     percent,
@@ -42,6 +43,14 @@ export default function AiContextIndicator ({ info }) {
         <span>system + history</span>
         <span>~{formatTokens(messagesTokens)}</span>
       </div>
+      {images > 0 && (
+        <div className='ai-context-tip-row'>
+          <span>{`images (${images})`}</span>
+          {/* already inside the history figure -- shown because a picture is
+              worth thousands of tokens and is easy to forget about */}
+          <span>counted in history</span>
+        </div>
+      )}
       {toolsTokens > 0 && (
         <div className='ai-context-tip-row'>
           <span>agent tools</span>

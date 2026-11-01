@@ -9,6 +9,7 @@
  */
 
 import { buildSessionMessages, summarizeContext } from './ai-context'
+import { resolveImage } from './ai-image-cache'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import {
   COMPRESS_SUMMARY_PROMPT,
@@ -19,6 +20,31 @@ import {
 // from the popover while a run is in flight.
 export function autoCompressEnabled () {
   return !!(window.store && window.store.aiAutoCompress)
+}
+
+// A summary is read, not looked at. Picture parts are dropped from the copy
+// that goes out: a few screenshots would cost thousands of tokens each and pull
+// the summary toward the one turn that had one. The placeholder a missing
+// picture already left behind in the text is kept, so the summary still knows a
+// picture was part of the conversation.
+function withoutImages (messages) {
+  return (messages || []).map(m => {
+    if (!m || !Array.isArray(m.content)) {
+      return m
+    }
+    const text = m.content
+      .map(p => {
+        if (typeof p === 'string') {
+          return p
+        }
+        return p && p.type === 'text' ? p.text : ''
+      })
+      .filter(Boolean)
+      .join('\n\n')
+    // never leave the turn empty: an image-only question would disappear from
+    // the conversation the summary is supposed to describe
+    return { ...m, content: text || '[image]' }
+  })
 }
 
 // Ask the model for the summary that replaces a conversation. Goes through the
@@ -39,7 +65,7 @@ export async function summarizeMessages (messages, config = {}) {
       config.proxyAI,
       false,
       config.authHeaderNameAI,
-      [...messages, { role: 'user', content: COMPRESS_SUMMARY_PROMPT }]
+      [...withoutImages(messages), { role: 'user', content: COMPRESS_SUMMARY_PROMPT }]
     )
     if (!result || result.error || !result.response) {
       return ''
@@ -64,7 +90,11 @@ export function sessionContextInfo (sessionId, config = {}) {
   const messages = buildSessionMessages({
     history: store.aiChatHistory,
     chatSessionId: sessionId,
-    role
+    role,
+    // the pictures are part of what fills the window, so the auto-compress
+    // decision has to see them -- otherwise a screenshots-only session never
+    // triggers it
+    resolveImage
   })
   if (!messages || messages.length < 2) {
     return null

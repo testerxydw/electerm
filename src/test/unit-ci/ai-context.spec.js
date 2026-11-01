@@ -298,6 +298,218 @@ describe('buildAgentMessages', () => {
   })
 })
 
+// A dataUrl big enough that measuring it as text would be visibly wrong
+const PNG_1PX = 'data:image/png;base64,' + 'A'.repeat(40000)
+
+describe('estimateContentTokens', () => {
+  it('is the string estimate for string content', () => {
+    const text = 'the quick brown fox jumps over the lazy dog'
+    assert.equal(m.estimateContentTokens(text), m.estimateTokens(text))
+    assert.equal(m.estimateContentTokens(''), 0)
+    assert.equal(m.estimateContentTokens(null), 0)
+    assert.equal(m.estimateContentTokens(undefined), 0)
+  })
+
+  it('counts the text of part arrays instead of "[object Object]"', () => {
+    const content = [
+      { type: 'text', text: 'a'.repeat(350) },
+      { type: 'text', text: 'b'.repeat(350) }
+    ]
+    assert.equal(m.estimateContentTokens(content), 200)
+    // the bug this guards: String([{...}]) is '[object Object]', ~5 tokens
+    assert.ok(m.estimateContentTokens(content) > m.estimateTokens(String(content)))
+  })
+
+  it('charges a picture by its own rate, not by base64 characters', () => {
+    const one = m.estimateContentTokens([{ type: 'image_url', image_url: { url: PNG_1PX } }])
+    assert.ok(one > 500 && one < 4000, `out of band: ${one}`)
+    // never a fraction of what the same bytes would cost as text
+    assert.ok(one * 4 < m.estimateTokens(PNG_1PX))
+    const smaller = m.estimateContentTokens([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA' } }
+    ])
+    assert.equal(smaller, one, 'picture cost must not track the string length')
+  })
+
+  it('sums text and picture parts of a mixed turn', () => {
+    const text = 'what does this show?'
+    const image = m.estimateContentTokens([{ type: 'image_url', image_url: { url: PNG_1PX } }])
+    assert.equal(
+      m.estimateContentTokens([
+        { type: 'text', text },
+        { type: 'image_url', image_url: { url: PNG_1PX } }
+      ]),
+      m.estimateTokens(text) + image
+    )
+  })
+
+  it('tolerates holes, bare strings and other protocol block shapes', () => {
+    assert.equal(m.estimateContentTokens([]), 0)
+    assert.equal(m.estimateContentTokens([null]), 0)
+    assert.equal(
+      m.estimateContentTokens(['x'.repeat(350)]),
+      m.estimateContentTokens([{ type: 'text', text: 'x'.repeat(350) }])
+    )
+    // anthropic-style {type:'image', source:{...}} still costs a picture
+    const anthropic = m.estimateContentTokens([{ type: 'image', source: { data: 'AAA' } }])
+    const chat = m.estimateContentTokens([{ type: 'image_url', image_url: { url: 'data:image/png;base64,AA' } }])
+    assert.equal(anthropic, chat)
+    assert.equal(m.estimateContentTokens({ text: 'not an array' }), m.estimateTokens({ text: 'not an array' }))
+  })
+})
+
+describe('buildUserContent', () => {
+  it('keeps plain string content for every turn without images', () => {
+    assert.equal(m.buildUserContent({ prompt: 'p' }), 'p')
+    assert.equal(m.buildUserContent({ prompt: 'p', promptWithAttachments: 'inline' }), 'inline')
+    assert.equal(m.buildUserContent({ prompt: 'p', images: [] }), 'p')
+    assert.equal(m.buildUserContent({ prompt: 'p', images: 'not-an-array' }), 'p')
+    assert.equal(m.buildUserContent(null), '')
+  })
+
+  it('emits the OpenAI Chat part array, with no keys a strict gateway could 400 on', () => {
+    const content = m.buildUserContent(
+      { prompt: 'look at this', images: [{ id: 'i1', name: 'shot.png' }] },
+      id => (id === 'i1' ? { dataUrl: PNG_1PX, width: 10, height: 10 } : null)
+    )
+    assert.deepEqual(content, [
+      { type: 'text', text: 'look at this' },
+      { type: 'image_url', image_url: { url: PNG_1PX } }
+    ])
+  })
+
+  it('sends only the picture when there is no text', () => {
+    const content = m.buildUserContent(
+      { prompt: '', images: [{ id: 'i1', name: 'shot.png' }] },
+      () => ({ dataUrl: PNG_1PX })
+    )
+    assert.deepEqual(content, [{ type: 'image_url', image_url: { url: PNG_1PX } }])
+  })
+
+  it('keeps the entry order of several pictures', () => {
+    const urls = { a: 'data:image/png;base64,AAA', b: 'data:image/png;base64,BBB' }
+    const content = m.buildUserContent(
+      { prompt: 'two', images: [{ id: 'a', name: 'a.png' }, { id: 'b', name: 'b.png' }] },
+      id => ({ dataUrl: urls[id] })
+    )
+    assert.deepEqual(content.map(p => p.type), ['text', 'image_url', 'image_url'])
+    assert.deepEqual(content.slice(1).map(p => p.image_url.url), [urls.a, urls.b])
+  })
+
+  it('degrades to the old string shape when every picture expired', () => {
+    const e = { prompt: 'look', images: [{ id: 'gone', name: 'shot.png' }] }
+    const expected = '[attached image unavailable: shot.png]'
+    assert.equal(m.buildUserContent(e, null), `look\n\n${expected}`)
+    assert.equal(m.buildUserContent(e, () => null), `look\n\n${expected}`)
+    assert.equal(m.buildUserContent(e, () => ({ dataUrl: '' })), `look\n\n${expected}`)
+    // a picture-only turn whose picture is gone still says something
+    assert.equal(
+      m.buildUserContent({ prompt: '', images: [{ id: 'g', name: 'x.png' }] }),
+      '[attached image unavailable: x.png]'
+    )
+  })
+  it('mixes a live picture with the placeholder of an expired one', () => {
+    const content = m.buildUserContent(
+      {
+        prompt: 'first and second',
+        images: [{ id: 'live', name: 'live.png' }, { id: 'dead', name: 'dead.png' }]
+      },
+      id => (id === 'live' ? { dataUrl: PNG_1PX } : null)
+    )
+    assert.deepEqual(content.map(p => p.type), ['text', 'image_url', 'text'])
+    assert.equal(content[2].text, '[attached image unavailable: dead.png]')
+  })
+
+  it('survives a garbage images list', () => {
+    // the real cache answers null for anything that is not a string id
+    const resolve = id => (typeof id === 'string' ? { dataUrl: PNG_1PX } : null)
+    assert.equal(
+      m.buildUserContent({ prompt: 'p', images: [null] }, resolve),
+      `p\n\n${'[attached image unavailable: image]'}`
+    )
+    assert.equal(
+      m.buildUserContent({ prompt: '', images: [{}], promptWithAttachments: '' }, null),
+      '[attached image unavailable: image]'
+    )
+  })
+})
+
+describe('images through the session and the size estimate', () => {
+  const resolve = id => (id === 'live' ? { dataUrl: PNG_1PX } : null)
+
+  function withImage (over = {}) {
+    return entry({
+      prompt: 'explain this screenshot',
+      images: [{ id: 'live', name: 'live.png' }, { id: 'gone', name: 'gone.png' }],
+      ...over
+    })
+  }
+
+  it('buildSessionMessages only goes array-shaped for the turn that has a picture', () => {
+    const plain = entry({ id: 'p1', timestamp: 2, prompt: 'no pictures here' })
+    const messages = m.buildSessionMessages({
+      history: [withImage({ timestamp: 1 }), plain],
+      chatSessionId: 's1',
+      resolveImage: resolve
+    })
+    const userTurns = messages.filter(x => x.role === 'user')
+    assert.ok(Array.isArray(userTurns[0].content))
+    assert.equal(userTurns[1].content, 'no pictures here')
+    assert.equal(
+      userTurns[0].content.filter(p => p.type === 'image_url').length, 1
+    )
+  })
+
+  it('costs more than the same session with the pictures dropped', () => {
+    const e = withImage()
+    const withPics = m.estimateMessagesTokens(
+      m.buildSessionMessages({ history: [e], chatSessionId: 's1', resolveImage: resolve })
+    )
+    const withoutPics = m.estimateMessagesTokens(
+      m.buildSessionMessages({ history: [e], chatSessionId: 's1' })
+    )
+    assert.ok(withPics > withoutPics, `${withPics} <= ${withoutPics}`)
+    // the difference is one picture's rate: the expired one is a text
+    // placeholder in both builds, so it cancels out bar the join newlines
+    const image = m.estimateContentTokens([
+      { type: 'image_url', image_url: { url: PNG_1PX } }
+    ])
+    assert.ok(
+      Math.abs((withPics - withoutPics) - image) < image * 0.15,
+      `diff ${withPics - withoutPics} vs picture rate ${image}`
+    )
+  })
+
+  it('reports the picture count to the indicator', () => {
+    const messages = m.buildSessionMessages({
+      history: [withImage()], chatSessionId: 's1', resolveImage: resolve
+    })
+    assert.equal(m.countContextImages(messages), 1)
+    assert.equal(m.summarizeContext(messages, { model: 'gpt-4o' }).images, 1)
+    assert.equal(m.countContextImages(null), 0)
+    assert.equal(m.countContextImages([{ role: 'user', content: 'text only' }]), 0)
+  })
+})
+
+describe('the Chat wire body keeps the part array intact', () => {
+  const { buildRequest } = require('../../../src/app/lib/ai-format.js')
+
+  it('openai-chat passes content through; the other two flatten it away', () => {
+    const content = [
+      { type: 'text', text: 'look' },
+      { type: 'image_url', image_url: { url: PNG_1PX } }
+    ]
+    const messages = [{ role: 'user', content }]
+    const chat = buildRequest('openai-chat', { model: 'gpt-4o', messages })
+    assert.deepEqual(chat.messages[0].content, content)
+    // why sending is gated on the transport: these builders keep text only
+    const resp = buildRequest('openai-responses', { model: 'gpt-4o', messages })
+    assert.equal(resp.input[0].content, 'look')
+    const ant = buildRequest('anthropic', { model: 'claude', messages })
+    assert.deepEqual(ant.messages[0].content, [{ type: 'text', text: 'look' }])
+  })
+})
+
 describe('summarizeContext', () => {
   it('totals messages plus tools and fills the window', () => {
     const messages = [
