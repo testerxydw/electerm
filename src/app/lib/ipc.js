@@ -288,6 +288,9 @@ function initIpc () {
     confirmExit: () => {
       globalState.set('confirmExit', true)
     },
+    // G6 主密码 Vault：DEK 只在主进程内存，渲染层只能报动作（status/unlock/…），
+    // 既拿不到 DEK 也拿不到恢复码原文；口令走 IPC 但不进日志，见 ./vault.js。
+    vaultOp: async (action, arg) => require('./vault-instance').vaultOp(action, arg),
     // SQL 执行历史走主进程固定文件（userData），不进渲染层 localStorage：
     // UI server 动态端口导致 origin 漂移，localStorage 跨启动互相隔离
     dbSqlHistoryOp: async (action, arg) => {
