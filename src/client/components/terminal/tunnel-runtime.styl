@@ -62,7 +62,8 @@
   font-family var(--font-mono)
 
 // ---- 状态芯片（14% 色底 + 同色彩字，与数据库键类型芯片同一口径）----
-.tunnel-status
+// 限定在行内：表头那一列复用了同一个类名，不该套上芯片的描边
+.tunnel-row .tunnel-status
   display inline-flex
   align-items center
   justify-content center
