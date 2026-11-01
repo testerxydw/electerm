@@ -28,6 +28,16 @@ export function execCmd (pid, cmd, timeoutMs, options) {
   }, options)
 }
 
+// G9 隧道运行时启停：一个 action 带 op，只认 pid（= tab id）+ 该会话自己登记过的隧道 id
+export function tunnelOp (pid, op, tunnelId, options) {
+  return fetch({
+    pid,
+    op,
+    tunnelId,
+    action: 'tunnel-op'
+  }, options)
+}
+
 export function resizeTerm (pid, cols, rows) {
   return fetch({
     pid,

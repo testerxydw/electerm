@@ -1,0 +1,171 @@
+// G9：隧道运行时面板
+//
+// 表头与每一行共用同一个 grid 模板（.tunnel-head / .tunnel-line），所以列宽只有一处定义；
+// 行可能带第二行（错误 / 配置不完整的说明），用整行宽而不占某一列。
+.tunnel-runtime
+  display flex
+  flex-direction column
+  gap var(--sp-2)
+
+.tunnel-head,
+.tunnel-line
+  display grid
+  grid-template-columns 120px 116px 1fr 84px 76px
+  align-items center
+  gap var(--sp-2)
+
+.tunnel-head
+  color var(--text-muted)
+  font-size var(--fs-xs)
+  letter-spacing .02em
+  padding-bottom var(--sp-1)
+  border-bottom 1px solid var(--border)
+
+.tunnel-row
+  display flex
+  flex-direction column
+  gap 2px
+  padding var(--sp-1) 0
+  border-bottom 1px solid var(--border)
+
+  &:last-of-type
+    border-bottom none
+
+.tunnel-name
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-size var(--fs-sm)
+
+.tunnel-type
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  color var(--primary-text)
+  font-size var(--fs-xs)
+
+// 地址一律「监听端 → 目标端」，长的是端口串，所以给它 mono 并允许断行
+.tunnel-address
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+
+.tunnel-op
+  display flex
+  justify-content flex-end
+
+.tunnel-op-none
+  color var(--text-muted)
+  font-family var(--font-mono)
+
+// ---- 状态芯片（14% 色底 + 同色彩字，与数据库键类型芯片同一口径）----
+.tunnel-status
+  display inline-flex
+  align-items center
+  justify-content center
+  height 20px
+  padding 0 var(--sp-2)
+  border 1px solid var(--border)
+  border-radius var(--radius-pill)
+  font-size var(--fs-xs)
+  white-space nowrap
+
+.tunnel-status-running
+  color var(--success)
+  background var(--success-bg)
+  border-color var(--success)
+
+.tunnel-status-stopped
+  color var(--text-muted)
+  background var(--hover-bg)
+
+.tunnel-status-error
+  color var(--error)
+  background var(--error-bg)
+  border-color var(--error)
+
+.tunnel-status-invalid
+  color var(--warn)
+  background var(--warn-bg)
+  border-color var(--warn)
+
+// running 行给一条主色左缘：一屏隧道里"哪条在跑"要一眼分出来
+.tunnel-row-running
+  padding-left var(--sp-2)
+  border-left 2px solid var(--primary)
+
+.tunnel-row-error
+  padding-left var(--sp-2)
+  border-left 2px solid var(--error)
+
+.tunnel-note
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  // 说明行落在 grid 之外，缩进对齐地址列起点
+  padding-left 244px
+  color var(--text-muted)
+  font-size var(--fs-xs)
+
+.tunnel-note-error
+  color var(--error)
+
+.tunnel-empty
+  padding var(--sp-5)
+  color var(--text-muted)
+  font-size var(--fs-sm)
+  text-align center
+
+// 会话断开时整表禁点，原因写在这里而不是让按钮静默失效
+.tunnel-bar
+  padding var(--sp-2)
+  border-radius var(--radius-sm)
+  background var(--warn-bg)
+  color var(--warn)
+  font-size var(--fs-xs)
+
+.tunnel-foot
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap var(--sp-3)
+  padding-top var(--sp-2)
+  border-top 1px solid var(--border)
+
+.tunnel-total
+  font-family var(--font-mono)
+  font-size var(--fs-xs)
+  color var(--text-muted)
+
+.tunnel-sum
+  display inline-flex
+  align-items center
+  gap 4px
+  font-size var(--fs-xs)
+  color var(--text-muted)
+
+.tunnel-sum-n
+  font-family var(--font-mono)
+  color var(--text)
+
+.tunnel-sum-running
+  color var(--success)
+
+.tunnel-sum-error
+  color var(--error)
+
+.tunnel-sum-invalid
+  color var(--warn)
+
+// 窄窗口（分屏 / 小屏）：名称与类型收成两列，地址仍吃剩余
+@media (max-width: 720px)
+  .tunnel-head,
+  .tunnel-line
+    grid-template-columns 92px 96px 1fr 72px 64px
+    gap var(--sp-1)
+
+  .tunnel-note
+    padding-left 0

@@ -1,10 +1,12 @@
 import { auto } from 'manate/react'
+import { useState } from 'react'
 import {
   Select,
   Dropdown,
   Badge
 } from 'antd'
 import {
+  ApartmentOutlined,
   BarChartOutlined,
   DashboardOutlined,
   TranslationOutlined,
@@ -16,7 +18,7 @@ import {
   SwapOutlined
 } from '@ant-design/icons'
 import './footer.styl'
-import { statusMap } from '../../common/constants'
+import { statusMap, isShellSessionTab } from '../../common/constants'
 import BatchInput from './batch-input'
 import QuickCmdStrip from './quick-cmd-strip'
 import encodes from '../bookmark-form/common/encodes'
@@ -31,6 +33,7 @@ import QmRunInTabs from '../quick-commands/qm-run-in-tabs'
 import QmRecordStatus from '../quick-commands/qm-record-status'
 import QmPrompt from '../quick-commands/qm-prompt'
 import BroadcastModal from '../session/broadcast-modal.jsx'
+import TunnelRuntime from '../terminal/tunnel-runtime.jsx'
 
 const e = window.translate
 
@@ -39,6 +42,9 @@ const {
 } = Select
 
 export default auto(function FooterEntry (props) {
+  // G9 隧道面板：记住是"哪一条会话"打开了它，面板就不会在切页后讲别的会话的隧道
+  const [tunnelTabId, setTunnelTabId] = useState('')
+
   function handleInfoPanel () {
     window.store.toggleInfoPanel()
   }
@@ -184,6 +190,29 @@ export default auto(function FooterEntry (props) {
           onClick={() => window.store.toggleMonitorPanel()}
           className={'pointer font14 terminal-monitor-icon' + (active ? ' active' : '')}
           title={e('monitorPanel')}
+        />
+      </div>
+    )
+  }
+
+  // G9 隧道运行时：启停的是"当前会话自己配的那几条"，所以没配隧道就不给入口
+  // （比摆一个点开只有空态的按钮有用），也不用 hasShellSession——本地终端页
+  // 在那儿只会开出一张点不动的面板。
+  function renderTunnelIcon () {
+    const tab = props.store.currentTab
+    const tunneled = !!tab && isShellSessionTab(tab) && (
+      (tab.sshTunnels || []).length > 0 || (tab.sshTunnelResults || []).length > 0
+    )
+    if (!tunneled) {
+      return null
+    }
+    const open = tunnelTabId === tab.id
+    return (
+      <div className='terminal-footer-unit terminal-footer-tunnel'>
+        <ApartmentOutlined
+          onClick={() => setTunnelTabId(open ? '' : tab.id)}
+          className={'pointer font14 terminal-tunnel-icon' + (open ? ' active' : '')}
+          title={e('tunnelRuntime')}
         />
       </div>
     )
@@ -371,6 +400,13 @@ export default auto(function FooterEntry (props) {
         <QmPrompt store={props.store} />
         {/* G1 广播目标选择弹层：任入口（顶栏/右键/快捷键）都只置 store 标记 */}
         <BroadcastModal />
+        {/* G9 隧道运行时面板：入口在下方 renderTunnelIcon，面板只跟着打开它的那条会话 */}
+        <TunnelRuntime
+          open={!!tunnelTabId}
+          tabId={tunnelTabId}
+          onClose={() => setTunnelTabId('')}
+        />
+        {inActiveTerminal && renderTunnelIcon()}
         {inActiveTerminal && renderTriggers()}
         {inActiveTerminal && renderBatchInputs()}
         {inActiveTerminal && renderQuickCmdStrip()}
