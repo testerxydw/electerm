@@ -176,6 +176,38 @@ describe('canSendImages：只有"判成不支持"才拦', () => {
   })
 })
 
+describe('detectTransport / evaluateImageSend：能力之外还要看通道', () => {
+  it('apiPath 判定与主进程 detectFormat 同口径', () => {
+    assert.equal(cap.detectTransport('/chat/completions'), 'openai-chat')
+    assert.equal(cap.detectTransport('/responses'), 'openai-responses')
+    assert.equal(cap.detectTransport('/v1/messages'), 'anthropic')
+    // 空值/自定义路径按 Chat 处理（现有请求体形状就是 Chat）
+    assert.equal(cap.detectTransport(''), 'openai-chat')
+    assert.equal(cap.detectTransport('/generateContent'), 'openai-chat')
+  })
+
+  it('非 Chat 通道一律拦下，且"仍要发送"不能放行——图会在构造请求体时被压成文本', () => {
+    const r = cap.evaluateImageSend({ support: 'yes', apiPath: '/v1/messages', allowOnce: true })
+    assert.deepEqual([r.allowed, r.reason], [false, 'transport'])
+    assert.equal(cap.evaluateImageSend({ support: 'yes', apiPath: '/responses' }).reason, 'transport')
+  })
+
+  it('Chat 通道下按能力判定：no 拦、unknown 放、no+点头放', () => {
+    assert.deepEqual(
+      cap.evaluateImageSend({ support: 'no', apiPath: '/chat/completions' }),
+      { allowed: false, reason: 'capability' }
+    )
+    assert.equal(cap.evaluateImageSend({ support: 'no', apiPath: '/chat/completions', allowOnce: true }).allowed, true)
+    assert.equal(cap.evaluateImageSend({ support: 'unknown', apiPath: '/chat/completions' }).allowed, true)
+    assert.equal(cap.evaluateImageSend({ support: 'yes', apiPath: '/chat/completions' }).reason, '')
+  })
+
+  it('参数缺失不炸（组件第一次渲染时 config 可能是空的）', () => {
+    assert.equal(cap.evaluateImageSend().allowed, true)
+    assert.equal(cap.evaluateImageSend({}).allowed, true)
+  })
+})
+
 describe('estimateImageTokens：估高不估低', () => {
   it('按 (宽×高)/750 近似并取整', () => {
     assert.equal(cap.estimateImageTokens(1024, 1024), Math.ceil((1024 * 1024) / 750))

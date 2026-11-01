@@ -6,6 +6,7 @@ import handleError from '../common/error-handler'
 import Modal from '../components/common/modal'
 import { appendMandatoryGuardrails } from '../components/ai/ai-guardrails'
 import { buildSessionMessages } from '../components/ai/ai-context'
+import { dropImage, clearImages } from '../components/ai/ai-image-cache'
 import { COMPRESS_SUMMARY_PROMPT } from '../components/ai/ai-auto-compress'
 import { debounce, some, get, pickBy } from 'lodash-es'
 import {
@@ -502,12 +503,25 @@ export default Store => {
     window.store.aiChatHistory = next
   }
 
+  // 图片本体只活在内存缓存里（历史条目只有 id），条目没了就该把字节还回去：
+  // 否则一条被删掉的会话会一直占着 buffer，等到 LRU 自己挤出去。
+  // 每个附件 id 只属于承载它的那一条条目，所以不需要引用计数。
+  function dropEntryImages (entry) {
+    if (!entry || !Array.isArray(entry.images)) {
+      return
+    }
+    for (const img of entry.images) {
+      dropImage(img && img.id)
+    }
+  }
+
   Store.prototype.removeAiHistory = function (id) {
     const { store } = window
     const index = store.aiChatHistory.findIndex(d => d.id === id)
     if (index === -1) {
       return
     }
+    dropEntryImages(store.aiChatHistory[index])
     // Reassign instead of splice: the store only notifies subscribers on a
     // property write, so an in-place mutation leaves the panel rendering the
     // list it already had.
@@ -530,6 +544,9 @@ export default Store => {
 
   Store.prototype.deleteChatSession = action(function (sessionId) {
     const { store } = window
+    store.aiChatHistory
+      .filter(d => d.chatSessionId === sessionId)
+      .forEach(dropEntryImages)
     const remaining = store.aiChatHistory.filter(d => d.chatSessionId !== sessionId)
     store.aiChatHistory = remaining
     if (store.currentChatSessionId === sessionId) {
@@ -540,6 +557,8 @@ export default Store => {
   Store.prototype.clearAllChatSessions = action(function () {
     const { store } = window
     store.aiChatHistory = []
+    // 一条都不剩了，图片缓存也没有引用它的条目了
+    clearImages()
     store.showChatSessions = false
     store.startNewChat()
   })

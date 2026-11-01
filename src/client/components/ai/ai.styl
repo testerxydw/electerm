@@ -145,6 +145,94 @@
     text-overflow ellipsis
     white-space nowrap
 
+// 图片能力芯片：只在"值得动手"时出现（判定为纯文本 / 通道不带图 / 带图但未识别）。
+// 颜色一律走语义 token，双主题都跟；未识别刻意用最弱的一档，不要看着像报错
+.ai-image-cap-chip
+  display inline-flex
+  align-items center
+  gap 4px
+  padding 1px 7px
+  border-radius var(--radius-xs)
+  border 1px solid var(--border)
+  font-size 12px
+  line-height 18px
+  cursor pointer
+  white-space nowrap
+  .anticon
+    font-size 12px
+  &.is-unknown
+    color var(--text-muted)
+    background var(--surface-3)
+  &.is-no
+    color var(--warn)
+    border-color var(--warn)
+    background var(--warn-bg)
+  &.is-transport
+    color var(--error)
+    border-color var(--error)
+    background var(--error-bg)
+
+.ai-image-blocked
+  padding 6px 8px
+  border 1px solid var(--warn)
+  border-radius var(--radius-xs)
+  background var(--warn-bg)
+  .ai-image-blocked-text
+    color var(--text-dark)
+    font-size 12px
+
+// 图片附件卡片：缩略图 + 名称 + 尺寸/体积 + 删除。文本附件仍是 Tag，两种附件
+// 的信息密度差很多，硬塞进同一个 Tag 会把体积和尺寸挤掉
+// 草稿区用 .ai-chat-attachments（文本 Tag 与图片卡片混排），历史区用
+// .ai-image-attachments 包一层；卡片样式两边同一套，别只写一处
+.ai-image-attachments,
+.ai-chat-attachments
+  .ai-image-card
+    position relative
+    display inline-flex
+    align-items center
+    gap 6px
+    padding 4px 6px
+    border 1px solid var(--border)
+    border-radius var(--radius-xs)
+    background var(--surface-3)
+    max-width 100%
+    .ai-image-thumb
+      width 44px
+      height 44px
+      object-fit cover
+      border-radius 2px
+      cursor zoom-in
+      background var(--surface-1)
+    .ai-image-meta
+      display flex
+      flex-direction column
+      min-width 0
+    .ai-image-name
+      max-width 150px
+      overflow hidden
+      white-space nowrap
+      text-overflow ellipsis
+      font-size 12px
+      color var(--text-dark)
+    .ai-image-size
+      font-size 11px
+      color var(--text-muted)
+    .ai-image-remove
+      cursor pointer
+      color var(--text-muted)
+      &:hover
+        color var(--error)
+    // 判定为纯文本/通道不带图时卡片描一遍警告色，光靠下面的横幅容易被忽略
+    &.is-warn
+      border-color var(--warn)
+    // 重启后缩略图还在、原图没了：留灰态 + 明确文案，不要静默把图丢了
+    &.is-expired
+      opacity 0.6
+      .ai-image-thumb
+        cursor default
+        filter grayscale(1)
+
 .ai-chat-item-attachments
   .ant-tag
     margin-right 4px

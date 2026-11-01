@@ -5,6 +5,7 @@ import AgentToolCallCard from './agent-tool-call-card'
 import { runAgentLoop, stopAgentRun } from './agent'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import { buildSessionMessages, summarizeContext } from './ai-context'
+import { resolveImage } from './ai-image-cache'
 import {
   shouldAutoCompress,
   canCompact,
@@ -23,7 +24,8 @@ import {
   CaretDownOutlined,
   CaretRightOutlined,
   CompressOutlined,
-  PaperClipOutlined
+  PaperClipOutlined,
+  FileImageOutlined
 } from '@ant-design/icons'
 import { copy } from '../../common/clipboard'
 import { formatSize } from './ai-attachments'
@@ -78,13 +80,16 @@ export default memo(function AIChatHistoryItem ({ item }) {
   // The context this turn sends: the session history up to and including the
   // previous turns, but not this turn's own (still streaming) response.
   // Shared with the context size indicator in ai-chat.jsx so the number shown
-  // is built from the same message list that goes out.
+  // is built from the same message list that goes out. `resolveImage` is what
+  // turns an entry's image metadata into the picture parts of this turn, so a
+  // screenshot the user pasted last turn is still sent to the model now.
   const conversationMessages = useMemo(() => buildSessionMessages({
     history: window.store.aiChatHistory,
     chatSessionId,
     upto: item.timestamp,
     role: buildRole(),
-    excludeId: item.id
+    excludeId: item.id,
+    resolveImage
   }), [chatSessionId, item.id, item.timestamp])
 
   // Everything a request needs beyond the message list; also what the
@@ -319,12 +324,42 @@ export default memo(function AIChatHistoryItem ({ item }) {
   }
 
   function renderAttachments () {
-    if (!item.attachments || !item.attachments.length) {
+    const images = item.images || []
+    const files = item.attachments || []
+    if (!images.length && !files.length) {
       return null
     }
+    const e = window.translate
+    // 历史里只留元数据（名字/尺寸/体积），图本身在内存缓存。重启后缓存空了：
+    // 缩略图没有、后续发送也只会带占位符，所以这里明确标灰并给出原因，
+    // 而不是让一条“看起来带图”的记录骗人
     return (
       <div className='ai-chat-item-attachments mg1b'>
-        {item.attachments.map(a => (
+        <div className='ai-image-attachments'>
+          {images.map(img => {
+            const name = String((img && img.name) || 'image')
+            const live = !!(img && img.id && resolveImage(img.id))
+            const dims = img && img.width && img.height
+              ? `${img.width}×${img.height} · ${formatSize(img.bytes)}`
+              : formatSize(img && img.bytes)
+            return (
+              <span
+                key={'img-' + (img.id || name)}
+                className={'ai-image-card' + (live ? '' : ' is-expired')}
+                title={live
+                  ? `${name} (${dims})`
+                  : `${name} (${dims}) — ${e('aiImageExpired')}`}
+              >
+                <FileImageOutlined />
+                <span className='ai-image-meta'>
+                  <span className='ai-image-name'>{name}</span>
+                  <span className='ai-image-size'>{dims}</span>
+                </span>
+              </span>
+            )
+          })}
+        </div>
+        {files.map(a => (
           <Tag key={a.name + a.size} title={`${a.name} (${formatSize(a.size)})`}>
             <PaperClipOutlined /> {a.name}
           </Tag>

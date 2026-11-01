@@ -1,7 +1,8 @@
 // text file attachment support for AI chat
 // only text files are supported: content is read and inlined
 // into the prompt, images/binaries are rejected
-import uid from '../../common/uid'
+// 显式带 .js：node 的 ESM loader 不补扩展名，图片附件那层的单测要能直接 import 这里
+import uid from '../../common/uid.js'
 
 export const MAX_ATTACHMENT_FILE_SIZE = 50 * 1024
 export const MAX_ATTACHMENT_TOTAL_SIZE = 100 * 1024
@@ -67,7 +68,8 @@ export function validateAttachmentTotal (list, extraSize = 0) {
 
 // FNV-1a over the content. Cheap, and good enough to tell "same file added
 // twice" from "second screenshot that happens to have the same name and size".
-function fnv1a (str) {
+// 图片附件也用同一个哈希（ai-image-attachments.js），两份实现迟早会漂
+export function fnv1a (str) {
   let h = 0x811c9dc5
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i)

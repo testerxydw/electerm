@@ -131,6 +131,45 @@ export function canSendImages (support, allowOnce = false) {
   return support !== SUPPORT_NO
 }
 
+export const TRANSPORT_OPENAI_CHAT = 'openai-chat'
+export const TRANSPORT_OPENAI_RESPONSES = 'openai-responses'
+export const TRANSPORT_ANTHROPIC = 'anthropic'
+
+/**
+ * 按 apiPath 判断走的是哪种协议（与主进程 ai-format.js 的 detectFormat 同口径）。
+ *
+ * 为什么渲染层也要判一次：本轮只有 OpenAI Chat 做了图片分片映射。Responses 与
+ * Anthropic 的构造器把 user 消息的 content 过 textFromContent 压成纯文本，图片会
+ * **静默丢失**——用户以为模型看到了图，这比报错更糟。所以先把话说在前面。
+ */
+export function detectTransport (apiPath) {
+  const p = String(apiPath || '').toLowerCase()
+  if (p.includes('/responses')) {
+    return TRANSPORT_OPENAI_RESPONSES
+  }
+  if (p.includes('/messages')) {
+    return TRANSPORT_ANTHROPIC
+  }
+  return TRANSPORT_OPENAI_CHAT
+}
+
+/**
+ * 综合判定：能力（模型收不收图）+ 通道（这条协议会不会静默丢图）+ 人的点头。
+ *
+ * @returns {{allowed: boolean, reason: string}} reason 为 '' | 'capability' | 'transport'
+ */
+export function evaluateImageSend ({ support, apiPath, allowOnce = false } = {}) {
+  const transport = detectTransport(apiPath)
+  if (transport !== TRANSPORT_OPENAI_CHAT) {
+    // 通道不支持时"仍要发送"也没有意义：图会在构造请求体时被压掉，不是被模型拒绝
+    return { allowed: false, reason: 'transport' }
+  }
+  if (!canSendImages(support, allowOnce)) {
+    return { allowed: false, reason: 'capability' }
+  }
+  return { allowed: true, reason: '' }
+}
+
 /**
  * 图片占多少上下文。
  *

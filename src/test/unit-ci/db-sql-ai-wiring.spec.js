@@ -124,7 +124,8 @@ describe('db-sql-ai 接线：AI 回复代码块', () => {
 
 describe('db-sql-ai 接线：AI 面板三个既有缺陷', () => {
   test('历史裁剪保新不保旧', () => {
-    assert.match(CHAT, /aiChatHistory\.slice\(-MAX_HISTORY\)/, '仍在保头去尾：会丢掉刚发的那条')
+    // 保新：裁的是队首，字面量可以是 -MAX_HISTORY，也可以是"长度差"那一段
+    assert.match(CHAT, /slice\(-MAX_HISTORY\)/, '仍在保头去尾：会丢掉刚发的那条')
     // 只禁代码形态，注释里允许出现这个旧写法（它就是解释"为什么改"的说明）
     assert.ok(!/= window\.store\.aiChatHistory\.slice\(0, MAX_HISTORY\)/.test(CHAT),
       '还留着 slice(0, MAX_HISTORY) 的赋值')
@@ -135,7 +136,8 @@ describe('db-sql-ai 接线：AI 面板三个既有缺陷', () => {
   })
 
   test('附件去重看内容指纹，不看 name+size', () => {
-    assert.match(CHAT, /isDuplicateAttachment\(next, attachment\)/, '去重没走指纹')
+    // 第二个参数是刚读出来的附件，第一个是已有列表（图片通道另有 isDuplicateImage）
+    assert.match(CHAT, /isDuplicateAttachment\(\w+, attachment\)/, '去重没走指纹')
     const att = read('src/client/components/ai/ai-attachments.js')
     assert.match(att, /attachment\.fingerprint = attachmentFingerprint\(attachment\)/, '读取时没算指纹')
   })
@@ -152,7 +154,8 @@ describe('db-sql-ai 接线：AI 面板三个既有缺陷', () => {
     const submit = CHAT.slice(
       CHAT.indexOf('const handleSubmit'),
       CHAT.indexOf('const handleSubmit') + 3000)
-    assert.match(submit, /const entryAttachments = isOverride/, 'override 应忽略面板里的附件')
+    assert.match(submit, /const texts = isOverride \? \[\] : attachments\.filter/,
+      'override 应忽略面板里的附件')
     assert.match(submit, /if \(!isOverride\) \{[\s\S]*setPrompt\(''\)[\s\S]*setAttachments\(\[\]\)/,
       'override 不该清掉用户正在写的草稿')
     assert.match(submit, /const text = isOverride \? overridePrompt : prompt/,
