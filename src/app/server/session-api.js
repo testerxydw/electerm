@@ -85,11 +85,21 @@ async function startTerminalLogFile (body) {
   return 'ok'
 }
 
+async function tunnelOp (body) {
+  const { pid, op, tunnelId } = body
+  const term = terminals(pid)
+  if (!term || typeof term.tunnelOp !== 'function') {
+    throw new Error('tunnel runtime is only available on an ssh session')
+  }
+  return term.tunnelOp(op, tunnelId)
+}
+
 exports.createTerm = createTerm
 exports.testTerm = testTerm
 exports.resize = resize
 exports.runCmd = runCmd
 exports.execCmd = execCmd
+exports.tunnelOp = tunnelOp
 exports.toggleTerminalLog = toggleTerminalLog
 exports.toggleTerminalLogTimestamp = toggleTerminalLogTimestamp
 exports.setTerminalLogPath = setTerminalLogPath

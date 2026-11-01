@@ -21,6 +21,7 @@ const {
   resize,
   runCmd,
   execCmd,
+  tunnelOp,
   toggleTerminalLog,
   toggleTerminalLogTimestamp,
   setTerminalLogPath,
@@ -659,6 +660,8 @@ process.on('message', async (message) => {
       promise = runCmd(body)
     } else if (action === 'exec-cmd') {
       promise = execCmd(body)
+    } else if (action === 'tunnel-op') {
+      promise = tunnelOp(body)
     }
 
     const result = await promise

@@ -156,11 +156,41 @@ function startTerminalLogFile (ws, msg) {
   })
 }
 
+async function tunnelOp (ws, msg) {
+  const { id, pid, op, tunnelId } = msg
+  const term = terminals(pid)
+  if (!term || typeof term.tunnelOp !== 'function') {
+    ws.s({
+      id,
+      error: {
+        message: 'tunnel runtime is only available on an ssh session'
+      }
+    })
+    return
+  }
+  try {
+    const data = await term.tunnelOp(op, tunnelId, id)
+    ws.s({
+      id,
+      data
+    })
+  } catch (err) {
+    ws.s({
+      id,
+      error: {
+        message: err.message,
+        stack: err.stack
+      }
+    })
+  }
+}
+
 exports.createTerm = createTerm
 exports.testTerm = testTerm
 exports.resize = resize
 exports.runCmd = runCmd
 exports.execCmd = execCmd
+exports.tunnelOp = tunnelOp
 exports.toggleTerminalLog = toggleTerminalLog
 exports.toggleTerminalLogTimestamp = toggleTerminalLogTimestamp
 exports.setTerminalLogPath = setTerminalLogPath

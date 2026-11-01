@@ -15,6 +15,7 @@ const {
   resize,
   runCmd,
   execCmd,
+  tunnelOp,
   toggleTerminalLog,
   toggleTerminalLogTimestamp,
   setTerminalLogPath,
@@ -106,6 +107,8 @@ const initWs = function (app) {
           runCmd(ws, msg)
         } else if (action === 'exec-cmd') {
           execCmd(ws, msg)
+        } else if (action === 'tunnel-op') {
+          tunnelOp(ws, msg)
         }
       } catch (err) {
         log.error('common ws error', err)

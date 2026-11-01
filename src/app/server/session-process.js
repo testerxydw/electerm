@@ -359,6 +359,15 @@ exports.terminals = function (pid) {
         action: 'start-terminal-log-file',
         body: { pid, logFilePath, addTimeStampToTermLog }
       }, 10000).catch(() => {})
+    },
+    tunnelOp: (op, tunnelId, id) => {
+      // unlike the fire-and-forget ops above, the caller has to hear whether
+      // the tunnel actually stopped - the panel shows exactly that
+      return sendMsgToChildProcess(pid, {
+        id,
+        action: 'tunnel-op',
+        body: { pid, op, tunnelId }
+      }, 30000)
     }
   }
 }

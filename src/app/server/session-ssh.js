@@ -106,6 +106,12 @@ class TerminalSshBase extends TerminalBase {
     // Set once a prompt was cancelled or taken back. Retrying from here would
     // ask the very same question, and no retry can answer it on its own.
     this.interactiveAborted = false
+    // Live tunnels of this session: id -> the close() handle ssh-tunnel hands
+    // back, plus the configured spec (so a stopped one can be started again)
+    // and the rows last reported to the renderer.
+    this.tunnelHandles = new Map()
+    this.tunnelSpecs = new Map()
+    this.tunnelResults = []
   }
 
   async remoteInitProcess () {
@@ -681,32 +687,139 @@ class TerminalSshBase extends TerminalBase {
     }
   }
 
-  async runTunnel (sshTunnel) {
+  /**
+   * The port a tunnel must have to exist at all: a remote dynamic forward only
+   * listens on the server side, every other type listens on ours.
+   */
+  tunnelListenPort (sshTunnel) {
+    return sshTunnel.sshTunnel === 'remoteDynamicForward'
+      ? sshTunnel.sshTunnelRemotePort
+      : sshTunnel.sshTunnelLocalPort
+  }
+
+  async runTunnel (sshTunnel, id) {
+    const row = {
+      id,
+      sshTunnel
+    }
     const func = sshTunnelFuncs[sshTunnel.sshTunnel]
     if (typeof func !== 'function') {
       // an unknown type from a deeplink or an older bookmark would otherwise
       // throw synchronously and take the whole session down
       return {
-        error: `unknown ssh tunnel type: ${sshTunnel.sshTunnel}`,
-        sshTunnel
+        ...row,
+        error: `unknown ssh tunnel type: ${sshTunnel.sshTunnel}`
       }
     }
     return func({
       ...sshTunnel,
       conn: this.conn
     })
-      .then(r => {
-        return {
-          sshTunnel
-        }
+      .then(handle => {
+        // what makes "stop this tunnel" possible at all - without it a tunnel
+        // could only be taken down by killing the session that opened it
+        this.tunnelHandles.set(id, handle.close)
+        return row
       })
       .catch(err => {
         log.error('error when do sshTunnel', err)
         return {
-          error: err.message,
-          sshTunnel
+          ...row,
+          error: err.message
         }
       })
+  }
+
+  pushTunnelResults () {
+    if (!this.ws) {
+      return
+    }
+    this.ws.s({
+      update: {
+        sshTunnelResults: this.tunnelResults
+      },
+      action: 'ssh-tunnel-result',
+      tabId: this.initOptions?.srcTabId
+    })
+  }
+
+  setTunnelRow (row) {
+    const i = this.tunnelResults.findIndex(r => r && r.id === row.id)
+    if (i < 0) {
+      this.tunnelResults.push(row)
+    } else {
+      this.tunnelResults[i] = row
+    }
+  }
+
+  /**
+   * Start or stop one tunnel of a live session, for the runtime panel.
+   * Only ids this session registered can be addressed, and only specs it was
+   * opened with can be started - a message from a tab must not be able to ask
+   * for a forward the user never configured.
+   */
+  async tunnelOp (op, id) {
+    if (op === 'stop') {
+      return this.stopTunnel(id)
+    }
+    if (op === 'start') {
+      return this.startTunnel(id)
+    }
+    throw new Error(`unknown tunnel op: ${op}`)
+  }
+
+  stopTunnel (id) {
+    const close = this.tunnelHandles.get(id)
+    if (!close) {
+      throw new Error(`tunnel is not running: ${id}`)
+    }
+    close()
+    this.tunnelHandles.delete(id)
+    this.setTunnelRow({
+      id,
+      sshTunnel: this.tunnelSpecs.get(id),
+      stopped: true
+    })
+    this.pushTunnelResults()
+    return this.tunnelResults
+  }
+
+  async startTunnel (id) {
+    const sshTunnel = this.tunnelSpecs.get(id)
+    if (!sshTunnel) {
+      throw new Error(`tunnel is not configured for this session: ${id}`)
+    }
+    // restarting what is already up would bind the same port twice: the second
+    // one fails with EADDRINUSE and the panel shows a working tunnel as an error
+    if (this.tunnelHandles.has(id)) {
+      return this.tunnelResults
+    }
+    if (!this.tunnelListenPort(sshTunnel)) {
+      throw new Error(`tunnel has no listen port: ${id}`)
+    }
+    if (!this.conn) {
+      throw new Error('ssh connection is closed')
+    }
+    const row = await this.runTunnel(sshTunnel, id)
+    this.setTunnelRow(row)
+    this.pushTunnelResults()
+    return this.tunnelResults
+  }
+
+  closeTunnels () {
+    if (!this.tunnelHandles.size) {
+      return
+    }
+    for (const close of this.tunnelHandles.values()) {
+      close()
+    }
+    this.tunnelHandles.clear()
+    for (const row of this.tunnelResults) {
+      if (row && !row.error) {
+        row.stopped = true
+      }
+    }
+    this.pushTunnelResults()
   }
 
   async onInitSshReady () {
@@ -729,32 +842,26 @@ class TerminalSshBase extends TerminalBase {
       return this
     }
     const { sshTunnels = [] } = initOptions
-    const sshTunnelResults = []
-    for (const sshTunnel of sshTunnels) {
+    // the form gives every entry an id; a bookmark that predates it (or a
+    // deeplink) has none, so fall back to the position in the list - the same
+    // fallback the renderer uses when it builds a row for a tunnel that never
+    // reported back.
+    for (let i = 0; i < sshTunnels.length; i++) {
+      const sshTunnel = sshTunnels[i]
       if (!sshTunnel || !sshTunnel.sshTunnel) {
         continue
       }
-      // a remote dynamic forward only listens on the remote side, so it is the
-      // remote port that has to be there
-      const listenPort = sshTunnel.sshTunnel === 'remoteDynamicForward'
-        ? sshTunnel.sshTunnelRemotePort
-        : sshTunnel.sshTunnelLocalPort
-      if (!listenPort) {
+      const id = sshTunnel.id || `tunnel-${i}`
+      this.tunnelSpecs.set(id, sshTunnel)
+      if (!this.tunnelListenPort(sshTunnel)) {
         continue
       }
-      const result = await this.runTunnel(sshTunnel)
-      sshTunnelResults.push(result)
+      this.setTunnelRow(await this.runTunnel(sshTunnel, id))
     }
     if (!this.ws) {
-      this.sshTunnelResults = sshTunnelResults
+      this.sshTunnelResults = this.tunnelResults
     } else {
-      this.ws?.s({
-        update: {
-          sshTunnelResults
-        },
-        action: 'ssh-tunnel-result',
-        tabId: this.initOptions.srcTabId
-      })
+      this.pushTunnelResults()
     }
     return this.openShell(shellWindow, shellOpts)
   }
@@ -1356,6 +1463,10 @@ class TerminalSshBase extends TerminalBase {
     }
     this.channel && this.channel.end()
     delete this.channel
+    // release tunnel listeners before the connection goes: an ssh tunnel
+    // cleans up on the connection's 'close', but a session killed while that
+    // event never arrives would keep the local port (or the remote bind)
+    this.closeTunnels()
     this.onEndConn()
     // clean up every ssh transport we own: the active connection, the
     // jump-host hops, and a jump client that never finished connecting

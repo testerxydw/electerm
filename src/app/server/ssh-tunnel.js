@@ -1,5 +1,49 @@
 const log = require('../common/log')
 
+/**
+ * Every tunnel resolves { close }. close is idempotent because two things can
+ * reach it: the runtime panel (stop this tunnel) and the ssh connection's own
+ * 'close' event (the whole session is going away).
+ */
+function makeClose (fn) {
+  let closed = false
+  return () => {
+    if (closed) {
+      return
+    }
+    closed = true
+    fn()
+  }
+}
+
+function destroyAll (set) {
+  for (const stream of set) {
+    stream.destroy()
+  }
+  set.clear()
+}
+
+/**
+ * A remote forward is a listening socket on the *server*, so dropping our
+ * listeners is not enough - the server would keep accepting into a channel
+ * nobody services. ssh2 throws when the connection is already gone (the 'close'
+ * path here), and a plain EventEmitter stand-in (tests) has no method at all.
+ */
+function unforwardIn (conn, host, port, result) {
+  if (typeof conn.unforwardIn !== 'function') {
+    return
+  }
+  try {
+    conn.unforwardIn(host, port, (err) => {
+      if (err) {
+        log.error(`Error cancelling forward for ${result}:`, err.message)
+      }
+    })
+  } catch (e) {
+    log.log(`skip unforward for ${result}: ${e.message}`)
+  }
+}
+
 function forwardRemoteToLocal ({
   conn,
   sshTunnelRemotePort,
@@ -9,6 +53,8 @@ function forwardRemoteToLocal ({
 }) {
   return new Promise((resolve, reject) => {
     const result = `remote:${sshTunnelRemoteHost}:${sshTunnelRemotePort} => local:${sshTunnelLocalHost}:${sshTunnelLocalPort}`
+    const srcStreams = new Set()
+    const localSockets = new Set()
 
     const handleTcpConnection = (info, accept, rejectConn) => {
       // Check if this connection is for this tunnel
@@ -23,6 +69,11 @@ function forwardRemoteToLocal ({
         return
       }
 
+      srcStreams.add(srcStream)
+      srcStream.on('close', () => {
+        srcStreams.delete(srcStream)
+      })
+
       // Add error handling for source stream immediately
       srcStream.on('error', (err) => {
         log.error(`Source stream error for tunnel ${result}:`, err)
@@ -31,6 +82,7 @@ function forwardRemoteToLocal ({
       // Connect the local machine source stream to the local port
       // Create a NEW server connection for each forwarded connection
       const server = require('net').connect(sshTunnelLocalPort, sshTunnelLocalHost)
+      localSockets.add(server)
 
       // CRITICAL: Add error handling IMMEDIATELY before any async operations
       // This prevents unhandled errors from crashing the SSH session
@@ -42,6 +94,7 @@ function forwardRemoteToLocal ({
       })
 
       server.on('close', () => {
+        localSockets.delete(server)
         log.log(`Local server connection closed for tunnel ${result}`)
         srcStream.end()
       })
@@ -53,13 +106,20 @@ function forwardRemoteToLocal ({
       srcStream.pipe(server).pipe(srcStream)
     }
 
-    conn.on('tcp connection', handleTcpConnection)
-
     const handleClose = () => {
       log.log(`SSH connection closed for tunnel ${result}`)
+      close()
+    }
+
+    const close = makeClose(() => {
       conn.removeListener('tcp connection', handleTcpConnection)
       conn.removeListener('close', handleClose)
-    }
+      destroyAll(srcStreams)
+      destroyAll(localSockets)
+      unforwardIn(conn, sshTunnelRemoteHost, sshTunnelRemotePort, result)
+    })
+
+    conn.on('tcp connection', handleTcpConnection)
 
     conn.on('close', handleClose)
 
@@ -67,10 +127,11 @@ function forwardRemoteToLocal ({
     conn.forwardIn(sshTunnelRemoteHost, sshTunnelRemotePort, (err) => {
       if (err) {
         log.error('Error forwarding port:', err)
+        close()
         return reject(err)
       }
       log.log(`Port forwarded: ${result}`)
-      resolve(1)
+      resolve({ close })
     })
   })
 }
@@ -84,6 +145,7 @@ function forwardLocalToRemote ({
 }) {
   return new Promise((resolve, reject) => {
     const activeSockets = new Set()
+    const remoteSockets = new Set()
     const localServer = require('net').createServer((socket) => {
       // ⬇️ 2. Add new sockets to the set and remove them when they close
       activeSockets.add(socket)
@@ -113,6 +175,12 @@ function forwardLocalToRemote ({
           return
         }
 
+        remoteSockets.add(remoteSocket)
+        remoteSocket.on('close', () => {
+          remoteSockets.delete(remoteSocket)
+          socket.destroy()
+        })
+
         // Add error handlers immediately
         remoteSocket.on('error', (err) => {
           log.error('Remote socket error:', err)
@@ -123,31 +191,35 @@ function forwardLocalToRemote ({
           remoteSocket.destroy()
         })
 
-        remoteSocket.on('close', () => {
-          socket.destroy()
-        })
-
         socket.pipe(remoteSocket).pipe(socket)
       })
     })
 
+    const handleClose = () => {
+      log.log('SSH connection closed, closing local server.')
+      close()
+    }
+
+    const close = makeClose(() => {
+      conn.removeListener('close', handleClose)
+      // destroy the sockets first: a server with open connections would not
+      // finish closing and its port would stay taken
+      destroyAll(activeSockets)
+      destroyAll(remoteSockets)
+      localServer.close()
+    })
+
     localServer.listen(sshTunnelLocalPort, sshTunnelLocalHost, () => {
       log.log(`Local server listening on port ${sshTunnelLocalPort}`)
-      resolve(1)
+      resolve({ close })
     })
     localServer.on('error', (err) => {
       log.error('Error listening for local connections:', err)
+      close()
       reject(err)
     })
 
-    conn.on('close', () => {
-      log.log('SSH connection closed, closing local server.')
-      // ⬇️ 3. Destroy all active sockets before closing the server
-      for (const socket of activeSockets) {
-        socket.destroy()
-      }
-      localServer && localServer.close()
-    })
+    conn.on('close', handleClose)
   })
 }
 
@@ -158,6 +230,11 @@ function dynamicForward ({
 }) {
   const socks = require('socksv5-server')
   return new Promise((resolve, reject) => {
+    const streams = new Set()
+    const track = (stream) => {
+      streams.add(stream)
+      stream.on('close', () => streams.delete(stream))
+    }
     const dproxyServer = socks.createServer((info, accept, deny) => {
       conn.forwardOut(
         info.srcAddr,
@@ -174,6 +251,9 @@ function dynamicForward ({
           }
           const clientSocket = accept(true)
           if (clientSocket) {
+            track(stream)
+            track(clientSocket)
+
             // Add error handling for stream immediately
             stream.on('error', (err) => {
               log.error('SOCKS stream error:', err)
@@ -198,19 +278,24 @@ function dynamicForward ({
           }
         })
     })
+    const handleClose = () => close()
+    const close = makeClose(() => {
+      conn.removeListener('close', handleClose)
+      destroyAll(streams)
+      dproxyServer.close()
+    })
     dproxyServer.on('error', (err) => {
       log.error('Error listening for local connections:', err)
+      close()
       reject(err)
     })
     dproxyServer.listen(sshTunnelLocalPort, sshTunnelLocalHost, () => {
       log.log(`SOCKS server listening on ${sshTunnelLocalHost}:${sshTunnelLocalPort}`)
-      resolve(1)
+      resolve({ close })
     }).useAuth(socks.auth.None())
 
     // close socks proxy when ssh connection is closed.
-    conn.on('close', () => {
-      dproxyServer && dproxyServer.close()
-    })
+    conn.on('close', handleClose)
   })
 }
 
@@ -285,29 +370,30 @@ function remoteDynamicForward ({
       socksServer._onConnection(srcStream)
     }
 
-    conn.on('tcp connection', handleTcpConnection)
-
     const handleClose = () => {
       log.log(`SSH connection closed for tunnel ${result}`)
+      close()
+    }
+
+    const close = makeClose(() => {
       conn.removeListener('tcp connection', handleTcpConnection)
       conn.removeListener('close', handleClose)
-      for (const ch of channels) {
-        ch.destroy()
-      }
-      channels.clear()
-    }
+      destroyAll(channels)
+      unforwardIn(conn, sshTunnelRemoteHost, sshTunnelRemotePort, result)
+    })
+
+    conn.on('tcp connection', handleTcpConnection)
 
     conn.on('close', handleClose)
 
     conn.forwardIn(sshTunnelRemoteHost, sshTunnelRemotePort, (err) => {
       if (err) {
         log.error('Error forwarding port:', err)
-        conn.removeListener('tcp connection', handleTcpConnection)
-        conn.removeListener('close', handleClose)
+        close()
         return reject(err)
       }
       log.log(`Port forwarded: ${result}`)
-      resolve(1)
+      resolve({ close })
     })
   })
 }
