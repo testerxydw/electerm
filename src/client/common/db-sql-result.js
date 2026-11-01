@@ -142,6 +142,20 @@ export function looksNumericColumn (rows, key, sample = 100) {
   return seen > 0
 }
 
+// 主进程撞了单次执行的行数上限时会带 truncated/rowLimit 回来。不显示就等于把一份
+// 残缺结果当全量用——过滤、排序、导出都只在这前 N 行里做，而界面写的"N 行"
+// 看着像是查询本来的答案。
+export function sqlRowLimitNote (result, e) {
+  if (!result || result.truncated !== true) {
+    return ''
+  }
+  const rows = Array.isArray(result.rows) ? result.rows.length : 0
+  const n = Number(result.rowLimit) || rows
+  // 中文词条里 {n} 出现两次（"只取回前 {n} 行……只在这 {n} 行里"），
+  // String.replace 只换第一处，第二处会以字面量 "{n}" 直接印到界面上（实机踩到）
+  return String(e('dbSqlRowLimitHit')).replaceAll('{n}', n)
+}
+
 // 把"过滤后的下标数组"按一列排序，返回新数组（不改入参）。
 // NULL 恒排最后，与升降方向无关 —— 这是表格工具的通用约定：升序时 NULL 在最前
 // 会把"没有值"当成"最小值"，用户第一眼看到的就是一片 NULL。

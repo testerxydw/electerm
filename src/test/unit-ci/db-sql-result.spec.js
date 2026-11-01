@@ -18,7 +18,7 @@ const MOD = path.join(ROOT, 'src/client/common/db-sql-result.js')
 const WIDTH_MOD = path.join(ROOT, 'src/client/common/db-column-width.js')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 
-const EXPORTS = '({ SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes, visibleSqlKeys, toggleSqlHidden })'
+const EXPORTS = '({ SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes, visibleSqlKeys, toggleSqlHidden, sqlRowLimitNote })'
 
 function load (file, extra) {
   const src = fs.readFileSync(file, 'utf8')
@@ -56,7 +56,7 @@ const mod = load(MOD, { cellText: loadCellText() })
 const {
   SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView,
   allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes,
-  visibleSqlKeys, toggleSqlHidden
+  visibleSqlKeys, toggleSqlHidden, sqlRowLimitNote
 } = mod
 
 const bin = size => ({ __bin: { size, b64: 'AAECAwQFBgc=', truncated: false } })
@@ -571,5 +571,65 @@ describe('db-sql-result: 编辑器底部状态（方言 / 只读 / 选区字符�
       assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
       assert.ok(new RegExp("e\\('" + k + "'\\)").test(src), k + ' 没被用上')
     }
+  })
+})
+
+describe('db-sql-result: 撞行数上限必须说出来（结果不完整不能当全量）', () => {
+  const e = k => ({ dbSqlRowLimitHit: 'limit {n}' })[k]
+
+  test('truncated 为真才给文案，且带上限行数', () => {
+    assert.equal(sqlRowLimitNote({ truncated: true, rowLimit: 10000, rows: [] }, e), 'limit 10000')
+  })
+
+  test('没撞上限（truncated 缺失/为假）时一个字都不说', () => {
+    assert.equal(sqlRowLimitNote({ rows: [1, 2, 3] }, e), '')
+    assert.equal(sqlRowLimitNote({ truncated: false, rowLimit: 10000, rows: [] }, e), '')
+    assert.equal(sqlRowLimitNote(null, e), '')
+  })
+
+  test('驱动没给 rowLimit 时退回实际行数，不说出"limit 0"这种话', () => {
+    assert.equal(sqlRowLimitNote({ truncated: true, rows: new Array(7).fill(0) }, e), 'limit 7')
+    assert.equal(sqlRowLimitNote({ truncated: true, rowLimit: 0, rows: [1, 2] }, e), 'limit 2')
+  })
+
+  // 实机踩到：中文词条里 {n} 出现两次，replace 只换第一处，界面上留下字面量 "{n}"
+  test('词条里占位符出现几次就换几次，界面不许留下字面量 {n}', () => {
+    const twice = k => ({
+      dbSqlRowLimitHit: '只取回前 {n} 行，过滤/排序/导出都只在这 {n} 行里'
+    })[k]
+    const note = sqlRowLimitNote({ truncated: true, rowLimit: 10000, rows: [] }, twice)
+    assert.equal(note, '只取回前 10000 行，过滤/排序/导出都只在这 10000 行里')
+    assert.ok(note.indexOf('{n}') < 0, '还留着没替换的占位符：' + note)
+  })
+})
+
+describe('db-sql-result: 接线契约 · 行数上限提示', () => {
+  const src = fs.readFileSync(SESSION, 'utf8')
+  const styl = fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8')
+  const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
+
+  test('纯函数被 import 且渲染在结果区（不是只写在 common 里没人用）', () => {
+    assert.ok(src.includes('sqlRowLimitNote,'), 'db-session 没有 import sqlRowLimitNote')
+    assert.ok(src.includes("className='db-sql-row-limit'"), '结果区没有渲染上限提示')
+    assert.ok(src.includes('r.affected === undefined && sqlRowLimitNote(r, e)'),
+      '上限提示要与"影响行数"互斥：DML 结果没有 rows，不该看到行数上限')
+  })
+
+  test('样式与词条齐活：警示色 + en/zh 各一条', () => {
+    assert.ok(/\.db-sql-row-limit\n {2}color var\(--warn\)/.test(styl), '上限提示没走警示色')
+    assert.equal((locales.match(/dbSqlRowLimitHit:/g) || []).length, 2, 'dbSqlRowLimitHit 要 en + zh 各一条')
+  })
+
+  test('词条里的占位符只有 {n}，实现按"全部出现"替换', () => {
+    const entries = locales.match(/dbSqlRowLimitHit: '[^']*'/g) || []
+    for (const one of entries) {
+      const text = one.slice(one.indexOf("'") + 1, one.lastIndexOf("'"))
+      for (const ph of text.match(/\{[^}]*\}/g) || []) {
+        assert.equal(ph, '{n}', '词条里有换不掉的占位符 ' + ph + '：' + text)
+      }
+    }
+    const impl = fs.readFileSync(MOD, 'utf8')
+    assert.ok(/sqlRowLimitNote[\s\S]{0,400}replaceAll\('\{n\}'/.test(impl),
+      '占位符可能不止一处，replace 只换第一处会漏字面量')
   })
 })

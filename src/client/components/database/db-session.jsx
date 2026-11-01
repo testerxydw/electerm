@@ -165,7 +165,8 @@ import { formatCellValue, readFormatLocale, isBinaryType, isNumberType, FORMAT_L
 // H1：SQL 结果工具行的派生链（过滤 → 排序 → 切页）抽成纯函数，便于单测
 import {
   filterRowIndexes, sortRowIndexes, sqlViewOf, patchSqlView, sqlSortOf, nextSqlSort,
-  looksNumericColumn, visibleSqlKeys, toggleSqlHidden, SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS
+  looksNumericColumn, visibleSqlKeys, toggleSqlHidden, sqlRowLimitNote,
+  SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS
 } from '../../common/db-sql-result'
 import './db-session.styl'
 
@@ -5402,6 +5403,12 @@ export default auto(function DbSession (props) {
           {
             r.affected !== undefined
               ? <div className='db-sql-affected'>{e('dbAffectedRows').replace('{n}', r.affected)}</div>
+              : null
+          }
+          {
+            // 撞行数上限 = 结果不完整，必须在这一屏说出来：过滤/排序/导出都只在这前 N 行里做
+            r.affected === undefined && sqlRowLimitNote(r, e)
+              ? <div className='db-sql-row-limit'>{sqlRowLimitNote(r, e)}</div>
               : null
           }
           <DbGridTable
