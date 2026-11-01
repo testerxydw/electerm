@@ -12,13 +12,15 @@
  *   这条只能靠"直接发 IPC 仍被拒 + 文件里没多出表"来证明；
  * - SQL 结果撞行数上限时界面必须说出来（否则用户把残缺结果当全量去过滤/排序/导出）。
  *
- * 覆盖（57 条）：
+ * 覆盖（63 条，跑完末尾打印实际数）：
  *   A 数据页/结构页（shop.db，可写）：连上并认出库文件、树里有表与视图、表头按
  *     PRAGMA 顺序、本页行数口径、NULL 占位、含引号/反斜杠/逗号引号的值逐字可见、
- *     本页过滤命中与还原、点表头一次即升序（chip price ↑ 且首格 88 不是 1899）、双击改格进编辑态、
+ *     本页过滤命中与还原、表头排序三态循环（无 → 升 → 降 → 取消，chip 与首行同时验，
+ *     首行按"本列 min/max"判而不写死数字）、双击改格进编辑态、
  *     UPDATE 落盘、删除选中落盘、结构页类型与主键、查看 DDL 是 sqlite_master 原文、
  *     SQL 编辑器可写、只读开关三处生效（编辑器不可编、单元格不再进编辑态、
- *     主进程拒绝 IPC 写且文件里没多出表）
+ *     主进程拒绝 IPC 写且文件里没多出表）、只读提示条按 SQLite 口径给
+ *     （白名单里有 VALUES/PRAGMA，不再承诺 MySQL 才有的 SHOW/DESC）
  *   B SQL 页（sql.db）：方言标 SQLite、SELECT 出行、多语句多结果集、反斜杠非转义、
  *     双引号是标识符（正例 + no such column 反例）、# 非注释、错误条带复制入口、
  *     -- 后不需空格、LIKE 无默认转义符（0/1）、PRAGMA 直读、1.2 万行撞上限并说明
@@ -183,6 +185,13 @@ const HELPERS = `(() => {
   // 只断言"首格值"分不清"点了一次排成降序"和"点了两次"，chip 才是意图的直接证据
   window.__sortChips = () => [...document.querySelectorAll('.db-view-chip')].filter(window.__vis)
     .map(x => ({ t: x.innerText.replace(/\\s+/g, ' ').trim(), desc: x.className.indexOf('is-desc') >= 0 }))
+  // 整列的可见值（按当前行序）：升/降的判据取"这一列的最小/最大值"，
+  // 不写死数字——夹具行会被前面的删除/改值用例改动，写死就等于把判据绑在历史跑序上
+  window.__colTexts = label => {
+    const idx = window.__colIdx(label)
+    if (idx < 0) return []
+    return window.__visRows().map(tr => (tr.children[idx] ? tr.children[idx].innerText.trim() : null))
+  }
   window.__rowIdxOf = t => window.__visRows()
     .findIndex(tr => [...tr.children].some(td => td.innerText.indexOf(t) >= 0))
   window.__rowCheckXY = i => {
@@ -307,6 +316,27 @@ const HELPERS = `(() => {
     const sw = wrap && wrap.querySelector('.ant-switch')
     return sw ? { xy: window.__xy(sw), on: /ant-switch-checked/.test(String(sw.className)) } : null
   }
+  // 只读开关的 Tooltip 文案：悬停才出现，且只在真正"可见"的那条上认
+  // （同一页签可能有别的浮层残留，hidden 的不算）
+  // 找不到控件时要说清"当时屏幕上是什么"：否则"编辑器没了"这种失败只能靠猜
+  window.__tabState = () => ({
+    docTabs: [...document.querySelectorAll('.tab-list .tab')].filter(window.__vis)
+      .map(t => (window.__isActiveTab(t) ? '*' : '') + t.innerText.replace(/\\s+/g, ' ').trim().slice(0, 26)),
+    segs: [...document.querySelectorAll('.db-tabs .ant-tabs-tab')].filter(window.__vis)
+      .map(t => (/ant-tabs-tab-active/.test(String(t.className)) ? '*' : '') + t.innerText.replace(/\\s/g, '')),
+    editors: document.querySelectorAll('.cm-content').length,
+    editorsVisible: [...document.querySelectorAll('.cm-content')].filter(window.__vis).length,
+    modal: [...document.querySelectorAll('.ant-modal')].filter(window.__vis).length
+  })
+  window.__isActiveTab = t => /active|selected/.test(String(t.className))
+  window.__tipText = () => {
+    const t = [...document.querySelectorAll('.ant-tooltip')].filter(window.__vis)[0]
+    if (!t) return null
+    return {
+      text: String(t.innerText || '').replace(/\\s+/g, ' ').trim(),
+      hidden: /ant-tooltip-hidden/.test(String(t.className))
+    }
+  }
 
   // ---- 浮层 ----
   // 危险确认是自绘 footer 的 .db-risk-modal（不是 Modal.confirm）：
@@ -387,8 +417,6 @@ const HELPERS = `(() => {
 
 async function main () {
   fs.mkdirSync(DEMO_DIR, { recursive: true })
-  writeShop()
-  writeSqlDb()
 
   const page = findPageTarget(await getJson(`http://127.0.0.1:${PORT}/json/list`))
   if (!page) {
@@ -426,6 +454,16 @@ async function main () {
     await cdp.click(p.x, p.y, 2)
     await sleep(ms)
     await park()
+  }
+  // 悬停取 Tooltip 文案：antd 提示条有出现延迟，要在它还开着时截图就先 shot 再 park
+  const hoverTip = async (p, shotFile = null, ms = 900) => {
+    if (!p) return null
+    await cdp.move(p.x, p.y)
+    await sleep(ms)
+    const t = await cdp.eval('window.__tipText()')
+    if (shotFile) await cdp.shot(shotFile)
+    await park()
+    return (t && !t.hidden) ? t.text : null
   }
 
   // 开一个 SQLite 会话页签：store.addTab → 组件挂载 → 主进程 openDbTab → 真 node:sqlite
@@ -489,9 +527,17 @@ async function main () {
   // 于是要么执行了上一条的残留、要么报一个和这条用例无关的语法错。
   const setSql = async text => {
     const want = String(text).replace(/\s+/g, ' ').trim()
+    // 弹层刚关掉那一拍，遮罩还在淡出：命中测试会把编辑器判成"点不到"（实测过一次
+    // explain 前置查询拿到 no-editor，下一轮同样的顺序又是绿的）。等它落定再判，
+    // 等不到才认失败——否则这条 FAIL 说的是动画，不是产品。
+    await waitFor(cdp, '!!window.__edXY()', '等 SQL 编辑器可点', 6000)
     for (let attempt = 1; attempt <= 3; attempt++) {
       const xy = await cdp.eval('window.__edXY()')
-      if (!xy) return 'no-editor'
+      if (!xy) {
+        console.log('WARN 找不到可见的 SQL 编辑器，现场 = ' +
+          JSON.stringify(await cdp.eval('window.__tabState()')))
+        return 'no-editor'
+      }
       await click(xy, 250)
       if (!(await cdp.eval('window.__edFocused()'))) {
         await click(xy, 250)
@@ -582,6 +628,14 @@ async function main () {
     console.log('WARN 仍有没关掉的数据库页签', JSON.stringify(cleared.left))
   }
 
+  // 夹具在"页签都关掉之后"才重建：主进程按连接键复用 SQLite 句柄，
+  // 只要还有一个页签开着（哪怕来自别的探针脚本），rmDb 就是在删一个仍被打开的 inode——
+  // 新页签会拿到那个"已 unlink 的旧文件"，于是界面读到上一轮的 3 行、宿主直读新文件是 4 行，
+  // 写回也落进旧 inode，看起来就像"UPDATE 没生效"。实测被这个坑过一次。
+  writeShop()
+  writeSqlDb()
+  await sleep(300)
+
   // ================= A 数据页 / 结构页（shop.db，可写） =================
   const shop = await openTab(SHOP_TITLE, SHOP, false)
   check('加数据库页签即连上 SQLite，头部显示库文件名', shop.ok, await cdp.eval('window.__headTarget()'))
@@ -623,23 +677,47 @@ async function main () {
   const back4 = await waitFor(cdp, 'window.__dataRows().length === 4', '清过滤后没回到 4 行', 8000)
   check('清掉过滤回到 4 行', back4)
 
-  // 点表头排序：price 是 REAL，必须按数值排（88 在前，不是字符串序的 1899 在前）
+  // 点表头排序：三态循环（chip 自己的 title 就写着"升序 → 降序 → 取消"）。
+  // 排序状态是按表持久化的，上一轮跑到哪就停在哪，所以"点一次应当是升序"
+  // 其实取决于进入时的历史状态——实测过两种假失败：进入时已是升序（点一下变降序），
+  // 以及点完判据读不到 chip。先把状态归零（顺带验掉"取消"这条腿），
+  // 再从已知起点逐段验，每段都从上一段的结果出发。
+  const priceCol = (await cdp.eval('window.__colTexts(\'price\')')).map(Number).filter(n => !Number.isNaN(n))
+  const lo = Math.min(...priceCol)
+  const hi = Math.max(...priceCol)
   const headProbe = await cdp.eval('window.__headProbe(\'price\')')
-  console.log('INFO price 表头点击点 = ' + JSON.stringify(headProbe))
-  let ascOk = false
-  if (headProbe && headProbe.clickable) {
-    await click(headProbe.xy, 800)
-    ascOk = await waitFirstCell('price', '88', 12000)
+  console.log('INFO price 表头点击点 = ' + JSON.stringify(headProbe) +
+    '，进入时 chip = ' + JSON.stringify(await cdp.eval('window.__sortChips()')) +
+    '，本列 min/max = ' + lo + '/' + hi)
+  let chips = await cdp.eval('window.__sortChips()') || []
+  if (!headProbe || !headProbe.clickable) {
+    console.log('WARN price 表头点不到，跳过排序段：' + JSON.stringify(headProbe))
   } else {
-    console.log('WARN price 表头点不到，跳过点击：' + JSON.stringify(headProbe))
+    for (let n = 0; n < 4 && chips.length; n++) {
+      await click(headProbe.xy, 700)
+      await waitFor(cdp, 'window.__sortChips().length === 0', '等排序归零', 6000)
+      chips = await cdp.eval('window.__sortChips()') || []
+    }
+    check('排序能归零（chip 消失 = "取消排序"这一条腿走通）', chips.length === 0, chips)
+    await click(headProbe.xy, 700)
+    await waitFor(cdp, 'window.__sortChips().length > 0', '等升序 chip', 6000)
+    chips = await cdp.eval('window.__sortChips()') || []
+    const ascFirst = await cdp.eval('window.__cellText(\'price\', 0)')
+    check('无排序 → 点一次 = 升序（chip price ↑ 且首行是本列最小值）',
+      chips.length === 1 && chips[0].desc === false && /price/.test(chips[0].t) &&
+        Number(ascFirst) === lo, { chips, ascFirst, lo, headProbe })
+    await click(headProbe.xy, 700)
+    await waitFor(cdp, 'window.__sortChips().some(c => c.desc)', '等降序 chip', 6000)
+    chips = await cdp.eval('window.__sortChips()') || []
+    const descFirst = await cdp.eval('window.__cellText(\'price\', 0)')
+    check('升序 → 点一次 = 降序（chip price ↓ 且首行换成本列最大值）',
+      chips.length === 1 && chips[0].desc === true && Number(descFirst) === hi,
+      { chips, descFirst, hi })
+    await click(headProbe.xy, 700)
+    await waitFor(cdp, 'window.__sortChips().length === 0', '等取消排序 chip', 6000)
+    chips = await cdp.eval('window.__sortChips()') || []
+    check('降序 → 点一次 = 取消（chip 消失，不再假装还在排序）', chips.length === 0, chips)
   }
-  const firstPrice = await cdp.eval('window.__cellText(\'price\', 0)')
-  const chips = await cdp.eval('window.__sortChips()')
-  check('点 price 表头一次 = 升序（chip 是 price ↑，没有 is-desc）',
-    Array.isArray(chips) && chips.length === 1 && chips[0].desc === false && /price/.test(chips[0].t),
-    { chips, headProbe })
-  check('点 price 表头按数值升序（首格 88，不是字符串序的 1,899）', ascOk === true,
-    { firstPrice, chips, headProbe })
 
   // 双击改格 → UPDATE → 界面与文件同时变
   const idxKb = await cdp.eval('window.__rowIdxOf(\'键盘\')')
@@ -699,7 +777,16 @@ async function main () {
   check('可写时 SQL 编辑器可输入（contenteditable=true）', roBefore === 'true', roBefore)
   const sw = await cdp.eval('window.__switchXY(\'只读\')')
   check('头部工具条有只读开关，且当前是可写', !!sw && sw.on === false, sw)
+  // 只读提示按引擎给：SQLite 的白名单没有 SHOW/DESC（根本不是 MySQL），
+  // 但有 VALUES/PRAGMA/WITH。以前所有引擎共用 MySQL 那句，于是
+  // 「提示说可以、主进程照样拒」——照提示写 PRAGMA 的人会被自己的连接打回来。
   if (sw) {
+    const tip = await hoverTip(sw.xy, path.join(SHOT_DIR, '1-readonly-tip.png'))
+    check('SQLite 会话悬停只读开关出提示条', !!tip && /^只读模式/.test(String(tip)), tip)
+    check('提示里是 SQLite 的口径（VALUES/PRAGMA 在白名单内）',
+      !!tip && /VALUES/.test(tip) && /PRAGMA/.test(tip), tip)
+    check('提示不再承诺 MySQL 才有的 SHOW/DESC（套错口径就是误导）',
+      !!tip && !/SELECT \/ SHOW/.test(tip), tip)
     await click(sw.xy, 1200)
     const roAfter = await cdp.eval('window.__editorRO()')
     const swAfter = await cdp.eval('(window.__switchXY(\'只读\') || {}).on')
@@ -719,7 +806,7 @@ async function main () {
     const sw2 = await cdp.eval('window.__switchXY(\'只读\')')
     await click(sw2.xy, 1000)
   }
-  await cdp.shot(path.join(SHOT_DIR, '1-data-page.png'))
+  await cdp.shot(path.join(SHOT_DIR, '2-data-page.png'))
 
   // ================= B SQL 页方言与执行（sql.db） =================
   const sq = await openTab(SQL_TITLE, SQLDB, false)
@@ -790,7 +877,7 @@ async function main () {
     /上限|limit/i.test(String(noteR)) && /10000/.test(String(noteR)), noteR)
   check('上限那句里没留下未替换的占位符（中文词条 {n} 出现两次）',
     !/\{n\}/.test(String(noteR)), noteR)
-  await cdp.shot(path.join(SHOT_DIR, '2-row-limit.png'))
+  await cdp.shot(path.join(SHOT_DIR, '3-row-limit.png'))
 
   // 危险确认：DROP 每次都要问；点取消 = 零执行
   await execSql('DROP TABLE dropme', 'DROP 确认')
@@ -887,7 +974,7 @@ async function main () {
     const dgLight = await cdp.eval('window.__dataGrid()')
     check('浅色主题下数据网格仍在（切主题不丢会话、表头没塌）',
       !!dgLight && dgLight.heads.length > 0, dgLight)
-    await cdp.shot(path.join(SHOT_DIR, '3-theme-light.png'))
+    await cdp.shot(path.join(SHOT_DIR, '4-theme-light.png'))
     await cdp.eval(`window.store.setTheme(${J(curTheme)})`)
     await sleep(900)
   } else {
@@ -901,6 +988,11 @@ async function main () {
   console.log('\nEVENTS', JSON.stringify(cdp.tail(8)))
   const bad = results.filter(r => !r.ok)
   const skipped = results.filter(r => r.skipped)
+  // 逐条再打一遍失败项：长日志里 FAIL 行会被别的输出冲散（实测同一份日志被
+  // 实例 stderr 覆盖掉十几行），只有末尾这份清单是可信的失败全集
+  for (const b of bad) {
+    console.log('FAILED → ' + b.name + (b.detail === undefined ? '' : ' :: ' + JSON.stringify(b.detail)))
+  }
   console.log(`\n${results.length - bad.length - skipped.length}/${results.length} 条通过（跳过 ${skipped.length} 条）`)
   cdp.ws.close()
   process.exit(bad.length ? 1 : 0)
