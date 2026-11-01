@@ -36,7 +36,8 @@ const DIALECT_HINTS = {
   mysql: 'Identifier quotes are backticks; LIMIT/OFFSET allowed; no double-quoted identifiers; # and "-- " are line comments.',
   tidb: 'MySQL-compatible syntax: identifier quotes are backticks; LIMIT/OFFSET allowed.',
   oceanbase: 'MySQL-compatible syntax: identifier quotes are backticks; LIMIT/OFFSET allowed.',
-  postgres: 'Identifier quotes are double quotes; strings use single quotes; "#" is not a comment; prefer "public" schema when none is given.'
+  postgres: 'Identifier quotes are double quotes; strings use single quotes; "#" is not a comment; prefer "public" schema when none is given.',
+  sqlite: 'Identifier quotes are double quotes; string literals have NO backslash escapes (double the quote instead); "#" is not a comment; LIKE has no default escape character, add ESCAPE to use one; read structure with PRAGMA table_info.'
 }
 
 // 首关键字白名单：判断"裸文本到底像不像一条 SQL"用（见 parseSqlFromAiResponse）
@@ -50,6 +51,7 @@ const SQL_FIRST_WORDS = new Set([
 // 围栏语言标注 → 视为 SQL 的别名（```sql / ```mysql / ```postgresql …）
 const SQL_FENCE_LANGS = new Set([
   'sql', 'mysql', 'mariadb', 'tidb', 'postgres', 'postgresql', 'pgsql',
+  'sqlite', 'sqlite3',
   'sqlserver', 'transact-sql', 'tsql', 'oracle', 'ansi-sql', 'ansi_sql'
 ])
 

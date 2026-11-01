@@ -54,40 +54,51 @@ export function levelRank (level) {
 // ---- 方言差异 ----
 
 const PG_NAMES = ['postgres', 'postgresql', 'pg']
+const SQLITE_NAMES = ['sqlite', 'sqlite3']
 
 /**
  * 方言能力表。
  * mysql 家族（mysql / tidb / oceanbase / mariadb）共享同一套词法约定；
- * 其余一律按 PG 处理（本仓库只有 mysql / postgres / redis 三个引擎走本模块，
+ * sqlite 单独一套（双引号标识符、无 # 注释、字符串吃 '' 双写但不吃反斜杠）；
+ * 其余一律按 PG 处理（本仓库走本模块的引擎是 mysql / postgres / sqlite，
  * redis 由调用方跳过）。
  * @param {string} dialect 引擎标识
- * @returns {{pg: boolean, backslashEscape: boolean, backtick: boolean,
- *   hashComment: boolean, dollarQuote: boolean, nestedBlockComment: boolean,
- *   versionComment: boolean, dashCommentNeedsSpace: boolean}}
+ * @returns {{pg: boolean, sqlite: boolean, backslashEscape: boolean,
+ *   backtick: boolean, hashComment: boolean, dollarQuote: boolean,
+ *   nestedBlockComment: boolean, versionComment: boolean,
+ *   dashCommentNeedsSpace: boolean}}
  */
 function dialectFlags (dialect) {
   const d = String(dialect || 'mysql').toLowerCase()
   const pg = PG_NAMES.includes(d)
+  const sqlite = SQLITE_NAMES.includes(d)
   return {
     pg,
+    sqlite,
     // MySQL 默认开 NO_BACKSLASH_ESCAPES=off，`'a\'b'` 是一个字符串；
     // PG 标准字符串里 `\` 不是转义符（standard_conforming_strings=on），
-    // 只有 E'...' 才启用反斜杠转义
-    backslashEscape: !pg,
-    // 反引号标识符只有 MySQL 系有
+    // 只有 E'...' 才启用反斜杠转义；SQLite 同 PG（只有 '' 双写）
+    backslashEscape: !pg && !sqlite,
+    // 反引号标识符：MySQL 系原生，SQLite 为兼容 MySQL 也收
     backtick: !pg,
-    // `#` 行注释只有 MySQL 系有；PG 里 `#` 是运算符（几何/位运算），当注释吃会吞掉真语句
-    hashComment: !pg,
+    // 双引号：MySQL 系当字符串字面量，PG/SQLite 当标识符（掩码口径不同）
+    doubleQuoteIsIdent: pg || sqlite,
+    // `[x]` 标识符只有 SQLite（为兼容 MS Access/SQL Server 习惯）支持
+    bracketIdent: sqlite,
+    // `#` 行注释只有 MySQL 系有；PG 里 `#` 是运算符（几何/位运算），
+    // SQLite 里根本不是合法 token —— 当注释吃都会吞掉真语句
+    hashComment: !pg && !sqlite,
     // 美元引用只有 PG 有
     dollarQuote: pg,
-    // PG 的块注释可以嵌套：`/* a /* b */ c */`，mysql 遇到第一个 */ 就结束
+    // PG 的块注释可以嵌套：`/* a /* b */ c */`，mysql/sqlite 遇到第一个 */ 就结束
     nestedBlockComment: pg,
     // MySQL/MariaDB 的 `/*!...*/`、`/*M!...*/` 是会被服务端**执行**的版本注释
-    // （PG 里同样写法只是普通注释），见 scanSql 里的处理
-    versionComment: !pg,
+    // （PG/SQLite 里同样写法只是普通注释），见 scanSql 里的处理
+    versionComment: !pg && !sqlite,
     // MySQL 的 `--` 必须后跟空白才是注释：`SELECT 1--1` 是两个减号，
-    // 当成注释会把这条语句后半段整段吃掉（连带吃掉可能的 DELETE）
-    dashCommentNeedsSpace: !pg
+    // 当成注释会把这条语句后半段整段吃掉（连带吃掉可能的 DELETE）；
+    // PG 与 SQLite 没有这个限制
+    dashCommentNeedsSpace: !pg && !sqlite
   }
 }
 
@@ -238,6 +249,16 @@ function scanSql (sql, dialect, keepLiterals) {
         backslash = before === '' || !isWordPart(before)
       }
       const end = scanQuoted(src, i, ch, backslash)
+      if (!keepLiterals) {
+        blank(i, end)
+      }
+      i = end
+      continue
+    }
+    // SQLite 的 `[ident]`：与反引号同处理（跳过内容，避免内部引号被当成字面量起点）
+    if (flags.bracketIdent && ch === '[') {
+      const close = src.indexOf(']', i + 1)
+      const end = close === -1 ? n : close + 1
       if (!keepLiterals) {
         blank(i, end)
       }
@@ -870,6 +891,14 @@ export function classifyStatement (stmt, dialect) {
       ? ['EXPLAIN ANALYZE 会真正执行：' + reasons[0]].concat(reasons.slice(1))
       : reasons
   })
+
+  // SQLite 的 PRAGMA 有两种形态：读（`PRAGMA table_info(t)`）与写
+  // （`PRAGMA journal_mode=WAL`、`PRAGMA secure_delete=1`）。写形态改的是**整个库文件**
+  // 的持久设置，而且立刻生效、不可回滚，不能因为首词在 READ_WORDS 里就放行。
+  // `=` 在掩码串上判（字符串/注释里的等号不算），避免 `PRAGMA integrity_check('x=1')` 被误升
+  if (keyword === 'PRAGMA' && dialectFlags(dialect).sqlite && mask.indexOf('=') !== -1) {
+    return result(RISK_WRITE, ['PRAGMA 赋值会修改数据库的持久设置'])
+  }
 
   if (READ_WORDS.has(keyword)) {
     return result(RISK_READ, [])

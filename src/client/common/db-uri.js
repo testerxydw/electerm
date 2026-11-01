@@ -15,6 +15,9 @@ const SCHEME_MAP = {
 
 // 不支持的已知协议：给出明确文案而非笼统 invalid
 const REDISS = 'rediss'
+// sqlite 是本地文件引擎：没有 host/port，URI 里没有它能表达的东西。
+// 不给"unsupported scheme"这种把人推向"是不是我写错了"的文案，直接说去哪儿连
+const SQLITE_SCHEMES = ['sqlite', 'sqlite3']
 
 export function parseDbUri (uri) {
   const raw = String(uri || '').trim()
@@ -24,6 +27,9 @@ export function parseDbUri (uri) {
   const schemeGuess = raw.split('://')[0].toLowerCase()
   if (schemeGuess === REDISS) {
     throw new Error('rediss (redis over TLS) is not supported yet')
+  }
+  if (SQLITE_SCHEMES.indexOf(schemeGuess) !== -1) {
+    throw new Error('sqlite opens a local file — pick it in the connection form instead of a uri')
   }
   let u
   try {

@@ -76,22 +76,36 @@ export function downloadCsv (filename, headers, rows) {
 // ---- A1 复制为 SQL/JSON/TSV（数据库页，设计 §7.2）----
 // 仅辅助用途文本：值转义单引号翻倍，mysql 系反斜杠翻倍；不做隐式可信声明
 
-// 标识符引用：mysql/tidb/oceanbase 反引号，pg 双引号（quote='double'）
+// 引用符口径（H8a 起三种）：
+//   backtick —— mysql 家族：反引号标识符，字符串里 `\` 是转义符所以要加倍；
+//   double   —— pg：双引号标识符，二进制用 '\x..' 十六进制串；
+//   sqlite   —— 双引号标识符 + X'hex' 二进制串（SQLite 两者都支持），
+//               且**不**加倍反斜杠：SQLite 的字符串字面量里 `\` 就是普通字符，
+//               加倍会把复制出来的 INSERT 值变成另一个值。
+export function sqlQuoteModeOf (dbType) {
+  const d = String(dbType || '').toLowerCase()
+  if (d === 'postgres' || d === 'postgresql' || d === 'pg') {
+    return 'double'
+  }
+  return d === 'sqlite' ? 'sqlite' : 'backtick'
+}
+
+// 标识符引用：mysql/tidb/oceanbase 反引号，pg 与 sqlite 双引号（quote='double'/'sqlite'）
 export function sqlQuoteIdent (name, quote) {
   const s = String(name)
-  return quote === 'double'
+  return quote === 'double' || quote === 'sqlite'
     ? '"' + s.replace(/"/g, '') + '"'
     : '`' + s.replace(/`/g, '') + '`'
 }
 
 // 值字面量：null→NULL；number/boolean/bigint 原样；Date→ISO 字符串；
-// 字符串单引号包裹，内部 ' 翻倍，mysql 系（非 'double'）额外 \ 翻倍
+// 字符串单引号包裹，内部 ' 翻倍，mysql 系（既不是 'double' 也不是 'sqlite'）额外 \ 翻倍
 export function sqlQuoteVal (v, quote) {
   if (v === null || v === undefined) {
     return 'NULL'
   }
   if (isBinEnvelope(v)) {
-    // 二进制列：小字段用十六进制字面量（mysql X'..' / pg '\x..'）尽量可写回；
+    // 二进制列：小字段用十六进制字面量（mysql/sqlite X'..' / pg '\x..'）尽量可写回；
     // 截断的大字段无法无损还原，显式抛错，不让复制 SQL 静默写出残缺数据。
     const bin = v.__bin
     if (bin.truncated) {
@@ -116,7 +130,7 @@ export function sqlQuoteVal (v, quote) {
     ? v.toISOString()
     : String(v)
   s = s.replace(/'/g, "''")
-  if (quote !== 'double') {
+  if (quote !== 'double' && quote !== 'sqlite') {
     s = s.replace(/\\/g, '\\\\')
   }
   return "'" + s + "'"

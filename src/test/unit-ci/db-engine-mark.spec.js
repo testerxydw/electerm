@@ -15,11 +15,11 @@ const treeItemJsx = read('components/tree-list/tree-list-item.jsx')
 const treeStyl = read('components/tree-list/tree-list.styl')
 const tabsStyl = read('components/tabs/tabs.styl')
 
-// 5 引擎枚举（与 bookmark-schemas.js dbType 枚举一致）
-const engines = ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase']
+// 6 引擎枚举（与 bookmark-schemas.js dbType 枚举一致）
+const engines = ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'sqlite']
 
 describe('db-engine: tokens 定义', () => {
-  it(':root 五引擎 token 齐全（tidb/oceanbase 继承 mysql）', () => {
+  it(':root 六引擎 token 齐全（tidb/oceanbase 继承 mysql）', () => {
     for (const en of engines) {
       assert.match(tokensStyl, new RegExp('^ {2}--db-engine-' + en + ' ', 'm'),
         '缺少 --db-engine-' + en)
@@ -35,12 +35,15 @@ describe('db-engine: tokens 定义', () => {
     assert.match(tokensStyl, /^ {2}--db-engine-mysql #7CA1BD$/m)
     assert.match(tokensStyl, /^ {2}--db-engine-redis #E7746C$/m)
     assert.match(tokensStyl, /^ {2}--db-engine-postgres #7095B2$/m)
+    // sqlite 官方色 #003B57 太深，30% 只有 #4D7689（比相邻引擎暗一档），提到 45%
+    assert.match(tokensStyl, /^ {2}--db-engine-sqlite #7393A3$/m)
   })
 
   it('.theme-light 覆盖为官方原色（浅色主题用原品牌色）', () => {
     assert.match(tokensStyl, /^ {2}--db-engine-mysql #4479A1$/m)
     assert.match(tokensStyl, /^ {2}--db-engine-redis #DC382D$/m)
     assert.match(tokensStyl, /^ {2}--db-engine-postgres #336791$/m)
+    assert.match(tokensStyl, /^ {2}--db-engine-sqlite #003B57$/m)
   })
 
   it('反向：tokens 不得出现重复定义（css-tokens 规则一致）', () => {

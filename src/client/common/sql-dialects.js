@@ -136,6 +136,50 @@ const PG_TYPES = [
   'VARBIT', 'VARCHAR', 'XML'
 ]
 
+// SQLite 关键字（3.4x 保留字表里会真出现在 SQL 文本里的那些；
+// 不收 ABC/DEF/GLOB 等"文档列了但基本用不上"的冷词，补全候选淹掉常用项）
+const SQLITE_KEYWORDS = [
+  'ABORT', 'ACTION', 'ADD', 'ALL', 'ALTER', 'ANALYZE', 'AND', 'AS', 'ASC',
+  'ATTACH', 'AUTOINCREMENT', 'BEFORE', 'BEGIN', 'BETWEEN', 'BY', 'CASCADE',
+  'CASE', 'CAST', 'CHECK', 'COLLATE', 'COLUMN', 'COMMIT', 'CONFLICT',
+  'CONSTRAINT', 'CREATE', 'CROSS', 'CURRENT_DATE', 'CURRENT_TIME',
+  'CURRENT_TIMESTAMP', 'DATABASE', 'DEFAULT', 'DEFERRABLE', 'DEFERRED',
+  'DELETE', 'DESC', 'DETACH', 'DISTINCT', 'DO', 'DROP', 'EACH', 'ELSE', 'END',
+  'ESCAPE', 'EXCEPT', 'EXCLUDE', 'EXCLUSIVE', 'EXISTS', 'EXPLAIN', 'FAIL',
+  'FILTER', 'FIRST', 'FOLLOWING', 'FOR', 'FOREIGN', 'FROM', 'FULL', 'GENERATED',
+  'GLOB', 'GROUP', 'GROUPS', 'HAVING', 'IF', 'IGNORE', 'IMMEDIATE', 'IN',
+  'INDEX', 'INDEXED', 'INITIALLY', 'INNER', 'INSERT', 'INSTEAD', 'INTERSECT',
+  'INTO', 'IS', 'ISNULL', 'JOIN', 'KEY', 'LAST', 'LEFT', 'LIKE', 'LIMIT',
+  'MATCH', 'MATERIALIZED', 'NATURAL', 'NOT', 'NOTHING', 'NOTNULL', 'NULL',
+  'NULLS', 'OF', 'OFFSET', 'ON', 'OR', 'ORDER', 'OTHERS', 'OUTER', 'OVER',
+  'PARTITION', 'PLAN', 'PRAGMA', 'PRECEDING', 'PRIMARY', 'QUERY', 'RAISE',
+  'RANGE', 'RECURSIVE', 'REFERENCES', 'REGEXP', 'RELEASE', 'RENAME',
+  'REPLACE', 'RESTRICT', 'RETURNING', 'ROLLBACK', 'ROW', 'ROWS', 'SAVEPOINT',
+  'SELECT', 'SET', 'TABLE', 'TEMP', 'TEMPORARY', 'THEN', 'TIES', 'TO',
+  'TRANSACTION', 'TRIGGER', 'UNBOUNDED', 'UNION', 'UNIQUE', 'UPDATE', 'USING',
+  'VACUUM', 'VALUES', 'VIEW', 'VIRTUAL', 'WHEN', 'WHERE', 'WINDOW', 'WITH',
+  'WITHOUT'
+]
+
+// SQLite 内置函数（聚合 + 标量 + JSON + 日期，只收文档里存在的）
+const SQLITE_BUILTIN = [
+  'ABS', 'AVG', 'CHANGES', 'COALESCE', 'COUNT', 'DATE', 'DATETIME', 'HEX',
+  'IIF', 'INSTR', 'JSON', 'JSON_ARRAY', 'JSON_EXTRACT', 'JSON_INSERT',
+  'JSON_OBJECT', 'JSON_QUOTE', 'JSON_REMOVE', 'JSON_REPLACE', 'JSON_SET',
+  'GROUP_CONCAT', 'JULIANDAY', 'LAST_INSERT_ROWID', 'LENGTH', 'LOWER',
+  'LTRIM', 'MAX', 'MIN', 'NULLIF', 'QUOTE', 'RANDOM', 'RANDOMBLOB', 'REPLACE',
+  'ROUND', 'RTRIM', 'STRFTIME', 'SUBSTR', 'SUM', 'TIME', 'TOTAL',
+  'TOTAL_CHANGES', 'TRIM', 'TYPEOF', 'UNICODE', 'UPPER', 'ZEROBLOB'
+]
+
+// SQLite 声明类型（五大亲和性 + 文档 §3.1.1 列出的常用别名）
+const SQLITE_TYPES = [
+  'INTEGER', 'REAL', 'TEXT', 'BLOB', 'NUMERIC', 'BOOLEAN', 'DATE', 'DATETIME',
+  'TINYINT', 'SMALLINT', 'MEDIUMINT', 'BIGINT', 'INT2', 'INT8', 'CHARACTER',
+  'VARCHAR', 'NCHAR', 'NVARCHAR', 'CLOB', 'DOUBLE', 'FLOAT', 'DECIMAL',
+  'TIMESTAMP'
+]
+
 export const dialectMap = {
   mysql: {
     id: 'mysql',
@@ -167,6 +211,23 @@ export const dialectMap = {
     backslashEscapes: false,
     spaceAfterDashes: false,
     dollarQuote: true
+  },
+  sqlite: {
+    id: 'sqlite',
+    label: 'SQLite',
+    keywords: SQLITE_KEYWORDS,
+    builtin: SQLITE_BUILTIN,
+    types: SQLITE_TYPES,
+    // 标准 SQL 双引号标识符（SQLite 另兼容 `x` 与 [x]，但生成的 SQL 统一用双引号）
+    quote: '"',
+    // `#` 在 SQLite 不是注释（是非法字符），当注释吃会吞掉真语句
+    hashComment: false,
+    // SQLite 字符串只认 '' 双写，反斜杠是普通字符 → 'C:\path' 就是它自己
+    backslashEscapes: false,
+    // `--` 后不需要空白，`SELECT 1--1` 在 SQLite 里后半截是注释
+    spaceAfterDashes: false,
+    // 没有 $tag$...$tag$ 美元引用
+    dollarQuote: false
   }
 }
 
@@ -175,7 +236,20 @@ const DB_TYPE_TO_DIALECT = {
   mysql: 'mysql',
   tidb: 'mysql',
   oceanbase: 'mysql',
-  postgres: 'postgres'
+  postgres: 'postgres',
+  sqlite: 'sqlite'
+}
+
+/**
+ * dbType → 方言 id（`mysql` / `postgres` / `sqlite`）。
+ * 与主进程 `db-client/index.js` 的 `dialectOf` 同一口径：safe-clause 的占位符与
+ * 词法校验按这个 id 走，两边不一致会出现"渲染层认为合法、主进程判非法"。
+ * 无 SQL 语法的引擎（redis）回落 mysql。
+ * @param {string} dbType
+ * @returns {'mysql'|'postgres'|'sqlite'}
+ */
+export function dialectIdOf (dbType) {
+  return DB_TYPE_TO_DIALECT[dbType] || 'mysql'
 }
 
 /**

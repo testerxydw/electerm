@@ -169,12 +169,13 @@ export const spiceBookmarkSchema = {
 
 export const databaseBookmarkSchema = {
   title: z.string().describe('Bookmark title'),
-  dbType: z.enum(['mysql', 'redis', 'postgres', 'tidb', 'oceanbase']).optional().describe('Database engine type, default mysql'),
-  dbHost: z.string().describe('Database host address'),
-  dbPort: z.number().optional().describe('Database port (defaults: mysql 3306, redis 6379, postgres 5432, tidb 4000, oceanbase 2881)'),
+  dbType: z.enum(['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'sqlite']).optional().describe('Database engine type, default mysql; sqlite connects to a local database file'),
+  dbHost: z.string().optional().describe('Database host address (ignored by the local file engine sqlite)'),
+  dbPort: z.number().optional().describe('Database port (defaults: mysql 3306, redis 6379, postgres 5432, tidb 4000, oceanbase 2881; sqlite has no port)'),
   dbUser: z.string().optional().describe('Database username, default root for mysql-like engines'),
   dbPassword: z.string().optional().describe('Database password'),
   dbName: z.string().optional().describe('Default database/schema name to connect'),
+  dbFile: z.string().optional().describe('Absolute path of the local database file, only for dbType=sqlite; ":memory:" opens a throwaway in-memory database'),
   sshTunnelBookmarkId: z.string().optional().describe('Id of an existing ssh bookmark to tunnel the database connection through'),
   readOnly: z.boolean().optional().describe('Read only mode: only SELECT/SHOW/DESC/EXPLAIN statements are executed, default is true'),
   production: z.boolean().optional().describe('Production connection: every non-query statement needs a second confirmation with the database name typed in, default is false'),

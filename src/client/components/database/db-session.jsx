@@ -45,7 +45,8 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
-import { downloadCsv, downloadText, buildCopyStatements, toTsv, toJsonl, toMarkdownTable } from '../../common/db-csv'
+import { downloadCsv, downloadText, buildCopyStatements, sqlQuoteModeOf, toTsv, toJsonl, toMarkdownTable } from '../../common/db-csv'
+import { dbConnTarget } from '../../common/db-file'
 // H3a：数据字典（Markdown/CSV）纯函数，内容来自 structureV2 的 v2 契约
 import { buildDataDictionary } from '../../common/db-dictionary'
 import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
@@ -96,6 +97,7 @@ import {
 } from '../../common/sql-file'
 import fs from '../../common/fs'
 import { dbTypeLabelMap } from '../../common/constants'
+import { dialectIdOf } from '../../common/sql-dialects'
 // E1：危险 SQL 分级 + 连接级安全带。两个模块都是零依赖纯函数（时间经 now 注入），
 // 判定逻辑与 UI 解耦，单测可直接跑源码
 import { classifySql } from '../../common/db-sql-risk'
@@ -367,6 +369,9 @@ const EMPTY_STRUCTURE_V2 = {
 
 // B1 插入行表单列归一化：两引擎 describeTable 字段名不同
 // （MySQL: Field/Type/Key/Extra；PG: column_name/data_type/is_primary_key/column_default），
+// sqlite 适配器把 PRAGMA table_info 归一成了 MySQL 那套字段名（含 Extra=auto_increment
+// 对应 INTEGER PRIMARY KEY），所以这里只需两分支；isNumeric 的类型正则也覆盖
+// INTEGER/REAL/NUMERIC/DECIMAL 这些 sqlite 亲和性名。
 // 统一为 [{name, type, isPk, isAutoInc, isNumeric}] 供插入弹窗渲染与校验
 const buildInsertFormColumns = (structureRows, dbType) => {
   const isPg = dbType === 'postgres'
@@ -702,8 +707,10 @@ export default auto(function DbSession (props) {
   const [structure, setStructure] = useState({ loading: false, rows: [] })
 
   // ---- E2 结果集视角（设计 §7.2 / §7.4）----
-  // 方言：只有 pg 与 mysql 两套词法（tidb/oceanbase 走 mysql 协议，词法同 mysql）
-  const dialect = tab.dbType === 'postgres' ? 'postgres' : 'mysql'
+  // 方言：mysql 家族（tidb/oceanbase 走 mysql 协议，词法同 mysql）、pg、sqlite 三套词法。
+  // 口径与主进程 db-client/index.js 的 dialectOf 一致，两边不一致会出现
+  // "渲染层认为合法、主进程 safe-clause 判非法"的错位
+  const dialect = dialectIdOf(tab.dbType)
   // 列清单 v2：**必须**来自 getTableStructure —— 主进程 assertPageBoundary 的列白名单
   // 判据就是它（structureCached）。用 describeTable 会出现"渲染层认为列合法、
   // 主进程判未知列"的错位（那份还是 DESC 两引擎字段名不同的原始行，且没有注释）。
@@ -994,7 +1001,7 @@ export default auto(function DbSession (props) {
   // 连接身份：mute 与"临时解除"都按它记账（见 db-safe-guard 注释）
   const connKey = useMemo(
     () => dbConnKey(tab),
-    [tab.dbType, tab.dbHost, tab.dbPort, tab.dbUser, tab.dbName]
+    [tab.dbType, tab.dbHost, tab.dbPort, tab.dbUser, tab.dbName, tab.dbFile]
   )
 
   // Redis 键空间状态（db 节点 → SCAN 键列表 → 类型化键详情）
@@ -2250,8 +2257,8 @@ export default auto(function DbSession (props) {
   const [insertCols, setInsertCols] = useState([])
   // 每列编辑态：{ text, isNull }；勾选 NULL 后输入框禁用
   const [insertValues, setInsertValues] = useState({})
-  // A2 DDL 查看：仅 mysql 系（SHOW CREATE TABLE 兼容视图，零后端改动走 executeSql）；
-  // PG 隐藏入口（无对应等价语句，用户拍板）
+  // A2 DDL 查看：mysql 系走 SHOW CREATE TABLE 兼容视图（零后端改动）；
+  // sqlite 走主进程 getObjectDdl（sqlite_master 原文）；PG 隐藏入口（无对应等价语句，用户拍板）
   const [ddl, setDdl] = useState({ open: false, loading: false, title: '', text: '' })
 
   const openInsertModal = () => {
@@ -2756,6 +2763,8 @@ export default auto(function DbSession (props) {
           sql: historySql || sql,
           dbType: tab.dbType,
           dbHost: tab.dbHost,
+          // 本地文件引擎没有 host：历史与导出靠路径认出是哪库
+          dbFile: tab.dbFile,
           dbName: currentDbName,
           ok: true
         })
@@ -2770,6 +2779,7 @@ export default auto(function DbSession (props) {
           sql: historySql || sql,
           dbType: tab.dbType,
           dbHost: tab.dbHost,
+          dbFile: tab.dbFile,
           dbName: currentDbName,
           ok: false
         })
@@ -2875,7 +2885,7 @@ export default auto(function DbSession (props) {
         headers,
         rows: gridExportRows(),
         pkColumn,
-        quote: isPg ? 'double' : 'backtick'
+        quote: sqlQuoteModeOf(tab.dbType)
       })
     )
   }
@@ -3016,7 +3026,7 @@ export default auto(function DbSession (props) {
       headers: gridExportHeaders(),
       rows,
       pkColumn,
-      quote: isPg ? 'double' : 'backtick'
+      quote: sqlQuoteModeOf(tab.dbType)
     })
     copy(text)
   }
@@ -6371,9 +6381,9 @@ export default auto(function DbSession (props) {
     ? (sel.schema ? `${sel.schema}.${sel.table}` : `${sel.database}.${sel.table}`)
     : ''
   // 连接目标文本（顶部工具条与空态共用）。不带引擎名 —— 引擎已由左侧徽标表达，
-  // 避免"Redis Redis ·…"重复
+  // 避免"Redis Redis ·…"重复；位置口径见 dbConnTarget（本地引擎用库文件名）
   const target = [
-    tab.dbHost ? `${tab.dbHost}:${tab.dbPort || ''}` : tab.title,
+    dbConnTarget(tab) || tab.title,
     tab.dbName,
     tab.dbUser
   ].filter(Boolean).join(' · ')
@@ -8209,9 +8219,20 @@ export default auto(function DbSession (props) {
   // A2/A1：structureRows / structColumns 见上方"A1/A2 网格列定义与行数组 memo"
   // 集中块（必须放在提前 return 之前，保证 hook 数量稳定）
 
-  // A2 DDL 查看：SHOW CREATE TABLE 兼容视图，零后端改动走 executeSql
+  // A2 DDL 查看：mysql 系走 SHOW CREATE TABLE 兼容视图，零后端改动
+  // sqlite 没有这条语句（会把整句当语法错误），改走主进程 getObjectDdl 从 sqlite_master 取原文
   const fetchDdl = () => {
     if (!sel) {
+      return
+    }
+    if (dialect === 'sqlite') {
+      showObjectDdl({
+        database: sel.database,
+        schema: sel.schema || '',
+        name: sel.table,
+        // 视图的原文在 sqlite_master 里 type='view'，按 table 查会一条都取不到
+        objectType: sel.nodeType || 'table'
+      })
       return
     }
     // 反引号内嵌反引号会破坏语句，标识符注入面剔除

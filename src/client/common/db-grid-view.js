@@ -53,7 +53,7 @@ export const FILTER_OPS = [
 
 // 条件条数上限：再多就不是"看数据"而是"写查询"了，请用 SQL 模式
 const MAX_CONDITIONS = 20
-// IN 元素上限：超长 IN 在两种方言下都会退化成全表扫，且占位符会撑爆语句长度
+// IN 元素上限：超长 IN 在各方言下都会退化成全表扫，且占位符会撑爆语句长度
 const MAX_IN_VALUES = 200
 // 排序列上限：3 列足够定位一行，再多索引也帮不上
 const MAX_ORDER_COLUMNS = 3
@@ -66,18 +66,25 @@ const LIKE_OPS = { contains: true, startsWith: true, endsWith: true }
 const COMPARE_SQL = { eq: '=', ne: '<>', gt: '>', gte: '>=', lt: '<', lte: '<=' }
 
 /**
- * 方言归一。tab.dbType 只有 mysql 家族与 postgres 两套词法，
+ * 方言归一。tab.dbType 有三套词法：mysql 家族、postgres、sqlite；
  * 其他写法（postgresql/pg）一律当 pg 处理，避免调用方传错就静默变 mysql。
+ * sqlite 不能并进 mysql：SQLite 的 `'...'` **没有**反斜杠转义（`'a\'` 在 SQLite 里
+ * 于第二个引号处结束，后面是真 SQL），按 mysql 口径扫引号会把注入面当成字符串放过。
  * @param {string} dialect 方言名
- * @returns {'mysql'|'postgres'} 归一后的方言
+ * @returns {'mysql'|'postgres'|'sqlite'} 归一后的方言
  */
 function normalizeDialect (dialect) {
   const d = String(dialect === null || dialect === undefined ? '' : dialect).toLowerCase()
-  return d === 'postgres' || d === 'postgresql' || d === 'pg' ? 'postgres' : 'mysql'
+  if (d === 'postgres' || d === 'postgresql' || d === 'pg') {
+    return 'postgres'
+  }
+  return d === 'sqlite' || d === 'sqlite3' ? 'sqlite' : 'mysql'
 }
 
 /**
- * 加引用符。mysql 用反引号、pg 用双引号；名字里的引用符自身成对加倍。
+ * 加引用符。mysql 用反引号、pg 与 sqlite 用双引号（sqlite 也认反引号，
+ * 但官方口径是双引号，与 sql-dialects.js 的高亮/补全保持一致）；
+ * 名字里的引用符自身成对加倍。
  * 为什么不用"删掉引用符"的写法（app/lib/db-client/*.js 里的老实现）：
  * 那种写法会把含反引号的列名悄悄改成另一个名字，查出来是"列不存在"，
  * 而正确做法是照标准 SQL 把引用符加倍，名字仍是原名。
@@ -87,7 +94,7 @@ function normalizeDialect (dialect) {
  */
 export function quoteIdent (name, dialect) {
   const s = String(name === null || name === undefined ? '' : name)
-  if (normalizeDialect(dialect) === 'postgres') {
+  if (normalizeDialect(dialect) !== 'mysql') {
     return '"' + s.replace(/"/g, '""') + '"'
   }
   return '`' + s.replace(/`/g, '``') + '`'
@@ -385,7 +392,7 @@ export function normalizeView (view) {
 
 /**
  * 压入一个绑定值并返回它对应的占位符。
- * mysql 是位置型 `?`，pg 是编号型 `$n`：两者的序号都取"压入后的数组长度"，
+ * mysql 与 sqlite 是位置型 `?`，pg 是编号型 `$n`：pg 的序号取"压入后的数组长度"，
  * 所以跨条件连续编号是天然成立的（第二个条件是三元素 IN 时，下一个必是 $5）。
  * @param {Array} params 参数数组（就地修改）
  * @param {*} value 绑定的值
@@ -401,9 +408,11 @@ function pushParam (params, value, dialect) {
  * LIKE 通配符转义。
  * 顺序**必须**是先 `\` 再 `%` 再 `_`：反过来会把自己刚插入的转义符再转一次
  * （`a\b` → 先换 % 变成 `a\%b` 再换 \ 就成了 `a\\%b`，语义从"含 %"变成"含 \ 后跟任意"）。
- * 不生成 ESCAPE 子句：MySQL 与 PostgreSQL 的 LIKE 默认转义符都是反斜杠，
+ * mysql/pg 不生成 ESCAPE 子句：两者的 LIKE 默认转义符都是反斜杠，
  * 显式写 ESCAPE 反而要处理"字面量里怎么表达反斜杠"的方言差异（pg 还有 standard_conforming_strings），
  * 多写一个子句只会多一处出错的机会。
+ * **sqlite 例外**：SQLite 的 LIKE 默认**没有**转义符（文档明确 "no escape character"），
+ * 光把 `\%` 放进模式串只会匹配出"反斜杠 + 任意"，必须补 `ESCAPE '\'`（见 SQLITE_LIKE_ESCAPE）。
  * @param {string} text 原值
  * @returns {string} 转义后的 LIKE 模式串
  */
@@ -413,6 +422,9 @@ function escapeLike (text) {
     .replace(/%/g, '\\%')
     .replace(/_/g, '\\_')
 }
+
+// sqlite 需要显式声明转义符；文本里那对单引号包住一个反斜杠（SQLite 字符串不认 `\` 转义）
+const SQLITE_LIKE_ESCAPE = " ESCAPE '\\'"
 
 /**
  * 按算子生成 LIKE 模式串（% 的位置决定"包含/前缀/后缀"）。
@@ -477,7 +489,8 @@ export function buildWhere (view, columns, dialect) {
       continue
     }
     if (LIKE_OPS[cond.op]) {
-      parts.push(quoted + ' LIKE ' + pushParam(params, likePattern(cond.op, cond.value), d))
+      const clause = quoted + ' LIKE ' + pushParam(params, likePattern(cond.op, cond.value), d)
+      parts.push(d === 'sqlite' ? clause + SQLITE_LIKE_ESCAPE : clause)
       continue
     }
     parts.push(quoted + ' ' + COMPARE_SQL[cond.op] + ' ' + pushParam(params, cond.value, d))
@@ -556,7 +569,8 @@ export function viewKey (target) {
  * 3) **引号区域内外必须分开看。** 列名 `` `a?b` `` 里的 `?` 不是占位符，
  *    字符串字面量里的 `;` 不是多语句。渲染层是 ESM、主进程那份 safe-clause.js 是 CJS，
  *    不能 require 过来，所以这里自带一份几十行的引号扫描（口径与 safe-clause 一致：
- *    mysql 单/双引号都认反斜杠转义，pg 只认 '' 双写，反引号/双引号标识符不掩码）。
+ *    mysql 单/双引号都认反斜杠转义，pg 与 sqlite 只认 '' 双写，
+ *    反引号/双引号/方括号标识符不掩码）。
  * ------------------------------------------------------------------ */
 
 const PROBLEM_MAX_LEN = 4000
@@ -639,7 +653,7 @@ function quotedRanges (src, dialect) {
       continue
     }
     if (c === '"') {
-      // mysql 的 "..." 是字符串字面量（认反斜杠）；pg 是标识符（只认 "" 双写）。
+      // mysql 的 "..." 是字符串字面量（认反斜杠）；pg 与 sqlite 是标识符（只认 "" 双写）。
       // 两种都不替换占位符，所以差异只体现在扫描口径上
       const end = scanQuoted(src, i, '"', d === 'mysql')
       list.push([i, end])
@@ -648,6 +662,15 @@ function quotedRanges (src, dialect) {
     }
     if (c === '`') {
       const end = scanQuoted(src, i, '`', false)
+      list.push([i, end])
+      i = end
+      continue
+    }
+    if (d === 'sqlite' && c === '[') {
+      // SQLite 为兼容 MS SQL 保留的 [ident]：未闭合时停在串尾（当作区域吞掉，
+      // 里面的 ? 不是占位符；用户没写完不算错误）
+      const close = src.indexOf(']', i + 1)
+      const end = close === -1 ? n : close + 1
       list.push([i, end])
       i = end
       continue
@@ -663,6 +686,8 @@ function quotedRanges (src, dialect) {
  * 否则值 `a\b` 会被 mysql 读成 `a<退格>b`（这行注释就是这条规则存在的原因）。
  * pg 在 standard_conforming_strings=on（默认）下反斜杠是普通字符，不做处理，
  * 也不需要 E'' 前缀（多一层前缀只会多一处方言差异）。
+ * sqlite 与 pg 同：反斜杠是普通字符，只有 `'` 需要双写 —— 给 sqlite 加倍反斜杠
+ * 会把值 `a\b` 查成 `a\\b`，筛选条件看着对、结果永久少一行。
  * @param {*} value 绑定值
  * @param {string} dialect 方言
  * @returns {string|null} 字面量文本；无法具体化时 null
@@ -692,7 +717,7 @@ function literalText (value, dialect) {
 
 /**
  * 参数化子句 → 可读可编辑的字面量文本。
- * 占位符按方言消费：mysql 顺序吃 `?`；pg 按 `$n` 的编号取 params[n-1]
+ * 占位符按方言消费：mysql 与 sqlite 顺序吃 `?`；pg 按 `$n` 的编号取 params[n-1]
  * （`$2` 写在 `$1` 前面时也不会错位 —— 编号是驱动认的，顺序无关）。
  * 任一占位符越界、值无法具体化、或用完/用不尽参数 → **原样返回子句**。
  * @param {string} clause 参数化子句
@@ -723,7 +748,7 @@ export function materializeClause (clause, params, dialect) {
       continue
     }
     const ch = text[i]
-    if (ch === '?' && d === 'mysql') {
+    if (ch === '?' && d !== 'postgres') {
       if (seq >= list.length) {
         return text
       }
@@ -769,14 +794,14 @@ export function materializeClause (clause, params, dialect) {
 }
 
 /**
- * 读一个带引用符的标识符（mysql `` `x` `` / pg `"x"`），引用符双写还原成自身。
+ * 读一个带引用符的标识符（mysql `` `x` `` / pg 与 sqlite `"x"`），引用符双写还原成自身。
  * @param {string} src 文本
  * @param {number} start 起点（必须是引用符）
  * @param {string} dialect 方言
  * @returns {{name: string, end: number}|null} 解析结果
  */
 function readIdent (src, start, dialect) {
-  const q = normalizeDialect(dialect) === 'postgres' ? '"' : '`'
+  const q = normalizeDialect(dialect) === 'mysql' ? '`' : '"'
   if (src[start] !== q) {
     return null
   }
@@ -1080,7 +1105,16 @@ function parseCondition (part, lookup, dialect) {
   }
   const like = /^LIKE\s+([\s\S]+)$/i.exec(rest)
   if (like) {
-    const raw = readStringLiteral(like[1].trim(), dialect)
+    let body = like[1].trim()
+    // sqlite 的构建器形态固定带 ESCAPE '\'（SQLite 的 LIKE 没有默认转义符）。
+    // 只剥这一种精确后缀：手写 `ESCAPE '='` 不是本模块产出的形态，落到"无法结构化"，
+    // 而不是猜一个转义符把用户的条件改意思。
+    // 值本身以 `\` 结尾时也不会误剥：escapeLike 把 `\` 加倍，具体化后文本末尾是 `\\'''`。
+    if (normalizeDialect(dialect) === 'sqlite' &&
+      body.endsWith(SQLITE_LIKE_ESCAPE)) {
+      body = body.slice(0, body.length - SQLITE_LIKE_ESCAPE.length)
+    }
+    const raw = readStringLiteral(body, dialect)
     if (raw === null) {
       return null
     }

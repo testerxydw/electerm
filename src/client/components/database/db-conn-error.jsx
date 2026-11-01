@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons'
 import { copy } from '../../common/clipboard'
 import { dbTypeLabelMap } from '../../common/constants'
+import { dbConnTarget } from '../../common/db-file'
 
 const e = window.translate
 
@@ -28,6 +29,8 @@ const errRules = [
   [/Unknown database|does not exist|ER_BAD_DB_ERROR|3D000/i, 'dbErrNoDb'],
   [/READONLY|read only replica|replica/i, 'dbErrReadOnly'],
   [/connection is closed|stream isn't writeable|socket hang up|connection lost/i, 'dbErrClosed'],
+  // 本地文件引擎（sqlite）：路径写错/文件不是数据库，与"网络不通"是两类排查
+  [/unable to open database file|file is not a database|database is locked|SQLITE_NOTADB|数据库文件不存在/i, 'dbErrSqliteFile'],
   [/ssh|tunnel/i, 'dbErrTunnel']
 ]
 
@@ -47,11 +50,11 @@ export function dbErrorHint (msg) {
   return hit ? e(hit[1]) : e('dbErrUnknown')
 }
 
-// 连接要点：引擎 · host:port · 库 · 用户（不含密码）
+// 连接要点：引擎 · 连接位置（host:port 或库文件） · 库 · 用户（不含密码）
 export function dbTargetText (tab) {
   return [
     dbTypeLabelMap[tab.dbType] || tab.dbType,
-    tab.dbHost ? `${tab.dbHost}:${tab.dbPort || ''}` : tab.title,
+    dbConnTarget(tab) || tab.title,
     tab.dbName,
     tab.dbUser
   ].filter(Boolean).join(' · ')

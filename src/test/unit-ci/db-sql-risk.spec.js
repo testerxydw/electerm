@@ -722,12 +722,18 @@ describe('db-safe-guard: asked 记忆与连接身份', () => {
     assert.equal(state.asked.size, 0)
   })
 
-  test('连接身份区分引擎/主机/端口/用户/库', () => {
+  test('连接身份区分引擎/主机/端口/用户/库/库文件', () => {
     const base = { dbType: 'mysql', dbHost: 'h', dbPort: 3306, dbUser: 'u', dbName: 'd1' }
     const other = Object.assign({}, base, { dbName: 'd2' })
     assert.notEqual(dbConnKey(base), dbConnKey(other))
     assert.equal(dbConnKey(base), dbConnKey(Object.assign({}, base)))
-    assert.equal(dbConnKey({}), '||||')
+    assert.equal(dbConnKey({}), '|||||')
+    // 本地文件引擎没有 host/port/库名：只按 dbType 归并的话，
+    // 在 A 文件上"临时解除安全带"会连带放开 B 文件
+    const a = { dbType: 'sqlite', dbFile: '/data/a.db' }
+    const b = { dbType: 'sqlite', dbFile: '/data/b.db' }
+    assert.notEqual(dbConnKey(a), dbConnKey(b), '不同库文件必须是不同连接')
+    assert.equal(dbConnKey(a), dbConnKey({ dbType: 'sqlite', dbFile: '/data/a.db' }))
   })
 
   test('同一连接放开后，另一个连接仍受保护', () => {

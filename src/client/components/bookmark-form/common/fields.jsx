@@ -21,13 +21,14 @@ import ProfileItem from './profile-item.jsx'
 import renderRunScripts from './run-scripts.jsx'
 import SerialPathSelector from './serial-path-selector.jsx'
 import DbTunnelSelect from './db-tunnel-select.jsx'
+import DbFileField from './db-file-field.jsx'
 import VvFileField from './vv-file-field.jsx'
 import SshHostSelector from './ssh-host-selector.jsx'
 import SshAuthTypeSelector from './ssh-auth-type-selector.jsx'
 import SshAuthSelector from './ssh-auth-selector.jsx'
 import CategorySelect from './category-select.jsx'
 import ExternalLink from '../../common/external-link.jsx'
-import { dbDefaultPortMap } from '../../../common/constants.js'
+import { dbDefaultPortMap, dbFileTypes } from '../../../common/constants.js'
 const Fragment = React.Fragment
 const FormItem = Form.Item
 
@@ -55,7 +56,32 @@ const commonRenderTypes = new Set([
  * @returns {JSX.Element|null} Rendered form item
  */
 export function renderFormItem (item, formItemLayout, form, ctxProps, index) {
-  const { type, name, label, rules, valuePropName, hidden, normalize } = item
+  const { type, name, label, rules, valuePropName, hidden, normalize, showWhen } = item
+
+  // 按当前表单值显隐（H8a：SQLite 只需要文件路径，host/port/账号/SSL/隧道全部无关）。
+  // 用 shouldUpdate 重渲染而不是 className='hide'：隐藏字段的 required 规则必须一起
+  // 撤掉，否则切到本地文件引擎后表单永远提交不了
+  if (typeof showWhen === 'function') {
+    return (
+      <FormItem
+        key={name}
+        noStyle
+        shouldUpdate={(prev, cur) => prev.dbType !== cur.dbType}
+      >
+        {({ getFieldValue }) => (
+          showWhen(getFieldValue)
+            ? renderFormItem(
+              { ...item, showWhen: undefined },
+              formItemLayout,
+              form,
+              ctxProps,
+              index
+            )
+            : null
+        )}
+      </FormItem>
+    )
+  }
 
   // Render simple AntD controls directly inside Form.Item
   if (commonRenderTypes.has(type)) {
@@ -84,17 +110,22 @@ export function renderFormItem (item, formItemLayout, form, ctxProps, index) {
             options={item.options}
             {...item.props}
             onChange={(val, opt) => {
-              // 仅当端口为空、或仍是某个引擎的默认端口时才覆盖，
-              // 避免抹掉用户手工填写的自定义端口
-              const cur = form.getFieldValue('dbPort')
-              const known = Object.values(dbDefaultPortMap)
-              if (
-                cur === undefined ||
-                cur === null ||
-                cur === '' ||
-                known.includes(Number(cur))
-              ) {
-                form.setFieldsValue({ dbPort: dbDefaultPortMap[val] })
+              // 本地文件引擎（sqlite）没有端口概念：切换时不去写 dbPort，也**不主动清**——
+              // 用户手滑切走引擎再切回来，不该丢掉自己填的自定义端口。
+              // 残留值不影响呈现：页签/错误卡片/工具条的连接目标一律按引擎判，见 dbConnTarget
+              if (!dbFileTypes.has(val)) {
+                // 仅当端口为空、或仍是某个引擎的默认端口时才覆盖，
+                // 避免抹掉用户手工填写的自定义端口
+                const cur = form.getFieldValue('dbPort')
+                const known = Object.values(dbDefaultPortMap)
+                if (
+                  cur === undefined ||
+                  cur === null ||
+                  cur === '' ||
+                  known.includes(Number(cur))
+                ) {
+                  form.setFieldsValue({ dbPort: dbDefaultPortMap[val] })
+                }
               }
               if (item.props && item.props.onChange) {
                 item.props.onChange(val, opt)
@@ -225,6 +256,17 @@ export function renderFormItem (item, formItemLayout, form, ctxProps, index) {
         <DbTunnelSelect
           key={name}
           bookmarks={ctxProps.bookmarks}
+        />
+      )
+    case 'dbFilePicker':
+      return (
+        <DbFileField
+          key={name}
+          form={form}
+          layout={formItemLayout}
+          label={typeof label === 'string' ? label : label()}
+          name={name}
+          rules={rules}
         />
       )
     case 'sshHostSelector':

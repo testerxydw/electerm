@@ -983,6 +983,9 @@ module.exports = {
   rollbackDbTx,
   getDbTxState,
   getDbTabContext,
+  // dbType → 方言 id：导出/导入生成 SQL 文本与 safe-clause 校验都必须用同一口径，
+  // 各自再写一份三元判断迟早会和这里分叉
+  dialectOf,
   closeDbTab,
   closeAllDbTabs
 }

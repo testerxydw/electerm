@@ -7,11 +7,15 @@
  *
  * 骨架（无表上下文）用占位表名 table_name；带表上下文（当前选中表）时
  * 生成可直接执行的完整语句，INSERT 用 describeTable 同源的列清单。
- * 引号按方言：mysql 反引号（双写转义）、pg 双引号（双写转义）。
+ * 引号按方言：mysql 反引号（双写转义）、pg 与 sqlite 双引号（双写转义）。
  */
 
 // 占位表名：无上下文时的骨架可读占位，用户改一个词即可执行
 export const PLACEHOLDER_TABLE = 'table_name'
+
+// 双引号标识符的方言：pg 与 sqlite（sqlite 也认反引号，但官方口径是双引号，
+// 与 sql-dialects.js 的高亮/补全同源，两处不一致会出现"高亮认作字符串"的怪象）
+const DOUBLE_QUOTE_IDENTS = { postgres: true, pg: true, sqlite: true, sqlite3: true }
 
 /**
  * 标识符引用。非法输入原样返回（调用方保证来自结构元数据，
@@ -22,7 +26,7 @@ export function quoteIdent (name, dialect) {
   if (!s) {
     return s
   }
-  if (dialect === 'postgres') {
+  if (DOUBLE_QUOTE_IDENTS[dialect]) {
     return '"' + s.replace(/"/g, '""') + '"'
   }
   // mysql 及其余方言统一反引号（占位表名 table_name 是合法标识符，引用无害）

@@ -47,12 +47,15 @@
   --primary-text unquote('color-mix(in srgb, var(--primary) 72%, var(--text-light))')
 
   // ---- 数据库引擎标识色（书签树 / tab 的 db 圆柱与徽标共用）----
-  // 官方品牌色：mysql #4479A1 / redis #DC382D / postgres #336791
+  // 官方品牌色：mysql #4479A1 / redis #DC382D / postgres #336791 / sqlite #003B57
   // 深色基底=原色 mix 30% white 提亮（保对比度）；浅色覆盖见 .theme-light
   // tidb / oceanbase 协议同源 mysql，继承同一色（引擎名由徽标文字区分）
   --db-engine-mysql #7CA1BD
   --db-engine-redis #E7746C
   --db-engine-postgres #7095B2
+  // sqlite 官方色 #003B57 太深：按同一 30% 口径只到 #4D7689，比左右引擎暗一档、
+  // 在深色底上接近"看不见"，所以这里提到 45%（#7393A3，与 mysql 的亮度带对齐）
+  --db-engine-sqlite #7393A3
   --db-engine-tidb var(--db-engine-mysql)
   --db-engine-oceanbase var(--db-engine-mysql)
 
@@ -116,6 +119,7 @@
   --db-engine-mysql #4479A1
   --db-engine-redis #DC382D
   --db-engine-postgres #336791
+  --db-engine-sqlite #003B57
   // 浅色主题里"更弱的文字"必须更深而不是更浅：--text(#555) 往 --main(#ededed)
   // 收 35% 只剩 3.9:1，反过来往深色走（--text-dark #444）才有 8.3:1
   --text-muted var(--text-dark)

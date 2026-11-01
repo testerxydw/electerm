@@ -129,7 +129,7 @@ describe('db-sql-history (main-process file store)', () => {
     const [item] = list
     assert.deepEqual(
       Object.keys(item).sort(),
-      ['dbHost', 'dbName', 'dbType', 'ok', 'sql', 'ts']
+      ['dbFile', 'dbHost', 'dbName', 'dbType', 'ok', 'sql', 'ts']
     )
     assert.ok(!JSON.stringify(list).includes('secret'))
     assert.ok(!JSON.stringify(list).includes('payload'))

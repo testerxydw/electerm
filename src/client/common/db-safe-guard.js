@@ -34,7 +34,9 @@ export function createGuardState () {
  * 连接身份键（mute 与 bypass 都以它为准）。
  * 含库名：electerm 里一个 database tab 就是一个连接，同一台服务器连不同库属于不同连接，
  * 在生产库上放开 5 分钟不应该连带放开旁边的测试库。
- * @param {Object} tab 会话 tab（读 dbType/dbHost/dbPort/dbUser/dbName）
+ * 含库文件路径：本地文件引擎（sqlite）没有 host/port/dbName，只按 dbType 归并会把
+ * 两个不同的 .db 当成同一个连接——在 A 文件上"临时解除"连带放开了 B 文件。
+ * @param {Object} tab 会话 tab（读 dbType/dbHost/dbPort/dbUser/dbName/dbFile）
  * @returns {string}
  */
 export function dbConnKey (tab) {
@@ -45,7 +47,8 @@ export function dbConnKey (tab) {
     pick(t.dbHost),
     pick(t.dbPort),
     pick(t.dbUser),
-    pick(t.dbName)
+    pick(t.dbName),
+    pick(t.dbFile)
   ].join('|')
 }
 

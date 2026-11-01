@@ -86,7 +86,13 @@ function makeFakeClient (opts = {}) {
       adapter: {},
       conn: {},
       readOnly: true
-    })
+    }),
+    // 真 db-client 还导出 dialectOf（H8a：导出器/校验器与它同一份方言口径）。
+    // 打桩必须给全，否则状态机用例会在 require 到的 undefined 上炸成 failed 任务，
+    // 而红字只写成"status 应为 running"——下面有一条用例专门盯这个清单。
+    dialectOf: ctx => (ctx.dbType === 'postgres'
+      ? 'postgres'
+      : ctx.dbType === 'sqlite' ? 'sqlite' : 'mysql')
   }
   return client
 }
@@ -476,8 +482,32 @@ describe('db-exporter 任务状态机', () => {
   })
 })
 
-// ---------- 适配器 buildInsertBatch（方言语句构建） ----------
+// ---------- 依赖清单对齐（打桩 vs 真模块） ----------
 
+describe('db-exporter 依赖的 db-client 口径', () => {
+  const CLIENT_JS = path.join(ROOT, 'src/app/lib/db-client/index.js')
+
+  // 状态机用例把 './db-client' 整个打桩。真模块每多导出一个被解构的键，
+  // 桩没跟上就会在 undefined 上抛错，而红字只写成"status 应为 running"——
+  // 根因完全看不出来（H8a 加 dialectOf 时正是这样炸了 12 条用例）。
+  test('导出器从 ./db-client 解构的键，真模块与打桩都给得出', () => {
+    const src = fs.readFileSync(EXPORTER_JS, 'utf8')
+    const hit = src.match(/const \{([^}]+)\} = require\('\.\/db-client'\)/)
+    assert.ok(hit, '导出器应一次性解构 ./db-client 的依赖')
+    const keys = hit[1].split(',').map(s => s.trim()).filter(Boolean)
+    const clientSrc = fs.readFileSync(CLIENT_JS, 'utf8')
+    const fake = makeFakeClient()
+    for (const k of keys) {
+      assert.equal(typeof fake[k], 'function', `打桩缺 db-client.${k}`)
+      assert.ok(
+        new RegExp('(^|[{,\\s])' + k + '\\s*[,}]', 'm').test(clientSrc.split('module.exports')[1] || ''),
+        `真 db-client 未导出 ${k}`
+      )
+    }
+  })
+})
+
+// ---------- 适配器 buildInsertBatch（方言语句构建） ----------
 describe('适配器 buildInsertBatch（mysql/pg）', () => {
   const Module = require('node:module')
   const electronStub = { app: { getPath: () => '/tmp', isPackaged: false }, dialog: {} }

@@ -716,6 +716,11 @@ const en = {
   dbProductionFlag: 'Production connection',
   dbUseSsl: 'Use TLS/SSL (self-signed allowed)',
   dbProductionHint: 'Production connection: every non-query statement needs a second confirmation with the database name typed in',
+  // —— H8a 本地文件引擎（sqlite）连接表单 ——
+  dbFile: 'Database file',
+  dbFileChoose: 'Choose',
+  dbFilePlaceholder: 'Absolute path of the .db file, or :memory: for a throwaway database',
+  dbFileHint: 'Local file engine: electerm opens this file as it is. A path that does not exist fails to connect instead of creating an empty database — create tables from the SQL page.',
   // —— 快捷命令 / 通用 UI（批次 A）——
   noLabel: 'No label',
   enterValue: 'Enter a value',
@@ -775,6 +780,7 @@ const en = {
   dbErrNoDb: 'The database does not exist, or the user has no access to it',
   dbErrReadOnly: 'This instance is read-only',
   dbErrClosed: 'The connection was closed by the server: it may have restarted, or an idle timeout kicked in',
+  dbErrSqliteFile: 'The database file cannot be opened: check that the path exists and is a SQLite file, and that no other process holds it exclusively',
   dbErrTunnel: 'The SSH tunnel could not be established: check the tunnel bookmark',
   dbErrUnknown: 'Check host, port, credentials and network reachability',
   refresh: 'Refresh',
@@ -1758,6 +1764,11 @@ const zhCn = {
   dbProductionFlag: '生产连接',
   dbUseSsl: '使用 TLS/SSL（允许自签名证书）',
   dbProductionHint: '生产连接：所有非查询语句都要二次确认并输入库名',
+  // —— H8a 本地文件引擎（sqlite）连接表单 ——
+  dbFile: '库文件',
+  dbFileChoose: '选择',
+  dbFilePlaceholder: '库文件绝对路径；填 :memory: 开一个用完即弃的内存库',
+  dbFileHint: '本地文件引擎：electerm 直接打开这个文件。路径不存在会连接失败，不会替你新建空库——建表请到 SQL 页执行。',
   // —— 快捷命令 / 通用 UI（批次 A）——
   noLabel: '无标签',
   enterValue: '输入一个值',
@@ -1817,6 +1828,7 @@ const zhCn = {
   dbErrNoDb: '数据库不存在，或当前用户无权访问',
   dbErrReadOnly: '该实例为只读',
   dbErrClosed: '连接已被服务端关闭：服务端可能重启，或空闲超时被断开',
+  dbErrSqliteFile: '库文件打不开：请确认路径存在、确实是 SQLite 文件，且没有被其他进程独占锁定',
   dbErrTunnel: 'SSH 隧道建立失败：请检查隧道书签',
   dbErrUnknown: '请检查主机、端口、账号密码与网络连通性',
   refresh: '刷新',

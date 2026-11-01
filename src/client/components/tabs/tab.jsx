@@ -31,6 +31,7 @@ import { shortcutDescExtend } from '../shortcuts/shortcut-handler.js'
 import { isDropAfterHalf } from '../../common/drop-position'
 import { splitConfig, terminalDatabaseType, dbTypeLabelMap } from '../../common/constants'
 import { DbEngineMark, isDbSession } from '../../common/db-engine-mark'
+import { dbConnTarget, isDbFileType } from '../../common/db-file'
 
 const e = window.translate
 const onDragCls = 'ondrag-tab'
@@ -525,12 +526,15 @@ class Tab extends Component {
     )
   }
 
-  // 数据库会话：tooltip 展示「连接要点」（引擎 / 地址 / 库 / 用户），
-  // 而不是把被截断的 tab 标题再原样重复一遍
+  // 数据库会话：tooltip 展示「连接要点」（引擎 / 位置 / 库 / 用户），
+  // 而不是把被截断的 tab 标题再原样重复一遍。
+  // 位置只出一行：网络引擎是 host:port，本地文件引擎是库文件全路径
+  // （dbConnTarget 按引擎判，切换引擎留下的残留 host 不会串味）
   renderDbTitle (tab, title) {
+    const isFile = isDbFileType(tab.dbType)
     const rows = [
       [e('dbType'), dbTypeLabelMap[tab.dbType] || tab.dbType],
-      [e('host'), tab.dbHost ? `${tab.dbHost}:${tab.dbPort}` : ''],
+      [isFile ? e('dbFile') : e('host'), dbConnTarget(tab, true)],
       [e('dbName'), tab.dbName],
       [e('username'), tab.dbUser],
       // readOnly 缺省即只读（与书签/主进程判定一致）

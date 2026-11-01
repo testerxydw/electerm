@@ -38,6 +38,8 @@ function pickEntry (entry) {
     sql: String(entry.sql || ''),
     dbType: entry.dbType || '',
     dbHost: entry.dbHost || '',
+    // 本地文件引擎（sqlite）没有 host：导出/回溯时全靠这个路径认出是哪库
+    dbFile: entry.dbFile || '',
     dbName: entry.dbName || '',
     ok: entry.ok === true,
     ts: Number(entry.ts) || Date.now()

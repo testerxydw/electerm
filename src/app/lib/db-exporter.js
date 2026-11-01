@@ -91,16 +91,22 @@ function mdCell (v) {
   return binCell(v).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
 }
 
-// 标识符引用：mysql 系反引号，pg 双引号（与 db-csv.sqlQuoteIdent 口径一致）
+// 标识符引用：mysql 系反引号，pg 与 sqlite 双引号（与 db-csv.sqlQuoteIdent 口径一致）
 function sqlQuoteIdent (name, dialect) {
   const s = String(name)
-  return dialect === 'postgres'
+  return isDoubleQuoteIdent(dialect)
     ? '"' + s.replace(/"/g, '') + '"'
     : '`' + s.replace(/`/g, '') + '`'
 }
 
+// 双引号标识符的方言：pg 与 sqlite（sqlite 也吃反引号，但生成物按官方口径走双引号，
+// 与渲染层 db-csv.sqlQuoteModeOf 一致，否则"复制出来的 INSERT"和"导出的 .sql"两套引号）
+function isDoubleQuoteIdent (dialect) {
+  return dialect === 'postgres' || dialect === 'sqlite'
+}
+
 // 值字面量：null→NULL；number/boolean/bigint 原样；Date→ISO；字符串 ' 翻倍，
-// mysql 系额外 \ 翻倍；信封 → X'hex'（mysql）/ '\xhex'（pg）。
+// mysql 系额外 \ 翻倍；信封 → X'hex'（mysql/sqlite）/ '\xhex'（pg）。
 // 字符串里的分号在引号内是普通数据（' 翻倍后不可能提前闭合字面量），
 // 生成的 .sql 按字面 SQL 执行时不会被打断成多条 —— 这就是"分号转义"的落地方式。
 // 截断信封：没有完整字节，输出显式标记字符串（与 binCell 同理由），不输出残缺 hex。
@@ -124,7 +130,9 @@ function sqlQuoteVal (v, dialect) {
     ? v.toISOString()
     : String(v)
   s = s.replace(/'/g, "''")
-  if (dialect !== 'postgres') {
+  // 只有 mysql 系的字符串认反斜杠转义。sqlite 里 `\` 是普通字符，加倍会把
+  // 值 `a\b` 导出成 `a\\b`——文件看起来没问题，导入回来的却是另一个值
+  if (dialect !== 'postgres' && dialect !== 'sqlite') {
     s = s.replace(/\\/g, '\\\\')
   }
   return "'" + s + "'"
@@ -133,12 +141,14 @@ function sqlQuoteVal (v, dialect) {
 // dump 头尾：FOREIGN_KEY_CHECKS 让含外键的数据可以乱序导入。
 // pg 没有会话级外键开关（SET CONSTRAINTS 只对 DEFERRABLE 约束生效），
 // 照抄会让 dump 在 pg 上第一句就报语法错：pg 输出空头尾。
+// sqlite 同理：既没有 SET，`PRAGMA foreign_keys` 又在事务内无效，
+// 而且导出的 .sql 常常直接喂给 sqlite3 CLI —— 空头尾是唯一不会让第一行就失败的写法。
 function sqlHeader (dialect) {
-  return dialect === 'postgres' ? '' : 'SET FOREIGN_KEY_CHECKS=0;\n'
+  return dialect === 'postgres' || dialect === 'sqlite' ? '' : 'SET FOREIGN_KEY_CHECKS=0;\n'
 }
 
 function sqlTail (dialect) {
-  return dialect === 'postgres' ? '' : 'SET FOREIGN_KEY_CHECKS=1;\n'
+  return dialect === 'postgres' || dialect === 'sqlite' ? '' : 'SET FOREIGN_KEY_CHECKS=1;\n'
 }
 
 function fullTableName ({ database, schema, table }, dialect) {
@@ -262,7 +272,7 @@ function streamEnd (stream) {
 
 async function runExport (task, tabId, args) {
   const fs = require('fs')
-  const { dbClientOp, getDbTabContext } = require('./db-client')
+  const { dbClientOp, getDbTabContext, dialectOf } = require('./db-client')
   const stream = fs.createWriteStream(args.targetPath, { flags: 'w' })
   // error 处理器必须先挂：写盘失败的 error 事件没人接会直接打崩主进程
   let streamError = null
@@ -271,7 +281,9 @@ async function runExport (task, tabId, args) {
   })
   try {
     const ctx = getDbTabContext(tabId)
-    const dialect = ctx.dbType === 'postgres' ? 'postgres' : 'mysql'
+    // 方言口径与 db-client 的 dialectOf 同一份：这里自己写三元的话，
+    // sqlite 会被当成 mysql，导出的 .sql 里值多一倍反斜杠、头上还带一句 sqlite 不认的 SET
+    const dialect = dialectOf(ctx)
     // 表结构：主键排序 + 列序。拿不到不致命（降级：无 pk 排序、表头取首行键）
     let structure = null
     try {

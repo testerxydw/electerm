@@ -74,13 +74,15 @@ export const connectionMap = buildConst([
   'database'
 ])
 
-// 数据库引擎（P0 mysql/redis；P1 postgres；P2 tidb/oceanbase 兼容 mysql 协议）
+// 数据库引擎（P0 mysql/redis；P1 postgres；P2 tidb/oceanbase 兼容 mysql 协议；
+// P3 sqlite 本地文件）
 export const dbTypeMap = buildConst([
   'mysql',
   'redis',
   'postgres',
   'tidb',
-  'oceanbase'
+  'oceanbase',
+  'sqlite'
 ])
 
 // 各引擎默认端口
@@ -92,13 +94,20 @@ export const dbDefaultPortMap = {
   oceanbase: 2881
 }
 
+// 本地文件引擎：没有 host/port/user/password，连接表单据此隐藏网络字段，
+// 引擎下拉也据此跳过"联动默认端口"，页签/错误卡片把连接目标改成库文件（H8a）。
+// 集合本体在 db-file.js —— 那份需要能被 node 单测 import（constants.js 依赖 window，不能），
+// 这里原样再导出，保持既有 `from 'constants'` 的引用点不动。
+export { dbFileTypes } from './db-file.js'
+
 // 引擎显示名（书签表单下拉 + tab 标题前缀 / tooltip 共用，避免多处字面量不一致）
 export const dbTypeLabelMap = {
   [dbTypeMap.mysql]: 'MySQL',
   [dbTypeMap.redis]: 'Redis',
   [dbTypeMap.postgres]: 'PostgreSQL',
   [dbTypeMap.tidb]: 'TiDB',
-  [dbTypeMap.oceanbase]: 'OceanBase'
+  [dbTypeMap.oceanbase]: 'OceanBase',
+  [dbTypeMap.sqlite]: 'SQLite'
 }
 
 export const authTypeMap = buildConst([

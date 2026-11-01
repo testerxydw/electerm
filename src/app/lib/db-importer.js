@@ -341,9 +341,11 @@ function previewImportFile (filePath, arg = {}) {
 
 async function runImport (a, task) {
   const fs = require('fs')
-  const { getDbTabContext, dbClientOp } = require('./db-client')
+  const { getDbTabContext, dbClientOp, dialectOf } = require('./db-client')
   const ctx = getDbTabContext(a.tabId)
-  const dialect = ctx.dbType === 'postgres' ? 'postgres' : 'mysql'
+  // 方言来自 db-client.dialectOf：expression 列要过 safe-clause 的词法闸门，
+  // sqlite 传成 mysql 会按"反斜杠转义 + # 注释"判，与主进程执行时的那套规则不是同一个
+  const dialect = dialectOf(ctx)
   const mode = a.mode || 'append'
   if (!IMPORT_MODES.includes(mode)) {
     throw new Error('unsupported import mode: ' + mode)

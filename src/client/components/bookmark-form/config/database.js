@@ -4,12 +4,21 @@ import {
   terminalDatabaseType,
   dbTypeMap,
   dbTypeLabelMap,
-  dbDefaultPortMap
+  dbDefaultPortMap,
+  dbFileTypes
 } from '../../../common/constants.js'
 import { createBaseInitValues } from '../common/init-values.js'
 import { commonFields } from './common-fields.js'
 
 const e = window.translate
+
+// 网络字段（host/port/账号/库名/隧道/SSL）的可见性：本地文件引擎一个都不需要。
+// showWhen 收到的是 antd 的 getFieldValue（见 common/fields.jsx）
+const isNet = dbType => !dbFileTypes.has(dbType)
+const showWhenNet = (get) => isNet(get('dbType'))
+const showWhenFile = (get) => dbFileTypes.has(get('dbType'))
+
+const requiredMsg = (label) => e(label) + ' required'
 
 const databaseConfig = {
   key: 'database',
@@ -22,6 +31,8 @@ const databaseConfig = {
       dbUser: 'root',
       dbPassword: '',
       dbName: '',
+      // H8a：本地文件引擎（sqlite）的库文件绝对路径；其余引擎忽略此字段
+      dbFile: '',
       sshTunnelBookmarkId: '',
       // 默认只读：主进程按此开关执行 SELECT/SHOW/DESC/EXPLAIN 白名单（见 db-client）
       readOnly: true,
@@ -50,12 +61,29 @@ const databaseConfig = {
             value: dbTypeMap[k]
           }))
         },
-        { type: 'input', name: 'dbHost', label: () => e('host'), rules: [{ required: true, message: e('host') + ' required' }] },
-        { type: 'number', name: 'dbPort', label: () => e('port'), rules: [{ required: true, message: 'port required' }] },
-        { type: 'input', name: 'dbUser', label: () => e('username') },
-        { type: 'password', name: 'dbPassword', label: () => e('password') },
-        { type: 'input', name: 'dbName', label: () => e('dbName') },
-        { type: 'dbTunnelSelect', name: 'sshTunnelBookmarkId', label: '' },
+        {
+          type: 'dbFilePicker',
+          name: 'dbFile',
+          label: () => e('dbFile'),
+          showWhen: showWhenFile,
+          rules: [{ required: true, message: requiredMsg('dbFile') }]
+        },
+        {
+          // 本地文件的后果要先说清：应用只是打开这个文件，不存在会直接报错、
+          // 不会替用户建库（建库请去 SQL 工具页执行 CREATE TABLE）
+          type: 'info',
+          name: 'dbFileHint',
+          showWhen: showWhenFile,
+          props: {
+            message: e('dbFileHint')
+          }
+        },
+        { type: 'input', name: 'dbHost', label: () => e('host'), showWhen: showWhenNet, rules: [{ required: true, message: requiredMsg('host') }] },
+        { type: 'number', name: 'dbPort', label: () => e('port'), showWhen: showWhenNet, rules: [{ required: true, message: 'port required' }] },
+        { type: 'input', name: 'dbUser', label: () => e('username'), showWhen: showWhenNet },
+        { type: 'password', name: 'dbPassword', label: () => e('password'), showWhen: showWhenNet },
+        { type: 'input', name: 'dbName', label: () => e('dbName'), showWhen: showWhenNet },
+        { type: 'dbTunnelSelect', name: 'sshTunnelBookmarkId', label: '', showWhen: showWhenNet },
         {
           type: 'switch',
           name: 'readOnly',
@@ -67,6 +95,7 @@ const databaseConfig = {
           type: 'switch',
           name: 'dbSsl',
           label: () => e('dbUseSsl'),
+          showWhen: showWhenNet,
           valuePropName: 'checked'
         },
         {
