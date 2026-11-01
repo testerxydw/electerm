@@ -14,6 +14,7 @@ const EDITOR = path.join(ROOT, 'src/client/components/database/db-sql-editor.jsx
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const BUILD = path.join(ROOT, 'src/build/bin/build.js')
 const CHECK = path.join(ROOT, 'src/build/bin/check-cm6-chunk.js')
+const DB_CLIENT = path.join(ROOT, 'src/app/lib/db-client/index.js')
 
 const read = p => fs.readFileSync(p, 'utf8')
 
@@ -388,6 +389,29 @@ describe('A-8 六项开关装配', () => {
     )
     assert.ok(pop.includes('SQL_EDITOR_OPTIONS.map'), '找不到选项弹层内容')
     assert.match(session, /!isRedis[\s\S]{0,240}content=\{sqlOptsPop\}/, '选项入口必须按 isRedis 门控')
+  })
+})
+
+describe('只读是执行闸门，不是输入闸门', () => {
+  const session = read(SESSION)
+
+  test('db-session 任何位置都不把 isReadonly 接到编辑器上', () => {
+    // CM6 迁移（552d2b7c）把 readOnly={isReadonly} 接进 EditorView.editable，
+    // 而只读默认是开的（tab.readOnly !== false 即视为只读）——结果新建页签的
+    // SQL 页一进来就打不了字：实测 .cm-content 的 contenteditable="false"，
+    // 鼠标点进去 activeElement 仍是 BODY，敲进去的内容全落在 placeholder 上。
+    // 迁移前的 textarea 从来没有 readOnly 绑定，写语句由主进程白名单挡。
+    assert.ok(
+      !/readOnly=\{isReadonly\}/.test(session),
+      'SQL 编辑器不允许被只读开关锁死输入'
+    )
+  })
+
+  test('只读仍由主进程把关（渲染层伪造 readOnly 到不了写入口）', () => {
+    const authority = read(DB_CLIENT)
+    // executeSql 的 readOnly 取自连接侧实例，不是渲染层入参
+    assert.match(authority, /readOnly: inst\.readOnly/)
+    assert.match(session, /readOnly: !!isReadonly/, 'AI 上下文仍要如实带上只读态')
   })
 })
 

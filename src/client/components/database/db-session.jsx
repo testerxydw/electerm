@@ -7808,7 +7808,9 @@ export default auto(function DbSession (props) {
           onFormat={formatSqlEditor}
           onSave={saveSqlFile}
           onExplainSelection={openExplain}
-          readOnly={isReadonly}
+          // 只读是"执行闸门"（主进程 checkReadonly 按引擎白名单放行读语句），
+          // 不是"输入闸门"：CM6 迁移时把 isReadonly 传进 editable，默认只读的页签
+          // 就连字都打不进了。状态行已经有只读牌，这里不需要再锁键盘。
           dbType={tab.dbType}
           placeholder={e('dbSqlPlaceholder')}
           keywordCase={sqlKeywordCase}

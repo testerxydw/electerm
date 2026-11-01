@@ -771,7 +771,7 @@ async function main () {
     await sleep(600)
   }
 
-  // ---- 只读门：编辑器 / 单元格 / 主进程白名单，三处同时生效 ----
+  // ---- 只读门：挡执行（主进程白名单）+ 挡写入口（单元格编辑），不挡打字 ----
   await openSqlSeg()
   const roBefore = await cdp.eval('window.__editorRO()')
   check('可写时 SQL 编辑器可输入（contenteditable=true）', roBefore === 'true', roBefore)
@@ -790,7 +790,29 @@ async function main () {
     await click(sw.xy, 1200)
     const roAfter = await cdp.eval('window.__editorRO()')
     const swAfter = await cdp.eval('(window.__switchXY(\'只读\') || {}).on')
-    check('切只读后开关同步，且编辑器立刻不可输入', roAfter === 'false' && swAfter === true, { roAfter, swAfter })
+    // CM6 迁移（552d2b7c）把 isReadonly 接进了 EditorView.editable，而只读默认就是开的
+    // （tab.readOnly !== false 即视为只读）——于是每个新建页签的 SQL 页一进来就打不了字：
+    // 实测 .cm-content 的 contenteditable="false"，点进去 activeElement 还是 BODY。
+    // 迁移前的 textarea 从来没有 readOnly 绑定，写语句由主进程白名单挡。这条判据专门盯这个回归。
+    check('切只读后开关同步，编辑器仍可输入（只读挡执行，不挡打字）',
+      roAfter === 'true' && swAfter === true, { roAfter, swAfter })
+    const typedRo = await setSql('SELECT id, name FROM product LIMIT 2')
+    check('只读开着时真键盘仍能整篇写入 SQL（回读一致）', typedRo === 'ok', typedRo)
+    await cdp.shot(path.join(SHOT_DIR, '1b-readonly-typing.png'))
+    const stRo = await execSql('SELECT id, name FROM product LIMIT 2', '只读下的 SELECT')
+    const gRo = await cdp.eval('window.__resultGrid()')
+    check('只读下的 SELECT 照常出结果（没有把读路径一起锁掉）',
+      stRo === 'done' && gRo.rows.length === 2, { stRo, n: gRo.rows.length })
+    const stRoW = await execSql('CREATE TABLE gate_ui(x)', '只读下的 DDL')
+    if (stRoW === 'confirm') {
+      await passRisk()
+    }
+    const alertRo = await cdp.eval('window.__errAlert()')
+    check('只读下从界面点执行写语句，仍被主进程白名单拒绝',
+      /read-only|只读/i.test((alertRo && alertRo.text) || ''), { stRoW, text: alertRo && alertRo.text })
+    const gateUi = await readOne(SHOP,
+      "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='gate_ui'")
+    check('界面路径被拒的 DDL 没落进文件', String(gateUi) === '0', gateUi)
     await openSeg('数据')
     const idxAny = await cdp.eval('window.__rowIdxOf("鼠标")')
     await dblclick(await cdp.eval(`window.__cellXY('name', ${idxAny})`), 900)
