@@ -169,9 +169,9 @@ export const spiceBookmarkSchema = {
 
 export const databaseBookmarkSchema = {
   title: z.string().describe('Bookmark title'),
-  dbType: z.enum(['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'sqlite']).optional().describe('Database engine type, default mysql; sqlite connects to a local database file'),
+  dbType: z.enum(['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'sqlite', 'kingbase']).optional().describe('Database engine type, default mysql; sqlite connects to a local database file'),
   dbHost: z.string().optional().describe('Database host address (ignored by the local file engine sqlite)'),
-  dbPort: z.number().optional().describe('Database port (defaults: mysql 3306, redis 6379, postgres 5432, tidb 4000, oceanbase 2881; sqlite has no port)'),
+  dbPort: z.number().optional().describe('Database port (defaults: mysql 3306, redis 6379, postgres 5432, tidb 4000, oceanbase 2881, kingbase 54321; sqlite has no port)'),
   dbUser: z.string().optional().describe('Database username, default root for mysql-like engines'),
   dbPassword: z.string().optional().describe('Database password'),
   dbName: z.string().optional().describe('Default database/schema name to connect'),

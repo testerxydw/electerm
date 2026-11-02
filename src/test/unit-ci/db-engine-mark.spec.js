@@ -16,10 +16,10 @@ const treeStyl = read('components/tree-list/tree-list.styl')
 const tabsStyl = read('components/tabs/tabs.styl')
 
 // 6 引擎枚举（与 bookmark-schemas.js dbType 枚举一致）
-const engines = ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'sqlite']
+const engines = ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'sqlite', 'kingbase']
 
 describe('db-engine: tokens 定义', () => {
-  it(':root 六引擎 token 齐全（tidb/oceanbase 继承 mysql）', () => {
+  it(':root 七引擎 token 齐全（tidb/oceanbase 继承 mysql、kingbase 继承 postgres）', () => {
     for (const en of engines) {
       assert.match(tokensStyl, new RegExp('^ {2}--db-engine-' + en + ' ', 'm'),
         '缺少 --db-engine-' + en)
@@ -28,6 +28,8 @@ describe('db-engine: tokens 定义', () => {
       'tidb 应引用 mysql 色（协议同源）')
     assert.match(tokensStyl, /^ {2}--db-engine-oceanbase var\(--db-engine-mysql\)$/m,
       'oceanbase 应引用 mysql 色（协议同源）')
+    assert.match(tokensStyl, /^ {2}--db-engine-kingbase var\(--db-engine-postgres\)$/m,
+      'kingbase 应引用 postgres 色（协议同源）')
   })
 
   it('深色提亮值 = 官方色 mix 30% white（防误改回原色导致对比度不足）', () => {

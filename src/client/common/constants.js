@@ -75,14 +75,15 @@ export const connectionMap = buildConst([
 ])
 
 // 数据库引擎（P0 mysql/redis；P1 postgres；P2 tidb/oceanbase 兼容 mysql 协议；
-// P3 sqlite 本地文件）
+// P3 sqlite 本地文件；P4 kingbase 兼容 postgres 协议，默认端口 54321）
 export const dbTypeMap = buildConst([
   'mysql',
   'redis',
   'postgres',
   'tidb',
   'oceanbase',
-  'sqlite'
+  'sqlite',
+  'kingbase'
 ])
 
 // 各引擎默认端口
@@ -91,7 +92,8 @@ export const dbDefaultPortMap = {
   redis: 6379,
   postgres: 5432,
   tidb: 4000,
-  oceanbase: 2881
+  oceanbase: 2881,
+  kingbase: 54321
 }
 
 // 本地文件引擎：没有 host/port/user/password，连接表单据此隐藏网络字段，
@@ -107,6 +109,7 @@ export const dbTypeLabelMap = {
   [dbTypeMap.postgres]: 'PostgreSQL',
   [dbTypeMap.tidb]: 'TiDB',
   [dbTypeMap.oceanbase]: 'OceanBase',
+  [dbTypeMap.kingbase]: 'KingbaseES',
   [dbTypeMap.sqlite]: 'SQLite'
 }
 

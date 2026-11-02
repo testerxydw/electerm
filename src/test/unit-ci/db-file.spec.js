@@ -124,7 +124,7 @@ describe('db-file: 本地文件引擎判定', () => {
   test('引擎集合 = {sqlite}，且与 constants 的 dbTypeMap.sqlite 同名', () => {
     assert.deepEqual([...dbFileTypes], ['sqlite'])
     assert.ok(isDbFileType('sqlite'))
-    for (const t of ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase']) {
+    for (const t of ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase', 'kingbase']) {
       assert.ok(!isDbFileType(t), `${t} 是网络引擎`)
     }
   })

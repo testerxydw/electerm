@@ -193,7 +193,7 @@ describe('db-engine-family: 落点收拢（引擎名比较只剩这一张表）'
   })
 })
 
-describe('db-engine-family: 现有引擎的行为表（本批不注册新引擎，逐格钉住不变）', () => {
+describe('db-engine-family: 现有引擎的行为表（逐格钉住，新增引擎在此补行）', () => {
   test('dialectIdOf：每个引擎的方言 id', async () => {
     const { dialectIdOf } = await import(pathToFileURL(
       path.join(ROOT, 'src/client/common/sql-dialects.js')
@@ -204,7 +204,8 @@ describe('db-engine-family: 现有引擎的行为表（本批不注册新引擎�
       ['postgres', 'postgres'],
       ['tidb', 'mysql'],
       ['oceanbase', 'mysql'],
-      ['sqlite', 'sqlite']
+      ['sqlite', 'sqlite'],
+      ['kingbase', 'postgres']
     ])
   })
 
@@ -218,7 +219,8 @@ describe('db-engine-family: 现有引擎的行为表（本批不注册新引擎�
       ['postgres', 'double'],
       ['tidb', 'backtick'],
       ['oceanbase', 'backtick'],
-      ['sqlite', 'sqlite']
+      ['sqlite', 'sqlite'],
+      ['kingbase', 'double']
     ])
   })
 

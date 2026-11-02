@@ -15,6 +15,7 @@ const DB_ADAPTER = {
   tidb: 'mysql',
   oceanbase: 'mysql',
   postgres: 'postgres',
+  kingbase: 'postgres',
   redis: 'redis',
   sqlite: 'sqlite'
 }
@@ -24,6 +25,7 @@ const testers = {
   tidb: opts => require('./mysql').testMysqlConnection(opts),
   oceanbase: opts => require('./mysql').testMysqlConnection(opts),
   postgres: opts => require('./postgres').testPostgresConnection(opts),
+  kingbase: opts => require('./postgres').testPostgresConnection(opts),
   redis: opts => require('./redis').testRedisConnection(opts),
   sqlite: opts => require('./sqlite').testSqliteConnection(opts)
 }
@@ -169,7 +171,8 @@ const DEFAULT_PORTS = {
   tidb: 4000,
   oceanbase: 2881,
   postgres: 5432,
-  redis: 6379
+  redis: 6379,
+  kingbase: 54321
 }
 
 function resolvePort (dbBookmark) {
