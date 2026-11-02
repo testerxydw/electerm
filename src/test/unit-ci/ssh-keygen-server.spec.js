@@ -1,3 +1,7 @@
+// runtime-constants (via common/log) can only load its package.json with the
+// dev flag outside a packaged app -- see log-debug-level.spec.js
+process.env.NODE_ENV = 'development'
+
 const { after, describe, test } = require('node:test')
 const assert = require('node:assert/strict')
 const crypto = require('crypto')

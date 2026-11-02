@@ -40,11 +40,46 @@ async function loadVncModule () {
   console.debug('[VNC-CLIENT] noVNC module loaded')
 }
 
+// noVNC keeps the reason a connection failed to itself: `_fail()` writes it to
+// its own logger and the `disconnect` event carries only `{ clean }`, so a
+// failed VNC connection is otherwise just a red status dot with no explanation.
+// Keep the last reason so the UI can say what went wrong.
+function captureFailure (rfb, onFail) {
+  const fail = rfb._fail
+  rfb._fail = function (details) {
+    onFail(details)
+    return fail.call(this, details)
+  }
+}
+
 const { Option } = Select
 const e = window.translate
 
 // 本机逐 host 的缩放开关记忆（与 rdp-scale-view- / spice-scale-view- 同一命名）
 const scaleViewportLsKey = (host) => `vnc-scale-view-${host}`
+
+// "Connection closed (code: 4000, reason: connect ECONNREFUSED …)" — the
+// wrapper is noise once the reason itself is on screen
+function shortReason (reason) {
+  const m = /^Connection closed \(code: [0-9]+(?:, reason: (.*))?\)$/.exec(reason)
+  return (m && m[1]) || reason
+}
+
+// "Unsupported security types" is only reachable when the server offers nothing
+// the client implements — in practice RealVNC's RA2 (5), which no open-source
+// client can do (the RealVNC Server on older Raspberry Pi OS images offers it,
+// and nothing else). The type list alone is not actionable, so suggest the one
+// thing that works. Empty when there is nothing specific to say.
+function failureHint (reason) {
+  const m = /Unsupported security types \(types: ([0-9,]+)\)/.exec(shortReason(reason))
+  if (!m) {
+    return ''
+  }
+  const ra2 = m[1].split(',').includes('5')
+    ? "RealVNC's RA2 is not supported; "
+    : ''
+  return ra2 + 'enable "VNC password" authentication on the server.'
+}
 
 export default class VncSession extends PureComponent {
   constructor (props) {
@@ -62,7 +97,8 @@ export default class VncSession extends PureComponent {
       name: '',
       screens: [],
       currentScreen: '0',
-      scaleViewport
+      scaleViewport,
+      failure: ''
     }
   }
 
@@ -71,6 +107,8 @@ export default class VncSession extends PureComponent {
   // clipboard sync state (local -> remote direction)
   lastClip = null
   vncViewOnly = false
+  // why the last connection attempt failed, see captureFailure()
+  vncFailureReason = ''
 
   componentDidMount () {
     this.remoteInit()
@@ -193,8 +231,10 @@ export default class VncSession extends PureComponent {
   }
 
   remoteInit = async (term = this.term) => {
+    this.vncFailureReason = ''
     this.setState({
-      loading: true
+      loading: true,
+      failure: ''
     })
     const { config } = this.props
     const { id } = this.props
@@ -274,6 +314,9 @@ export default class VncSession extends PureComponent {
       wsUrl,
       vncOpts
     )
+    captureFailure(rfb, reason => {
+      this.vncFailureReason = reason
+    })
 
     // Monkey patch _handleExtendedDesktopSize to capture screen info
     const originalHandleExtendedDesktopSize = rfb._handleExtendedDesktopSize
@@ -403,10 +446,12 @@ export default class VncSession extends PureComponent {
   }
 
   onConnect = (event) => {
+    this.vncFailureReason = ''
     this.setStatus(statusMap.success)
     // Capture the remote desktop size from the RFB connection
     this.setState({
-      loading: false
+      loading: false,
+      failure: ''
     })
     this._attachClipboardSync()
   }
@@ -423,6 +468,15 @@ export default class VncSession extends PureComponent {
     if (this.rfb !== rfb) return
     this._detachClipboardSync()
     this.setStatus(statusMap.error)
+    // a clean disconnect is the user closing the session, not a failure
+    if (event?.detail?.clean) {
+      return
+    }
+    const reason = this.vncFailureReason || 'connection closed'
+    console.error('[VNC-CLIENT] connection failed:', reason)
+    this.setState({
+      failure: reason
+    })
   }
 
   onSecurityfailure = (event) => {
@@ -717,6 +771,23 @@ export default class VncSession extends PureComponent {
     )
   }
 
+  // Reuses the terminal pane's centred "stopped" box. Inside the mount and not
+  // beside it: in fit mode the shell stretches every direct child of the
+  // viewport to 100%, which defeats the box's shrink-to-fit centring.
+  renderFailure () {
+    const { failure } = this.state
+    if (!failure) {
+      return null
+    }
+    const hint = failureHint(failure)
+    return (
+      <div className='terminal-session-stopped'>
+        <div>{shortReason(failure)}</div>
+        {hint ? <div className='mg1t'>{hint}</div> : null}
+      </div>
+    )
+  }
+
   renderControlLeft = () => {
     const scaleProps = {
       checked: this.getFit(),
@@ -772,7 +843,9 @@ export default class VncSession extends PureComponent {
         <div
           className='remote-session-fill vnc-session-mount'
           ref={this.domRef}
-        />
+        >
+          {this.renderFailure()}
+        </div>
       </SessionShell>
     )
   }
