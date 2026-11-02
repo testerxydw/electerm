@@ -34,6 +34,8 @@
  *    宁可多一个字段，也不要把它们压进同一个数组。
  */
 
+import { dbEngineFamily } from './db-engine-family.js'
+
 // 支持的算子。顺序即 UI 下拉框顺序；新增算子必须同步 safe-clause.js 的语法词表，
 // 否则主进程会把合法条件判成"不允许的标识符"。
 export const FILTER_OPS = [
@@ -66,19 +68,18 @@ const LIKE_OPS = { contains: true, startsWith: true, endsWith: true }
 const COMPARE_SQL = { eq: '=', ne: '<>', gt: '>', gte: '>=', lt: '<', lte: '<=' }
 
 /**
- * 方言归一。tab.dbType 有三套词法：mysql 家族、postgres、sqlite；
- * 其他写法（postgresql/pg）一律当 pg 处理，避免调用方传错就静默变 mysql。
+ * 方言归一。词法只有 mysql 家族、postgres、sqlite 三套；其他写法（postgresql/pg）
+ * 一律当 pg 处理，避免调用方传错就静默变 mysql。
+ * 引擎→家族这张表本身收在 `db-engine-family.js`（唯一权威），这里只做一次转发，
+ * 不再自己比字符串 —— 新增 PG 兼容引擎时漏比一处的代价是"拿 mysql 的词法扫 pg 的语句"。
  * sqlite 不能并进 mysql：SQLite 的 `'...'` **没有**反斜杠转义（`'a\'` 在 SQLite 里
  * 于第二个引号处结束，后面是真 SQL），按 mysql 口径扫引号会把注入面当成字符串放过。
  * @param {string} dialect 方言名
  * @returns {'mysql'|'postgres'|'sqlite'} 归一后的方言
  */
 function normalizeDialect (dialect) {
-  const d = String(dialect === null || dialect === undefined ? '' : dialect).toLowerCase()
-  if (d === 'postgres' || d === 'postgresql' || d === 'pg') {
-    return 'postgres'
-  }
-  return d === 'sqlite' || d === 'sqlite3' ? 'sqlite' : 'mysql'
+  const family = dbEngineFamily(dialect)
+  return family === 'redis' ? 'mysql' : family
 }
 
 /**

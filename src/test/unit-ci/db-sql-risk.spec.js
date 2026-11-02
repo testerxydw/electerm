@@ -1,73 +1,56 @@
 // E1 危险 SQL 分级 + 连接级安全带（设计 doc/设计-数据库阶段4-增量批次-2026-10-23.md §6）
 //
-// 为什么用 vm 跑真实源码而不是 require：
-// - 源码是 ESM（export），CJS 测试进程里 require 吃不下；
-// - 更关键的是**不许出现"测试拷贝"**：分级规则一旦在实现与测试之间漂移，
-//   测试就会变成自证。这里直接执行 src 下的同一份文件。
-//
-// 为什么用"追加导出表达式"而不是模板串拼接源码：
-// 源码里全是正则（\s \d \w），经模板串插值会被 JS 字符串转义吃掉反斜杠，
-// 测试就会在"看起来全绿"的情况下跑一份被改坏的实现。
-const { describe, test } = require('node:test')
+// 加载方式：`import()` src 下的同一份文件（不是测试拷贝）。
+// 这两个模块 import 了 `db-engine-family.js`（引擎→方言家族的唯一权威），早先用 vm
+// 剥 `export` 前缀直跑源码的那套已经不适用 —— vm.Script 里不能出现 import 语句。
+// 换成动态 import 后跑的仍是同一份实现，"实现怎么写测试都能过"这个反面教材没有回来。
+const { describe, test, before } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const vm = require('node:vm')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 const RISK = path.join(ROOT, 'src/client/common/db-sql-risk.js')
 const GUARD = path.join(ROOT, 'src/client/common/db-safe-guard.js')
 
-// 需要从实现里取出来的符号（追加到同一段脚本末尾，作为脚本的最后一条表达式返回）
-const RISK_EXPORTS = '({ RISK_READ, RISK_WRITE, RISK_TRANSACTION, RISK_DDL, ' +
-  'RISK_DANGEROUS, RISK_UNKNOWN, RISK_LEVELS, levelRank, maskSqlLiterals, ' +
-  'splitStatements, classifyStatement, classifySql, isAlwaysTrueCondition })'
+let RISK_READ
+let RISK_WRITE
+let RISK_TRANSACTION
+let RISK_DDL
+let RISK_DANGEROUS
+let RISK_UNKNOWN
+let maskSqlLiterals
+let splitStatements
+let classifyStatement
+let classifySql
+let isAlwaysTrueCondition
 
-const GUARD_EXPORTS = '({ BYPASS_TTL_MS, ASKED_LIMIT, createGuardState, dbConnKey, ' +
-  'shouldConfirm, grantBypass, clearBypass, isBypassed, bypassLeftMs, ' +
-  'bypassLeftMinutes, markAsked, muteLowWrite, unmuteLowWrite, resetGuardState, ' +
-  'cancelPendingGate, readOnlyHintKey })'
+let ASKED_LIMIT
+let BYPASS_TTL_MS
+let createGuardState
+let dbConnKey
+let shouldConfirm
+let grantBypass
+let clearBypass
+let isBypassed
+let bypassLeftMinutes
+let markAsked
+let muteLowWrite
+let cancelPendingGate
+let readOnlyHintKey
 
-// 源码里的 `export ` 前缀去掉即可在同一段脚本里访问内部声明
-function loadFrom (file, exportsExpr) {
-  const src = fs.readFileSync(file, 'utf8').replace(/^export /gm, '')
-  const sandbox = { Math, Number, String, Set, Map, Array, Object, RegExp, JSON }
-  vm.createContext(sandbox)
-  return vm.runInContext(src + '\n' + exportsExpr, sandbox)
-}
-
-const risk = loadFrom(RISK, RISK_EXPORTS)
-const guard = loadFrom(GUARD, GUARD_EXPORTS)
-
-const {
-  RISK_READ,
-  RISK_WRITE,
-  RISK_TRANSACTION,
-  RISK_DDL,
-  RISK_DANGEROUS,
-  RISK_UNKNOWN,
-  maskSqlLiterals,
-  splitStatements,
-  classifyStatement,
-  classifySql,
-  isAlwaysTrueCondition
-} = risk
-
-const {
-  ASKED_LIMIT,
-  BYPASS_TTL_MS,
-  createGuardState,
-  dbConnKey,
-  shouldConfirm,
-  grantBypass,
-  clearBypass,
-  isBypassed,
-  bypassLeftMinutes,
-  markAsked,
-  muteLowWrite,
-  cancelPendingGate,
-  readOnlyHintKey
-} = guard
+before(async () => {
+  ;({
+    RISK_READ, RISK_WRITE, RISK_TRANSACTION, RISK_DDL, RISK_DANGEROUS, RISK_UNKNOWN,
+    maskSqlLiterals, splitStatements, classifyStatement, classifySql, isAlwaysTrueCondition
+  } = await import(pathToFileURL(RISK).href))
+  ;({
+    ASKED_LIMIT, BYPASS_TTL_MS, createGuardState, dbConnKey, shouldConfirm,
+    grantBypass, clearBypass, isBypassed, bypassLeftMinutes, markAsked, muteLowWrite,
+    cancelPendingGate, readOnlyHintKey
+  } = await import(pathToFileURL(GUARD).href))
+})
 
 // 组件接线（db-session.jsx / db-danger-confirm.jsx）只能读源码断言 —— 那两个文件是 JSX，
 // CJS 测试进程里既不能 require 也不能用 vm 跑。这与仓库里 db-cell-update / db-grid-scroll

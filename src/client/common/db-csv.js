@@ -6,6 +6,8 @@
  * 文件头写 BOM（\uFEFF）保证 Excel/LibreOffice 打开中文不乱码；行间 \r\n。
  */
 
+import { isPgFamily, isSqliteFamily } from './db-engine-family.js'
+
 // 识别 F3 二进制信封（src/app/lib/db-client/{mysql,postgres}.js 的 binEnvelope 输出）。
 // 仅当结构严格匹配才认作信封，避免与业务里恰好带 __bin 键的普通对象混淆。
 export function isBinEnvelope (v) {
@@ -78,19 +80,20 @@ export function downloadCsv (filename, headers, rows) {
 
 // 引用符口径（H8a 起三种）：
 //   backtick —— mysql 家族：反引号标识符，字符串里 `\` 是转义符所以要加倍；
-//   double   —— pg：双引号标识符，二进制用 '\x..' 十六进制串；
+//   double   —— pg 家族：双引号标识符，二进制用 '\x..' 十六进制串；
 //   sqlite   —— 双引号标识符 + X'hex' 二进制串（SQLite 两者都支持），
 //               且**不**加倍反斜杠：SQLite 的字符串字面量里 `\` 就是普通字符，
 //               加倍会把复制出来的 INSERT 值变成另一个值。
 export function sqlQuoteModeOf (dbType) {
-  const d = String(dbType || '').toLowerCase()
-  if (d === 'postgres' || d === 'postgresql' || d === 'pg') {
+  // 收的是 tab.dbType（引擎名，不是归一后的方言），所以必须走家族表：
+  // PG 兼容引擎落到 backtick，导出的 INSERT 在目标库上是语法错误
+  if (isPgFamily(dbType)) {
     return 'double'
   }
-  return d === 'sqlite' ? 'sqlite' : 'backtick'
+  return isSqliteFamily(dbType) ? 'sqlite' : 'backtick'
 }
 
-// 标识符引用：mysql/tidb/oceanbase 反引号，pg 与 sqlite 双引号（quote='double'/'sqlite'）
+// 标识符引用：mysql 家族反引号，pg 家族与 sqlite 双引号（quote='double'/'sqlite'）
 export function sqlQuoteIdent (name, quote) {
   const s = String(name)
   return quote === 'double' || quote === 'sqlite'

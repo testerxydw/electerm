@@ -3,14 +3,27 @@
 // 这里直接 require src 下的同一份源码（CJS，无需 vm）：
 // 校验规则的判据（黑名单词、函数白名单、掩码规则）必须与主进程实际执行的完全一致，
 // 一旦测试里另抄一份"等价实现"，测试就会在实现退化时照样全绿。
-const { describe, test } = require('node:test')
+const { describe, test, before } = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 const SAFE = require(path.join(ROOT, 'src/app/lib/db-client/safe-clause.js'))
 
 const { assertSafeClause, assertSafeOrderClauses, FN_WHITELIST } = SAFE
+
+// 渲染层的条件生成实现（跨模块契约：拿它的产出去喂上面这份校验）。
+// 它 import 了 db-engine-family.js，vm 里跑不动（vm.Script 不接受 import 语句），
+// 所以直接 `import()` src 下的同一份文件 —— 仍然是"实现喂实现"，没有测试拷贝。
+const VIEW_FILE = path.join(ROOT, 'src/client/common/db-grid-view.js')
+
+let buildWhere
+let buildOrderBy
+
+before(async () => {
+  ;({ buildWhere, buildOrderBy } = await import(pathToFileURL(VIEW_FILE).href))
+})
 
 // 列白名单：故意不包含 version / pg_sleep 之类的"注入常见载体"，
 // 这样才能验证"没在白名单里的标识符一律拒绝"这条规则本身
@@ -261,20 +274,8 @@ describe('db-safe-clause: assertSafeOrderClauses', () => {
 // ---------------------------------------------------------- 跨模块契约（关键）
 // 渲染层 buildWhere 的产出必须**全部**能过主进程 assertSafeClause，
 // 且占位符数与 params.length 相等。两边各写对、合起来不通，是这一轮最容易漏的缺陷：
-// 单测各自全绿，真机一用就"条件被拒"。所以这里直接拿实现的输出去喂实现。
-const fs = require('node:fs')
-const vm = require('node:vm')
-
-const VIEW_FILE = path.join(ROOT, 'src/client/common/db-grid-view.js')
-
-function loadGridView () {
-  const src = fs.readFileSync(VIEW_FILE, 'utf8').replace(/^export /gm, '')
-  const sandbox = { Map, Set, Array, Object, Number, String, Math, JSON, RegExp, Boolean }
-  vm.createContext(sandbox)
-  return vm.runInContext(src + '\n({ buildWhere, buildOrderBy })', sandbox)
-}
-
-const { buildWhere, buildOrderBy } = loadGridView()
+// 单测各自全绿，真机一用就"条件被拒"。所以这里直接拿实现的输出去喂实现
+// （渲染层实现的文件路径与加载方式见文件开头）。
 
 // 覆盖每个算子；值里带 % _ \ 是为了让 LIKE 转义也进这条契约
 const OP_SAMPLES = [

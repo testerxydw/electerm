@@ -1,31 +1,38 @@
-const { describe, test } = require('node:test')
+const { describe, test, before } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
 const path = require('node:path')
-const vm = require('node:vm')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 const SRC = path.join(ROOT, 'src/client/common/db-csv.js')
 
 // S3-B CSV 导出（doc/设计-数据库阶段3-2026-10-22.md §1）：
-// RFC 4180 转义 + BOM 头 + \r\n 行间。vm 跑真实源码（strip ESM export），
-// 防测试拷贝与实现漂移。downloadCsv 为 DOM 逻辑不在单测覆盖内。
+// RFC 4180 转义 + BOM 头 + \r\n 行间。直接 import 真实源码，防测试拷贝与实现漂移。
+// downloadCsv / downloadText 为 DOM 逻辑不在单测覆盖内。
+//
+// 曾经是 vm + strip `export`：那份沙箱只给 atob/btoa，故意不给 Buffer，
+// 这样"实现里用了 Buffer"会在跑测试时直接 ReferenceError。现在改用 import()
+// （模块里新增了 import 语句，vm.Script 解析不了），运行时那道 catch 没了，
+// 由 value-renderers.spec.js 的"渲染层数据库模块不得引用 Buffer"源码扫描接替。
+let csvEscape
+let toCsv
+let isBinEnvelope
+let sqlQuoteVal
+let sqlQuoteIdent
+let sqlQuoteModeOf
+let buildCopyStatements
+let toJsonl
+let toMarkdownTable
 
-const loadFns = () => {
-  const code = fs.readFileSync(SRC, 'utf8').replace(/^export /gm, '')
-  // 沙箱只给渲染进程真有的全局：Buffer 在渲染层不存在，塞进沙箱会把
-  // "实现用了 Buffer"这件事遮掉（真机上导出含二进制列的结果集直接 ReferenceError）
-  const ctx = { atob, btoa }
-  vm.createContext(ctx)
-  vm.runInContext(code, ctx)
-  assert.equal(typeof ctx.csvEscape, 'function', 'csvEscape missing')
-  assert.equal(typeof ctx.toCsv, 'function', 'toCsv missing')
-  return ctx
-}
+before(async () => {
+  const m = await import(pathToFileURL(SRC).href)
+  ;({
+    csvEscape, toCsv, isBinEnvelope, sqlQuoteVal, sqlQuoteIdent, sqlQuoteModeOf,
+    buildCopyStatements, toJsonl, toMarkdownTable
+  } = m)
+})
 
 describe('db-csv csvEscape', () => {
-  const { csvEscape } = loadFns()
-
   test('null/undefined 输出空串', () => {
     assert.equal(csvEscape(null), '')
     assert.equal(csvEscape(undefined), '')
@@ -63,8 +70,6 @@ describe('db-csv csvEscape', () => {
 })
 
 describe('db-csv toCsv', () => {
-  const { toCsv, isBinEnvelope } = loadFns()
-
   test('isBinEnvelope 识别 F3 信封、拒认普通对象', () => {
     assert.equal(isBinEnvelope({ __bin: { size: 5, b64: 'aGVsbG8=', truncated: false } }), true)
     assert.equal(isBinEnvelope({ __bin: { size: 5 } }), false) // 字段不全
@@ -121,8 +126,6 @@ describe('db-csv toCsv', () => {
 // A1 复制为 SQL/JSON/TSV（doc/设计-数据库阶段3-2026-10-22.md §7.2）
 
 describe('db-csv sqlQuoteVal / sqlQuoteIdent', () => {
-  const { sqlQuoteVal, sqlQuoteIdent, buildCopyStatements } = loadFns()
-
   test('null/undefined → NULL', () => {
     assert.equal(sqlQuoteVal(null), 'NULL')
     assert.equal(sqlQuoteVal(undefined), 'NULL')
@@ -174,8 +177,31 @@ describe('db-csv sqlQuoteVal / sqlQuoteIdent', () => {
   })
 })
 
+// 复制为 SQL 时"标识符怎么引"由引擎决定：调用方（db-session.jsx）传的是书签里
+// 原样的 tab.dbType，不是归一后的方言 id，所以这里点名每个引擎都有确定的引号风格。
+describe('db-csv sqlQuoteModeOf', () => {
+  test('mysql 系反引号 / pg 系双引号 / sqlite 用双引号风格标识符', () => {
+    assert.equal(sqlQuoteModeOf('mysql'), 'backtick')
+    assert.equal(sqlQuoteModeOf('tidb'), 'backtick')
+    assert.equal(sqlQuoteModeOf('oceanbase'), 'backtick')
+    assert.equal(sqlQuoteModeOf('redis'), 'backtick')
+    assert.equal(sqlQuoteModeOf('postgres'), 'double')
+    assert.equal(sqlQuoteModeOf('sqlite'), 'sqlite')
+  })
+
+  test('方言别名与大小写/空格同样认得（上游传的是方言 id 时不误判成反引号）', () => {
+    assert.equal(sqlQuoteModeOf('PostgreSQL'), 'double')
+    assert.equal(sqlQuoteModeOf(' pg '), 'double')
+    assert.equal(sqlQuoteModeOf('sqlite3'), 'sqlite')
+  })
+
+  test('认不出的引擎回落反引号，不返回 undefined（拼出的 SQL 会带 undefined 引号）', () => {
+    assert.equal(sqlQuoteModeOf('unknown-db'), 'backtick')
+    assert.equal(sqlQuoteModeOf(undefined), 'backtick')
+  })
+})
+
 describe('db-csv buildCopyStatements', () => {
-  const { buildCopyStatements } = loadFns()
   const rows = [
     { id: 1, name: "O'Neil", note: null },
     { id: 2, name: '张三', note: 'a\\b' }
@@ -260,8 +286,6 @@ describe('db-csv buildCopyStatements', () => {
 })
 
 describe('db-csv toJsonl / toMarkdownTable（SQL 结果导出补齐）', () => {
-  const { toJsonl, toMarkdownTable } = loadFns()
-
   test('toJsonl：一行一个独立 JSON 对象，逐行可 parse 回来', () => {
     const out = toJsonl(['a', 'b'], [{ a: 1, b: 'x' }, { a: 2, b: 'y' }])
     const lines = out.split('\n')

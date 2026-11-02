@@ -4,8 +4,11 @@
  * 唯一真源：编辑器高亮、补全关键字、CREATE TABLE 类型建议、引号/注释规则
  * 全部从这里取，**不允许**在组件里另写一份关键字。新增引擎只加一条记录。
  *
- * 纯数据 + 纯函数，零依赖：node 单测可直接 import，不进浏览器 bundle 也成立。
+ * 纯数据 + 纯函数：唯一的依赖是同目录的 db-engine-family.js（引擎 → 方言家族的
+ * 定点表），node 单测可直接 import，不进浏览器 bundle 也成立。
  */
+
+import { dbEngineFamily, resolveDbEngineFamily, hasSqlDialect } from './db-engine-family.js'
 
 // MySQL 8.0 常用关键字（含 DDL/DML/TCL/权限；不含纯函数名——见 builtin）
 const MYSQL_KEYWORDS = [
@@ -184,7 +187,7 @@ export const dialectMap = {
   mysql: {
     id: 'mysql',
     label: 'MySQL',
-    // 同一协议族（TiDB / OceanBase）复用本条，见 dbTypeToDialect
+    // 同一协议族（tidb / oceanbase / mariadb）复用本条，归属见 db-engine-family.js
     keywords: MYSQL_KEYWORDS,
     builtin: MYSQL_BUILTIN,
     types: MYSQL_TYPES,
@@ -231,25 +234,19 @@ export const dialectMap = {
   }
 }
 
-// dbType → 方言 id。tidb / oceanbase 走 mysql 协议，元数据与语法一致
-const DB_TYPE_TO_DIALECT = {
-  mysql: 'mysql',
-  tidb: 'mysql',
-  oceanbase: 'mysql',
-  postgres: 'postgres',
-  sqlite: 'sqlite'
-}
-
 /**
  * dbType → 方言 id（`mysql` / `postgres` / `sqlite`）。
  * 与主进程 `db-client/index.js` 的 `dialectOf` 同一口径：safe-clause 的占位符与
  * 词法校验按这个 id 走，两边不一致会出现"渲染层认为合法、主进程判非法"。
+ * 引擎归哪个家族由 db-engine-family.js 定点（这里只认"家族 id 与方言条目同名"，
+ * mysql / postgres / sqlite 三条都在 dialectMap 里），新增 PG 兼容引擎不用再改这里。
  * 无 SQL 语法的引擎（redis）回落 mysql。
  * @param {string} dbType
  * @returns {'mysql'|'postgres'|'sqlite'}
  */
 export function dialectIdOf (dbType) {
-  return DB_TYPE_TO_DIALECT[dbType] || 'mysql'
+  const family = dbEngineFamily(dbType)
+  return family === 'redis' ? 'mysql' : family
 }
 
 /**
@@ -258,12 +255,12 @@ export function dialectIdOf (dbType) {
  * @returns {object|null}
  */
 export function getDialect (dbType) {
-  const id = DB_TYPE_TO_DIALECT[dbType]
-  return id ? dialectMap[id] : null
+  const family = resolveDbEngineFamily(dbType)
+  return family ? dialectMap[family] || null : null
 }
 
 export function isSqlDialect (dbType) {
-  return !!getDialect(dbType)
+  return hasSqlDialect(dbType)
 }
 
 /**

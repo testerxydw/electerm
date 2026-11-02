@@ -1,48 +1,38 @@
 // E2 结果集视角模型（设计 doc/设计-数据库阶段4-增量批次-2026-10-23.md §7.1）
 //
-// 为什么用 vm 跑 src 下的同一份源码（与 db-sql-risk.spec.js 同样做法）：
-// - 源码是 ESM（export），CJS 测试进程里 require 吃不下；
-// - 更关键的是**不许出现"测试拷贝"**：条件生成规则一旦在实现与测试之间漂移，
-//   测试就变成自证（实现怎么写都能过）。
-// 为什么用"追加导出表达式"而不是模板串拼接源码：
-// 源码里有正则（\\ % _ 的转义），经模板串插值会被 JS 字符串转义吃掉反斜杠，
-// 测试就会在"看起来全绿"的情况下跑一份被改坏的实现。
+// 加载方式：`import()` src 下的同一份文件（不是测试拷贝）。
+// 本模块 import 了 `db-engine-family.js`（引擎→方言家族的唯一权威），所以早先用
+// vm 直跑源码的那套（剥 `export` 前缀 + 沙箱）已经不适用 —— vm.Script 里不能出现
+// import 语句。换成动态 import 后跑的仍是同一份实现，"实现怎么写测试都能过"这个
+// 反面教材没有回来。
 //
-// 断言里的 plain()：vm 里造出来的数组/对象属于另一个 realm，原型链不是宿主的那几个，
-// node:assert 的 strict deepEqual 会连原型一起比。序列化一次把值搬回宿主 realm，
-// 断言失败信息也跟着变得好读。
-const { describe, test } = require('node:test')
+// 断言里的 plain()：保留原来的 JSON 往返。跨 realm 的问题已经没有了，但它同时
+// 把 undefined 与"没有这个键"区分开、并把失败信息打印得可读。
+const { describe, test, before } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
 const path = require('node:path')
-const vm = require('node:vm')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 const VIEW = path.join(ROOT, 'src/client/common/db-grid-view.js')
 
-const VIEW_EXPORTS = '({ FILTER_OPS, normalizeView, buildWhere, buildOrderBy, ' +
-  'viewKey, quoteIdent, materializeClause, parseClause, findClauseProblem, ' +
-  'nextSortOrder })'
+let FILTER_OPS
+let normalizeView
+let buildWhere
+let buildOrderBy
+let viewKey
+let quoteIdent
+let materializeClause
+let parseClause
+let findClauseProblem
+let nextSortOrder
 
-function loadFrom (file, exportsExpr) {
-  const src = fs.readFileSync(file, 'utf8').replace(/^export /gm, '')
-  const sandbox = { Map, Set, Array, Object, Number, String, Math, JSON, RegExp, Boolean }
-  vm.createContext(sandbox)
-  return vm.runInContext(src + '\n' + exportsExpr, sandbox)
-}
-
-const {
-  FILTER_OPS,
-  normalizeView,
-  buildWhere,
-  buildOrderBy,
-  viewKey,
-  quoteIdent,
-  materializeClause,
-  parseClause,
-  findClauseProblem,
-  nextSortOrder
-} = loadFrom(VIEW, VIEW_EXPORTS)
+before(async () => {
+  ;({
+    FILTER_OPS, normalizeView, buildWhere, buildOrderBy, viewKey, quoteIdent,
+    materializeClause, parseClause, findClauseProblem, nextSortOrder
+  } = await import(pathToFileURL(VIEW).href))
+})
 
 // 值搬回宿主 realm，便于 strict deepEqual
 const plain = value => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)))

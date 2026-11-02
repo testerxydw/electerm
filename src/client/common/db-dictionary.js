@@ -13,6 +13,7 @@
  * 没有 window，单测要能直接跑源码）。与 db-sql-risk.js 同一取舍，非中文界面下
  * 导出文件仍是中文表头，已知并接受——字典是给人看的归档物，不是 UI 控件。
  */
+import { isPgFamily } from './db-engine-family.js'
 import { csvEscape } from './db-csv.js'
 
 // Markdown 表格单元格：竖线要转义（否则把表撑破），换行没法在单元格里表达 → <br>
@@ -29,13 +30,11 @@ export function escapeMdCell (v) {
 const csvRow = cells => cells.map(csvEscape).join(',')
 const mdRow = cells => '| ' + cells.map(escapeMdCell).join(' | ') + ' |'
 
-// 引用名：PG 的 schema 有意义（public 之外的库同名表靠它区分），MySQL 用库名
+// 引用名：PG 家族的 schema 有意义（public 之外的库同名表靠它区分），MySQL 用库名
 export function qualifyTable (table, dialect) {
   const t = table || {}
   const name = String(t.table || t.name || '')
-  const prefix = dialect === 'postgres' || dialect === 'pg'
-    ? (t.schema || '')
-    : (t.database || t.db || '')
+  const prefix = isPgFamily(dialect) ? (t.schema || '') : (t.database || t.db || '')
   return prefix ? prefix + '.' + name : name
 }
 

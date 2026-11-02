@@ -14,6 +14,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const vm = require('node:vm')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/app/lib/db-grid-views.js')
@@ -82,25 +83,12 @@ function loadFront (runGlobalAsync) {
   return { api, warnings }
 }
 
-// 渲染层视角模块（键的拼装方）：vm 加载同一份源码，只为校验"两边键逐字符一致"这一契约
-function loadRendererViewModule () {
-  const src = fs.readFileSync(
-    path.join(ROOT, 'src/client/common/db-grid-view.js'), 'utf8'
-  ).replace(/^export /gm, '')
-  // 沙箱只给纯计算需要的全局对象；逐个赋值而不是字面量，
-  // 免得十几个属性挤在一行被 lint 拆散
-  const sandbox = {}
-  const names = [
-    'Math', 'Number', 'String', 'Array', 'Object', 'RegExp', 'JSON',
-    'Set', 'Map', 'Date', 'Boolean', 'Intl',
-    'isNaN', 'parseInt', 'parseFloat', 'Error', 'TypeError', 'RangeError'
-  ]
-  for (const name of names) {
-    sandbox[name] = global[name]
-  }
-  vm.createContext(sandbox)
-  return vm.runInContext(src + '\n({ viewKey, normalizeView })', sandbox)
-}
+// 渲染层视角模块（键的拼装方）：直接 `import()` 同一份源码，只为校验"两边键逐字符
+// 一致"这一契约。这份实现 import 了 db-engine-family.js，vm 里跑不动（vm.Script
+// 不接受 import 语句），动态 import 同样是"拿实现的输出喂实现"，没有测试拷贝。
+const loadRendererViewModule = () => import(
+  pathToFileURL(path.join(ROOT, 'src/client/common/db-grid-view.js')).href
+)
 
 describe('db-grid-views (main-process file store)', () => {
   let dir
@@ -215,8 +203,8 @@ describe('db-grid-views (main-process file store)', () => {
     assert.equal(fs.existsSync(file + '.tmp'), false)
   })
 
-  test('键与渲染层 viewKey 逐字符一致：渲染层拼的键能直接存取（跨模块契约）', () => {
-    const rv = loadRendererViewModule()
+  test('键与渲染层 viewKey 逐字符一致：渲染层拼的键能直接存取（跨模块契约）', async () => {
+    const rv = await loadRendererViewModule()
     const target = { connectionId: 'conn1', dbName: 'db1', schema: undefined, table: 'orders' }
     const key = rv.viewKey(target)
     // 四段 + undefined 归一成空串：'conn1|db1||orders'
@@ -230,8 +218,8 @@ describe('db-grid-views (main-process file store)', () => {
     withClock(() => assert.ok(g.saveGridView('|||', seedView(), file)))
   })
 
-  test('渲染层 normalizeView 能吃下本模块落盘的视角（字段名一一对应）', () => {
-    const rv = loadRendererViewModule()
+  test('渲染层 normalizeView 能吃下本模块落盘的视角（字段名一一对应）', async () => {
+    const rv = await loadRendererViewModule()
     const key = viewKey('conn1', 'db1', '', 'orders')
     const saved = withClock(() => g.saveGridView(key, seedView({
       conditions: [{ column: 'a', op: 'eq', value: 1 }]

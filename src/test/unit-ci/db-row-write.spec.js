@@ -6,6 +6,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
 const vm = require('vm')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 
@@ -302,14 +303,17 @@ describe('B1 wiring: OP_MAP 注册', () => {
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
-// 从 jsx 源码切出模块级纯函数（无 JSX 依赖）后在沙箱求值
-function extractFn (src, name) {
+// 从 jsx 源码切出模块级纯函数（无 JSX 依赖）后在沙箱求值。
+// extra 是函数依赖的"渲染层全局"：buildInsertFormColumns 现在走 isPgFamily，
+// 测试就把**真实**家族模块塞进沙箱，而不是自己另抄一份 PG 名单（抄了就测不出
+// 函数真按家族表分支）。
+function extractFn (src, name, extra) {
   const start = src.indexOf(`const ${name} =`)
   assert.ok(start >= 0, `${name} not found`)
   const end = src.indexOf('\n}', start)
   assert.ok(end > start, `${name} body not closed`)
   const code = src.slice(start, end + 2)
-  const sandbox = {}
+  const sandbox = { ...(extra || {}) }
   vm.createContext(sandbox)
   return vm.runInContext(`(function () { ${code}; return ${name} })()`, sandbox)
 }
@@ -343,8 +347,11 @@ describe('B1 wiring: renderer 接线', () => {
     assert.ok(block[0].includes('Popconfirm'), 'must double confirm')
   })
 
-  test('buildInsertFormColumns 归一化两引擎列定义', () => {
-    const fn = extractFn(src, 'buildInsertFormColumns')
+  test('buildInsertFormColumns 归一化两引擎列定义', async () => {
+    const { isPgFamily } = await import(pathToFileURL(
+      path.join(ROOT, 'src/client/common/db-engine-family.js')
+    ).href)
+    const fn = extractFn(src, 'buildInsertFormColumns', { isPgFamily })
     const mysqlCols = fn([
       { Field: 'id', Type: 'int(11)', Null: 'NO', Key: 'PRI', Default: null, Extra: 'auto_increment' },
       { Field: 'name', Type: 'varchar(255)', Null: 'YES', Key: '', Default: null, Extra: '' }

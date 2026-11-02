@@ -17,7 +17,10 @@ const read = p => fs.readFileSync(p, 'utf8')
 describe('T4 postgres cross-database connect', () => {
   test('入口仅对非当前 PG 库显示', () => {
     const src = read(JSX)
-    assert.ok(src.includes("const isPg = tab.dbType === 'postgres'"), 'postgres guard missing')
+    // 引擎归属走 db-engine-family（PG 兼容引擎也算 PG 侧），所以这里钉的是"调用家族表"
+    // 而不是某个字面量比较；import 一起钉，漏了 import 是运行时才炸的 undefined 调用
+    assert.ok(src.includes("import { isPgFamily } from '../../common/db-engine-family'"), 'family import missing')
+    assert.ok(src.includes('const isPg = isPgFamily(tab.dbType)'), 'postgres guard missing')
     assert.ok(src.includes('isPg && db.name !== currentDbName'), 'must skip current database')
     assert.ok(src.includes("const currentDbName = tab.dbName || tab.dbUser || ''"), 'default db fallback missing')
     assert.ok(src.includes('stopPropagation'), 'connect click must not toggle tree node')

@@ -1,28 +1,28 @@
-// A 批方言表：纯数据直测（ESM 源码，vm 加载方式与 db-sql-format.spec 一致）
+// A 批方言表：纯数据直测（直接 import 真实源码，拿到实现本体、不留测试拷贝）
 // 方言表是 A-3/A-4/A-5 补全与高亮的唯一真源，串味（PG 关键字漏进 MySQL）会
 // 直接表现为"补出根本不存在的语法"，所以这里按引擎逐个钉死。
-const { describe, test } = require('node:test')
+const { describe, test, before } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('fs')
 const path = require('path')
-const vm = require('vm')
+const { pathToFileURL } = require('node:url')
 
 const SRC = path.join(__dirname, '../../client/common/sql-dialects.js')
 
-function loadFns () {
-  let src = fs.readFileSync(SRC, 'utf8')
-  src = src.replace(/^export /gm, '')
-  const sandbox = {}
-  vm.createContext(sandbox)
-  return vm.runInContext(
-    `(function () { ${src}; return { dialectMap, getDialect, isSqlDialect, staticCandidates, cmDialectSpec } })()`,
-    sandbox
-  )
-}
+// 曾经是 vm + strip `export`；方言表改为从 db-engine-family.js 取引擎归属后
+// 模块里有了 import 语句，vm.Script 解析不了，就换成动态 import。
+let dialectMap
+let getDialect
+let dialectIdOf
+let isSqlDialect
+let staticCandidates
+let cmDialectSpec
+
+before(async () => {
+  ;({ dialectMap, getDialect, dialectIdOf, isSqlDialect, staticCandidates, cmDialectSpec } =
+    await import(pathToFileURL(SRC).href))
+})
 
 describe('sql-dialects: dbType → 方言映射', () => {
-  const { getDialect, isSqlDialect } = loadFns()
-
   test('mysql 直连', () => {
     const d = getDialect('mysql')
     assert.ok(d, 'mysql 必须有方言')
@@ -48,11 +48,28 @@ describe('sql-dialects: dbType → 方言映射', () => {
     assert.equal(getDialect(undefined), null)
     assert.equal(getDialect(''), null)
   })
+
+  // 引擎归属收拢到 db-engine-family.js 之后，方言表这边要钉的是"别名也认得"：
+  // 调用方有的传 tab.dbType（引擎名）、有的传已经归一的方言 id，两边都得落对表。
+  test('PG 兼容写法与方言别名都落 pg 表（不误扫成 mysql 词法）', () => {
+    for (const name of ['postgres', 'postgresql', 'pgsql', 'pg', ' PostgreSQL ']) {
+      assert.equal(getDialect(name).id, 'postgres', `${name} 应落 pg 方言`)
+      assert.equal(dialectIdOf(name), 'postgres', `${name} 方言 id 应为 postgres`)
+    }
+  })
+
+  test('dialectIdOf：redis 无 SQL 语法回落 mysql，未知引擎同样回落（调用方拿到的永远是三个 id 之一）', () => {
+    assert.equal(dialectIdOf('redis'), 'mysql')
+    assert.equal(dialectIdOf('sqlserver'), 'mysql')
+    assert.equal(dialectIdOf(undefined), 'mysql')
+    assert.equal(dialectIdOf('mysql'), 'mysql')
+    assert.equal(dialectIdOf('tidb'), 'mysql')
+    assert.equal(dialectIdOf('oceanbase'), 'mysql')
+    assert.equal(dialectIdOf('sqlite'), 'sqlite')
+  })
 })
 
 describe('sql-dialects: 关键字表完整性', () => {
-  const { dialectMap } = loadFns()
-
   test('两个方言的关键字都非空且量级合理（> 100）', () => {
     for (const id of ['mysql', 'postgres']) {
       assert.ok(dialectMap[id].keywords.length > 100, `${id} 关键字过少`)
@@ -62,7 +79,6 @@ describe('sql-dialects: 关键字表完整性', () => {
   test('关键字全大写（补全按大写存储，展示层再按配置转大小写）', () => {
     for (const id of ['mysql', 'postgres']) {
       const bad = dialectMap[id].keywords.filter(k => k !== k.toUpperCase())
-      // vm 沙箱数组与宿主数组不同 realm，deepStrictEqual 会误判，按长度断言
       assert.equal(bad.length, 0, `${id} 存在非大写关键字: ${bad.slice(0, 5)}`)
     }
   })
@@ -124,8 +140,6 @@ describe('sql-dialects: 关键字表完整性', () => {
 })
 
 describe('sql-dialects: 词法开关', () => {
-  const { dialectMap } = loadFns()
-
   test('标识符引号：mysql 反引号 / pg 双引号', () => {
     assert.equal(dialectMap.mysql.quote, '`')
     assert.equal(dialectMap.postgres.quote, '"')
@@ -153,10 +167,7 @@ describe('sql-dialects: 词法开关', () => {
 })
 
 describe('sql-dialects: staticCandidates 输出', () => {
-  const { staticCandidates } = loadFns()
-
   test('候选数 = keywords + builtin + types', () => {
-    const { dialectMap } = loadFns()
     for (const id of ['mysql', 'postgres']) {
       const d = dialectMap[id]
       const out = staticCandidates(id)
@@ -187,8 +198,6 @@ describe('sql-dialects: staticCandidates 输出', () => {
 // SQLDialect.define → 所有关键字查不到 → 表现为"语法没有高亮"（数字/字符串/
 // 注释照常有，因为它们不查词表，所以很容易被误判成"高亮整体没生效"）。
 describe('sql-dialects: cmDialectSpec（给 lang-sql 的 define 参数）', () => {
-  const { dialectMap, cmDialectSpec } = loadFns()
-
   test('词表全部小写（lang-sql 查表用小写 key）', () => {
     for (const id of ['mysql', 'postgres']) {
       const spec = cmDialectSpec(dialectMap[id])

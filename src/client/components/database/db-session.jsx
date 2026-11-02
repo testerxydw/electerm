@@ -47,6 +47,8 @@ import { hlText, hlNode, scanTextHits, cycleIndex } from './db-search'
 import clone from '../../common/to-simple-obj'
 import { downloadCsv, downloadText, buildCopyStatements, sqlQuoteModeOf, toTsv, toJsonl, toMarkdownTable } from '../../common/db-csv'
 import { dbConnTarget } from '../../common/db-file'
+// 引擎归属（哪个引擎按 PG 的目录结构办事）只在 db-engine-family 定点，组件里不另写一份
+import { isPgFamily } from '../../common/db-engine-family'
 // H3a：数据字典（Markdown/CSV）纯函数，内容来自 structureV2 的 v2 契约
 import { buildDataDictionary } from '../../common/db-dictionary'
 import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
@@ -376,7 +378,7 @@ const EMPTY_STRUCTURE_V2 = {
 // INTEGER/REAL/NUMERIC/DECIMAL 这些 sqlite 亲和性名。
 // 统一为 [{name, type, isPk, isAutoInc, isNumeric}] 供插入弹窗渲染与校验
 const buildInsertFormColumns = (structureRows, dbType) => {
-  const isPg = dbType === 'postgres'
+  const isPg = isPgFamily(dbType)
   return (structureRows || []).map(r => {
     const name = isPg ? r.column_name : r.Field
     const type = String(isPg ? r.data_type : (r.Type || '')).toLowerCase()
@@ -500,7 +502,7 @@ export default auto(function DbSession (props) {
   // （props 里的 fullscreen 不订阅 store，切全屏时页面不会重渲染）
   const fullscreen = window.store.fullscreen
   const isRedis = tab.dbType === 'redis'
-  const isPg = tab.dbType === 'postgres'
+  const isPg = isPgFamily(tab.dbType)
   // PG 一个连接只绑定一个库；当前库名按驱动默认值回退到用户名
   const currentDbName = tab.dbName || tab.dbUser || ''
   // 跨库连接弹窗目标库（null = 关闭）

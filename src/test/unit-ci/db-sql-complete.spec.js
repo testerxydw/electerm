@@ -3,37 +3,30 @@
 // 引擎是纯函数、零依赖，所以这里直测逻辑本身，不经过 CM6（node 环境没有 DOM）。
 // 断言重点放在"错一次就会静默给错候选"的地方：
 // 字符串/注释内的分号与关键字、引号前缀的替换起点、方言串味、排他类目为空时的降级。
-const { describe, test } = require('node:test')
+const { describe, test, before } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('fs')
 const path = require('path')
-const vm = require('vm')
+const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '../../..')
 const DIALECTS = path.join(ROOT, 'src/client/common/sql-dialects.js')
 const COMPLETE = path.join(ROOT, 'src/client/common/db-sql-complete.js')
 
-function load () {
-  const strip = p => fs.readFileSync(p, 'utf8').replace(/^export /gm, '')
-  const src = `${strip(DIALECTS)}\n${strip(COMPLETE)}`
-  const sandbox = {}
-  vm.createContext(sandbox)
-  return vm.runInContext(
-    `(function () { ${src};
-      return {
-        dialectMap, getDialect,
-        maskSqlLiterals, literalAt, statementSpanAt, parseTrailingIdentifier,
-        scanCtes, extractSources, classifyContext, buildCompletions, flattenTables, KIND_PRIORITY,
-        indexColumns, resolveColumnBuckets
-      }
-    })()`,
-    sandbox
-  )
-}
+// 两个模块的导出没有重名（方言表出 dialectMap/getDialect，引擎出其余），所以直接
+// 展开成一个 api。曾经用 vm 把两份源码拼成一个脚本跑，现在方言表 import 了
+// db-engine-family.js（vm.Script 解析不了 import），改成动态 import 拿真实模块。
+let api
+let mysql
+let pg
 
-const api = load()
-const mysql = api.getDialect('mysql')
-const pg = api.getDialect('postgres')
+before(async () => {
+  api = {
+    ...(await import(pathToFileURL(DIALECTS).href)),
+    ...(await import(pathToFileURL(COMPLETE).href))
+  }
+  mysql = api.getDialect('mysql')
+  pg = api.getDialect('postgres')
+})
 
 // 光标用 ⟨⟩ 标记，省得每处手数偏移
 function at (sql) {
@@ -50,8 +43,8 @@ function labels (res) {
   return (res ? res.options : []).map(o => o.label)
 }
 
-// vm 沙箱里造出来的数组原型与宿主不同，assert.deepEqual 会报
-// "same structure but not reference-equal" —— 先搬回宿主 realm 再比
+// 深比较前把值搬成宿主数组：真实模块已在同一 realm，这里只是留着当保险，
+// 对 Array 是无副作用的浅拷贝
 const arr = v => Array.from(v)
 
 // ------------------------------------------------------------ L1 词法
@@ -523,7 +516,10 @@ describe('A-5 列元数据索引', () => {
 })
 
 describe('A-5 / A-6 列候选', () => {
-  const COL_IDX = api.indexColumns({
+  // api 在 before 里才就绪，describe 体（收集期）不能碰它 → COL_IDX 懒算，
+  // 第一次 base() 调用（都在 test 里）时才真正 indexColumns
+  let COL_IDX
+  const colIdx = () => (COL_IDX || (COL_IDX = api.indexColumns({
     tables: [
       {
         table: 'users',
@@ -543,12 +539,12 @@ describe('A-5 / A-6 列候选', () => {
       },
       { schema: 'shop', table: 'items', columns: [{ name: 'sku', type: 'varchar(32)' }] }
     ]
-  })
+  })))
   const base = extra => ({
     dialect: mysql,
     keywordCase: 'lower',
     tables: ['users', 'orders', 'items'],
-    columns: COL_IDX,
+    columns: colIdx(),
     ...extra
   })
 

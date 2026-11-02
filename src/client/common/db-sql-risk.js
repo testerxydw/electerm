@@ -1,9 +1,11 @@
 /**
  * E1 危险 SQL 分级器（设计：doc/设计-数据库阶段4-增量批次-2026-10-23.md §6.1）
  *
- * 为什么是"纯函数 + 零依赖"：
- * - 分级结论要能被单测逐条钉死（node:test 用 vm 直接跑源码，用 data: URL 加载），
+ * 为什么是"纯函数 + 不碰宿主"：
+ * - 分级结论要能被单测逐条钉死（node:test 直接 `import()` 这份源码），
  *   任何 window/store/i18n 依赖都会让它不可测；
+ * - 唯一的 import 是 `db-engine-family.js`（引擎→方言家族的唯一权威，同样零宿主依赖），
+ *   掩码/词法必须按同一张家族表判，否则新引擎会在这里落到 mysql 词法。
  * - 同一份判定将来要能被主进程的二次校验复用，不能绑死渲染层。
  *
  * 边界声明：分级是**给人看的闸门**，不是安全边界。它只回答"这条语句会不会无意
@@ -14,6 +16,8 @@
  * （node 环境下没有 window）。代价是非中文界面下理由行仍显示中文，
  * 已记入批次遗留项（见汇报"遗留/风险"）。
  */
+
+import { isPgFamily, isSqliteFamily } from './db-engine-family.js'
 
 // 等级枚举：按严重度递增（rank 见 LEVEL_RANK）
 export const RISK_READ = 'read'
@@ -53,15 +57,7 @@ export function levelRank (level) {
 
 // ---- 方言差异 ----
 
-const PG_NAMES = ['postgres', 'postgresql', 'pg']
-const SQLITE_NAMES = ['sqlite', 'sqlite3']
-
 /**
- * 方言能力表。
- * mysql 家族（mysql / tidb / oceanbase / mariadb）共享同一套词法约定；
- * sqlite 单独一套（双引号标识符、无 # 注释、字符串吃 '' 双写但不吃反斜杠）；
- * 其余一律按 PG 处理（本仓库走本模块的引擎是 mysql / postgres / sqlite，
- * redis 由调用方跳过）。
  * @param {string} dialect 引擎标识
  * @returns {{pg: boolean, sqlite: boolean, backslashEscape: boolean,
  *   backtick: boolean, hashComment: boolean, dollarQuote: boolean,
@@ -69,9 +65,10 @@ const SQLITE_NAMES = ['sqlite', 'sqlite3']
  *   dashCommentNeedsSpace: boolean}}
  */
 function dialectFlags (dialect) {
-  const d = String(dialect || 'mysql').toLowerCase()
-  const pg = PG_NAMES.includes(d)
-  const sqlite = SQLITE_NAMES.includes(d)
+  // 引擎/方言名 → 家族只在 db-engine-family.js 判一次：本模块的 pg/sqlite 决定了
+  // 引号、注释、转义怎么掩码，一个新引擎漏进这张表就会被当 mysql 扫
+  const pg = isPgFamily(dialect)
+  const sqlite = isSqliteFamily(dialect)
   return {
     pg,
     sqlite,
