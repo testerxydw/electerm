@@ -155,4 +155,18 @@ describe('H4 结构对比：样式与词条', () => {
     const pick = obj => Object.keys(obj).filter(k => /^dbStructDiff/.test(k)).sort()
     assert.deepEqual(pick(extra.zh_cn), pick(extra.en))
   })
+
+  test('"没有这个值"走词条，不印成与字面量 NULL 同形的词', () => {
+    const view = read(VIEW)
+    assert.match(view, /return e\('dbStructDiffNoValue'\)/, '屏面缺值要走词条')
+    assert.equal(/if \(v === null \|\| v === undefined\) \{\n\s+return 'NULL'/.test(view), false,
+      '组件里不得再把缺值写成 NULL')
+    const extra = require(LOCALES)
+    const zh = extra.zh_cn.dbStructDiffNoValue
+    const en = extra.en.dbStructDiffNoValue
+    assert.equal(typeof zh, 'string', '缺中文词条')
+    assert.equal(typeof en, 'string', '缺英文词条')
+    assert.equal(/null/i.test(zh), false, '中文缺值写法不能与字面量 NULL 同形：' + zh)
+    assert.equal(/null/i.test(en), false, '英文缺值写法不能与字面量 NULL 同形：' + en)
+  })
 })

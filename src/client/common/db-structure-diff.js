@@ -327,9 +327,15 @@ const FIELD_LABEL = {
   onUpdate: 'ON UPDATE'
 }
 
+// "没有这个值"的写法：与字面量 NULL 不同形（组件侧走 dbStructDiffNoValue 词条，同一口径）
+const NO_VALUE = '（无）'
+
 function fmt (v) {
   if (v === null || v === undefined) {
-    return 'NULL'
+    // "这一侧根本没有这个值"必须与"值就是 NULL 这四个字母"区分开：
+    // MariaDB 把 DEFAULT NULL 的 COLUMN_DEFAULT 给成字符串 'NULL'，早先这里也印 'NULL'，
+    // 报告里就出现"默认值 NULL → NULL"这种零信息的行（真库实测撞到的）。
+    return NO_VALUE
   }
   if (typeof v === 'boolean') {
     return v ? '是' : '否'

@@ -285,4 +285,18 @@ describe('diffToMarkdown 报告', () => {
     })
     assert.equal((md.match(/无差异/g) || []).length, 3)
   })
+
+  test('"没有这个值"不印成 NULL：与字面量 NULL 同形等于没说', () => {
+    // 真库撞到的形状：MariaDB 把 DEFAULT NULL 的 COLUMN_DEFAULT 给成字符串 'NULL'，
+    // 另一侧是"压根没有默认值"（SQL NULL）。两边都印 'NULL' 时报告零信息。
+    const a = STRUCT({ columns: [COL('deleted_at', { nullable: true })] })
+    const b = STRUCT({ columns: [COL('deleted_at', { nullable: true, defaultValue: 'NULL' })] })
+    const diff = D.diffTableStructure(a, b, { dialect: 'mysql' })
+    const e = find(diff.columns, 'deleted_at')
+    const md = D.diffToMarkdown({ baseLabel: 't1', targetLabel: 't2', diff })
+    assert.ok(e && e.status === 'changed', '无默认 → DEFAULT NULL 要报成差异')
+    assert.ok(e.fields.some(x => x.key === 'default'))
+    assert.match(md, /\| deleted_at \| 默认值 \| （无） \| NULL \|/)
+    assert.equal(/\| NULL \| NULL \|/.test(md), false, '不允许出现 NULL → NULL 这种零信息行')
+  })
 })

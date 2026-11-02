@@ -48,7 +48,9 @@ const FIELD_KEY = {
 
 function fmt (v) {
   if (v === null || v === undefined) {
-    return 'NULL'
+    // 不能印成 'NULL'：MariaDB 的 DEFAULT NULL 本身就是字符串 'NULL'，
+    // 两边同形等于没说（真库实测撞到的，见设计文档 H4 核验记录）
+    return e('dbStructDiffNoValue')
   }
   if (typeof v === 'boolean') {
     return e(v ? 'dbStructDiffYes' : 'dbStructDiffNo')
