@@ -139,6 +139,29 @@ describe('明文与越权边界', () => {
   })
 })
 
+describe('输入取值契约', () => {
+  // 真机上踩过：setField 把事件剥了两层（e.target.target.value），
+  // 主密码框敲进去的字全被受控 input 还原成空 —— 界面看着正常，其实就是打不进字。
+  it('setField 只走 fieldValue，不许在组件里自己写剥层逻辑', () => {
+    const panel = read(PANEL)
+    const body = panel.match(/setField = \(section, key\)[\s\S]*?\n {2}\}/)
+    assert.ok(body, 'setField 找不到了，判据要先跟着改')
+    assert.match(body[0], /fieldValue\(/, '取值必须交给纯函数，才有条单测钉得住')
+    for (const f of [PANEL, LOCK]) {
+      assert.equal(/\.target\.target/.test(read(f)), false, f + ' 里有双层剥的取值')
+    }
+  })
+
+  it('两个组件的口令框都接了 onChange（漏一个就是打不进字）', () => {
+    const panel = read(PANEL)
+    const lock = read(LOCK)
+    const inputs = [...panel.matchAll(/<Input(?:\.Password|\.TextArea|Number)?\b/g)]
+    assert.ok(inputs.length >= 6, '面板输入框数量不像话：' + inputs.length)
+    assert.ok(/onChange: this\.setField\(/.test(panel), '面板口令框靠 props 里的 onChange 接线')
+    assert.ok(/onChange=\{evt => set(Recovery|Password)\(evt\.target\.value\)\}/.test(lock), '解锁框没接 onChange')
+  })
+})
+
 describe('样式契约', () => {
   it('新样式不带硬编码色值，也不带非 token 的圆角', () => {
     const styl = read('src/client/components/setting-panel/setting-vault.styl')

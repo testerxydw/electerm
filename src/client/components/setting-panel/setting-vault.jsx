@@ -33,6 +33,7 @@ import message from '../common/message'
 import { copy as copyToClipboard } from '../../common/clipboard'
 import {
   autoLockPresets,
+  fieldValue,
   groupRecoveryCode,
   hasCredential,
   passwordsAgree,
@@ -99,8 +100,7 @@ export default class SettingVault extends Component {
   }
 
   setField = (section, key) => (value) => {
-    const evt = value && value.target
-    const v = evt ? evt.target.value : value
+    const v = fieldValue(value)
     this.setState({ [section]: { ...this.state[section], [key]: v } })
   }
 

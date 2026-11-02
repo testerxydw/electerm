@@ -113,3 +113,14 @@ export function shouldPromptAtStart (status) {
 
 /** 自动锁的可选档（分钟）；超出这些档就走输入框，主进程才是权威 */
 export const autoLockPresets = [5, 15, 30, 60, 240, 1440]
+
+/**
+ * 一个 setField 要同时接住两种回调形状：antd 输入框给事件，其余控件（InputNumber、
+ * 开关、按钮档位）直接给值。事件只许剥一层 e.target.value —— rc-input 还会把事件
+ * 的 target 换成克隆节点（resolveOnChange），再往下一层就是 undefined：
+ * 主密码框"点得动、打得字、字就是不上屏"是这么来的，不是界面卡。
+ */
+export function fieldValue (value) {
+  const target = value && value.target
+  return target ? target.value : value
+}

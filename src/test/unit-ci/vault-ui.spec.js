@@ -160,3 +160,31 @@ describe('续期与轮询时机', () => {
     assert.ok(autoLockPresets.includes(15), 'default 15 should be a preset')
   })
 })
+
+describe('控件取值', () => {
+  // 这一条钉的是真机上的"主密码打不进字"：antd 输入框 onChange 给事件，
+  // rc-input 还会把事件的 target 换成克隆节点；取 value 只能剥一层，
+  // 剥到第二层拿到 undefined → state 永远空 → 受控 input 立刻被 React 还原成 ''。
+  it('事件只剥一层：e.target.value 就是控件的值', async () => {
+    const { fieldValue } = await load()
+    const target = { value: 'master-pass', target: undefined }
+    assert.equal(fieldValue({ type: 'change', target }), 'master-pass')
+  })
+
+  it('rc-input 的克隆 target（target 上没有再一层 target）也照样取到', async () => {
+    const { fieldValue } = await load()
+    // resolveOnChange 造的新事件：target 是克隆出来的 input 节点，本身没有 .target
+    const cloned = { value: 'abcdef', tagName: 'INPUT' }
+    assert.equal(fieldValue({ target: cloned }), 'abcdef')
+  })
+
+  it('非事件控件原样返回：数字、布尔、空串、0 都不许被吞', async () => {
+    const { fieldValue } = await load()
+    assert.equal(fieldValue(30), 30)
+    assert.equal(fieldValue(0), 0)
+    assert.equal(fieldValue(false), false)
+    assert.equal(fieldValue(''), '')
+    assert.equal(fieldValue(undefined), undefined)
+    assert.equal(fieldValue(null), null)
+  })
+})
