@@ -9,7 +9,8 @@
  *   否则 "int vs bigint" 会被吃成一致
  * - 默认值：null 与空串不是一回事；CURRENT_TIMESTAMP / now() 这类函数默认值
  *   大小写与尾括号写法不一，归一到大写词干再比
- * - 索引/外键：按名称匹配，列顺序参与比较（(a,b) 与 (b,a) 不是同一个索引）
+ * - 索引/外键：按名称匹配，列顺序参与比较（(a,b) 与 (b,a) 不是同一个索引）；
+ *   外键在"约束名是引擎合成的"引擎（SQLite）下改按内容配身份，名字不参与 —— 见 diffSection
  *
  * 输出方向：base 是基准，target 是对比。added = 只在 target（新增）、
  * removed = 只在 base（删除）、changed = 两边都有但属性不同、equal = 一致。
@@ -240,30 +241,62 @@ function byStatusThenName (dialect) {
   }
 }
 
-function diffSection (kind, baseList, targetList, fields, dialect) {
-  const keyOf = x => foldName(x.name, dialect)
-  const baseMap = new Map(baseList.map(x => [keyOf(x), x]))
-  const targetMap = new Map(targetList.map(x => [keyOf(x), x]))
-  const keys = Array.from(new Set([...baseMap.keys(), ...targetMap.keys()]))
-  const entries = keys.map(k => {
-    const a = baseMap.get(k) || null
-    const b = targetMap.get(k) || null
-    if (!a) {
-      return { kind, name: b.name, status: 'added', base: null, target: b, fields: [] }
+/**
+ * 两遍配对：先按"身份"配，剩下的再按名字配。
+ *
+ * identityOf 只有合成名引擎（SQLite）会传：那边 DDL 里没有约束名、PRAGMA 也不给，
+ * 适配器只能拿 PRAGMA 的 id 合成 fk_<id>，而 id 是**声明顺序的倒序** —— 两张外键
+ * 集合完全相同、只换了 FOREIGN KEY 子句书写顺序的表，按名字配对会把 fk_0 对 fk_0
+ * 判成"列不同 + 引用表不同"（误报方向：用户以为两张表不一样）。
+ * MySQL/PG 的约束名是真对象名，改名在 DDL 语义上就是删一条再加一条，不传 identityOf，
+ * 行为与之前一致。
+ */
+function diffSection (kind, baseList, targetList, fields, dialect, identityOf) {
+  const nameKey = x => foldName(x.name, dialect)
+  const pairs = []
+  let restA = baseList
+  let restB = targetList
+  for (const keyOf of identityOf ? [identityOf, nameKey] : [nameKey]) {
+    const buckets = new Map()
+    restB.forEach((x, i) => {
+      const k = keyOf(x)
+      const arr = buckets.get(k)
+      if (arr) {
+        arr.push(i)
+      } else {
+        buckets.set(k, [i])
+      }
+    })
+    const used = new Set()
+    const nextA = []
+    for (const a of restA) {
+      const arr = buckets.get(keyOf(a))
+      const hit = arr === undefined ? undefined : arr.find(i => !used.has(i))
+      if (hit === undefined) {
+        nextA.push(a)
+      } else {
+        used.add(hit)
+        pairs.push([a, restB[hit]])
+      }
     }
-    if (!b) {
-      return { kind, name: a.name, status: 'removed', base: a, target: null, fields: [] }
-    }
-    const changed = diffFields(a, b, fields, dialect)
-    return {
-      kind,
-      name: a.name,
-      status: changed.length ? 'changed' : 'equal',
-      base: a,
-      target: b,
-      fields: changed
-    }
-  })
+    restA = nextA
+    restB = restB.filter((x, i) => !used.has(i))
+  }
+  const entries = [
+    ...pairs.map(([a, b]) => {
+      const changed = diffFields(a, b, fields, dialect)
+      return {
+        kind,
+        name: a.name,
+        status: changed.length ? 'changed' : 'equal',
+        base: a,
+        target: b,
+        fields: changed
+      }
+    }),
+    ...restA.map(a => ({ kind, name: a.name, status: 'removed', base: a, target: null, fields: [] })),
+    ...restB.map(b => ({ kind, name: b.name, status: 'added', base: null, target: b, fields: [] }))
+  ]
   entries.sort(byStatusThenName(dialect))
   return entries
 }
@@ -286,7 +319,14 @@ export function diffTableStructure (base, target, opts = {}) {
   const b = normalizeStructure(target, { dialect })
   const columns = diffSection('column', a.columns, b.columns, COL_FIELDS, dialect)
   const indexes = diffSection('index', a.indexes, b.indexes, IDX_FIELDS, dialect)
-  const foreignKeys = diffSection('foreignKey', a.foreignKeys, b.foreignKeys, FK_FIELDS, dialect)
+  // 外键的身份 = 列 + 引用表 + 引用列（级联动作是属性，不参与身份）。
+  // 只有约束名是合成物的引擎（SQLite）按身份配，其余引擎仍按名字配 —— 见 diffSection。
+  const syntheticFkNames = String(opts.dialect || '').toLowerCase() === 'sqlite'
+  const fkIdentity = fk => JSON.stringify([
+    fk.columns, foldName(fk.refTable, dialect), fk.refColumns
+  ])
+  const foreignKeys = diffSection('foreignKey', a.foreignKeys, b.foreignKeys, FK_FIELDS, dialect,
+    syntheticFkNames ? fkIdentity : null)
   const sections = {
     columns: tally(columns),
     indexes: tally(indexes),

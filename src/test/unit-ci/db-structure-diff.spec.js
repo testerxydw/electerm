@@ -204,6 +204,46 @@ describe('diffTableStructure 外键差异', () => {
     assert.equal(D.diffTableStructure(a, b, { dialect: 'mysql' }).summary.changed, 0)
     assert.equal(D.diffTableStructure(a, b, { dialect: 'postgres' }).summary.changed, 1)
   })
+
+  // SQLite 的 DDL 里根本没有约束名（PRAGMA 也不给），适配器只能按 PRAGMA 的 id 合成
+  // fk_<id>，而那个 id 是声明顺序的倒序：两张外键集合完全相同、只换了 FOREIGN KEY 子句
+  // 书写顺序的表，按名字配对会把 fk_0 对 fk_0 判成"列不同 + 引用表不同"。
+  // 夹具 self-test/db-fk-fixture.js 的 two_fks / two_fks_rev 就是这件事的实测证据。
+  test('SQLite：合成约束名不参与配对，外键集合相同的两张表判相同', () => {
+    const a = STRUCT({
+      foreignKeys: [FK('fk_1', ['a'], 'dim_single', ['id']), FK('fk_0', ['b'], 'dim_second', ['id'])]
+    })
+    const b = STRUCT({
+      foreignKeys: [FK('fk_0', ['a'], 'dim_single', ['id']), FK('fk_1', ['b'], 'dim_second', ['id'])]
+    })
+    const d = D.diffTableStructure(a, b, { dialect: 'sqlite' })
+    assert.deepEqual(d.sections.foreignKeys, { added: 0, removed: 0, changed: 0, equal: 2, total: 2 })
+  })
+
+  test('SQLite：合成名不同但内容相同，不算"改了名"报出来', () => {
+    const a = STRUCT({ foreignKeys: [FK('fk_0', ['x'], 'p', ['id'])] })
+    const b = STRUCT({ foreignKeys: [FK('fk_3', ['x'], 'p', ['id'])] })
+    const d = D.diffTableStructure(a, b, { dialect: 'sqlite' })
+    assert.equal(d.sections.foreignKeys.changed, 0)
+    assert.equal(d.sections.foreignKeys.equal, 1)
+  })
+
+  test('SQLite：配对放宽不等于漏报，动作/引用列不同照样逐字段报', () => {
+    const a = STRUCT({ foreignKeys: [FK('fk_0', ['pa', 'pb'], 'dim_pair', ['pa', 'pb'], { onDelete: 'CASCADE' })] })
+    const b = STRUCT({ foreignKeys: [FK('fk_7', ['pa', 'pb'], 'dim_pair', ['pa', 'pb'], { onDelete: 'SET NULL', onUpdate: 'CASCADE' })] })
+    const d = D.diffTableStructure(a, b, { dialect: 'sqlite' })
+    assert.equal(d.sections.foreignKeys.changed, 1)
+    assert.deepEqual(d.foreignKeys[0].fields.map(f => f.key).sort(), ['onDelete', 'onUpdate'])
+  })
+
+  test('MySQL/PG：约束名是真对象名，改名仍是删一条加一条', () => {
+    const a = STRUCT({ foreignKeys: [FK('fk_old', ['user_id'], 'users', ['id'])] })
+    const b = STRUCT({ foreignKeys: [FK('fk_new', ['user_id'], 'users', ['id'])] })
+    for (const dialect of ['mysql', 'postgres']) {
+      const d = D.diffTableStructure(a, b, { dialect })
+      assert.deepEqual(d.sections.foreignKeys, { added: 1, removed: 1, changed: 0, equal: 0, total: 2 })
+    }
+  })
 })
 
 describe('diffTableStructure 排序与汇总', () => {
