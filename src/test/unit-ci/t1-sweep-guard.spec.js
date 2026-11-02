@@ -127,17 +127,41 @@ describe('T1 sweep: P2-14 database bookmark schema', () => {
 
   test('database schema fields align with form config/database.js', async () => {
     const { databaseBookmarkSchema } = await loadSchemas()
-    const required = ['title', 'dbHost']
-    for (const f of required) {
-      assert.ok(databaseBookmarkSchema[f], 'required field ' + f)
-      assert.equal(databaseBookmarkSchema[f]._optional, false, f + ' must be required')
+    // 书签层只有 title 必填。"哪个引擎要 host、哪个引擎要库文件"是**条件**关系，
+    // 落在表单配置里（showWhen + rules），schema 里钉不成死清单——
+    // 本条从前把 dbHost 与 5 个引擎写死在断言里，H8a 加 SQLite（无 host、改要 dbFile）
+    // 时没同步这里，于是它红了一次：写死的对表清单就是这种漂移的制造机。
+    assert.equal(databaseBookmarkSchema.title._optional, false, 'title must be required')
+    for (const f of ['dbType', 'dbHost', 'dbPort', 'dbUser', 'dbPassword', 'dbName', 'dbFile',
+      'sshTunnelBookmarkId', 'readOnly', 'color', 'description']) {
+      assert.ok(databaseBookmarkSchema[f], 'field ' + f + ' must exist')
+      assert.equal(databaseBookmarkSchema[f]._optional, true, f + ' must stay optional at schema level')
     }
-    const optional = ['dbType', 'dbPort', 'dbUser', 'dbPassword', 'dbName', 'sshTunnelBookmarkId', 'readOnly', 'color', 'description']
-    for (const f of optional) {
-      assert.ok(databaseBookmarkSchema[f], 'optional field ' + f + ' must exist')
+    // dbType 枚举与 constants.js 的 dbTypeMap 取自同一份来源（新增引擎不必再来改这里）
+    const constsSrc = readSrc('client/common/constants.js')
+    const mapBody = /export const dbTypeMap = buildConst\(\[([\s\S]*?)\]\)/.exec(constsSrc)
+    assert.ok(mapBody, 'dbTypeMap parsed from constants.js')
+    const engines = [...mapBody[1].matchAll(/'([^']+)'/g)].map(m => m[1])
+    assert.ok(engines.length >= 5, 'dbTypeMap non-trivial, got ' + engines.length)
+    assert.deepEqual(databaseBookmarkSchema.dbType._meta.values, engines)
+    // 条件必填真的挂在表单上：网络引擎才要 host，本地文件引擎才要 dbFile
+    const formSrc = readSrc('client/components/bookmark-form/config/database.js')
+    const fieldBlock = name => {
+      const at = formSrc.indexOf("name: '" + name + "'")
+      assert.ok(at >= 0, 'form field ' + name + ' present')
+      // 字段对象切到"下一个同缩进的字段起点"为止：配置里既有单行字段（dbHost）
+      // 也有跨行字段（dbFile），只取一行的话后者读不到 showWhen/required
+      const rest = formSrc.slice(at)
+      const end = rest.search(/\n {8}\{/)
+      return end < 0 ? rest.slice(0, 600) : rest.slice(0, end)
     }
-    // dbType 枚举与 constants.js dbTypeMap 对齐（5 引擎）
-    assert.deepEqual(databaseBookmarkSchema.dbType._meta.values, ['mysql', 'redis', 'postgres', 'tidb', 'oceanbase'])
+    for (const [name, when] of [['dbHost', 'showWhenNet'], ['dbFile', 'showWhenFile']]) {
+      const block = fieldBlock(name)
+      assert.match(block, new RegExp('showWhen: ' + when), name + ' gated by engine kind')
+      assert.match(block, /required: true/, name + ' required when shown')
+    }
+    // 可见性判定只认一个来源：文件引擎集合（新增本地引擎只改那一处）
+    assert.match(formSrc, /const isNet = dbType => !dbFileTypes\.has\(dbType\)/)
   })
 
   test('agent-tools real path: z.toJSONSchema(z.object(schema)) works', async () => {
