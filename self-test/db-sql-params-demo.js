@@ -14,7 +14,8 @@
  *   7) NULL 勾选即禁用输入，提交的是真正的 null（不是空串）
  *   8) 浅色主题下参数面板颜色跟着 token 走
  *
- * ⚠️ 本脚本接管 window.pre.runGlobalAsync，跑完不还原。
+ * 本脚本会临时接管 window.pre.runGlobalAsync（桩），收尾还原；异常退出路径也尽力还原，
+ * 不留桩给同一实例上的下一个脚本。
  *
  * 用法：
  *   1) npm run vite-build   （改了 src/app 还要 rsync 到 work/app 并重启实例）
@@ -22,7 +23,7 @@
  *   3) node self-test/db-sql-params-demo.js [debugPort] [shotDir]
  */
 const path = require('node:path')
-const { getJson, buildHelpers, Cdp, sleep, waitFor, findPageTarget, clearDbTabs } = require('./db-ui-helpers')
+const { getJson, buildHelpers, Cdp, sleep, waitFor, findPageTarget, clearDbTabs, preStubState } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9227'
 const SHOT_DIR = process.argv[3] || path.join(__dirname, 'db-sql-params-shots')
@@ -35,6 +36,20 @@ const STUB = `
   window.__hist = []
   window.__execFail = null
 
+  // 桩把 window.pre.runGlobalAsync 整个换掉，且跟着渲染进程存活：同一实例上后续跑
+  // 真库脚本会量到 demo 桩（getMetadata 回 demo_db）。这里记下原装实现 + 打标记 +
+  // 给还原口；检测侧见 db-ui-helpers.js 的 preStubState / ensureRealDbLayer。
+  if (!window.__prePristine) {
+    window.__prePristine = { runGlobalAsync: window.pre.runGlobalAsync }
+  }
+  window.__dbStub = 'sql-params-demo'
+  window.__unstubPre = () => {
+    const p = window.__prePristine
+    if (!p) return 'nothing-to-restore'
+    window.pre.runGlobalAsync = p.runGlobalAsync
+    delete window.__dbStub
+    return 'restored'
+  }
   window.pre.runGlobalAsync = function (name, ...a) {
     if (name === 'dbClientOp') {
       const op = a[1]
@@ -292,11 +307,25 @@ const fillParam = async (cdp, i, value) => {
 const execCount = async cdp => Number(await cdp.eval('window.__exec.length'))
 const lastExec = async cdp => cdp.jeval('JSON.stringify(window.__exec[window.__exec.length - 1])')
 
+// 收尾还原要能在异常路径上也跑得到（抛错时页面还挂着桩，下一个脚本就量到 demo_db），
+// 所以把连接句柄留一份给模块级
+let liveCdp = null
+const restoreBridge = async () => {
+  if (!liveCdp) return 'no-cdp'
+  try {
+    const r = await liveCdp.eval('window.__unstubPre ? window.__unstubPre() : "no-unstub"')
+    return r + '/' + (await preStubState(liveCdp))
+  } catch (e) {
+    return 'eval-failed:' + String(e.message || e).slice(0, 40)
+  }
+}
+
 const main = async () => {
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
   const page = findPageTarget(targets)
   if (!page) throw new Error('no renderer page target; 实例是否带 --remote-debugging-port 起的？')
   const cdp = new Cdp(page.webSocketDebuggerUrl)
+  liveCdp = cdp
   await cdp.ready
   await cdp.call('Page.enable')
   await cdp.call('Runtime.enable')
@@ -514,6 +543,12 @@ const main = async () => {
 
   const cleared = await clearDbTabs(cdp)
   check('自测收尾关闭数据库 tab', cleared.left.length === 0, cleared)
+
+  // 还原放在最后一条读 window.__exec/__ops 的判据之后：桩一旦撤掉这些就没了
+  const restored = await restoreBridge()
+  check('收尾把 window.pre.runGlobalAsync 还原（不给下一个脚本留桩）',
+    restored === 'restored/ok', restored)
+
   const errs = await cdp.jeval('JSON.stringify(window.__errs || [])')
   if (errs.length) console.log('renderer errors:\n  ' + errs.join('\n  '))
   const tail = cdp.tail(5)
@@ -524,7 +559,9 @@ const main = async () => {
   process.exit(failed.length ? 1 : 0)
 }
 
-main().catch(err => {
+main().catch(async err => {
   console.error(err && err.stack ? err.stack : err)
+  // 抛错路径上页面还挂着桩：能连就还原，连不上就把原因印出来（别让下一个脚本静默量到 demo_db）
+  console.log('pre restored: ' + await restoreBridge())
   process.exit(1)
 })
