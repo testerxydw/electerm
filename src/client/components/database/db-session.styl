@@ -999,6 +999,15 @@
   overflow auto
   // S6：网格单元格数据面字体与终端统一
   font-family var(--db-code-font, var(--font-mono))
+  // antd 在自己的 loading 容器 .ant-spin 与表根 .ant-table 上都重新声明了 font-family
+  // （取 antd 主题令牌的界面字体），而这两层正好挂在上面那条规则的下面 —— 令牌只停在
+  // wrapper，th/td/格内文本实际渲染的是界面字体。真机实测（self-test/db-font-realdb.js F2）
+  // 整棵网格子树只有这两个"字体重置点"，补这两条后子树重新继承到令牌。
+  // 选择器类数严格多于 antd（.db-grid-table .ant-spin 两类 > 它的 .ant-spin 一类），
+  // 不靠样式表先后，也不写 !important。
+  .ant-spin,
+  .ant-table
+    font-family var(--db-code-font, var(--font-mono))
 
 // B1 行选择列：scroll.y 生效后表头/表体是两个独立 table，列宽由 colgroup 决定，
 // 而 colgroup 的宽度来自 antd rowSelection.columnWidth（见 db-session.jsx SEL_COL_W）。

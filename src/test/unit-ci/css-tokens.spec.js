@@ -127,6 +127,38 @@ describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () =
     assert.deepEqual(bare.map(x => `db-session.styl:${x.n}`), [],
       '数据面 font-family 不得直接用 --font-mono（须带 db-code-font 回落链）')
   })
+
+  // 只钉 wrapper 那条不够：antd 在 Table 的 loading 容器 .ant-spin 与表根 .ant-table 上
+  // 都重新声明了自己的 font-family（界面字体），这两层挂在 wrapper 下面 → 令牌停在
+  // wrapper，单元格实际吃界面字体（真机实测 self-test/db-font-realdb.js F2：整棵网格
+  // 子树只有这两个"字体重置点"，补一条会露出下一条）。这条把"令牌必须续到这两层"
+  // 钉成契约，否则回归只在运行时才暴露。
+  it('.db-grid-table 必须把字体续到 .ant-spin 与 .ant-table（否则单元格吃界面字体）', () => {
+    const i = dbStyl.indexOf('.db-grid-table\n')
+    assert.ok(i >= 0, '未找到 .db-grid-table 块')
+    // 块到下一个顶格选择器为止；注释行不参与解析（注释里提到 .ant-spin 不算数）
+    const rest = dbStyl.slice(i + '.db-grid-table\n'.length)
+    const end = rest.search(/^\S/m)
+    const lines = (end < 0 ? rest : rest.slice(0, end)).split('\n')
+      .filter(l => !l.trim().startsWith('//'))
+    // 两级缩进 = 子规则选择器（逗号续行拼成一条），四级缩进 = 该子规则的声明
+    let sel = ''
+    const declsBySel = []
+    lines.forEach(l => {
+      if (/^ {2}\S/.test(l)) {
+        sel = (sel ? sel + ' ' : '') + l.trim().replace(/,$/, '')
+        return
+      }
+      if (/^ {4}\S/.test(l) && sel) declsBySel.push({ sel, decl: l.trim() })
+    })
+    const mono = 'font-family var(--db-code-font, var(--font-mono))'
+    const covered = declsBySel.filter(r => r.decl === mono).map(r => r.sel).join(' | ')
+    assert.ok(/\.ant-spin(?![\w-])/.test(covered),
+      `.db-grid-table 子规则未覆盖 .ant-spin（antd 在该层重置字体）：${covered || '块内无子规则'}`)
+    assert.ok(/\.ant-table(?![\w-])/.test(covered),
+      `.db-grid-table 子规则未覆盖 .ant-table（表根同样重置字体）：${covered || '块内无子规则'}`)
+    assert.ok(!covered.includes('!important'), '网格字体修复不应依赖 !important')
+  })
 })
 
 // U2 文字对比度：数据库工作台的"次级文字"必须吃随主题派生的 token。
