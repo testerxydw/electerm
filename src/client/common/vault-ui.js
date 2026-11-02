@@ -22,6 +22,7 @@ const errorKeyMap = {
   'weak-password': 'vaultWeakPassword',
   'bad-auto-lock': 'vaultBadAutoLock',
   'already-enabled': 'vaultAlreadyEnabled',
+  'bad-recovery-code': 'vaultBadRecoveryCode',
   empty: 'vaultNeedCredential'
 }
 

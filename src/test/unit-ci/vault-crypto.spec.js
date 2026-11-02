@@ -350,6 +350,24 @@ describe('恢复码解锁 unlockWithRecovery', () => {
     }
   })
 
+  it('长度不对先挡下：bad-recovery-code，不跑 scrypt 也不说成"主密码不对"', async () => {
+    const created = await setup()
+    const code = created.recoveryCode
+    assert.equal(code.length, v.RECOVERY_CODE_LEN, '发出去的那串就是这个长度')
+    // 走到 scrypt + GCM 只会回 wrong-password；回 bad-recovery-code 就是在这之前挡住了
+    const short = code.slice(0, v.RECOVERY_CODE_LEN - 1)
+    for (const recoveryCode of ['AAAAA-BBB', short, code + 'A']) {
+      const r = await v.unlockWithRecovery(recoveryCode, created.config)
+      assert.equal(r.ok, false, recoveryCode)
+      assert.equal(r.reason, v.FAIL.badRecoveryCode, recoveryCode)
+      assert.equal(r.dek, undefined)
+    }
+    // 只剩不可敲字符：归一完是空串，说的是"没填"而不是"长度不对"
+    for (const recoveryCode of ['', '   ', '000000']) {
+      assert.equal((await v.unlockWithRecovery(recoveryCode, created.config)).reason, v.FAIL.empty)
+    }
+  })
+
   it('空/没有 recovery 段：empty / no-vault', async () => {
     const created = await setup()
     assert.equal((await v.unlockWithRecovery('', created.config)).reason, v.FAIL.empty)

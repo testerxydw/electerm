@@ -29,6 +29,8 @@ const SALT_LEN = 16
 const IV_LEN = 12 // GCM 推荐 96 bit
 const DEK_LEN = 32
 const RECOVERY_BYTES = 32 // 256 bit 熵，够单独作为一条解锁路径
+// 32 字节走无填充 Base32 就是 ceil(256/5) = 52 个字符；差一个都不是发出去的那串
+const RECOVERY_CODE_LEN = Math.ceil(RECOVERY_BYTES * 8 / 5)
 const MIN_MASTER_PASS = 8
 const DEFAULT_AUTO_LOCK_MIN = 15
 const VERIFIER_PLAIN = 'electerm-vault-verifier-v1'
@@ -44,6 +46,7 @@ const FAIL = {
   corrupt: 'corrupt',
   noVault: 'no-vault',
   weakPassword: 'weak-password',
+  badRecoveryCode: 'bad-recovery-code',
   empty: 'empty'
 }
 
@@ -306,6 +309,11 @@ async function unlockWithRecovery (recoveryCode, config) {
   if (!clean) {
     return { ok: false, reason: FAIL.empty }
   }
+  // 长度不对就是抄漏/抄多了：先挡掉，别为一句明显的错话跑一次 scrypt（N=32768，
+  // 弹窗里连点几下就是主进程白烧），也给用户一句"长度不对"而不是"主密码不对"
+  if (clean.length !== RECOVERY_CODE_LEN) {
+    return { ok: false, reason: FAIL.badRecoveryCode }
+  }
   const rek = await scrypt(clean, Buffer.from(config.recovery.salt, 'hex'), kdfOf(config))
   const unwrapped = open(config.recovery.wrappedDek, rek, AAD.rek)
   if (!unwrapped.ok) {
@@ -368,6 +376,7 @@ module.exports = {
   KDF,
   MIN_MASTER_PASS,
   PREFIX,
+  RECOVERY_CODE_LEN,
   VERIFIER_PLAIN,
   VERSION,
   base32Decode,

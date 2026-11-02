@@ -7,6 +7,7 @@ const assert = require('node:assert/strict')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
+const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(__dirname, '../../client/common/vault-ui.js')
 
 let mod
@@ -50,13 +51,39 @@ describe('错误原因翻译', () => {
     const { vaultErrorText } = await load()
     const reasons = [
       'wrong-password', 'no-vault', 'corrupt', 'store-unavailable',
-      'weak-password', 'bad-auto-lock', 'already-enabled', 'empty'
+      'weak-password', 'bad-auto-lock', 'already-enabled', 'bad-recovery-code', 'empty'
     ]
     for (const reason of reasons) {
       const text = vaultErrorText({ ok: false, reason, message: 'raw english' }, tr)
       assert.notEqual(text, 'raw english', reason + ' should be translated')
       assert.ok(text.startsWith('['), reason)
       assert.notEqual(text, '[vaultErrorGeneric]', reason)
+    }
+  })
+
+  it('reason 映射到的词条在中英文里都真的存在（缺一个就把驼峰 key 甩到屏幕上）', async () => {
+    const { vaultErrorKey } = await load()
+    const extra = require(path.join(ROOT, 'src/app/common/locales-extra'))
+    for (const reason of [
+      'wrong-password', 'no-vault', 'corrupt', 'store-unavailable',
+      'weak-password', 'bad-auto-lock', 'already-enabled', 'bad-recovery-code', 'empty'
+    ]) {
+      const key = vaultErrorKey(reason)
+      assert.ok(key, reason + ' 没有词条映射')
+      assert.ok(extra.en[key], key + ' 缺 en')
+      assert.ok(extra.zh_cn[key], key + ' 缺 zh_cn')
+    }
+  })
+
+  it('词条里承诺的恢复码位数就是主进程发出去那串的长度', async () => {
+    const { vaultErrorKey } = await load()
+    const crypto = require(path.join(ROOT, 'src/app/common/vault-crypto.js'))
+    const extra = require(path.join(ROOT, 'src/app/common/locales-extra'))
+    const key = vaultErrorKey('bad-recovery-code')
+    // 改了熵长却不改文案，用户会对着 51 位的码数半天
+    for (const lang of ['en', 'zh_cn']) {
+      assert.ok(String(extra[lang][key]).includes(String(crypto.RECOVERY_CODE_LEN)),
+        lang + ' 的位数和主进程常量不一致：' + extra[lang][key])
     }
   })
 
