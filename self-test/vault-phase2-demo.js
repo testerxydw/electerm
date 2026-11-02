@@ -12,6 +12,8 @@
  *   6) 从书签发起连接 → 弹解锁框；取消不建 tab 且有提示；解锁后建 tab 且口令正确
  *   7) 锁定态开书签表单给"凭据暂不可见"提示
  *   8) 停用先把封存行反解回明文再删 vault.json；三条记录全部恢复旧格式
+ *   9) 边界A：120 行只搬一批 50 行就杀进程，重启后新旧格式都可读，续跑搬完
+ *  10) 边界B：锁定态用恢复码停用，全部明文回填、vault.json 删除
  *
  * 凭据：无 —— 临时 HOME + DATA_PATH 下的自建库，口令是本脚本现编的测试串。
  *
@@ -36,6 +38,8 @@ const PORT = process.argv[3] || '9250'
 const SHOT_DIR = path.join(ROOT, process.argv[4] || 'self-test/vault-phase2-shots')
 
 const PASS_1 = 'g6p2-master-one-1234'
+// 边界段（迁移中断续跑 + 恢复码停用）用的第二个主密码
+const PASS_3 = 'g6-demo-master-three-9012'
 const BM1 = 'vp2-bm-1'
 const BM2 = 'vp2-bm-2'
 const BM3 = 'vp2-bm-3'
@@ -198,6 +202,17 @@ async function waitCdp (tries = 90) {
     await sleep(1000)
   }
   throw new Error('no CDP page target on port ' + PORT)
+}
+
+/** 重启前确认调试口真的放掉了：端口还开着就重挂 CDP，只会连到上一个进程的尸体 */
+async function waitPortClosed (tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    if (!(await targets())) {
+      return true
+    }
+    await sleep(500)
+  }
+  return false
 }
 
 /**
@@ -363,8 +378,8 @@ const PROBE = `
 
 const main = async () => {
   sweepStale()
-  const child = launch()
-  const cdp = await waitCdp()
+  let child = launch()
+  let cdp = await waitCdp()
   await waitFor(cdp, '!!window.store && !!window.pre && !!window.translate', 'renderer boots', 150000)
   await sleep(2500)
   await cdp.eval(PROBE)
@@ -422,6 +437,60 @@ const main = async () => {
     await cdp.click(xy.x, xy.y)
     await sleep(320)
     return true
+  }
+  // 边界段的库状态是脚本直接走 IPC 改的，设置页那份 status 不会自己重读
+  // （它只订阅锁头发出的变更通知）：关掉再开一次，等于让组件重新挂载读一遍。
+  // 这是夹具补位，不是给产品加刷新开关。
+  const reopenSection = async () => {
+    await ev('window.store.hideSettingModal && window.store.hideSettingModal()')
+    await sleep(600)
+    await ev('window.__vlt.openSection()')
+    await sleep(400)
+  }
+  // 重启换新页面、PROBE 也跟着没了：重挂探针这一步只此一处，别在边界段里再抄一遍
+  const launchFresh = async () => {
+    await killInstance(child)
+    check('[边界] 重启前旧实例的调试口已释放', await waitPortClosed())
+    child = launch()
+    cdp = await waitCdp()
+    await waitFor(cdp, '!!window.store && !!window.pre && !!window.translate',
+      'renderer boots after restart', 150000)
+    await sleep(2500)
+    await ev(PROBE)
+    check('[边界] 重启后页内探针重新挂上', await ev('window.__vlt.patch()') === 'ok')
+    cdp.events.length = 0
+  }
+  // 主密码/恢复码一旦落盘就是泄漏：DATA_PATH 下逐个文本文件找 needle
+  const dataLeaks = needles => {
+    const files = []
+    const walk = (dir, depth) => {
+      if (depth > 4) return
+      for (const name of fs.readdirSync(dir)) {
+        const p = path.join(dir, name)
+        let s
+        try {
+          s = fs.statSync(p)
+        } catch (e) {
+          continue
+        }
+        if (s.isDirectory()) {
+          walk(p, depth + 1)
+        } else if (s.isFile() && s.size < 4 * 1024 * 1024) {
+          files.push(p)
+        }
+      }
+    }
+    walk(DATA, 0)
+    const hits = files.filter(p => {
+      let t
+      try {
+        t = fs.readFileSync(p, 'utf8')
+      } catch (e) {
+        return false
+      }
+      return needles.some(n => t.indexOf(n) >= 0)
+    })
+    return { files, hits }
   }
   const errEvents = () => cdp.events.filter(e => {
     const s = String(e)
@@ -490,6 +559,10 @@ const main = async () => {
   await click('.vault-enable')
   await waitFor(cdp, 'window.__vlt.exists(".vault-recovery-code")', 'recovery code shows', 30000)
   check('建库成功（恢复码面板出现）', await ev('window.__vlt.exists(".vault-recovery-code")'))
+  // 记下阶段①恢复码的长度（面板里只有分组后的码，剥掉非 base32 就是原文）；
+  // 边界段再建一次库时用它判"同格式"，不把口令/恢复码送回 node 比对内容
+  const code1len = String(await ev('window.__vlt.text(".vault-recovery-code")'))
+    .replace(/[^A-Z2-7]/g, '').length
   await click('.vault-recovery-saved')
   await waitFor(cdp, '!document.querySelector(".vault-recovery-ack").disabled', 'ack enables', 12000)
   await click('.vault-recovery-ack')
@@ -676,36 +749,179 @@ const main = async () => {
   check('主日志确有 [vault] 行（行为可追溯）',
     /\[vault\] (enable|lock|unlock|disable|migrate)/.test(appLog),
     (appLog.match(/\[vault\][^\n]*/g) || []).slice(-4))
-  const files = []
-  const walk = (dir, depth) => {
-    if (depth > 4) return
-    for (const name of fs.readdirSync(dir)) {
-      const p = path.join(dir, name)
-      let s
-      try {
-        s = fs.statSync(p)
-      } catch (e) {
-        continue
-      }
-      if (s.isDirectory()) {
-        walk(p, depth + 1)
-      } else if (s.isFile() && s.size < 4 * 1024 * 1024) {
-        files.push(p)
-      }
-    }
-  }
-  walk(DATA, 0)
-  const leaks = files.filter(p => {
-    let t
-    try {
-      t = fs.readFileSync(p, 'utf8')
-    } catch (e) {
-      return false
-    }
-    return t.indexOf(PASS_1) >= 0
-  })
-  check('DATA_PATH 下 ' + files.length + ' 个文件都没有主密码原文', leaks.length === 0, leaks)
+  const scan = dataLeaks([PASS_1])
+  check('DATA_PATH 下 ' + scan.files.length + ' 个文件都没有主密码原文',
+    scan.hits.length === 0, scan.hits)
   check('全程无未捕获前端错误', errEvents().length === 0, errEvents().slice(0, 3))
+
+  // ── 12. 边界A：迁移分批中断续跑 ─────────────────────────────────
+  // 复用同一个 DATA 目录（库已停用、实例还活着）。先删掉上面种的那 3 条：
+  // 本段要断言总数恰好是 120，旧行混进来会让 120/50/70 变成 123/50/73。
+  for (const id of [BM1, BM2, BM3]) {
+    await db('bookmarks', 'remove', { _id: id })
+  }
+  const edgePass = n => 'edge-pass-' + n
+  const edgeKey = n => '-----BEGIN OPENSSH PRIVATE KEY-----VP2EDGE' + n +
+    '-----END OPENSSH PRIVATE KEY-----'
+  const edgeRows = Array.from({ length: 120 }, (_, i) => {
+    const n = String(i).padStart(3, '0')
+    const row = {
+      _id: 'vp2e-' + n,
+      title: 'VP2 edge ' + n,
+      host: '127.0.0.1',
+      port: 22,
+      username: 'edge',
+      type: 'ssh',
+      authType: 'password',
+      password: edgePass(n)
+    }
+    // 隔几条带私钥：验"整行凭据都回填"，不是只看 password
+    if (i % 6 === 1) {
+      row.privateKey = edgeKey(n)
+    }
+    return row
+  })
+  const insEdge = await db('bookmarks', 'insert', edgeRows)
+  check('[边界] 关闭态一次种 120 条旧格式书签（插入结果仍是明文、无 _vault）',
+    Array.isArray(insEdge) && insEdge.length === 120 &&
+      insEdge.every(r => r && typeof r.password === 'string' && !('_vault' in r)),
+    { n: Array.isArray(insEdge) ? insEdge.length : String(insEdge) })
+
+  const en3 = await op('enable', { masterPassword: PASS_3, autoLockMin: 30 })
+  const code3 = String((en3 && en3.recoveryCode) || '')
+  check('[边界] 重新建库返回恢复码（非空、长度与阶段①一致、不含主密码）',
+    en3 && en3.ok === true && code3.length > 0 && code3.length === code1len &&
+      code3.indexOf(PASS_3) < 0, { len: code3.length, len1: code1len })
+
+  // 只搬一批就"断电"：主进程记得 migrating，剩下的行仍是旧格式
+  const mig1 = await op('migrate', { limit: 50 })
+  check('[边界] 只搬一批：返回 total 120 / sealed 50 / remaining 70',
+    mig1 && mig1.ok === true && mig1.total === 120 && mig1.sealed === 50 &&
+      mig1.remaining === 70 && mig1.migrated === 50, mig1)
+  const ms1 = await op('migrateStatus')
+  check('[边界] 搬完一批后 migrateStatus 如实报 120 / 50 / 70',
+    ms1 && ms1.ok === true && ms1.total === 120 && ms1.sealed === 50 && ms1.plain === 70, ms1)
+  const stMid = await op('status')
+  check('[边界] 中断后 status.migrating === true（重启才知道还有活没干完）',
+    stMid && stMid.enabled === true && stMid.migrating === true, stMid)
+
+  await reopenSection()
+  const midBlock = await waitFor(cdp, 'window.__vlt.exists(".vault-migrate-resume")',
+    'partial migration block shows', 30000)
+  check('[边界] 中断后设置页摆出"继续迁移"入口', midBlock === true)
+  await shot('7-partial-migration')
+
+  // ── 13. 边界A续：重启后新旧格式都可读，再从设置页续跑到 0 ────────
+  await launchFresh()
+  const stRestart = await op('status')
+  check('[边界] 重启后库仍启用、必然回到锁定、migrating 标记还在',
+    stRestart && stRestart.enabled === true && stRestart.unlocked === false &&
+      stRestart.migrating === true, stRestart)
+
+  const rowsLocked2 = await db('bookmarks', 'find', {})
+  const edgeLocked = rowsLocked2.filter(r => /^vp2e-/.test(r._id))
+  const sealedRows = edgeLocked.filter(r => r._sealed === true)
+  const plainRows2 = edgeLocked.filter(r => !('_sealed' in r))
+  check('[边界] 锁定态读回 120 条（50 封存 + 70 旧格式，混合格式都可读）',
+    edgeLocked.length === 120 && sealedRows.length === 50 && plainRows2.length === 70,
+    { n: edgeLocked.length, sealed: sealedRows.length, plain: plainRows2.length })
+  const sealedClean = sealedRows.every(r =>
+    !r.password && !r.privateKey && !r.passphrase && !r.dbPassword && !r.proxyPassword)
+  check('[边界] 50 条封存行锁定态不出明文且标 _sealed',
+    sealedRows.length === 50 && sealedClean,
+    { n: sealedRows.length, sample: Object.keys(sealedRows[0] || {}) })
+  // 旧格式行按 id 末三位核对口令/私钥，顺带确认没有被套上封套
+  const plainOk = plainRows2.filter(r => {
+    const n = r._id.slice(-3)
+    const wantKey = Number(n) % 6 === 1
+    return r.password !== edgePass(n) ||
+      (wantKey ? r.privateKey !== edgeKey(n) : !!r.privateKey) ||
+      ('_vault' in r)
+  })
+  check('[边界] 70 条旧格式行仍带原明文、无封套（中断不影响连接）',
+    plainRows2.length === 70 && plainOk.length === 0,
+    { n: plainRows2.length, bad: plainOk.slice(0, 3).map(r => r._id) })
+  const rvLocked = await op('revealBookmark', { id: (sealedRows[0] || {})._id || 'vp2e-000' })
+  check('[边界] 锁定态 revealBookmark 封存行被拒（vault-locked）',
+    rvLocked && rvLocked.ok === false && rvLocked.reason === 'vault-locked', rvLocked)
+
+  // 启动弹窗盖在设置页上，先按取消关掉，再走主进程入口解锁
+  const modal3 = await waitFor(cdp, 'window.__vlt.exists(".vault-unlock-modal")',
+    'startup unlock prompt after restart', 25000)
+  check('[边界] 重启后启动即锁着、弹一次解锁框', modal3 === true)
+  const cancel3 = await get('window.__vlt.modalCancel()')
+  await clickXY(cancel3, 'startup modal cancel')
+  const modalGone3 = await waitFor(cdp, '!window.__vlt.exists(".vault-unlock-modal")',
+    'startup modal closes on cancel', 15000)
+  check('[边界] 取消启动解锁框后关掉（不挡住后面的设置页）', modalGone3 === true)
+  const un3 = await op('unlock', { masterPassword: PASS_3 })
+  check('[边界] 锁定态用 PASS_3 解锁成功',
+    un3 && un3.ok === true && un3.unlocked === true, un3)
+
+  await ev('window.__vlt.openSection()')
+  const resume3 = await waitFor(cdp, 'window.__vlt.exists(".vault-migrate-resume")',
+    'resume block after unlock', 30000)
+  check('[边界] 解锁后设置页又给出"继续迁移"（plain=70>0）', resume3 === true)
+  await click('.vault-migrate-resume')
+  const tResume = Date.now()
+  let msDone3 = null
+  while (Date.now() - tResume < 60000) {
+    msDone3 = await op('migrateStatus')
+    if (msDone3 && msDone3.ok && msDone3.plain === 0) {
+      break
+    }
+    await sleep(500)
+  }
+  const stDone3 = await op('status')
+  check('[边界] 续跑到底：migrateStatus 120 / 120 / 0，migrating 归 false',
+    msDone3 && msDone3.ok === true && msDone3.total === 120 && msDone3.sealed === 120 &&
+      msDone3.plain === 0 && stDone3.migrating === false, { ms: msDone3, st: stDone3 })
+  const blockGone3 = await waitFor(cdp, '!window.__vlt.exists(".vault-migrate-resume")',
+    'migrate block gone after resume', 30000)
+  check('[边界] 搬完后"继续迁移"入口消失', blockGone3 === true)
+  await shot('8-resume-after-restart')
+
+  // ── 14. 边界B：锁定态用恢复码停用 ──────────────────────────────
+  await op('lock')
+  check('[边界] 停用前锁定成功', (await op('status')).unlocked === false)
+  const dis3 = await op('disable', { recoveryCode: code3 })
+  check('[边界] 锁定态用恢复码停用：ok 且 enabled=false',
+    dis3 && dis3.ok === true && dis3.enabled === false, dis3)
+  check('[边界] 恢复码停用后 vault.json 从盘上删除', !fs.existsSync(VAULT_JSON))
+  const rowsOff3 = await db('bookmarks', 'find', {})
+  const edgeOff = rowsOff3.filter(r => /^vp2e-/.test(r._id))
+  const offBad = edgeOff.filter(r => {
+    const n = r._id.slice(-3)
+    const wantKey = Number(n) % 6 === 1
+    return r.password !== edgePass(n) ||
+      (wantKey ? r.privateKey !== edgeKey(n) : !!r.privateKey) ||
+      ('_vault' in r) || ('_sealed' in r)
+  })
+  check('[边界] 停用后 120 条全部明文回填（含隔条私钥、无 _vault/_sealed）',
+    edgeOff.length === 120 && offBad.length === 0,
+    { n: edgeOff.length, bad: offBad.slice(0, 3).map(r => r._id) })
+  const samples = ['000', '060', '119'].map(n => {
+    const r = edgeOff.find(x => x._id === 'vp2e-' + n) || {}
+    return { id: n, ok: r.password === edgePass(n) }
+  })
+  check('[边界] 首/中/末三条明文抽查一致', samples.every(s => s.ok), samples)
+
+  await reopenSection()
+  const backOff = await waitFor(cdp, 'window.__vlt.exists(".vault-enable")',
+    'back to enable form after recovery disable', 25000)
+  check('[边界] 恢复码停用后设置页回到未启用（建库表单 + 未启用状态）',
+    backOff === true &&
+      anyOf(await ev('window.__vlt.stateTag()'), '未启用', /Not enabled/i))
+  await shot('9-recovery-disable')
+
+  // ── 15. 边界段泄漏审计 ──────────────────────────────────────────
+  const appLog3 = fs.readFileSync(LOG_FILE, 'utf8')
+  check('[边界] 主日志里没有 PASS_3 原文', appLog3.indexOf(PASS_3) < 0)
+  const scan3 = dataLeaks([PASS_3])
+  check('[边界] DATA_PATH 下 ' + scan3.files.length + ' 个文件都没有 PASS_3',
+    scan3.hits.length === 0, scan3.hits)
+  check('[边界] 重启续跑全程无未捕获前端错误',
+    errEvents().length === 0, errEvents().slice(0, 3))
   await ev('window.__vlt.unpatch()')
 
   const fail = results.filter(r => !r.ok)

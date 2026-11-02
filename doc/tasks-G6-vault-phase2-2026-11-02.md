@@ -40,6 +40,7 @@
 - [x] 截图进 `self-test/vault-phase2-shots/`
 - [x] 设计 §14.7 补阶段②实施记录；TODO 台账勾掉阶段②
 - [x] 全量 `npm run test-unit-ci`、`npx standard`、`npm run vite-build`
+- [x] 边界补测真实例：120 行迁移中断重启续跑、锁定态恢复码停用
 - [x] 提交 `test(vault): 阶段②真实例验收与文档`
 
 ## 验收门（全部满足才算完成）
