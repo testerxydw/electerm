@@ -10,7 +10,7 @@
  * 连接参数可用环境变量覆盖：
  *   DB_E2E_MYSQL_HOST/PORT/USER/PASSWORD/DATABASE
  *   DB_E2E_PG_HOST/PORT/USER/PASSWORD/DATABASE
- *   DB_E2E_REDIS_HOST/PORT
+ *   DB_E2E_REDIS_HOST/PORT/PASSWORD（有口令的实例必传，否则 NOAUTH 记 failed）
  *
  * 每个引擎独立连接；端口不可达时标记 skipped 而不是失败（方便本地无服务时跑）。
  * 适配器经 vm 加载并注入 log 桩，避免依赖 electron 运行时。
@@ -88,7 +88,9 @@ function engineConfig () {
     },
     redis: {
       dbHost: env('DB_E2E_REDIS_HOST', '127.0.0.1'),
-      dbPort: Number(env('DB_E2E_REDIS_PORT', 6379))
+      dbPort: Number(env('DB_E2E_REDIS_PORT', 6379)),
+      // 适配器侧 `conn.dbPassword || undefined`：空串自然落到无口令路径
+      dbPassword: env('DB_E2E_REDIS_PASSWORD', '')
     }
   }
 }
