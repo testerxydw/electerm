@@ -190,6 +190,18 @@ describe('写路径', () => {
     assert.equal(tables.bookmarks[0].password, undefined)
   })
 
+  it('锁定态写回读到的行：_sealed 只是渲染层标记，不落库', async () => {
+    const { raw, tables } = fakeDb({ bookmarks: [sealedBookmark()] })
+    const dbAction = wrapDbAction(raw, context({ unlocked: false }))
+    const rows = await dbAction('bookmarks', 'find', {})
+    assert.equal(rows[0]._sealed, true)
+    const renamed = { ...rows[0], title: 'renamed' }
+    await dbAction('bookmarks', 'update', { _id: 'b1' }, { $set: renamed })
+    assert.equal(tables.bookmarks[0].title, 'renamed')
+    assert.equal(tables.bookmarks[0]._sealed, undefined)
+    assert.ok(tables.bookmarks[0]._vault)
+  })
+
   it('legacyWrite 打开：明文照旧落库', async () => {
     const { raw, tables } = fakeDb()
     const dbAction = wrapDbAction(raw, context({ legacyWrite: true }))

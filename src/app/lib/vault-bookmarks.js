@@ -59,21 +59,35 @@ function readOne (row, state, ctx) {
   return opened
 }
 
+/**
+ * `_sealed` 是锁定态读出来给界面看的临时标记。store 的 watcher 会把整行回写，
+ * 落库前必须摘掉，否则解锁/停用后这条标记还粘在记录上。
+ */
+function withoutSealedMark (row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row) || !('_sealed' in row)) {
+    return row
+  }
+  const next = { ...row }
+  delete next._sealed
+  return next
+}
+
 function writeOne (row, state, ctx) {
   if (!row) {
     return row
   }
+  const clean = withoutSealedMark(row)
   // 没有明文敏感字段（只改标题/端口，或锁定态回写原记录）：原样保留 _vault
-  if (!collectSecrets(row)) {
-    return row
+  if (!collectSecrets(clean)) {
+    return clean
   }
   if (!state.enabled || state.legacyWrite) {
-    return row
+    return clean
   }
   if (!state.unlocked) {
     throw lockedError()
   }
-  return ctx.withDek(dek => sealRow(row, dek))
+  return ctx.withDek(dek => sealRow(clean, dek))
 }
 
 /**
