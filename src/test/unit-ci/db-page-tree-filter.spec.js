@@ -54,6 +54,22 @@ const loadVisibleMetadata = () => {
   )
 }
 
+const loadTreeFilterExpandKeys = () => {
+  const src = loadJsx()
+  const body = src.match(/ {4}(const keys = \[\][\s\S]*?)\n {4}setExpandedKeys\(keys\)/)
+  assert.ok(body, 'tree filter auto-expand effect not found in db-session.jsx')
+  // 展开键跟 isLeafNode / nodeKey 同源执行：测试里另抄一份 key 推导，就钉不住"两边是不是同一个形态"
+  const leaf = src.match(/^const isLeafNode = .+$/m)
+  assert.ok(leaf, 'isLeafNode not found in db-session.jsx')
+  const nk = src.match(/const nodeKey = \(database, schema, table\) => JSON\.stringify\(\[[\s\S]*?\]\)/)
+  assert.ok(nk, 'nodeKey not found in db-session.jsx')
+  return vm.runInNewContext(
+    '(() => {' + leaf[0] + ';' + nk[0] +
+    '; return function (visibleMetadata) {' + body[1] + '\n return keys }; })()',
+    {}
+  )
+}
+
 describe('T1 current-page row filter (real source)', () => {
   const filterRows = loadFilteredRows()
   const grid = {
@@ -173,6 +189,58 @@ describe('T2 metadata tree filter (real source)', () => {
     assert.equal(out.length, 1)
     assert.equal(out[0].name, 'db0')
     assert.equal(out[0].count, 12)
+  })
+})
+
+describe('T2 tree filter auto-expand keys (real source)', () => {
+  const expandKeys = loadTreeFilterExpandKeys()
+  // treeData 里节点 key 的两种形态，就是这里要对照的"标准答案"
+  const treeKey = (database, schema, table) => JSON.stringify([database, schema || '', table || ''])
+
+  test('mysql: 分组节点的展开键用三位形态（与 treeData 同一个 key）', () => {
+    const metadata = [{
+      name: 'app',
+      type: 'database',
+      children: [
+        { name: 'orders', type: 'table' },
+        { name: 'routines', type: 'group', group: 'routine', children: [{ name: 'p1', type: 'procedure' }] }
+      ]
+    }]
+    const keys = expandKeys(metadata)
+    assert.ok(keys.includes(treeKey('app')), '库节点要展开')
+    assert.ok(keys.includes(treeKey('app', '', 'routines')), '分组节点要按 nodeKey(库, 空 schema, 组名) 展开')
+    assert.ok(!keys.includes(treeKey('app', 'routines')), '分组不是 schema，不能写成两位形态')
+  })
+
+  test('pg: schema 用两位形态，schema 下的分组带上 schema 名', () => {
+    const metadata = [{
+      name: 'app',
+      type: 'database',
+      children: [{
+        name: 'public',
+        type: 'schema',
+        children: [
+          { name: 'orders', type: 'table' },
+          { name: 'triggers', type: 'group', group: 'trigger', children: [{ name: 't1', type: 'trigger' }] }
+        ]
+      }]
+    }]
+    const keys = expandKeys(metadata)
+    assert.ok(keys.includes(treeKey('app', 'public')), 'schema 节点要展开')
+    assert.ok(keys.includes(treeKey('app', 'public', 'triggers')), 'schema 下的分组展开键要带上 schema')
+  })
+
+  test('叶子不进展开集，命中例程的分组不能只计数不展开', () => {
+    const keys = expandKeys([{
+      name: 'app',
+      type: 'database',
+      children: [
+        { name: 'orders', type: 'table' },
+        { name: 'routines', type: 'group', group: 'routine', children: [{ name: 'p1', type: 'procedure' }] }
+      ]
+    }])
+    // vm 里造的是另一个 realm 的数组，deepStrictEqual 会比原型 → 先复制成本地数组
+    assert.deepEqual(Array.from(keys), [treeKey('app'), treeKey('app', '', 'routines')])
   })
 })
 

@@ -5550,18 +5550,23 @@ export default auto(function DbSession (props) {
       treeExpandedBeforeFilter.current = expandedKeys
     }
     const keys = []
-    const walk = (db, nodes) => {
+    // 展开键必须与 treeData 里同一节点的 key 同一推导：
+    // 分组节点（例程/触发器/事件）挂在「库[/schema] + 组名」三位形态上，
+    // schema 节点才是「库 + schema」两位形态。少一位 → 分组永远不展开，
+    // 计数条说命中 6 个节点、树里只画得出 4 个（真 MariaDB 实测踩到）
+    const walk = (dbName, schema, nodes) => {
       (nodes || []).forEach(node => {
         if (isLeafNode(node)) {
           return
         }
-        keys.push(nodeKey(db.name, node.name))
-        walk(db, node.children)
+        const isGroup = node.type === 'group'
+        keys.push(isGroup ? nodeKey(dbName, schema, node.name) : nodeKey(dbName, node.name))
+        walk(dbName, isGroup ? schema : node.name, node.children)
       })
     }
     visibleMetadata.forEach(db => {
       keys.push(nodeKey(db.name))
-      walk(db, db.children)
+      walk(db.name, '', db.children)
     })
     setExpandedKeys(keys)
   }, [treeFilterKw, metadata, isRedis])
