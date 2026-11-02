@@ -36,15 +36,15 @@
 - [x] 提交 `feat(vault): 设置页迁移入口与锁定态表单提示`
 
 ## T6 · 真实例验收与文档
-- [ ] `self-test/vault-phase2-demo.js`（临时 HOME：启用→迁移→检查行内无明文→锁定拦截→解锁续连→停用回填）
-- [ ] 截图进 `self-test/vault-phase2-shots/`
-- [ ] 设计 §14.7 补阶段②实施记录；TODO 台账勾掉阶段②
-- [ ] 全量 `npm run test-unit-ci`、`npx standard`、`npm run vite-build`
-- [ ] 提交 `test(vault): 阶段②真实例验收与文档`
+- [x] `self-test/vault-phase2-demo.js`（临时 HOME：启用→迁移→检查行内无明文→锁定拦截→解锁续连→停用回填）
+- [x] 截图进 `self-test/vault-phase2-shots/`
+- [x] 设计 §14.7 补阶段②实施记录；TODO 台账勾掉阶段②
+- [x] 全量 `npm run test-unit-ci`、`npx standard`、`npm run vite-build`
+- [x] 提交 `test(vault): 阶段②真实例验收与文档`
 
 ## 验收门（全部满足才算完成）
-- [ ] DB 行内无明文敏感字段
-- [ ] 锁定点书签 → 弹窗；取消不建 tab；解锁自动连接
-- [ ] 混合新旧格式全部可连接
-- [ ] 停用后凭据完好
-- [ ] 全量单测绿、lint/build 干净
+- [x] DB 行内无明文敏感字段
+- [x] 锁定点书签 → 弹窗；取消不建 tab；解锁自动连接
+- [x] 混合新旧格式全部可连接
+- [x] 停用后凭据完好
+- [x] 全量单测绿、lint/build 干净
