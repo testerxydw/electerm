@@ -151,3 +151,4 @@ self-test/db-struct-diff-realdb-shots/
 self-test/db-contrast-realdb-shots/
 self-test/db-tree-font-realdb-shots/
 self-test/db-cell-edit-realdb-shots/
+self-test/db-font-realdb-shots/
