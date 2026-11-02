@@ -118,8 +118,16 @@ const near = (a, b, tol = 1) => Math.abs(a - b) <= tol
 // 探针：一次读回整条链的矩形，判据在 node 侧算
 const PROBE = `
 window.__t3b = () => {
+  // 隐藏标签页也留在 DOM 里，全局 querySelector 会先命中它们（0 高）——
+  // 一律取实测最高的那个，即当前可见的那套
+  const vis = sel => {
+    const els = [...document.querySelectorAll(sel)]
+    if (!els.length) return null
+    return els.reduce((a, b) =>
+      b.getBoundingClientRect().height > a.getBoundingClientRect().height ? b : a)
+  }
   const rect = sel => {
-    const el = document.querySelector(sel)
+    const el = vis(sel)
     if (!el) return null
     const r = el.getBoundingClientRect()
     return {
@@ -129,7 +137,8 @@ window.__t3b = () => {
       width: Math.round(r.width)
     }
   }
-  const content = document.querySelector('.sftp-table-content')
+  window.__t3bVis = vis
+  const content = vis('.sftp-table-content')
   const items = content ? [...content.querySelectorAll('.sftp-item')] : []
   const base = content ? content.getBoundingClientRect() : null
   return {
@@ -197,7 +206,7 @@ const main = async () => {
 
   // 进入 80 文件目录，让虚拟列表真的有东西可滚
   await cdp.eval(`(() => {
-    const inp = document.querySelector('.sftp-title-wrap input')
+    const inp = window.__t3bVis('.sftp-title-wrap input')
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(inp, ${JSON.stringify(MANY_DIR)})
     inp.dispatchEvent(new Event('input', { bubbles: true }))
@@ -205,7 +214,7 @@ const main = async () => {
   })()`)
   await sleep(600)
   await cdp.eval(`(() => {
-    document.querySelector('.sftp-title-wrap .ant-input-suffix .anticon')
+    window.__t3bVis('.sftp-title-wrap .ant-input-suffix .anticon')
       .dispatchEvent(new MouseEvent('click', { bubbles: true }))
     return 'go'
   })()`)
@@ -229,7 +238,7 @@ const main = async () => {
 
   // 滚到底：最后一项应贴容器底
   await cdp.eval(`(() => {
-    const c = document.querySelector('.sftp-table-content')
+    const c = window.__t3bVis('.sftp-table-content')
     c.scrollTop = c.scrollHeight
     c.dispatchEvent(new Event('scroll', { bubbles: true }))
     return c.scrollTop
@@ -240,7 +249,7 @@ const main = async () => {
     bottom.list.scrollTop > 0 && near(bottom.list.lastBottom, bottom.rects.content.height, 6),
     bottom.list)
   await cdp.eval(`(() => {
-    const c = document.querySelector('.sftp-table-content')
+    const c = window.__t3bVis('.sftp-table-content')
     c.scrollTop = 0
     c.dispatchEvent(new Event('scroll', { bubbles: true }))
     return 0
@@ -270,7 +279,7 @@ const main = async () => {
   await cdp.eval(`(() => {
     const st = window.store
     st.toggleSessFullscreen(false, st.activeTabId)
-    const inp = document.querySelector('.sftp-title-wrap input')
+    const inp = window.__t3bVis('.sftp-title-wrap input')
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(inp, ${JSON.stringify(LOCAL_HOME)})
     inp.dispatchEvent(new Event('input', { bubbles: true }))
@@ -279,7 +288,7 @@ const main = async () => {
   })()`)
   await sleep(400)
   await cdp.eval(`(() => {
-    const go = document.querySelector('.sftp-title-wrap .ant-input-suffix .anticon')
+    const go = window.__t3bVis('.sftp-title-wrap .ant-input-suffix .anticon')
     if (go) go.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     return 'home'
   })()`)
