@@ -632,6 +632,7 @@ export default class SettingVault extends Component {
         </div>
         <Space size={6} wrap>
           <Button
+            className='vault-migrate-resume'
             type='primary'
             loading={migrating}
             disabled={migrating || vaultState(status) === 'locked'}
@@ -640,6 +641,7 @@ export default class SettingVault extends Component {
             {e('vaultMigrateResume')}
           </Button>
           <Button
+            className='vault-migrate-later'
             disabled={migrating}
             onClick={() => this.setState({ migrationLater: true })}
           >
@@ -658,6 +660,7 @@ export default class SettingVault extends Component {
         <div className='vault-block-title font16 bold pd1y'>{e('vaultLegacyWrite')}</div>
         <div className='pd1b'>
           <Switch
+            className='vault-legacy-write'
             checked={!!status.legacyWrite}
             loading={busy === 'setLegacyWrite'}
             disabled={busy === 'setLegacyWrite'}
@@ -682,7 +685,7 @@ export default class SettingVault extends Component {
           sealed > 0
             ? (
               <Alert
-                className='vault-intro pd1b'
+                className='vault-unseal-hint pd1b'
                 type='info'
                 showIcon
                 message={e('vaultUnsealBeforeDisable')}
