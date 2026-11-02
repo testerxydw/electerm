@@ -201,7 +201,10 @@ const OPEN_TAB = `
     dbPassword: '',
     dbName: 'demo',
     dbSsl: false,
-    readOnly: false,
+    // 吃产品默认（渲染层 tab.readOnly !== false、主进程同口径 → 默认只读）。
+    // 从前这里写死 false 图省事，于是"只读态下参数面板能不能正常收值、编辑器该不该锁输入"
+    // 这条真实路径长期没人走——本脚本的语句全是 select，关掉只读换不来任何东西。
+    readOnly: true,
     production: false,
     batch: window.store.currentLayoutBatch
   })
@@ -342,6 +345,14 @@ const main = async () => {
   await waitFor(cdp, "!!document.querySelector('.db-sql-area .cm-content')", 'sql editor', 30000)
   await cdp.eval('window.__clickTab("^SQL$")')
   await sleep(500)
+
+  // 只读牌在场 = 这一轮真的在"产品默认只读"下跑（不是页签自己关掉的那条路径）。
+  // 只读态只拦写语句，不锁编辑器：下面的 setSql 能打进 select 语句本身就是这条契约的证据。
+  const readonlyChip = await cdp.eval(
+    "(() => { const el = [...document.querySelectorAll('.db-sql-status-readonly')].find(window.__vis); return el ? el.innerText.trim() : null })()"
+  )
+  check('页签吃产品默认只读（状态行只读牌在场）',
+    !!readonlyChip && !/DbSqlReadOnly|dbReadOnly/.test(readonlyChip), readonlyChip)
 
   const btn = await cdp.eval('(window.__paramBtn() || {}).innerText || null')
   // antd 6 会在两个汉字中间插空格（"参 数"），判定前先抹掉空白
