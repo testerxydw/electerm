@@ -5,6 +5,12 @@
 import uid from '../common/uid'
 import clone from '../common/to-simple-obj'
 import message from '../components/common/message'
+import { settingMap } from '../common/constants'
+import {
+  changesBookmarkIdentity,
+  findDuplicateBookmarks,
+  pickNewBookmarks
+} from '../common/bookmark-dedup'
 import {
   mergeBookmarkIds,
   pickNewSshConfigItems,
@@ -16,6 +22,74 @@ import {
 const e = window.translate
 
 export default Store => {
+  /**
+   * 只读判重（界面上的 inline 提示要在写之前就说话，不能等写完才报错）。
+   * `selfId` 是给改名用的：把自己排除掉，否则把书签 a 改回它自己的名字会被 a 拦住。
+   * @returns {{ok: boolean, duplicates: Array}} duplicates 只回答"撞在哪几条"，
+   *          怎么跟用户说由界面决定 —— 判据只活在 bookmark-dedup.js 一处。
+   */
+  Store.prototype.checkBookmark = function (item, { selfId } = {}) {
+    const { store } = window
+    const duplicates = findDuplicateBookmarks(item, store.bookmarks, selfId)
+    return { ok: !duplicates.length, duplicates }
+  }
+
+  /**
+   * 新建书签的唯一入口（查重口径见 bookmark-dedup.js：同名 + 同连接）。
+   * 撞了就不写库，把结果原样回给调用方。`force` 是"我就要再来一条"的出口
+   * （表单的「仍然创建」、右键复制）—— 复制的语义本来就是同一条连接的副本。
+   */
+  Store.prototype.addBookmark = function (item, { force = false } = {}) {
+    const { store } = window
+    if (!force) {
+      const res = store.checkBookmark(item)
+      if (!res.ok) {
+        return res
+      }
+    }
+    store.addItem(item, settingMap.bookmarks)
+    return { ok: true, duplicates: [] }
+  }
+
+  /**
+   * 改书签（改名也算）：判据要用**改完之后的形状** —— 只动标题时主机/端口还是原值，
+   * 拿 updates 单独去比会把"改个名"当成"换了台机器"。
+   */
+  Store.prototype.editBookmark = function (id, updates, { force = false } = {}) {
+    const { store } = window
+    if (!force) {
+      const current = store.bookmarks.find(b => b.id === id) || {}
+      const after = { ...current, ...updates }
+      if (changesBookmarkIdentity(current, after)) {
+        const res = store.checkBookmark(after, { selfId: id })
+        if (!res.ok) {
+          return res
+        }
+      }
+    }
+    store.editItem(id, updates, settingMap.bookmarks)
+    return { ok: true, duplicates: [] }
+  }
+
+  /**
+   * 批量落库（文件导入这类）：默认跳过重复，把跳过的原样回给调用方报数。
+   * 一条导入里逐条弹窗问"是否仍然创建"是没完的，所以这里只有"跳"和"不跳"，
+   * 想全要就传 force（那就不判）。
+   * @returns {{added: number, skipped: Array}}
+   */
+  Store.prototype.addBookmarks = function (items, { force = false } = {}) {
+    const { store } = window
+    if (force) {
+      store.addItems(items, settingMap.bookmarks)
+      return { added: items.length, skipped: [] }
+    }
+    const { fresh, skipped } = pickNewBookmarks(items, store.bookmarks)
+    if (fresh.length) {
+      store.addItems(fresh, settingMap.bookmarks)
+    }
+    return { added: fresh.length, skipped }
+  }
+
   Store.prototype.handleGetSerials = async function () {
     const { store } = window
     store.loaddingSerials = true

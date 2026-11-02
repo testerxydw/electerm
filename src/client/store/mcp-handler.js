@@ -358,7 +358,15 @@ export default Store => {
       throw new Error(errors.join(', '))
     }
 
-    store.addItem(bookmark, settingMap.bookmarks)
+    // MCP 侧不做"仍然创建"这种交互：撞了就报错，把撞在哪几条回给调用方，
+    // 让它换个名字再来 —— 静默收下或静默丢掉都是更糟的答案。
+    const res = store.addBookmark(bookmark)
+    if (!res.ok) {
+      const hits = res.duplicates.map(d => `${d.id}(${d.title})`).join(', ')
+      throw new Error(
+        `Bookmark already exists (same title and same connection): ${hits}`
+      )
+    }
 
     return {
       success: true,
@@ -378,7 +386,13 @@ export default Store => {
 
     const safeUpdates = stripTabInternalProps(stripDangerousTabProps({ ...(updates || {}) }))
     delete safeUpdates.id
-    store.editItem(id, safeUpdates, settingMap.bookmarks)
+    const res = store.editBookmark(id, safeUpdates)
+    if (!res.ok) {
+      const hits = res.duplicates.map(d => `${d.id}(${d.title})`).join(', ')
+      throw new Error(
+        `Update would make this bookmark duplicate another one (same title and same connection): ${hits}`
+      )
+    }
 
     return {
       success: true,

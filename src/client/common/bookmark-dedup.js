@@ -142,6 +142,16 @@ export function hasDuplicateBookmark (item, bookmarks, selfId) {
 }
 
 /**
+ * 这次编辑有没有动"身份"（名字或连接）。改密码、换私钥、调颜色、勾生产标记
+ * 都不可能造成新的碰撞 —— 少了这一层短路，存量里已经有两条一模一样的书签时，
+ * 用户连"给其中一条改个密码"都会被自己另一条拦住。
+ */
+export function changesBookmarkIdentity (before, after) {
+  return bookmarkTitleKey(before) !== bookmarkTitleKey(after) ||
+    bookmarkConnKey(before) !== bookmarkConnKey(after)
+}
+
+/**
  * 给"仍然创建"这类确认文案用的一句话：把判据讲成人话，而不是把键印出来。
  */
 export function describeBookmarkTarget (item) {

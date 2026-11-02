@@ -26,7 +26,7 @@ import {
 import message from '../common/message'
 import ShowItem from '../common/show-item'
 import { copy as copyToClipboard } from '../../common/clipboard'
-import { connectionMap, settingMap } from '../../common/constants'
+import { connectionMap } from '../../common/constants'
 import createTitle from '../../common/create-title'
 import './setting-ssh-key.styl'
 
@@ -150,11 +150,11 @@ export default class SettingSshKey extends Component {
     }
     // 私钥内容优先于路径（bookmark-schema 的约定）：回填路径时必须把内容清空，
     // 否则书签仍然按旧的粘贴内容认证，用户以为换了密钥
-    this.props.editItem(bookmarkId, {
+    this.props.editBookmark(bookmarkId, {
       privateKeyPath: result.privateKeyPath,
       privateKey: '',
       authType: 'privateKey'
-    }, settingMap.bookmarks)
+    })
     message.success(e('saved'))
   }
 

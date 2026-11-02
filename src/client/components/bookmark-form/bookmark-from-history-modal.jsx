@@ -61,13 +61,18 @@ export default class BookmarkFromHistoryModal extends React.PureComponent {
     }
 
     const { store } = window
-    const { addItem } = store
+    const { addBookmark } = store
 
     // Create bookmark from tab data
     const bookmark = this.buildBookmark()
 
-    // Add bookmark
-    addItem(bookmark, 'bookmarks')
+    // 从历史建书签最容易连点两下（同一个会话存两次），所以这里也过卡点。
+    // 撞了就不关窗：用户对着一个已经关掉的弹窗没法改名字再来一次。
+    const res = addBookmark(bookmark)
+    if (!res.ok) {
+      message.warning(e('bookmarkDuplicateWarn'))
+      return
+    }
 
     // Ensure the bookmark id is registered in its group
     try {

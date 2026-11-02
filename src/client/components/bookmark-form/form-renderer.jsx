@@ -24,6 +24,8 @@ import newTerm from '../../common/new-terminal'
 import { isValidIP } from '../../common/is-ip'
 import { action as manateAction } from 'manate'
 
+const e = window.translate
+
 export default function FormRenderer ({ config, props, onForm }) {
   const initialValues = config.initValues(props)
   const [form] = Form.useForm()
@@ -97,14 +99,18 @@ export default function FormRenderer ({ config, props, onForm }) {
     if (obj.connectionHoppings?.length) {
       obj.hasHopping = true
     }
-    const { addItem, editItem } = props.store
+    const { addBookmark, editBookmark, checkBookmark } = props.store
     const categoryId = obj.category
     delete obj.category
     if (!obj.id.startsWith(newBookmarkIdPrefix)) {
       const tar = copy(obj)
       delete tar.id
+      // 判重同步做（写库挪到空闲帧是性能考虑，不能把"撞了要当场说"一起挪走）
+      if (!checkBookmark(tar, { selfId: obj.id }).ok) {
+        return message.warning(e('bookmarkDuplicateWarn'))
+      }
       runIdle(() => {
-        editItem(obj.id, tar, settingMap.bookmarks)
+        editBookmark(obj.id, tar)
       })
       updateBookmarkGroups(
         obj,
@@ -114,9 +120,12 @@ export default function FormRenderer ({ config, props, onForm }) {
         setNewItem()
       }
     } else {
+      if (!checkBookmark(obj).ok) {
+        return message.warning(e('bookmarkDuplicateWarn'))
+      }
       obj.id = generate()
       runIdle(() => {
-        addItem(obj, settingMap.bookmarks)
+        addBookmark(obj)
       })
       updateBookmarkGroups(
         obj,

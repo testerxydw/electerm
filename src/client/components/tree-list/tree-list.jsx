@@ -897,7 +897,7 @@ export default class ItemListTree extends Component {
 
   duplicateItem = (e, item) => {
     e.stopPropagation()
-    const { addItem } = window.store
+    const { addBookmark } = window.store
     const { bookmarkGroups } = this.props
 
     const newbookmark = copy(item)
@@ -914,8 +914,9 @@ export default class ItemListTree extends Component {
     window.store.storeAssign({
       currentBookmarkGroupId: categoryId
     })
-    // add bookmark to store
-    addItem(newbookmark, settingMap.bookmarks)
+    // 复制的语义就是"同一条连接再来一份"，所以 force；名字已经带 (N) 不会撞车。
+    // 走 addBookmark 而不是 addItem：以后再加写入口也不会绕过判重这一层。
+    addBookmark(newbookmark, { force: true })
     // update bookmark groups
     this.updateBookmarkGroups(
       newbookmark,

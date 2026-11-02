@@ -1063,6 +1063,9 @@ const en = {
   knownHostsDeleted: 'Entry deleted',
   knownHostsStale: 'known_hosts changed outside this panel; the list has been refreshed',
   sshConfigNothingNew: 'No new SSH config to import — every host is already in your bookmarks',
+  // 书签查重：同名 + 同连接才算一条重复（判据见 client/common/bookmark-dedup.js）
+  bookmarkDuplicateWarn: 'A bookmark with the same name and the same connection already exists',
+  bookmarkDuplicatesSkipped: 'duplicate bookmarks skipped (same name and connection)',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: 'Audit center',
   auditTime: 'Time',
@@ -2204,6 +2207,8 @@ const zhCn = {
   knownHostsDeleted: '已删除',
   knownHostsStale: 'known_hosts 已被外部改动，列表已刷新，请重新确认',
   sshConfigNothingNew: '本地 ssh 配置里没有新增主机（都已导入过）',
+  bookmarkDuplicateWarn: '已有同名且同连接方式的书签',
+  bookmarkDuplicatesSkipped: '条重复书签已跳过（同名且同连接）',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: '审计中心',
   auditTime: '时间',

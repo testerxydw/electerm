@@ -4,8 +4,11 @@
 // dev/web），只差连接是同一台机器的不同入口（两套密钥、两个用户）——都不许拦。
 // 另一半是"判不了就不放闸"：本地终端、空标题、字段残缺一律放行，
 // 误伤用户手工排好的书签比放走一条重复贵。
+// 末尾的接线契约钉的是"只有 store 卡点在写 bookmarks"：判据再好，
+// 少一条入口绕过它，侧栏照样会堆重复。
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -268,5 +271,119 @@ describe('批量导入默认跳过', () => {
     const { fresh, skipped } = pickNewBookmarks([{}, null, mk('a', 'web', 'h')], [])
     assert.equal(fresh.length, 3)
     assert.deepEqual(skipped, [])
+  })
+})
+
+describe('只有动到身份才需要判重', () => {
+  const base = () => ssh({ id: 'a', title: 'web', host: 'h', port: 22, username: 'root' })
+  const dup = () => ssh({ id: 'b', title: 'web', host: 'h', port: 22, username: 'root' })
+
+  it('改密码、换私钥、调颜色、勾生产标记都不算动身份', async () => {
+    const { changesBookmarkIdentity } = await load()
+    for (const patch of [
+      { password: 'new-one' },
+      { privateKeyPath: '/k/id', privateKey: '' },
+      { color: '#ff0000' },
+      { production: true },
+      { category: 'other' },
+      { enableSftp: false },
+      { id: 'a', title: 'web', host: 'h', port: 22, username: 'ROOT' }
+    ]) {
+      assert.equal(changesBookmarkIdentity(base(), { ...base(), ...patch }), false, JSON.stringify(patch))
+    }
+  })
+
+  it('改名、换主机、换端口、换用户都是动身份', async () => {
+    const { changesBookmarkIdentity } = await load()
+    for (const patch of [
+      { title: 'web2' }, { host: 'other' }, { port: 2222 }, { username: 'deploy' }, { type: 'database' }
+    ]) {
+      assert.equal(changesBookmarkIdentity(base(), { ...base(), ...patch }), true, JSON.stringify(patch))
+    }
+  })
+
+  it('存量里已经有两条一模一样时，"给其中一条改密码"不会被另一条拦住', async () => {
+    const { changesBookmarkIdentity, findDuplicateBookmarks } = await load()
+    const a = base()
+    // 判据本身仍然会命中 b —— 拦住它的是短路，不是判据变松
+    assert.deepEqual(findDuplicateBookmarks(a, [a, dup()], 'a').map(d => d.id), ['b'])
+    assert.equal(changesBookmarkIdentity(a, { ...a, password: 'x' }), false)
+  })
+
+  it('残缺对象不抛（id 找不到时 store 传的是空 before）', async () => {
+    const { changesBookmarkIdentity } = await load()
+    assert.equal(changesBookmarkIdentity(undefined, undefined), false)
+    assert.equal(changesBookmarkIdentity({}, base()), true)
+    assert.equal(changesBookmarkIdentity(base(), undefined), true)
+  })
+})
+
+describe('卡点接线契约', () => {
+  const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
+  const STORE = 'src/client/store/bookmark.js'
+
+  it('store 只留"判重之后才写"的入口，且判据取自纯模块', () => {
+    const src = read(STORE)
+    for (const fn of ['checkBookmark', 'addBookmark', 'editBookmark', 'addBookmarks']) {
+      assert.ok(src.includes('Store.prototype.' + fn + ' = function'), fn + ' 卡点没了')
+    }
+    assert.match(src, /findDuplicateBookmarks\(/, '判重必须交给纯函数，才有条单测钉得住')
+    assert.match(src, /pickNewBookmarks\(/, '批量入口同理')
+    const edit = src.match(/Store\.prototype\.editBookmark = function[\s\S]*?\n {2}\}/)
+    assert.ok(edit, 'editBookmark 找不到了')
+    assert.match(edit[0], /changesBookmarkIdentity\(/,
+      '不动身份的编辑要短路，否则存量重复会让"改个密码"被自己另一条拦住')
+    assert.match(edit[0], /selfId: id/, '改名要排除自己，否则改回原名会被自己拦住')
+  })
+
+  it('除 store 外没有第二条往 bookmarks 裸写的路', () => {
+    const dir = path.join(ROOT, 'src/client')
+    const files = fs.readdirSync(dir, { recursive: true })
+      .filter(f => /\.(js|jsx)$/.test(f))
+    assert.ok(files.length > 100, '扫描没拿到文件，这条契约就成了空判')
+    const bare = /(?:\baddItem|\baddItems|\beditItem)\s*\([\s\S]{0,200}?(?:settingMap\.bookmarks|['"]bookmarks['"])/
+    const hits = files
+      .map(f => 'src/client/' + f.split(path.sep).join('/'))
+      .filter(f => f !== STORE)
+      .filter(f => bare.test(read(f)))
+    assert.deepEqual(hits, [], '这些文件绕过了 addBookmark/editBookmark 卡点')
+  })
+
+  it('表单/右键复制/MCP/文件导入四条入口都走卡点', () => {
+    const F = 'src/client/components/bookmark-form/form-renderer.jsx'
+    const HISTORY = 'src/client/components/bookmark-form/bookmark-from-history-modal.jsx'
+    const AI = 'src/client/components/bookmark-form/ai-bookmark-form.jsx'
+    const TREE = 'src/client/components/tree-list/tree-list.jsx'
+    const MCP = 'src/client/store/mcp-handler.js'
+    const UPLOAD = 'src/client/components/tree-list/bookmark-upload.js'
+    const PWD = 'src/client/components/setting-panel/setting-passwords.jsx'
+    const KEY = 'src/client/components/setting-panel/setting-ssh-key.jsx'
+    // 新建：先只读 checkBookmark，再 runIdle 里写 —— 判重挪进空闲帧就等于"拦了但已经落库"
+    const form = read(F)
+    assert.match(form, /checkBookmark\(tar, \{ selfId: obj\.id \}\)/, '改名那条支路要排除自己')
+    assert.match(form, /checkBookmark\(obj\)/, '新建那条支路要判')
+    assert.match(form, /runIdle\(\(\) => \{\s*addBookmark\(obj\)/, '写库留在空闲帧，判重留在当下')
+    assert.equal(form.match(/message\.warning\(e\('bookmarkDuplicateWarn'\)\)/g).length, 2,
+      '两条支路都得给用户一句话，少一条就是静默失败')
+    assert.match(read(HISTORY), /addBookmark\(bookmark\)/)
+    assert.match(read(AI), /addBookmark\(fixedBm\)/)
+    assert.match(read(TREE), /addBookmark\(newbookmark, \{ force: true \}\)/,
+      '复制是同一条连接再来一份，force 是它的语义')
+    assert.match(read(MCP), /store\.addBookmark\(bookmark\)/)
+    assert.match(read(MCP), /store\.editBookmark\(id, safeUpdates\)/)
+    // 按块直推（为了进度条）的导入必须自己判，口径同一个
+    assert.match(read(UPLOAD), /findDuplicateBookmarks\(bg, pool\)/)
+    for (const f of [PWD, KEY]) {
+      assert.match(read(f), /editBookmark\(/, f + ' 还在裸写 editItem')
+      assert.equal(read(f).includes('editItem('), false, f + ' 不许再留 editItem')
+    }
+  })
+
+  it('提示词条 en/zh_cn 成对，别让用户看到 key', () => {
+    const extra = require(path.join(ROOT, 'src/app/common/locales-extra'))
+    for (const k of ['bookmarkDuplicateWarn', 'bookmarkDuplicatesSkipped']) {
+      assert.ok(extra.en[k], 'en 词条缺失：' + k)
+      assert.ok(extra.zh_cn[k], 'zh_cn 词条缺失：' + k)
+    }
   })
 })

@@ -139,7 +139,7 @@ export default function AIBookmarkForm (props) {
 
   const createBookmark = (bm) => {
     const { store } = window
-    const { addItem } = store
+    const { addBookmark } = store
     const fixedBm = fixBookmarkData(bm)
     if (!fixedBm.id) {
       fixedBm.id = generate()
@@ -148,8 +148,11 @@ export default function AIBookmarkForm (props) {
       fixedBm.hasHopping = true
     }
 
-    // Add bookmark
-    addItem(fixedBm, 'bookmarks')
+    // AI 一次能回十来个条目，同名的那几条不该悄悄叠进侧栏
+    const res = addBookmark(fixedBm)
+    if (!res.ok) {
+      return false
+    }
 
     // Ensure the bookmark id is registered in its group
     try {
@@ -164,6 +167,7 @@ export default function AIBookmarkForm (props) {
     } catch (err) {
       console.error('Failed to update bookmark group:', err)
     }
+    return true
   }
 
   const handleConfirm = async () => {
@@ -171,6 +175,8 @@ export default function AIBookmarkForm (props) {
     if (!parsed.length || confirmProgress) {
       return
     }
+    // 跳过的条数要在整批跑完后再说一次，而不是每条弹一句
+    let skipped = 0
 
     setConfirmProgress({ current: 0, total: parsed.length })
 
@@ -182,7 +188,11 @@ export default function AIBookmarkForm (props) {
           {
             items: parsed,
             process: (chunk) => {
-              chunk.forEach(createBookmark)
+              chunk.forEach(bm => {
+                if (!createBookmark(bm)) {
+                  skipped++
+                }
+              })
             }
           }
         ],
@@ -196,7 +206,11 @@ export default function AIBookmarkForm (props) {
 
       setShowConfirm(false)
       setDescription('') // Clear description only on successful creation
-      message.success(e('Done'))
+      if (skipped) {
+        message.warning(skipped + ' ' + e('bookmarkDuplicatesSkipped'))
+      } else {
+        message.success(e('Done'))
+      }
     } catch (error) {
       console.error('AI bookmark creation error:', error)
       showErrorModal({ error: 'Can not create bookmarks from AI response: ' + error.message })

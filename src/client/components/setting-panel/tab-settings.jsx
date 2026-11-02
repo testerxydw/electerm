@@ -80,14 +80,14 @@ export default auto(function TabSettings (props) {
   } else if (sid === settingPasswordsId) {
     const passwordsProps = {
       bookmarks: store.bookmarks,
-      editItem: store.editItem,
+      editBookmark: store.editBookmark,
       copyToClipboard: window.copyToClipboard
     }
     elem = <SettingPasswords {...passwordsProps} />
   } else if (sid === settingSshKeyId) {
     const sshKeyProps = {
       bookmarks: store.bookmarks,
-      editItem: store.editItem
+      editBookmark: store.editBookmark
     }
     elem = <SettingSshKey {...sshKeyProps} />
   } else if (sid === settingVaultId) {

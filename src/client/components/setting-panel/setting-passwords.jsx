@@ -23,7 +23,6 @@ import Search from '../common/search'
 import InputConfirm from '../common/input-confirm'
 import createTitle from '../../common/create-title'
 import { copy as copyToClipboard } from '../../common/clipboard'
-import { settingMap } from '../../common/constants'
 import './setting.styl'
 
 const { Text: TextAnt } = Typography
@@ -95,9 +94,9 @@ export default class SettingPasswords extends Component {
       return
     }
 
-    const { editItem } = this.props
+    const { editBookmark } = this.props
     selectedBookmarks.forEach(bookmark => {
-      editItem(bookmark.id, { password: newPassword }, settingMap.bookmarks)
+      editBookmark(bookmark.id, { password: newPassword })
     })
 
     this.setState({

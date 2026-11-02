@@ -27,8 +27,9 @@ describe('G7-3 SSH 密钥面板接线契约', () => {
     assert.match(tab, /import SettingSshKey from '\.\/setting-ssh-key'/)
     assert.match(tab, /sid === settingSshKeyId/)
     assert.match(tab, /<SettingSshKey \{\.\.\.sshKeyProps\} \/>/)
-    // 书签与 editItem 是回填步骤的两个入参，漏传一个按钮永远点不动
-    assert.match(tab, /bookmarks: store\.bookmarks,\s*editItem: store\.editItem/)
+    // 书签与 editBookmark 是回填步骤的两个入参，漏传一个按钮永远点不动
+    // （editBookmark 而不是裸 editItem：写书签只有 store 卡点一条路）
+    assert.match(tab, /bookmarks: store\.bookmarks,\s*editBookmark: store\.editBookmark/)
   })
 
   test('面板只经 sshKeyOp 通道，动作名与主进程注册的清单逐条对得上', () => {

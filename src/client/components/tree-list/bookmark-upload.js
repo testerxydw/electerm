@@ -8,8 +8,10 @@ import { action } from 'manate'
 import uid from '../../common/uid'
 import time from '../../common/time'
 import { fixBookmarks } from '../../common/db-fix'
+import { findDuplicateBookmarks } from '../../common/bookmark-dedup'
 import { runImportTask } from '../../common/import-task'
 import { parseNcx } from '../../common/navicat-ncx'
+import message from '../common/message'
 
 const e = window.translate
 
@@ -72,6 +74,12 @@ export const bookmarkUpload = action(async (file) => {
 
   const fixed = fixBookmarks(bookmarks1)
 
+  // 按块直推 store.bookmarks 是为了进度条（addBookmarks 一次性写完没有过程），
+  // 但判重口径必须是同一个：id 相同只是"同一份数据再导一次"，
+  // 同名同连接才是侧栏堆重复的来源（换台机器导出，id 就全变了）。
+  const pool = [...bookmarks0]
+  let skipped = 0
+
   await runImportTask({
     title: e('import'),
     batch: 200,
@@ -82,9 +90,15 @@ export const bookmarkUpload = action(async (file) => {
         items: fixed,
         process: (chunk) => {
           chunk.forEach(bg => {
-            if (!bmTree.has(bg.id)) {
-              store.bookmarks.push(bg)
+            if (bmTree.has(bg.id)) {
+              return
             }
+            if (findDuplicateBookmarks(bg, pool).length) {
+              skipped++
+              return
+            }
+            pool.push(bg)
+            store.bookmarks.push(bg)
           })
         }
       },
@@ -124,6 +138,11 @@ export const bookmarkUpload = action(async (file) => {
       }
     ]
   })
+
+  // 一句汇总，不搞"每条一次弹窗"：导几百条时被问几百次和没提示一样难受
+  if (skipped) {
+    message.warning(skipped + ' ' + e('bookmarkDuplicatesSkipped'))
+  }
 
   return false
 })
