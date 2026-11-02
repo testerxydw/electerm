@@ -383,6 +383,64 @@ const PROBE = `(() => {
     x.click()
     return 'ok'
   }
+
+  // —— 关联侧栏（F1：值 / 行 / 关联 三页签里的那一页）——
+  window.__cellXY = (col, text) => {
+    const cells = [...document.querySelectorAll(
+      '.db-grid-area .ant-table-row .ant-table-cell[aria-label="' + col + '"]')].filter(window.__vis)
+    const c = text === undefined ? cells[0]
+      : cells.find(x => String(x.innerText).trim().indexOf(text) === 0)
+    if (!c) return null
+    c.scrollIntoView({ block: 'center' })
+    return window.__xy(c)
+  }
+  window.__paneTabs = () => [...document.querySelectorAll('.db-pane-tabs .ant-tabs-tab')]
+    .filter(window.__vis).map(t => window.__txt(t))
+  window.__clickPaneTab = re => {
+    const src = new RegExp(re, 'i')
+    const t = [...document.querySelectorAll('.db-pane-tabs .ant-tabs-tab')]
+      .filter(window.__vis).find(x => src.test(window.__txt(x)))
+    if (!t) return 'no-tab'
+    t.click()
+    return 'ok'
+  }
+  window.__refsPane = () => [...document.querySelectorAll('.db-refs-pane')]
+    .filter(x => !window.__hidden(x))[0] || null
+  window.__refsGroups = () => {
+    const p = window.__refsPane()
+    if (!p) return []
+    return [...p.querySelectorAll('.db-refs-group')].map(g => ({
+      title: window.__txt(g.querySelector('.db-refs-group-title')),
+      empty: !!g.querySelector('.db-refs-empty'),
+      degraded: window.__txt(g.querySelector('.db-refs-degraded')),
+      loading: [...g.querySelectorAll('.db-refs-note')]
+        .some(x => /加载|loading/i.test(String(window.__txt(x)))),
+      items: [...g.querySelectorAll('.db-refs-item')].map(it => ({
+        name: window.__txt(it.querySelector('.db-refs-item-name')),
+        fk: window.__txt(it.querySelector('.db-refs-item-fk')),
+        mapping: window.__txt(it.querySelector('.db-refs-item-mapping')),
+        notes: [...it.querySelectorAll('.db-refs-note')].map(x => window.__txt(x)),
+        viewOff: !!(it.querySelector('.db-refs-item-actions button') || {}).disabled,
+        heads: [...it.querySelectorAll('.db-refs-table th')].map(x => window.__txt(x)),
+        rows: [...it.querySelectorAll('.db-refs-table tbody tr')].map(tr =>
+          [...tr.querySelectorAll('td')].map(td => window.__txt(td)))
+      }))
+    }))
+  }
+  window.__refsBtnXY = (gi, ii, re) => {
+    const p = window.__refsPane()
+    if (!p) return null
+    const src = new RegExp(re, 'i')
+    const g = [...p.querySelectorAll('.db-refs-group')][gi]
+    const it = g && [...g.querySelectorAll('.db-refs-item')][ii]
+    if (!it) return null
+    // antd Button 会在恰好两个汉字之间插一个空格（查看 → 查 看），比对前先去掉所有空白
+    const b = [...it.querySelectorAll('.db-refs-item-actions button')]
+      .find(x => src.test(String(window.__txt(x)).replace(/\\s/g, '')))
+    if (!b) return null
+    b.scrollIntoView({ block: 'center' })
+    return window.__xy(b)
+  }
   return 'probe-ok'
 })()`
 
@@ -898,6 +956,104 @@ const main = async () => {
   const closed = await cdp.eval('window.__diffClose()')
   const gone = await waitFor(cdp, '!window.__diffOpen()', 'diff modal 关闭', 8000)
   check('结构对比弹层关闭（不给后面的数据字典段留遮罩）', closed === 'ok' && gone, { closed, gone })
+
+  // ── 3.6 关联侧栏：谁引用了我（getReferences 在真 SQLite 上取数） ─────
+  // 侧栏两方向（被引用父行=本表外键，本地算；引用子记录=反向引用，走 getReferences），
+  // 此前只有单测与桩证据：真库那台 MariaDB 全库 0 外键，两侧都拿不到东西。
+  const refsOps0 = await cdp.eval('window.__ops.length')
+  const openRefs = async (table, col, rowText) => {
+    const picked = await clickTree(table)
+    if (picked !== 'ok') return { err: 'no-tree' }
+    const seg = await toData()
+    if (seg !== 'ok') return { err: seg }
+    // 网格取数是异步的：刚切表时行还没落，先等单元格出现再点
+    const cellExpr = 'window.__cellXY(' + J(col) + ', ' + J(rowText) + ')'
+    const hasCell = await waitFor(cdp, '!!' + cellExpr, 'cell ' + table + '.' + col, 15000)
+    if (!hasCell) return { err: 'no-cell' }
+    await click(await cdp.eval(cellExpr), 800)
+    // 页签要等 getReferences 回来才挂（showRefTab 依赖反向引用条数），负向用例等满再走
+    await waitFor(cdp, 'window.__paneTabs().join("|").indexOf("关联") > -1', 'refs tab（负向用例这里必然等满）', 5000)
+    const tabs = await cdp.jeval('JSON.stringify(window.__paneTabs())')
+    const t = await cdp.eval('window.__clickPaneTab(' + J('关联|Related') + ')')
+    if (t !== 'ok') return { tabs, err: 'no-refs-tab' }
+    const shown = await waitFor(cdp, '!!window.__refsPane()', '关联侧栏', 12000)
+    await sleep(400)
+    return { tabs, shown, groups: (await cdp.jeval('window.__refsGroups()')) || [] }
+  }
+  const CHILD_G = 1
+  const grp = (groups, kw) => groups.find(g => String(g.title).indexOf(kw) >= 0) || { title: '', items: [], empty: true }
+  const tag = it => it.name + ':' + it.fk
+
+  const rParent = await openRefs('dim_single', 'id', '1')
+  const rParentChild = grp(rParent.groups, '引用子记录')
+  const rParentSelf = grp(rParent.groups, '被引用父行')
+  check('dim_single.id=1：侧栏"关联"页签出现，反向引用列出 4 张子表（表名:外键名逐条对）',
+    rParent.shown === true &&
+    sameSet(rParentChild.items.map(tag), ['fk_defaults:fk_0', 'fk_explicit:fk_0', 'two_fks:fk_1', 'two_fks_rev:fk_0']),
+    { tabs: rParent.tabs, err: rParent.err, items: rParentChild.items.map(i => tag(i) + ' ' + i.mapping) })
+  check('dim_single.id=1：本表没有外键 → 父行侧写"该列没有外键关联"，不是空白',
+    rParentSelf.title === '被引用父行' && rParentSelf.empty === true && rParentSelf.items.length === 0,
+    { parent: rParentSelf })
+  check('dim_single.id=1：真 SQLite 不报降级（degraded 条不在）',
+    rParent.groups.every(g => !g.degraded), rParent.groups.map(g => g.degraded))
+  await cdp.shot(path.join(SHOT_DIR, '5-refs-dim-single.png'))
+
+  // 点"查看"才发 getPageData（侧栏不预取每张子表）
+  const idxExp = rParentChild.items.findIndex(i => i.name === 'fk_explicit')
+  const viewXY = await cdp.eval('window.__refsBtnXY(' + CHILD_G + ', ' + idxExp + ', ' + J('查看|view') + ')')
+  if (viewXY) await click(viewXY, 1500)
+  const afterView = (await cdp.jeval('window.__refsGroups()')) || []
+  const expItem = grp(afterView, '引用子记录').items[idxExp] || {}
+  check('点"查看"：只拉这一条外键的关联行（WHERE ref = 1 参数化，命中 101 一行）',
+    JSON.stringify(expItem.heads) === JSON.stringify(['id', 'ref']) &&
+    JSON.stringify(expItem.rows) === JSON.stringify([['101', '1']]) && !expItem.notes.length,
+    { viewXY: !!viewXY, heads: expItem.heads, rows: expItem.rows, notes: expItem.notes })
+  const refsOps1 = await cdp.jeval('JSON.stringify(window.__ops.slice(' + refsOps0 + '))')
+  check('侧栏取数只走 getReferences + getPageData（没有 executeSql，也没有写命令）',
+    refsOps1.indexOf('getReferences') >= 0 && refsOps1.indexOf('getPageData') >= 0 &&
+    !WRITE_OPS.some(op => refsOps1.indexOf(op) >= 0), refsOps1)
+
+  // 自引用：同一张表既是父又是子，两个方向各自出一条
+  const rSelfId = await openRefs('fk_self', 'id', '1')
+  const selfChild = grp(rSelfId.groups, '引用子记录')
+  check('fk_self.id=1：自引用在子记录侧列出 fk_self:fk_0（up ← id）',
+    selfChild.items.length === 1 && tag(selfChild.items[0]) === 'fk_self:fk_0' &&
+    selfChild.items[0].mapping === 'fk_self.up ← id', selfChild.items)
+  const selfViewXY = await cdp.eval('window.__refsBtnXY(' + CHILD_G + ', 0, ' + J('查看|view') + ')')
+  if (selfViewXY) await click(selfViewXY, 1500)
+  const selfAfter = (await cdp.jeval('window.__refsGroups()')) || []
+  const selfItem = grp(selfAfter, '引用子记录').items[0] || {}
+  check('自引用点"查看"：up=1 的两行（id 2、3）拉回来，NULL 不出现在这页',
+    JSON.stringify(selfItem.rows) === JSON.stringify([['2', '1'], ['3', '1']]),
+    { heads: selfItem.heads, rows: selfItem.rows })
+  await cdp.shot(path.join(SHOT_DIR, '6-refs-self.png'))
+
+  // 父方向（本表外键）本地即可算，不需要 getReferences：选中 up 列时父行侧有内容、子记录侧空
+  const rSelfUp = await openRefs('fk_self', 'up', '1')
+  const upParent = grp(rSelfUp.groups, '被引用父行')
+  const upChild = grp(rSelfUp.groups, '引用子记录')
+  check('fk_self.up=1：方向不串——父行侧给 fk_self.id（本表外键），子记录侧回到"该列没有外键关联"',
+    upParent.items.length === 1 && tag(upParent.items[0]) === 'fk_self:fk_0' &&
+    upParent.items[0].mapping === 'up → fk_self.id' &&
+    upChild.empty === true && upChild.items.length === 0,
+    { parent: upParent.items, child: upChild })
+
+  // 负向：选中一个两侧都不沾外键的列，页签根本不该出现（不是"出现但空"）
+  const rNoFk = await openRefs('dim_single', 'code', 'alpha')
+  check('dim_single.code：既不引用也别表引用 → 连"关联"页签都不挂',
+    rNoFk.err === 'no-refs-tab' && rNoFk.tabs.indexOf('关联') < 0,
+    { err: rNoFk.err, tabs: rNoFk.tabs })
+
+  // NULL 关联键：值不可用于定位，侧栏要说原因、不发查询
+  const rNull = await openRefs('fk_explicit', 'ref', 'NULL')
+  const nullParent = grp(rNull.groups, '被引用父行')
+  check('fk_explicit.ref=NULL：父行侧标"关联键值为 NULL"，查看按钮禁用（不硬造 IS NULL 查询）',
+    nullParent.items.length === 1 && String(nullParent.items[0].notes[0]).indexOf('NULL') >= 0 &&
+    nullParent.items[0].viewOff === true,
+    { err: rNull.err, items: nullParent.items })
+  const refsOps2 = await cdp.jeval('JSON.stringify(window.__ops.slice(' + refsOps0 + '))')
+  check('关联侧栏整轮零写命令（含被 NULL 键挡住的那次点击）',
+    !WRITE_OPS.some(op => refsOps2.indexOf(op) >= 0), refsOps2)
 
   // ── 4. 数据字典的外键节：一条导出的 Markdown/CSV 行对一条声明 ───────
   await cdp.eval('window.__dlCapture()')
