@@ -5,6 +5,15 @@
 import uid from '../common/uid'
 import clone from '../common/to-simple-obj'
 import message from '../components/common/message'
+import {
+  mergeBookmarkIds,
+  pickNewSshConfigItems,
+  sourceField,
+  sshConfigGroupId,
+  sshConfigSource
+} from '../common/ssh-config-import'
+
+const e = window.translate
 
 export default Store => {
   Store.prototype.handleGetSerials = async function () {
@@ -51,35 +60,43 @@ export default Store => {
     }
   }
 
+  /**
+   * 导入本地 ssh 配置。点一次导入会新建一批 uid，所以先按
+   * "host + port + user" 把重复的挡掉（见 ssh-config-import.js）：
+   * 只挡 ssh 配置这条路，手工建的书签一律不动。
+   * @returns {number} 真正新增的书签数
+   */
   Store.prototype.addSshConfigs = function (items) {
     const { store } = window
-
-    const bookmarksToAdd = items.map(t => {
+    const sshConfigGroup = store.bookmarkGroups.find(d => d.id === sshConfigGroupId)
+    const fresh = pickNewSshConfigItems(items, store.bookmarks, sshConfigGroup)
+    if (!fresh.length) {
+      message.info(e('sshConfigNothingNew'))
+      return 0
+    }
+    const bookmarksToAdd = fresh.map(t => {
       return {
         term: 'xterm-256color',
         id: uid(),
         type: 'ssh',
         color: '#0088cc',
-        ...t
+        ...t,
+        [sourceField]: sshConfigSource
       }
     })
     const ids = bookmarksToAdd.map(d => d.id)
-    let sshConfigGroup = store.bookmarkGroups.find(d => d.id === 'sshConfig')
     if (!sshConfigGroup) {
-      sshConfigGroup = {
-        id: 'sshConfig',
+      store.addBookmarkGroup({
+        id: sshConfigGroupId,
         title: 'ssh configs',
         bookmarkIds: ids
-      }
-      store.addBookmarkGroup(sshConfigGroup)
+      })
     } else {
-      store.editItem('sshConfig', {
-        bookmarkIds: [
-          ...ids,
-          ...(sshConfigGroup.bookmarkIds || [])
-        ]
+      store.editItem(sshConfigGroupId, {
+        bookmarkIds: mergeBookmarkIds(ids, sshConfigGroup.bookmarkIds)
       }, 'bookmarkGroups')
     }
-    return store.addItems(bookmarksToAdd, 'bookmarks')
+    store.addItems(bookmarksToAdd, 'bookmarks')
+    return bookmarksToAdd.length
   }
 }

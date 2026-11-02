@@ -1062,6 +1062,7 @@ const en = {
   knownHostsDeleteConfirm: 'Delete this known host entry?',
   knownHostsDeleted: 'Entry deleted',
   knownHostsStale: 'known_hosts changed outside this panel; the list has been refreshed',
+  sshConfigNothingNew: 'No new SSH config to import — every host is already in your bookmarks',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: 'Audit center',
   auditTime: 'Time',
@@ -2201,6 +2202,7 @@ const zhCn = {
   knownHostsDeleteConfirm: '删除这条已知主机记录？',
   knownHostsDeleted: '已删除',
   knownHostsStale: 'known_hosts 已被外部改动，列表已刷新，请重新确认',
+  sshConfigNothingNew: '本地 ssh 配置里没有新增主机（都已导入过）',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: '审计中心',
   auditTime: '时间',
