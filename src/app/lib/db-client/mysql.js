@@ -1082,13 +1082,17 @@ function checkReadonly (sql, readOnly) {
 // 以前只取 f.name 把它丢了，导致 SQL 结果页拿不到数据页那套本地化/右对齐
 function toResult (rows, fields) {
   const isRows = Array.isArray(rows)
+  // mysql2 多语句模式下，非 SELECT 语句（DROP/CREATE/INSERT…）的 fields 元素
+  // 可能是 undefined，直接 map 会炸；先过滤再同步喂给 fields/columns，
+  // 保住两者"同长同序"的类型契约（H1a-3）
+  const fs = Array.isArray(fields) ? fields.filter(Boolean) : []
   return {
     rows: isRows ? rowToPlain(rows) : [],
     affected: !isRows && rows && typeof rows === 'object' && 'affectedRows' in rows
       ? rows.affectedRows
       : undefined,
-    fields: Array.isArray(fields) ? fields.map(f => f.name) : [],
-    columns: toColumns(fields, f => normalizeMysqlType(f.columnType, f))
+    fields: fs.map(f => f.name),
+    columns: toColumns(fs, f => normalizeMysqlType(f.columnType, f))
   }
 }
 
