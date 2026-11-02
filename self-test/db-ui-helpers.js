@@ -609,7 +609,15 @@ class Cdp {
   }
 
   async jeval (expression) {
-    return JSON.parse(await this.eval(expression))
+    // returnByValue 已经把对象/数组原样带回来了，只有字符串才需要再解一层 JSON；
+    // 早先无条件 JSON.parse 会把对象读成 "[object Object]" 直接抛。
+    const v = await this.eval(expression)
+    if (typeof v !== 'string') return v
+    try {
+      return JSON.parse(v)
+    } catch (e) {
+      return v
+    }
   }
 
   async move (x, y) {
