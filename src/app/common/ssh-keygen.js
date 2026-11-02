@@ -264,7 +264,6 @@ async function generateSshKeyPair (opts = {}) {
   try {
     // 0600: ssh refuses a private key that anyone else can read
     await fss.writeFile(privateKeyPath, keys.private, { mode: 0o600 })
-    await fss.chmod(privateKeyPath, 0o600)
     await fss.writeFile(publicKeyPath, keys.public, { mode: 0o644 })
   } catch (err) {
     await fss.unlink(privateKeyPath).catch(() => {})
