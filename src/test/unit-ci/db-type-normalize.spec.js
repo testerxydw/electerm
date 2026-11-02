@@ -280,12 +280,15 @@ describe('接线契约（真实源码抽取）', () => {
     assert.match(pgSrc(), /require\('\.\.\/\.\.\/common\/db-type-normalize'\)/)
     // mysql 只在 toResult 一处出 columns（多语句由 normalizeResults 复用它）
     const toResult = mysqlSrc().slice(mysqlSrc().indexOf('function toResult'))
-    assert.match(toResult.slice(0, 900), /columns: toColumns\(fields, f => normalizeMysqlType\(f\.columnType, f\)\)/)
+    // 多语句模式下 fields 可能含 undefined：先 filter(Boolean)，同一份 fs 既喂
+    // fields 又喂 columns，两者"同长同序"的契约才不会被过滤时机打破
+    assert.match(toResult.slice(0, 900), /const fs = Array\.isArray\(fields\) \? fields\.filter\(Boolean\) : \[\]/)
+    assert.match(toResult.slice(0, 900), /columns: toColumns\(fs, f => normalizeMysqlType\(f\.columnType, f\)\)/)
     assert.match(pgSrc(), /columns: toColumns\(r\.fields, f => normalizePgType\(f\.dataTypeID\)\)/)
   })
 
   test('fields 保持字符串数组不动（契约是"只增不改"）', () => {
-    assert.match(mysqlSrc(), /fields: Array\.isArray\(fields\) \? fields\.map\(f => f\.name\) : \[\]/)
+    assert.match(mysqlSrc(), /fields: fs\.map\(f => f\.name\)/)
     assert.match(pgSrc(), /fields: Array\.isArray\(r\.fields\) \? r\.fields\.map\(f => f\.name\) : \[\]/)
   })
 
