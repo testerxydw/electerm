@@ -148,3 +148,4 @@ self-test/db-sql-workbench-realdb-shots/
 self-test/db-sql-params-realdb-shots/
 self-test/db-dictionary-realdb-shots/
 self-test/db-struct-diff-realdb-shots/
+self-test/db-contrast-realdb-shots/

@@ -814,7 +814,7 @@ const ensureRealDbLayer = async (cdp, { waitMs = 90000 } = {}) => {
     return s
   }
   const before = await untilClean()
-  if (before === 'ok') return { reloaded: false, state: before }
+  if (before === 'ok') return { reloaded: false, was: before, state: before }
   await cdp.call('Page.reload', { ignoreCache: false })
   await sleep(1500)
   const after = await untilClean()
@@ -822,7 +822,7 @@ const ensureRealDbLayer = async (cdp, { waitMs = 90000 } = {}) => {
     throw new Error('页面重载后数据库层仍不干净（' + before + ' → ' + after + '），' +
       '这轮真库判据没有意义，先重启实例再跑')
   }
-  return { reloaded: true, state: after }
+  return { reloaded: true, was: before, state: after }
 }
 
 // 点一格：坐标只能来自那一格自己的矩形。拿不到矩形就明确报告，

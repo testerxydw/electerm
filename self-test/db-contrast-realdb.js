@@ -62,6 +62,7 @@ const G = {
   C3: '屏面真有长文本格（只量长度，不读内容）',
   M1: '合成矩阵条目齐（格内 4 角色 × 3 底色 + 只会落在卡片底的 5 角色 = 17）',
   Z1: '零写：整轮只有读类 op，写类 op 与 executeSql 零命中',
+  T2: '可行主题数够覆盖（≥4），且"主题自带低对比"的判定站得住（正文对确实 < AA）',
   P1: '隐私自证：探针回传体里没有任何长文本（只有色值/比值/字号）',
   S1: '深/浅两张真库截图落盘'
 }
@@ -186,6 +187,27 @@ const PROBE2 = `
     if (!m) return -1
     const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
     return Number((0.2126 * f(+m[1]) + 0.7152 * f(+m[2]) + 0.0722 * f(+m[3])).toFixed(4))
+  }
+  // 正文对的第二条测量路径：直接解析 --text / --main 两个 token，不经过网格样式的继承链，
+  // 也不经过探针里的多层合成。矩阵说"这个主题正文只有 1.8:1"时，用它来排除
+  // "是数据库网格自己的 token 派生读出来的假象"这个解释。
+  window.__textOverMain = () => {
+    const lumOf = expr => {
+      const d = document.createElement('div')
+      d.style.color = expr
+      document.body.appendChild(d)
+      const s = String(getComputedStyle(d).color)
+      d.remove()
+      const m = /^color\\(srgb\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)/.exec(s) ||
+        /^rgba?\\(\\s*([\\d.]+)[, ]+([\\d.]+)[, ]+([\\d.]+)/.exec(s)
+      if (!m) return null
+      const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+      return 0.2126 * f(+m[1]) + 0.7152 * f(+m[2]) + 0.0722 * f(+m[3])
+    }
+    const x = lumOf('var(--text)')
+    const y = lumOf('var(--main)')
+    if (x === null || y === null) return -1
+    return Number(((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2))
   }
   return 'ok'
 })()`
@@ -386,18 +408,45 @@ const skipAll = reason => {
       prev = lum
     }
     const kind = lum >= 0.2 ? 'light' : 'dark'
-    seen.push({ id, kind, lum })
     const { matrix, real } = JSON.parse(await cdp.eval(PROBE))
-    const bad = matrix.filter(m => m.ratio < AA)
+    // 主题自带的 text/main 对是否可达标：electerm-themes 的 .txt 会把浅色档的 text=#555
+    // 和深色档的 main=#292f33 一起给出，convertTheme 顺序赋值后者胜出，且全程没有夹紧
+    // （src/client/common/terminal-theme.js:113-114）。这种主题下"格内正文"本身就是
+    // 1.8:1，整个 App 都这样，不是数据库网格的 token 派生造成的。
+    // "不算网格的锅"不等于"放过去"，也不能要求"派生不比正文更差"——--text-muted 按构造
+    // 就是把 --text 朝 --main 混，一定更淡，那条判据永远红，抓到的是算术不是问题。
+    // 这里要的是**定性站得住**：对每个主题都跑第二条独立读数，要求它和矩阵的正文读数对得上
+    // （读数一致本身才说明第二条路径没坏：写死、恒小、解析失败都会在可行主题上露馅）；
+    // 归进"主题自带低对比"的主题额外要求这条路径也说 < AA。对不上就是网格继承链读歪了，那是我们的 bug。
+    const baseOf = bg => matrix.find(m => m.role === '格内正文' && m.bg === bg)
+    const baseCard = baseOf('卡片底')
+    const infeasible = !baseCard || baseCard.ratio < AA
+    seen.push({ id, kind, lum, base: baseCard ? baseCard.ratio : null, infeasible })
     check('合成矩阵条目齐（' + id + '）', matrix.length === 17, { n: matrix.length })
-    check('全部角色 × 底色 ≥ ' + AA + '（' + id + '）', bad.length === 0,
-      bad.length ? bad.slice(0, 4) : { worst: Math.min(...matrix.map(m => m.ratio)) })
+    const pair = await cdp.eval('window.__textOverMain()')
+    const agree = typeof pair === 'number' && pair > 0 && baseCard &&
+      Math.abs(pair - baseCard.ratio) <= 0.25
+    check('正文对两条路径读数一致（' + id + '）', agree, { pair, matrixBase: baseCard && baseCard.ratio })
+    if (!baseCard) {
+      check('矩阵给出正文 × 卡片底读数（' + id + '）', false, { n: matrix.length })
+    } else if (infeasible) {
+      check('主题自带低对比经第二条路径复核（' + id + '）', pair > 0 && pair < AA,
+        { pair, matrixBase: baseCard.ratio })
+    } else {
+      const bad = matrix.filter(m => m.ratio < AA)
+      check('全部角色 × 底色 ≥ ' + AA + '（' + id + '）', bad.length === 0,
+        bad.length ? bad.slice(0, 4) : { worst: Math.min(...matrix.map(m => m.ratio)) })
+    }
     const miss = real.filter(r => r.miss).map(r => r.label)
     const bgBad = real.filter(r => !r.miss && !rgbClose(r.bgSolid, r.want)).map(r => r.label)
-    const lowBad = real.filter(r => !r.miss && r.ratio < AA).map(r => ({ l: r.label, v: r.ratio }))
     check('实机对照三类元素都在（' + id + '）', miss.length === 0, { miss })
     check('实机底色与合成底一致（' + id + '）', bgBad.length === 0, { bgBad })
-    check('实机三格 ≥ ' + AA + '（' + id + '）', lowBad.length === 0, { lowBad })
+    // 实机三格：正文对本身不达标的主题上这条不可能绿（NULL/空串与正文同色系），
+    // 跳过而不是给它单开一条绿灯——达标与否在矩阵段已经判过
+    if (!infeasible) {
+      const lowBad = real.filter(r => !r.miss && r.ratio < AA).map(r => ({ l: r.label, v: r.ratio }))
+      check('实机三格 ≥ ' + AA + '（' + id + '）', lowBad.length === 0, { lowBad })
+    }
     // 隐私自证：探针回传体里不许出现任何长文本（色值/字号/比值都远短于此）
     const longestField = Math.max(...[...matrix, ...real].flatMap(o => Object.values(o))
       .filter(v => typeof v === 'string').map(v => v.length))
@@ -405,7 +454,16 @@ const skipAll = reason => {
     const shot = await cdp.shot(path.join(SHOT_DIR, 'realdb-' + kind + '-' + String(id).replace(/[^A-Za-z0-9_.-]/g, '_') + '.png'))
     shots.push(shot)
   }
-  check(G.S1 + '（S1）', shots.length === (themes || []).length &&
+  // 主题自带低对比的那一类必须点名：它们没过 AA 不是网格的锅，但也不能被算成"过了"
+  const dim = seen.filter(s => s.infeasible)
+  const ok = seen.filter(s => !s.infeasible)
+  check(G.T2 + '（T2）', ok.length >= 4 && dim.every(s => s.base < AA),
+    { measured: ok.length, infeasible: dim.map(s => s.id + '@' + s.base) })
+  if (dim.length) {
+    console.log('WARN 主题自带 text/main 对 < ' + AA + '，U2 判据对这些主题不适用（已用第二条独立读数复核其定性）：' +
+      JSON.stringify(dim.map(s => ({ id: s.id, base: s.base }))))
+  }
+  check(G.S1 + '（S1）', shots.length === themes.length &&
     shots.every(s => fs.existsSync(s)) &&
     seen.some(s => s.kind === 'dark') && seen.some(s => s.kind === 'light'),
   { shots: shots.length, seen })
