@@ -1,7 +1,8 @@
-// 导入本地 ssh 配置的去重判据（纯函数 + store 接线契约）
+// 导入本地 ssh 配置的去重判据（纯函数 + store / 提示接线契约）
 //
 // 钉的是"点一次导入复制一份"这个真机问题：同一次导入内部重复、跨次导入重复、
 // 历史数据没有来源标记，三种都得挡住；同时手工建的书签一律不许被自动合并。
+// 一条都没新增时，启动提示与弹窗按钮都不该再让用户点第二次导入。
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -123,5 +124,23 @@ describe('store 接线契约', () => {
     const extra = require(path.join(ROOT, 'src/app/common/locales-extra'))
     assert.ok(extra.en.sshConfigNothingNew, 'en 词条缺失')
     assert.ok(extra.zh_cn.sshConfigNothingNew, 'zh_cn 词条缺失')
+  })
+})
+
+describe('提示接线契约', () => {
+  const NOTIFY = 'src/client/components/ssh-config/ssh-config-load-notify.jsx'
+  const MODAL = 'src/client/components/ssh-config/load-ssh-configs.jsx'
+
+  it('启动通知只在"还有没导入过的"时出现（无变化不反复提示导入）', () => {
+    const src = read(NOTIFY)
+    assert.match(src, /hasNewSshConfig\(sshConfigs\)/)
+    assert.match(src, /pickNewSshConfigItems\(/)
+  })
+
+  it('导入弹窗按"新增数"决定按钮能不能点，并给一句没新增的话', () => {
+    const src = read(MODAL)
+    assert.match(src, /const newCount = pickNewSshConfigItems\(/)
+    assert.match(src, /disabled=\{!newCount \|\| loading\}/, '按钮还在按原始条数灰，重复点导入照样能点')
+    assert.match(src, /e\('sshConfigNothingNew'\)/)
   })
 })

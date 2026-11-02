@@ -11,6 +11,7 @@ import {
 import Modal from '../common/modal'
 import { ReloadOutlined } from '@ant-design/icons'
 import LoadSshConfigsItem from './load-ssh-configs-item'
+import { pickNewSshConfigItems, sshConfigGroupId } from '../../common/ssh-config-import'
 import './ssh-config.styl'
 
 const e = window.translate
@@ -57,6 +58,11 @@ export default function LoadSshConfigs (props) {
     newConfigs[index] = newItem
     setLocalConfigs(newConfigs)
   }
+
+  // 已经导入过的不再算进"可导入"：按钮灰掉、给一句话，
+  // 而不是让人对着没变化的列表反复点导入
+  const group = (store.bookmarkGroups || []).find(d => d.id === sshConfigGroupId)
+  const newCount = pickNewSshConfigItems(localConfigs, store.bookmarks, group).length
 
   const renderList = function () {
     if (!localConfigs.length) {
@@ -114,11 +120,16 @@ export default function LoadSshConfigs (props) {
           }
         </div>
         <div className='pd1y'>
+          {
+            localConfigs.length && !newCount
+              ? <div className='mg1b ssh-config-nothing-new'>{e('sshConfigNothingNew')}</div>
+              : null
+          }
           <Button
             type='primary'
             className='mg1r mg1b'
             onClick={handleLoadSshConfig}
-            disabled={!localConfigs.length || loading}
+            disabled={!newCount || loading}
           >
             {e('import')}
           </Button>

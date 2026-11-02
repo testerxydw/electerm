@@ -6,6 +6,7 @@ import {
   sshConfigKey,
   sshConfigLoadKey
 } from '../../common/constants'
+import { pickNewSshConfigItems, sshConfigGroupId } from '../../common/ssh-config-import'
 
 const e = window.translate
 
@@ -17,6 +18,13 @@ function handleLoad () {
 function handleIgnore () {
   ls.setItem(sshConfigKey, 'yes')
   notification.destroy('sshConfigNotify')
+}
+
+/** 这批本地配置里还有没有"没导入过"的：一条都没有就别再提示导入 */
+function hasNewSshConfig (sshConfigs) {
+  const { store } = window
+  const group = (store.bookmarkGroups || []).find(d => d.id === sshConfigGroupId)
+  return pickNewSshConfigItems(sshConfigs, store.bookmarks, group).length > 0
 }
 
 function showNotification () {
@@ -47,6 +55,7 @@ export default function SshConfigLoadNotify (props) {
     const sshConfigLoaded = ls.getItem(sshConfigLoadKey)
     const shouldShow =
       sshConfigs.length &&
+      hasNewSshConfig(sshConfigs) &&
       ignoreSshConfig !== 'yes' &&
       settingTab === 'bookmarks' &&
       showModal &&
