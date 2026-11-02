@@ -106,9 +106,13 @@ export function buildAttachmentsBlock (attachments) {
   if (!attachments || !attachments.length) {
     return ''
   }
+  // 文件内容里的 `</file` 会被模型当成块结尾，随后的文字就成了"块外指令"。
+  // 转义闭合标记里的斜杠后，块边界只由这里生成的那一个闭合标签决定。
+  // 文件名同样要转义：它落在属性引号内，也能提前闭合块。
+  const escapeClose = s => String(s).replace(/<\/file[\s>]/gi, m => '<\\/' + m.slice(2))
   return attachments.map(a => {
-    const name = String(a.name).replace(/"/g, "'")
+    const name = escapeClose(a.name).replace(/"/g, "'")
     const attr = a.truncated ? ' truncated="true"' : ''
-    return `<file name="${name}"${attr}>\n${a.content}\n</file>`
+    return `<file name="${name}"${attr}>\n${escapeClose(a.content)}\n</file>`
   }).join('\n\n')
 }
