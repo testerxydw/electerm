@@ -493,7 +493,11 @@ const skipAll = reason => {
 // 真键（Enter / Escape / F2）：CDP Input 域派发，与真人同一事件路径
 const pressKey = async (cdp, key, code, text) => {
   await cdp.call('Input.dispatchKeyEvent', {
-    type: 'keyDown', key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code,
+    type: 'keyDown',
+    key,
+    code: key,
+    windowsVirtualKeyCode: code,
+    nativeVirtualKeyCode: code,
     ...(text ? { text } : {})
   })
   await cdp.call('Input.dispatchKeyEvent', {
@@ -723,7 +727,7 @@ const main = async () => {
     }
   }
   check(L.R2, gReject === 8 && gRejectBad.length === 0 && gAccept === 6 && gateBad.length === 0,
-  { gReject, gAccept, leakedThrough: gRejectBad, gateBad })
+    { gReject, gAccept, leakedThrough: gRejectBad, gateBad })
   if (missing.length || !passGiven || hasSecret || caught !== leakForms.length || keyNameOk ||
     !noBusinessName || gReject !== 8 || gAccept !== 6) {
     skipAll('凭据/护栏不成立，整批跳过（不发任何真库请求）')
@@ -817,7 +821,7 @@ const main = async () => {
   // 批量改值按钮：只读下整个不渲染（或渲染但禁用）都算编辑入口不在场
   const bulkGone = roBulk.found === 0 || roBulk.disabled === true
   check(L.C2, ro.ok && roDbl === 0 && bulkGone,
-  { open: ro.ok, stage: ro.ok ? '' : ro.stage, dblOpen: roDbl, bulkBtn: roBulk, editableClsCells: roEditable })
+    { open: ro.ok, stage: ro.ok ? '' : ro.stage, dblOpen: roDbl, bulkBtn: roBulk, editableClsCells: roEditable })
   covered.push(['只读对照（编辑入口不存在）', ro.ok && roDbl === 0 && bulkGone])
   await cdp.shot(path.join(SHOT_DIR, '1-ro-readonly-grid.png'))
   await closeTab(roId)
@@ -829,7 +833,7 @@ const main = async () => {
     '!!window.__tree() || !!window.__one(".db-session-error")', 'rw tree or conn error', 60000)
   const rw = rwTree ? await openTable(cdp) : { ok: false, stage: 'no-tree' }
   check(L.E1, rw.ok,
-  { open: rw.ok, stage: rw.ok ? '' : rw.stage, grid: rw.ok ? rw.grid : null })
+    { open: rw.ok, stage: rw.ok ? '' : rw.stage, grid: rw.ok ? rw.grid : null })
   if (!rw.ok) {
     skipAll('非只读页签没能打开临时表：' + (rw.stage || ''))
     return finish()
@@ -903,7 +907,7 @@ const main = async () => {
     ? await pollCell(cdp, 3, 'val', c => c.hash === djb2('77') && c.len === 2 && !c.nullSpan)
     : null
   check(L.E3, e3a.ok && e3aDb && e3aDom && e3b.ok && e3bDb && !!e3bDom,
-  { bulk: e3a.ok ? '' : e3a.why, bulkDb: e3aDb, bulkDom: e3aDom, back: e3b.ok ? '' : e3b.why, backDb: e3bDb, backDom: !!e3bDom })
+    { bulk: e3a.ok ? '' : e3a.why, bulkDb: e3aDb, bulkDom: e3aDom, back: e3b.ok ? '' : e3b.why, backDb: e3bDb, backDom: !!e3bDom })
   covered.push(['批量改值写 NULL', e3a.ok && e3aDb && e3aDom])
   covered.push(['NULL 内联改回数字', e3b.ok && e3bDb && !!e3bDom])
 
@@ -927,8 +931,12 @@ const main = async () => {
   const e5Ok = audit.writeCount > 0 && audit.violations.length === 0 && audit.tableBad === 0 &&
     audit.names.includes('updateCell') && audit.names.includes('updateCells')
   check(L.E5, e5Ok,
-  { writeCount: audit.writeCount, violations: audit.violations, tableBad: audit.tableBad,
-    ops: audit.names })
+    {
+      writeCount: audit.writeCount,
+      violations: audit.violations,
+      tableBad: audit.tableBad,
+      ops: audit.names
+    })
   covered.push(['写命令白名单（仅 updateCell/updateCells 且指向临时表）', e5Ok])
 
   // ---- T1：双主题（编辑态各截一张，底色必须随主题走） ----
@@ -951,7 +959,7 @@ const main = async () => {
     }
   }
   check(L.T1, !!dark && !!light && dark.bodyBg !== light.bodyBg,
-  { dark: dark && dark.bodyBg, light: light && light.bodyBg, darkEditor: dark && dark.edOpen, lightEditor: light && light.edOpen })
+    { dark: dark && dark.bodyBg, light: light && light.bodyBg, darkEditor: dark && dark.edOpen, lightEditor: light && light.edOpen })
 
   // ---- Z1：收尾还原 + 零残留 ----
   const opsRestored = await cdp.eval('window.__restoreOps()')
@@ -962,7 +970,7 @@ const main = async () => {
   const residual = (await refq("SHOW TABLES LIKE '" + TBL + "'")).length
   const themeNow = await cdp.eval('String((window.store._config || {}).theme)')
   check(L.Z1, opsRestored === 'restored' && tabsLeft === 0 && residual === 0 && themeNow === cfg0.theme,
-  { opsRestored, tabsLeft, residualTables: residual, themeRestored: themeNow === cfg0.theme })
+    { opsRestored, tabsLeft, residualTables: residual, themeRestored: themeNow === cfg0.theme })
 
   // ---- M1：覆盖面汇总 ----
   const covBad = covered.filter(x => !x[1]).map(x => x[0])
