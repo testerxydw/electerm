@@ -11,8 +11,9 @@
  *   真外键只能本机造：文件在 os.tmpdir() 下，数据全是本机假名字（alpha/bravo），
  *   不含凭据不含业务内容，截图可进仓库。
  *
- * 这一版跑到的分支：ER 图（节点/边/详情/主题）+ 数据字典的外键节（Markdown/CSV）。
- * 结构对比的外键差异、关联侧栏另起脚本段跑，不在这里充数。
+ * 这一版跑到的分支：ER 图（节点/边/详情/主题）+ 数据字典的外键节（Markdown/CSV）
+ * + 结构对比的外键差异（三对表：动作不同 / 一侧没外键 / 只是声明顺序不同）。
+ * 关联侧栏另起脚本段跑，不在这里充数。
  *
  * 三层对账（防"自己对自己"）：
  *   1 我声明了什么：self-test/db-fk-fixture.js 的 DECLARED（按 DDL 字面）；
@@ -242,6 +243,144 @@ const PROBE = `(() => {
       .filter(window.__vis).find(i => window.__txt(i) === label)
     if (!it) return 'no-item'
     it.click()
+    return 'ok'
+  }
+
+  // —— 结构对比（外键差异）：同库两张表走同一条 diff 弹层 ——
+  window.__diffBtn = () => {
+    const t = window.__structTools()[0]
+    if (!t) return 'no-tools'
+    const b = [...t.querySelectorAll('button')]
+      .find(x => /结构对比|Compare structure/i.test(x.innerText))
+    if (!b) return 'no-btn'
+    b.click()
+    return 'ok'
+  }
+  window.__structTools = () => [...document.querySelectorAll('.db-struct-tools')]
+    .filter(window.__vis)
+  // 弹层里的这几只查询一律用 __hidden（display/visibility/opacity）而不是 __vis：
+  // __vis 的命中测试会被刚展开的下拉浮层判成"被盖住"（下拉是 body 下的 portal，
+  // 不在 .db-diff 子树里），于是选完第一只、第二只还没点，整个根节点就查不到了。
+  window.__diffRoot = () => [...document.querySelectorAll('.db-diff')]
+    .filter(el => !window.__hidden(el))[0] || null
+  window.__diffOpen = () => !!window.__diffRoot()
+  window.__diffSels = () => {
+    const r = window.__diffRoot()
+    return r ? [...r.querySelectorAll('.db-diff-select')].filter(el => !window.__hidden(el)) : []
+  }
+  window.__diffSelText = i => {
+    const s = window.__diffSels()[i]
+    if (!s) return null
+    const c = s.querySelector('.ant-select-content') || s
+    const has = /ant-select-content-has-value/.test(String((c.parentElement || c).className)) ||
+      /ant-select-content-has-value/.test(String(c.className))
+    return { text: window.__txt(c), hasValue: has ? 1 : 0 }
+  }
+  window.__diffSelRect = i => {
+    const s = window.__diffSels()[i]
+    if (!s) return null
+    s.scrollIntoView({ block: 'center' })
+    const r = s.getBoundingClientRect()
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+  }
+  window.__diffType = (i, text) => {
+    const s = window.__diffSels()[i]
+    if (!s) return 'no-select'
+    const inp = s.querySelector('input')
+    if (!inp) return 'no-input'
+    inp.focus()
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    set.call(inp, text)
+    inp.dispatchEvent(new window.Event('input', { bubbles: true }))
+    return 'ok'
+  }
+  // 两只下拉都可能在 DOM 里留着一份（隐藏的那份还带着上一次过滤的选项），
+  // 所以按"当前展开 + 横向离这只 select 最近"定位它自己那层浮层
+  window.__diffDrop = i => {
+    const open = [...document.querySelectorAll('.ant-select-dropdown')]
+      .filter(d => !/ant-select-dropdown-hidden/.test(String(d.className)) && !window.__hidden(d))
+    if (!open.length) return null
+    if (open.length === 1) return open[0]
+    const s = window.__diffSels()[i]
+    if (!s) return open[0]
+    const r = s.getBoundingClientRect()
+    const cx = r.x + r.width / 2
+    return open.map(d => {
+      const b = d.getBoundingClientRect()
+      return { d, gap: Math.abs(b.x + b.width / 2 - cx) }
+    }).sort((a, b) => a.gap - b.gap)[0].d
+  }
+  window.__diffOptions = i => {
+    const d = window.__diffDrop(i)
+    return d ? [...d.querySelectorAll('.ant-select-item-option')].map(o => window.__txt(o)) : []
+  }
+  window.__diffOptRect = (label, i) => {
+    const d = window.__diffDrop(i)
+    if (!d) return null
+    const o = [...d.querySelectorAll('.ant-select-item-option')]
+      .find(x => window.__txt(x) === label)
+    if (!o) return null
+    const r = o.getBoundingClientRect()
+    if (!r.width || !r.height) return null
+    return { x: r.x + r.width / 2, y: r.y + 8 }
+  }
+  window.__diffCounts = () => {
+    const r = window.__diffRoot()
+    if (!r) return null
+    const out = {}
+    for (const t of [...r.querySelectorAll('.db-diff-count')]) {
+      const cls = String(t.className || '')
+      // 取尾数：__txt 已 trim，这里用字符类而不是 \\d/\\s —— PROBE 是模板字符串，单个反斜杠会被模板吃掉；
+      // 且这个类没有捕获组，命中后要取 m[0]（取 m[1] 会拿到 undefined，Number() 变 NaN，
+      // 而 NaN 经 JSON 回传是 null，判据就只能看见一堆 null）
+      const m = window.__txt(t).match(/[0-9]+$/)
+      const n = Number(m ? m[0] : NaN)
+      const k = /is-removed/.test(cls) ? 'removed' : /is-added/.test(cls) ? 'added'
+        : /is-changed/.test(cls) ? 'changed' : /is-equal/.test(cls) ? 'equal' : null
+      if (k) out[k] = n
+    }
+    return out
+  }
+  window.__diffSections = () => {
+    const r = window.__diffRoot()
+    if (!r) return []
+    return [...r.querySelectorAll('.db-diff-section')].filter(sec => !window.__hidden(sec)).map(sec => ({
+      title: window.__txt(sec.querySelector('.db-diff-section-title')),
+      rows: [...sec.querySelectorAll('.db-diff-row')].map(row => {
+        const cls = String(row.className || '')
+        const st = (cls.match(/is-(removed|added|changed|equal)/) || ['', ''])[1]
+        const fields = [...row.querySelectorAll('.db-diff-field')].map(x => ({
+          k: window.__txt(x.querySelector('.db-diff-field-key')),
+          old: window.__txt(x.querySelector('.db-diff-old')),
+          new: window.__txt(x.querySelector('.db-diff-new'))
+        }))
+        const br = row.querySelector('.db-diff-brief')
+        return {
+          status: st,
+          name: window.__txt(row.querySelector('.db-diff-name')),
+          fields,
+          brief: br ? window.__txt(br) : ''
+        }
+      })
+    }))
+  }
+  window.__diffHint = () => {
+    const r = window.__diffRoot()
+    if (!r) return null
+    const h = [...r.querySelectorAll('.db-diff-hint')].filter(x => !window.__hidden(x))[0]
+    return h ? window.__txt(h) : ''
+  }
+  window.__diffErr = () => {
+    const r = window.__diffRoot()
+    if (!r) return ''
+    const e = r.querySelector('.db-diff-err')
+    return e ? window.__txt(e).slice(0, 80) : ''
+  }
+  window.__diffClose = () => {
+    const m = [...document.querySelectorAll('.db-struct-diff-modal')].filter(x => !window.__hidden(x))[0]
+    const x = m && m.querySelector('.ant-modal-close')
+    if (!x) return 'no-x'
+    x.click()
     return 'ok'
   }
   return 'probe-ok'
@@ -649,6 +788,116 @@ const main = async () => {
   await click(await cdp.eval('window.__erFooterXY(' + J('关闭|close') + ')'), 800)
   check('关闭后 ER 根节点不在', (await cdp.eval('window.__erOpen()')) === false,
     await cdp.eval('window.__erOpen()'))
+
+  // ── 3.5 结构对比的外键差异：同库两张表走 diff 弹层真比一次 ─────────
+  // 三对，正好把外键差异的三个方向钉住：
+  //   ord_a ↔ ord_b  —— 列/索引完全相同，只有外键动作不同 → 有差异(外键 1, changed)
+  //   ord_a ↔ ord_c  —— ord_c 根本没有外键 → 仅有外键，只在 A
+  //   two_fks ↔ two_fks_rev —— 外键集合相同、只是声明顺序不同，SQLite 合成名
+  //       fk_<id> 在两张表里各自指向不同的外键；修前按名字配对会误报 2 条
+  //       "有差异"，修后按内容配对应判完全一致 → 不出现外键节。
+  const LBL = n => 'main.' + n
+  const pickOnce = async (idx, name) => {
+    const r = await cdp.jeval('window.__diffSelRect(' + idx + ')')
+    if (!r) return 'no-select'
+    await click(r, 260)
+    const typed = await cdp.eval('window.__diffType(' + idx + ', ' + JSON.stringify(LBL(name)) + ')')
+    if (typed !== 'ok') return typed
+    const shown = await waitFor(cdp,
+      'window.__diffOptions(' + idx + ').indexOf(' + JSON.stringify(LBL(name)) + ') > -1',
+      'option ' + name, 6000)
+    if (!shown) return 'no-option'
+    await sleep(200)
+    const o = await cdp.jeval('window.__diffOptRect(' + JSON.stringify(LBL(name)) + ', ' + idx + ')')
+    if (!o) return 'no-rect'
+    await click(o, 300)
+    const applied = await waitFor(cdp,
+      '(window.__diffSelText(' + idx + ') || {}).text === ' + JSON.stringify(LBL(name)),
+      'selection ' + name + ' applied', 6000)
+    return applied ? 'ok' : 'not-applied'
+  }
+  // 下拉是虚拟化 + 异步过滤，第一次点常拿不到选项（尤其前一只的浮层还没收）；
+  // 重试一轮，仍失败就把失败原因原样带进判据，而不是让后面的 JSON 读炸掉。
+  const pickDiffSel = async (idx, name) => {
+    let last = 'no-attempt'
+    for (let i = 0; i < 3; i++) {
+      last = await pickOnce(idx, name)
+      if (last === 'ok') return 'ok'
+      await sleep(500)
+    }
+    return last
+  }
+  const diffCountsReady = '(() => { const c = window.__diffCounts(); return !!c && [c.removed, c.added, c.changed, c.equal].every(x => typeof x === "number") })()'
+
+  await clickTree('fk_explicit')
+  await toStruct()
+  const diffOps0 = await cdp.eval('window.__ops.length')
+  if (await cdp.eval('window.__diffBtn()') !== 'ok') throw new Error('diff 弹层没打开')
+  await waitFor(cdp, 'window.__diffOpen()', 'diff modal 打开', 8000)
+
+  const setPair = async (a, b) => {
+    const ba = await pickDiffSel(0, a)
+    const bb = await pickDiffSel(1, b)
+    const ready = await waitFor(cdp, diffCountsReady, 'diff result ' + a + '/' + b, 25000)
+    await sleep(300)
+    return { ba, bb, ready }
+  }
+  // 读不到就当空面报给判据：这里一旦抛 JSON 解析错，前面几十条已过的判定会连带看不见结果
+  const readSecs = async () => (await cdp.jeval('window.__diffSections()')) || []
+  const readCounts = async () => (await cdp.jeval('window.__diffCounts()')) || {}
+
+  const cAB = await setPair('ord_a', 'ord_b')
+  const ab = await readSecs()
+  const fkAB = ab.find(s => String(s.title).indexOf('外键') >= 0) || { title: '', rows: [] }
+  const ABcounts = await readCounts()
+  check('ord_a↔ord_b：外键节列出 1 条有差异，动作 onDelete/onUpdate 逐字段报',
+    cAB.ba === 'ok' && cAB.bb === 'ok' && cAB.ready &&
+    fkAB.title === '外键 (1)' && fkAB.rows.length === 1 &&
+    fkAB.rows[0].status === 'changed' && fkAB.rows[0].name === 'fk_0' &&
+    JSON.stringify(fkAB.rows[0].fields.map(f => f.k)) === JSON.stringify(['ON DELETE', 'ON UPDATE']) &&
+    fkAB.rows[0].fields[0].old === 'CASCADE' && fkAB.rows[0].fields[0].new === 'SET NULL' &&
+    fkAB.rows[0].fields[1].old === 'NO ACTION' && fkAB.rows[0].fields[1].new === 'CASCADE',
+    { pick: [cAB.ba, cAB.bb], title: fkAB.title, row: fkAB.rows[0] })
+  check('ord_a↔ord_b：整表恰好 1 条有差异（列/索引一致，只外键不同），且零写命令',
+    cAB.ready && ABcounts.changed === 1 && ABcounts.added === 0 && ABcounts.removed === 0,
+    { counts: ABcounts })
+  // 这一屏是"外键差异逐字段"唯一的视觉证据（旧/新两截 + 计数芯片），换对之前拍
+  await cdp.shot(path.join(SHOT_DIR, '4-diff-fk-changed.png'))
+
+  const cAC = await setPair('ord_a', 'ord_c')
+  const ac = await readSecs()
+  const fkAC = ac.find(s => String(s.title).indexOf('外键') >= 0) || { title: '', rows: [] }
+  const ACcounts = await readCounts()
+  check('ord_a↔ord_c：外键只在 A（ord_c 没有外键）→ 1 条 仅在A，brief 带引用',
+    cAC.ba === 'ok' && cAC.bb === 'ok' && cAC.ready &&
+    fkAC.rows.length === 1 && fkAC.rows[0].status === 'removed' &&
+    String(fkAC.rows[0].brief).indexOf('dim_pair') >= 0 && ACcounts.removed === 1,
+    { pick: [cAC.ba, cAC.bb], counts: ACcounts, row: fkAC.rows[0] })
+
+  // 两张外键集合相同的表换声明顺序，修前会误报，修后判完全一致：
+  // 外键节不出现，整表 changed=0，弹层给"两表结构一致"提示。
+  const cT = await setPair('two_fks', 'two_fks_rev')
+  const tw = await readSecs()
+  const fkTw = tw.find(s => String(s.title).indexOf('外键') >= 0)
+  const Tcounts = await readCounts()
+  const hintT = await cdp.jeval('window.__diffHint()')
+  await cdp.shot(path.join(SHOT_DIR, '4-diff-fk-equal.png'))
+  check('two_fks↔two_fks_rev：声明顺序不同不再误报外键差异（内容配对，外键节不出现）',
+    cT.ba === 'ok' && cT.bb === 'ok' && cT.ready && !fkTw &&
+    Tcounts.changed === 0 && Tcounts.added === 0 && Tcounts.removed === 0,
+    { pick: [cT.ba, cT.bb], counts: Tcounts, fkSections: tw.map(s => s.title), hint: hintT })
+  check('two_fks↔two_fks_rev：整表无差异时弹层给"两表结构一致"',
+    !!hintT && /一致|identical|same/i.test(String(hintT)), hintT)
+
+  const diffOps = await cdp.jeval('JSON.stringify(window.__ops.slice(' + diffOps0 + '))')
+  check('结构对比整轮零写命令（外键差异只走 getTableStructure 元数据读）',
+    !WRITE_OPS.some(op => diffOps.indexOf(op) >= 0) &&
+    diffOps.indexOf('getTableStructure') >= 0, diffOps)
+
+  // 关掉再走字典段：弹层的遮罩还压着主区，后面的树点击与字典菜单会拿到"点了没反应"
+  const closed = await cdp.eval('window.__diffClose()')
+  const gone = await waitFor(cdp, '!window.__diffOpen()', 'diff modal 关闭', 8000)
+  check('结构对比弹层关闭（不给后面的数据字典段留遮罩）', closed === 'ok' && gone, { closed, gone })
 
   // ── 4. 数据字典的外键节：一条导出的 Markdown/CSV 行对一条声明 ───────
   await cdp.eval('window.__dlCapture()')
