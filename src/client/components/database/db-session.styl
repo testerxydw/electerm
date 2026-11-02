@@ -397,8 +397,12 @@
   width 72px
 
 // 近似总行数（次要信息）
+// 弱化文字一律走 --text-muted，不用 --text-dark：后者是主题给的固定灰（未覆盖时 #888），
+// 浅色主题上够用，比 default 亮一档的深底（iterm#Cobalt2 / IC_Orange_PPL）上只有
+// 4.31 / 4.27:1，掉破正文 AA。--text-muted 随 --text 派生，深底自动提亮、浅底自动加深
+// （见 css/includes/tokens.styl 的 --text-muted 与 .theme-light 覆盖）
 .db-grid-total
-  color var(--text-dark)
+  color var(--text-muted)
   font-size 12px
   display inline-flex
   align-items center

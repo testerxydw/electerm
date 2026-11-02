@@ -128,3 +128,70 @@ describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () =
       '数据面 font-family 不得直接用 --font-mono（须带 db-code-font 回落链）')
   })
 })
+
+// U2 文字对比度：数据库工作台的"次级文字"必须吃随主题派生的 token。
+// --text-dark / --text-disabled 是主题给的固定灰（未覆盖时 #888 / #777）：浅色主题够用，
+// 但在比 default 亮一档的深底（iterm#Cobalt2、iterm#IC_Orange_PPL）上实测只有 4.31 / 4.27:1，
+// 掉破正文 AA。--text-muted 由 --text 往 --main 收一档，深底自动提亮、浅底自动加深。
+// 这条钉的是"被判据覆盖的那几个角色不许退回固定灰"，不是全仓扫（其他地方还有历史用法）。
+describe('css-tokens: U2 数据库工作台次级文字走派生 token', () => {
+  const dbStyl = fs.readFileSync(
+    files.find(f => /database[\\/]db-session\.styl$/.test(f)), 'utf8')
+  const lines = dbStyl.split('\n')
+
+  // 选择器自己的样式块：从选择器行往下，吃进所有缩进行（含 &.xxx 嵌套），
+  // 遇到下一个顶格行（新选择器/注释）收尾。返回**行数组**不返回字符串——
+  // 返回字符串的话下面的 for...of 会逐字符遍历，判据看着在跑其实一条都没看到（假绿）
+  const blockOf = selector => {
+    const at = lines.findIndex(l => l === selector)
+    if (at < 0) return null
+    const out = []
+    for (let i = at + 1; i < lines.length; i++) {
+      const l = lines[i]
+      if (l.trim() && !/^[ \t]/.test(l)) break
+      out.push(l)
+    }
+    return out
+  }
+
+  // 允许的前景 token：正文 / 派生弱化 / 强调文字（--primary-text 是 --primary 收深后的 AA 版）。
+  // 存的是 var(--x) 里捕获到的名字本身（不带前导 --），写错一个字符就全线误报（踩过）
+  const SAFE = ['text', 'text-muted', 'primary-text']
+  const unsafeColors = block => {
+    assert.ok(Array.isArray(block) && block.length > 0, '样式块为空，判据没读到东西')
+    const bad = []
+    for (const l of block) {
+      const m = /^\s*color\s+(.+)$/.exec(l)
+      if (!m) continue
+      const v = m[1].trim()
+      const tok = /^var\(--([a-z0-9-]+)\)$/.exec(v)
+      if (tok) {
+        if (SAFE.indexOf(tok[1]) < 0) bad.push(v)
+      } else if (v !== 'inherit') {
+        bad.push(v)
+      }
+    }
+    return bad
+  }
+
+  const probed = [
+    ['.db-grid-total', '状态行次级'],
+    ['.db-grid-selected', '已选计数'],
+    ['.db-row-detail-type', '详情字段名'],
+    ['.db-explain-type', '执行计划类型'],
+    ['.db-row-detail-value', '详情值（含 &.is-null）']
+  ]
+
+  it('五个被判据覆盖的角色选择器在 styl 里都找得到（改了名字要同步判据）', () => {
+    const gone = probed.filter(([sel]) => blockOf(sel) === null).map(([sel]) => sel)
+    assert.deepEqual(gone, [], '以下选择器块不存在：' + gone.join(', '))
+  })
+
+  for (const [sel, label] of probed) {
+    it(label + ' 的 color 只用 AA 派生 token（' + sel + '）', () => {
+      const bad = unsafeColors(blockOf(sel))
+      assert.deepEqual(bad, [], sel + ' 用了不达标的固定色：' + bad.join(', ') +
+        '（正文用 --text，弱化用 --text-muted，强调文字用 --primary-text）')
+    })
+  }
+})
