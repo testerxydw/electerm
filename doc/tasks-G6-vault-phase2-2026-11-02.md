@@ -4,9 +4,9 @@
 > 状态：⏸ 待用户确认后开工。每完成一项在方框打 `[x]` 并单独提交。
 
 ## T1 · 敏感字段纯模块
-- [ ] 新增 `src/app/lib/vault-secrets.js`：`SECRET_KEYS`、`collectSecrets`、`stripSecrets`、`sealRow`、`openRow`、`rowState`、`secretCount`
-- [ ] 新增 `src/test/unit-ci/vault-secrets.spec.js`（覆盖：6 个顶层字段 + hoppings 4 项 + profiles；空值不封；解密失败不抛；不改入参）
-- [ ] `npx standard` + 单测通过 → 提交 `feat(vault): 书签敏感字段封装纯模块`
+- [x] 新增 `src/app/lib/vault-secrets.js`：`SECRET_KEYS`、`collectSecrets`、`stripSecrets`、`sealRow`、`openRow`、`rowState`、`secretCount`
+- [x] 新增 `src/test/unit-ci/vault-secrets.spec.js`（覆盖：6 个顶层字段 + hoppings 4 项 + profiles；空值不封；解密失败不抛；不改入参）
+- [x] `npx standard` + 单测通过 → 提交 `feat(vault): 书签敏感字段封装纯模块`
 
 ## T2 · 读写包装与状态字段
 - [ ] 新增 `src/app/lib/vault-bookmarks.js`：`wrapDbAction`
