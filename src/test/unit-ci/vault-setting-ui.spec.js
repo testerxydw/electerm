@@ -173,6 +173,51 @@ describe('输入取值契约', () => {
   })
 })
 
+describe('状态同步总线接线', () => {
+  // 真机上踩过：'off' 态故意不轮询，于是设置页建完库，底栏锁头到下次重启才出现。
+  it('面板每个成功动作都发通知，且带自己的 source', () => {
+    const panel = read(PANEL)
+    const run = panel.match(/run = async \(action, arg, section, okText\)[\s\S]*?\n {2}\}/)
+    assert.ok(run, 'run 找不到了，判据要先跟着改')
+    assert.match(run[0], /notifyVaultChange\('setting-vault'\)/)
+    // 通知必须发在"确认成功"之后，失败的动作不该惊动别人
+    const notify = run[0].indexOf('notifyVaultChange')
+    const bail = run[0].indexOf('result.ok !== true')
+    assert.ok(bail >= 0 && notify > bail, '失败分支提前 return 之后再发通知')
+  })
+
+  it('两个组件都订阅总线并在卸载时退订', () => {
+    const panel = read(PANEL)
+    const lock = read(LOCK)
+    assert.match(panel, /onVaultChange\(/)
+    assert.match(lock, /onVaultChange\(/)
+    assert.match(panel, /this\.offNotify\(\)/)
+    assert.match(lock, /offNotify\(\)/)
+    // 自己发的通知自己不再处理，否则一次动作读两遍盘
+    assert.match(panel, /src !== 'setting-vault'/)
+    assert.match(lock, /src !== 'vault-lock'/)
+  })
+
+  it('锁头状态翻转时代发通知（自动到期设置页也要跟着变）', () => {
+    const lock = read(LOCK)
+    const refresh = lock.match(/const refresh = async \(\)[\s\S]*?\n {2}\}/)
+    assert.ok(refresh, 'refresh 找不到了，判据要先跟着改')
+    assert.match(refresh[0], /vaultState\(prev\) !== vaultState\(next\)/)
+    assert.match(refresh[0], /notifyVaultChange\('vault-lock'\)/)
+    // 首次读盘（prev 为 null）不发：那只是启动加载，不是状态变了
+    assert.match(refresh[0], /if \(prev && /)
+  })
+
+  it('面板静默重读不碰 seq、不摆 loading（正在提交的 enable 不能被打断）', () => {
+    const panel = read(PANEL)
+    const quiet = panel.match(/reloadQuietly = async \(\)[\s\S]*?\n {2}\}/)
+    assert.ok(quiet, 'reloadQuietly 找不到了，判据要先跟着改')
+    assert.equal(quiet[0].includes('this.seq'), false, '静默重读不许 bump seq')
+    assert.equal(quiet[0].includes('loading'), false, '静默重读不许把表单闪成加载中')
+    assert.match(quiet[0], /this\.state\.busy/)
+  })
+})
+
 describe('样式契约', () => {
   it('新样式不带硬编码色值，也不带非 token 的圆角', () => {
     const styl = read('src/client/components/setting-panel/setting-vault.styl')

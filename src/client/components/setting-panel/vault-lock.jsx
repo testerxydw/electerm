@@ -14,6 +14,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { LockOutlined, QuestionCircleOutlined, UnlockOutlined } from '@ant-design/icons'
 import { Alert, Button, Input, Modal, Popconfirm, Tooltip } from 'antd'
 import message from '../common/message'
+import { notifyVaultChange, onVaultChange } from '../../common/vault-notify'
 import {
   shouldPoll,
   shouldPromptAtStart,
@@ -42,6 +43,7 @@ export default function VaultLock () {
   const stateRef = useRef(null)
 
   const refresh = async () => {
+    const prev = stateRef.current
     const next = await vaultOp('status')
     if (!alive.current) {
       return null
@@ -49,6 +51,10 @@ export default function VaultLock () {
     // 读库失败也上屏：状态机里它是第四态，不能当"没启用"
     stateRef.current = next
     setStatus(next)
+    // 锁/解锁/建库/停用都是状态翻转，设置页那份 status 是独立读的，不递一句它就摆着旧的
+    if (prev && vaultState(prev) !== vaultState(next)) {
+      notifyVaultChange('vault-lock')
+    }
     return next
   }
 
@@ -82,6 +88,12 @@ export default function VaultLock () {
     const activity = () => { touch() }
     document.addEventListener('pointerdown', activity)
     document.addEventListener('keydown', activity)
+    // 'off' 态不轮询，所以建库/停用只能靠这条通知把锁头捞回来
+    const offNotify = onVaultChange(src => {
+      if (src !== 'vault-lock') {
+        refresh()
+      }
+    })
     const poll = setInterval(() => {
       if (shouldPoll(stateRef.current)) {
         refresh()
@@ -91,6 +103,7 @@ export default function VaultLock () {
       alive.current = false
       document.removeEventListener('pointerdown', activity)
       document.removeEventListener('keydown', activity)
+      offNotify()
       clearInterval(poll)
     }
   }, [])

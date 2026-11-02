@@ -31,6 +31,7 @@ import {
 } from 'antd'
 import message from '../common/message'
 import { copy as copyToClipboard } from '../../common/clipboard'
+import { notifyVaultChange, onVaultChange } from '../../common/vault-notify'
 import {
   autoLockPresets,
   fieldValue,
@@ -67,13 +68,44 @@ export default class SettingVault extends Component {
 
   seq = 0
 
+  /** 静默重读的序号，与 seq 分开：见 reloadQuietly */
+  quietSeq = 0
+
+  mounted = true
+
+  offNotify = null
+
   componentDidMount () {
     this.handleLoadStatus()
+    // 底栏锁头也能改库状态（锁/解锁），不订阅的话本页会一直摆着旧状态
+    this.offNotify = onVaultChange(src => {
+      if (src !== 'setting-vault') {
+        this.reloadQuietly()
+      }
+    })
   }
 
   componentWillUnmount () {
     // 设置页关掉后落回来的响应不能再 setState
     this.seq++
+    this.mounted = false
+    this.offNotify && this.offNotify()
+  }
+
+  /**
+   * 别的组件动了库：只重读状态，不 bump seq（正在提交的 enable 不该被半路打断），
+   * 也不摆 loading（填了一半的表单不该闪成"加载中"）。
+   */
+  reloadQuietly = async () => {
+    if (!this.mounted || this.state.busy) {
+      return
+    }
+    const id = ++this.quietSeq
+    const status = await vaultOp('status')
+    if (!this.mounted || id !== this.quietSeq) {
+      return
+    }
+    this.applyStatus(status)
   }
 
   /**
@@ -121,6 +153,8 @@ export default class SettingVault extends Component {
       this.setState({ error: vaultErrorText(result, e) })
       return null
     }
+    // 底栏锁头在 'off' 态不轮询，不通知它就得等下次重启才看见库被建起来/停掉了
+    notifyVaultChange('setting-vault')
     if (section) {
       this.clearSection(section)
     }
