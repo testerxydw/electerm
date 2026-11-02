@@ -15,6 +15,7 @@ import { LockOutlined, QuestionCircleOutlined, UnlockOutlined } from '@ant-desig
 import { Alert, Button, Input, Modal, Popconfirm, Tooltip } from 'antd'
 import message from '../common/message'
 import { notifyVaultChange, onVaultChange } from '../../common/vault-notify'
+import { onUnlockRequest, settleUnlock } from '../../common/vault-unlock'
 import {
   shouldPoll,
   shouldPromptAtStart,
@@ -41,6 +42,8 @@ export default function VaultLock () {
   const alive = useRef(true)
   const lastTouch = useRef(null)
   const stateRef = useRef(null)
+  // 这次弹窗是不是连接入口求来的：是的话关闭要给它一个 false，成功要给 true
+  const byRequest = useRef(false)
 
   const refresh = async () => {
     const prev = stateRef.current
@@ -94,6 +97,14 @@ export default function VaultLock () {
         refresh()
       }
     })
+    // 连接入口想要解锁：只负责开弹窗，口令还是在这里问
+    const offUnlockRequest = onUnlockRequest(() => {
+      if (!alive.current) {
+        return
+      }
+      byRequest.current = true
+      setOpen(true)
+    })
     const poll = setInterval(() => {
       if (shouldPoll(stateRef.current)) {
         refresh()
@@ -104,9 +115,24 @@ export default function VaultLock () {
       document.removeEventListener('pointerdown', activity)
       document.removeEventListener('keydown', activity)
       offNotify()
+      offUnlockRequest()
       clearInterval(poll)
+      // 组件没了，还等着的连接入口不能永远挂着
+      if (byRequest.current) {
+        byRequest.current = false
+        settleUnlock(false)
+      }
     }
   }, [])
+
+  // 关闭弹窗统一走这里：连接入口求来的弹窗被取消时，要把它 await 着的 Promise 收成 false
+  const close = () => {
+    setOpen(false)
+    if (byRequest.current) {
+      byRequest.current = false
+      settleUnlock(false)
+    }
+  }
 
   const handleUnlock = async () => {
     const arg = byRecovery ? { recoveryCode: recovery } : { masterPassword: password }
@@ -127,6 +153,11 @@ export default function VaultLock () {
       return
     }
     setOpen(false)
+    // 连接入口求来的解锁，成功后放行；失败时弹窗保持打开，pending 留着让用户重试
+    if (byRequest.current) {
+      byRequest.current = false
+      settleUnlock(true)
+    }
     message.success(e('vaultUnlocked'))
     if (r.needsNewPassword) {
       message.warning(e('vaultNeedsNewPassword'))
@@ -202,7 +233,7 @@ export default function VaultLock () {
       <Modal
         open={open}
         title={e('vaultUnlockTitle')}
-        onCancel={() => setOpen(false)}
+        onCancel={close}
         footer={null}
         width={420}
         className='vault-unlock-modal'
@@ -266,7 +297,7 @@ export default function VaultLock () {
                     : null
                 )
           }
-          <Button onClick={() => setOpen(false)} disabled={busy}>
+          <Button onClick={close} disabled={busy}>
             {e('cancel')}
           </Button>
           <Button

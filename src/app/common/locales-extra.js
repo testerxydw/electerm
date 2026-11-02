@@ -1168,6 +1168,7 @@ const en = {
   vaultDisableConfirm: 'Delete the vault? Saved credentials stay readable, but the master-password layer goes away.',
   vaultDisabled: 'Vault disabled',
   vaultPhaseCancelTip: 'Skipping is safe for now: no saved credential uses the vault yet, so staying locked changes nothing today.',
+  vaultNeedUnlockToConnect: 'Unlock the vault to open a new connection.',
   rdpDownloadNeedsCopy: 'Nothing to download yet. Copy a file on the remote desktop (Ctrl+C in its file manager), then click here.',
   rdpDownloadCount: 'Download {n} file(s) copied on the remote'
 }
@@ -2321,6 +2322,7 @@ const zhCn = {
   vaultDisableConfirm: '删除保险库？已存凭据照样能用，只是没了主密码这一层。',
   vaultDisabled: '保险库已停用',
   vaultPhaseCancelTip: '现在跳过没有影响：还没有凭据走保险库，锁定状态今天不会改变什么。',
+  vaultNeedUnlockToConnect: '保险库已锁定，解锁后才能新建连接。',
   rdpDownloadNeedsCopy: '还没有可下载的文件——先在远程桌面里复制一个文件（在它自己的文件管理器里 Ctrl+C），再点这里。',
   rdpDownloadCount: '下载远程已复制的 {n} 个文件'
 }

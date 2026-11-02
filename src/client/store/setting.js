@@ -15,8 +15,12 @@ import getInitItem from '../common/init-setting-item'
 import newTerm from '../common/new-terminal'
 import settingList from '../common/setting-list'
 import { requireTermOfUse } from '../common/term-of-use'
+import { requestUnlock } from '../common/vault-unlock'
+import { vaultErrorText } from '../common/vault-ui'
 
 const e = window.translate
+
+const vaultOp = (action, arg) => window.pre.runGlobalAsync('vaultOp', action, arg)
 
 export default Store => {
   Store.prototype.setConfig = function (conf) {
@@ -64,7 +68,7 @@ export default Store => {
     delete window.openTabBatch
   }
 
-  Store.prototype.onSelectBookmark = function (id) {
+  Store.prototype.onSelectBookmark = async function (id) {
     const { store } = window
     const bookmarks = store.bookmarks
     const item = copy(
@@ -73,6 +77,35 @@ export default Store => {
     if (!item) {
       return
     }
+    // 锁定态下书签行里没有明文凭据（主进程只回 _sealed），所以所有连接入口先过这道门禁
+    const status = await vaultOp('status').catch(() => null)
+    if (status && status.ok !== false && status.enabled && !status.unlocked) {
+      const ok = await requestUnlock()
+      if (!ok) {
+        message.warning(e('vaultNeedUnlockToConnect'))
+        return
+      }
+    }
+    if (item._sealed) {
+      const r = await vaultOp('revealBookmark', { id }).catch(() => null)
+      if (!r || !r.ok) {
+        message.warning(vaultErrorText(r, e) || e('vaultNeedUnlockToConnect'))
+        return
+      }
+      const secrets = r.secrets || {}
+      Object.assign(item, secrets.top || {})
+      // 跳板数组按 index 对齐：只合并两边都是对象的项，别把空位填成 null
+      const hoppings = Array.isArray(secrets.hoppings) ? secrets.hoppings : []
+      for (let i = 0; i < hoppings.length; i++) {
+        const hop = hoppings[i]
+        const target = item.connectionHoppings && item.connectionHoppings[i]
+        if (hop && typeof hop === 'object' && target && typeof target === 'object') {
+          Object.assign(target, hop)
+        }
+      }
+    }
+    // 内部标记不能带进 tab
+    delete item._sealed
     store.addTab({
       ...item,
       from: 'bookmarks',

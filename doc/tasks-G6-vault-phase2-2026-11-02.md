@@ -22,11 +22,11 @@
 - [x] 提交 `feat(vault): 凭据迁移与停用前反解`
 
 ## T4 · 渲染层连接拦截
-- [ ] 新增 `src/client/common/vault-unlock.js`（`requestUnlock` / `onUnlockRequest` / `settleUnlock`）
-- [ ] 改 `vault-lock.jsx` 接入请求通道（成功 settle true / 取消 settle false / 卸载 settle false）
-- [ ] 改 `src/client/store/setting.js` 的 `onSelectBookmark` 为异步门禁 + `revealBookmark`
-- [ ] 单测 `vault-unlock.spec.js` + store 门禁纯逻辑断言
-- [ ] 提交 `feat(vault): 锁定态拦截新建连接并自动续解锁`
+- [x] 新增 `src/client/common/vault-unlock.js`（`requestUnlock` / `onUnlockRequest` / `settleUnlock`）
+- [x] 改 `vault-lock.jsx` 接入请求通道（成功 settle true / 取消 settle false / 卸载 settle false）
+- [x] 改 `src/client/store/setting.js` 的 `onSelectBookmark` 为异步门禁 + `revealBookmark`
+- [x] 单测 `vault-unlock.spec.js` + store 门禁纯逻辑断言
+- [x] 提交 `feat(vault): 锁定态拦截新建连接并自动续解锁`
 
 ## T5 · 设置页与表单提示
 - [ ] `setting-vault.jsx`：迁移进度块（`migrateStatus` + 分批续跑）、`legacyWrite` 开关、停用前反解
