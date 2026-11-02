@@ -68,6 +68,24 @@ const STUB = `
     { name: 'amount', dataType: 'decimal' }
   ]
   window.__copied = null
+  // 桩是把 window.pre.runGlobalAsync 整个换掉的，跟着渲染进程存活：同一实例上
+  // 后续跑真库脚本会量到 demo_db。这里留一手——记下原装实现、打上标记、给出还原口，
+  // 真库脚本侧的检测见 db-ui-helpers.js 的 preStubState / ensureRealDbLayer
+  if (!window.__prePristine) {
+    window.__prePristine = {
+      runGlobalAsync: window.pre.runGlobalAsync,
+      writeClipboard: window.pre.writeClipboard
+    }
+  }
+  window.__dbStub = 'grid-demo'
+  window.__unstubPre = () => {
+    const p = window.__prePristine
+    if (!p) return 'nothing-to-restore'
+    window.pre.runGlobalAsync = p.runGlobalAsync
+    window.pre.writeClipboard = p.writeClipboard
+    delete window.__dbStub
+    return 'restored'
+  }
   window.pre.writeClipboard = s => { window.__copied = String(s) }
   window.pre.runGlobalAsync = function (name, ...a) {
     if (name === 'dbClientOp') {

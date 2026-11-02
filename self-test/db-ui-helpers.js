@@ -776,6 +776,55 @@ const clearDbTabs = async (cdp, { settleMs = 1200, maxWait = 15000, passes = 3 }
   return { closed, left }
 }
 
+// 桩残留检测：二十来个 *-demo.js 会把 window.pre.runGlobalAsync 整个换掉
+// （getMetadata 返回 demo_db / grid_demo），而且没有一个还原。这个替换跟着渲染进程
+// 存活，所以同一实例上接着跑真库脚本时，"连接成功、树里看到了库名"能全部成立，
+// 量的却是假数据。真库脚本必须先看一眼桥接函数还是不是原装的。
+// 判据用正向特征：window.pre 是 contextBridge 暴露的，桥接函数在页面里读出来就是
+// `function () { [native code] }`；页面脚本自己赋上去的桩带函数体，一定不是 native。
+// （一开始按"源码里有没有 invoke"判断是错的——preload 是打包产物，页面上根本看不到
+// 它的源码，干净页面会被误判成桩，真库脚本因此永远跑不起来。）
+const preStubState = async (cdp) => await cdp.eval(`(() => {
+  const f = (window.pre || {}).runGlobalAsync
+  if (!f) return 'no-pre'
+  if (window.__dbStub) return 'stub:' + String(window.__dbStub)
+  return /\\[native code\\]/.test(String(f)) ? 'ok' : 'stub:inline'
+})()`)
+
+// 真库脚本的前置门：检测到桩就重载页面（桩只活在渲染进程里，重载即还原），
+// 重载后仍不干净直接抛 —— 让"看着绿其实量的桩"变成跑不下去，而不是跑出错结论。
+// 读数要轮询不能只读一次：重载是异步的，导航提交那一瞬 window.pre 还没注进来，
+// 读一次会拿到 no-pre，把已经成功的自愈判成失败（实测踩过）。
+// 只有 no-pre / read-error（还在启动或导航）值得继续等；桩是等不掉的，立刻返回。
+const ensureRealDbLayer = async (cdp, { waitMs = 90000 } = {}) => {
+  const read = async () => {
+    try {
+      return await preStubState(cdp)
+    } catch (e) {
+      return 'read-error'
+    }
+  }
+  const untilClean = async () => {
+    const t0 = Date.now()
+    let s = await read()
+    while (s !== 'ok' && (s === 'no-pre' || s === 'read-error') && Date.now() - t0 < waitMs) {
+      await sleep(1500)
+      s = await read()
+    }
+    return s
+  }
+  const before = await untilClean()
+  if (before === 'ok') return { reloaded: false, state: before }
+  await cdp.call('Page.reload', { ignoreCache: false })
+  await sleep(1500)
+  const after = await untilClean()
+  if (after !== 'ok') {
+    throw new Error('页面重载后数据库层仍不干净（' + before + ' → ' + after + '），' +
+      '这轮真库判据没有意义，先重启实例再跑')
+  }
+  return { reloaded: true, state: after }
+}
+
 // 点一格：坐标只能来自那一格自己的矩形。拿不到矩形就明确报告，
 // 绝不能把 undefined 当 0 传给 CDP —— 那样等于在 (0,0) 乱点，
 // 把"夹具没到位"演成"产品没选中"，红的全是假案
@@ -807,5 +856,7 @@ module.exports = {
   isCharsMeta,
   hexOk,
   clickCell,
-  clearDbTabs
+  clearDbTabs,
+  preStubState,
+  ensureRealDbLayer
 }
