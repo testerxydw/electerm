@@ -37,6 +37,7 @@ const DIALECT_HINTS = {
   tidb: 'MySQL-compatible syntax: identifier quotes are backticks; LIMIT/OFFSET allowed.',
   oceanbase: 'MySQL-compatible syntax: identifier quotes are backticks; LIMIT/OFFSET allowed.',
   postgres: 'Identifier quotes are double quotes; strings use single quotes; "#" is not a comment; prefer "public" schema when none is given.',
+  kingbase: 'PostgreSQL-compatible syntax: identifier quotes are double quotes; strings use single quotes; "#" is not a comment; prefer "public" schema when none is given.',
   sqlite: 'Identifier quotes are double quotes; string literals have NO backslash escapes (double the quote instead); "#" is not a comment; LIKE has no default escape character, add ESCAPE to use one; read structure with PRAGMA table_info.'
 }
 

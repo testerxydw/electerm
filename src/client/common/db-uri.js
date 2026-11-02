@@ -10,6 +10,7 @@ const SCHEME_MAP = {
   mysql: { dbType: 'mysql' },
   postgres: { dbType: 'postgres' },
   postgresql: { dbType: 'postgres' },
+  kingbase: { dbType: 'kingbase' },
   redis: { dbType: 'redis' }
 }
 

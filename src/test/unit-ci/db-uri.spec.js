@@ -13,7 +13,7 @@ function loadFns () {
   src = src.replace(/^import .*$/gm, '')
   src = src.replace(/^export /gm, '')
   const sandbox = {
-    dbDefaultPortMap: { mysql: 3306, postgres: 5432, redis: 6379 },
+    dbDefaultPortMap: { mysql: 3306, postgres: 5432, kingbase: 54321, redis: 6379 },
     // vm context 不继承宿主全局，URL/decodeURIComponent 显式传入
     URL,
     decodeURIComponent
@@ -43,6 +43,16 @@ describe('db-uri parseDbUri', () => {
       assert.equal(r.dbPassword, '')
       assert.equal(r.dbName, 'db')
     }
+  })
+
+  test('kingbase scheme 走 PG 协议引擎 + 默认端口 54321', () => {
+    const r = parseDbUri('kingbase://u@kb.local/db')
+    assert.equal(r.dbType, 'kingbase')
+    assert.equal(r.dbHost, 'kb.local')
+    assert.equal(r.dbPort, 54321, 'default port')
+    assert.equal(r.dbUser, 'u')
+    assert.equal(r.dbPassword, '')
+    assert.equal(r.dbName, 'db')
   })
 
   test('mysql 缺省端口/无密码/无库名', () => {
