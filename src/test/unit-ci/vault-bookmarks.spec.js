@@ -13,7 +13,13 @@ const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const crypto = require('crypto')
 
-const { wrapDbAction } = require('../../app/lib/vault-bookmarks')
+const {
+  wrapDbAction,
+  migrateStatus,
+  migrateBatch,
+  unsealAll,
+  revealSecrets
+} = require('../../app/lib/vault-bookmarks')
 const s = require('../../app/lib/vault-secrets')
 
 const dek = crypto.randomBytes(32)
@@ -59,7 +65,8 @@ function fakeDb (seed = {}) {
       if (index < 0) {
         return 0
       }
-      rows[index] = { ...rows[index], ...set, _id: id }
+      // 与 sqlite.js 一致：update 是整条 data 替换，不是字段合并
+      rows[index] = { ...set, _id: id }
       return 1
     }
     if (op === 'remove') {
@@ -215,5 +222,145 @@ describe('写路径', () => {
     assert.ok(tables.profiles[0]._vault)
     const rows = await dbAction('profiles', 'find', {})
     assert.equal(rows[0].privateKey, 'KEY')
+  })
+})
+
+describe('迁移', () => {
+  function legacy (id, password) {
+    return { _id: id, title: id, password }
+  }
+
+  it('migrateStatus 统计旧格式与已封存行', async () => {
+    const { raw } = fakeDb({
+      bookmarks: [legacy('a', 'p1'), legacy('b', 'p2'), sealedBookmark()],
+      profiles: [{ _id: 'c', name: 'n' }]
+    })
+    const got = await migrateStatus(raw)
+    assert.deepEqual(
+      { total: got.total, sealed: got.sealed, plain: got.plain },
+      { total: 3, sealed: 1, plain: 2 }
+    )
+  })
+
+  it('migrateBatch 按 limit 分批，剩余行数正确，且不重封已封存行', async () => {
+    const { raw, tables } = fakeDb({
+      bookmarks: [legacy('a', 'p1'), legacy('b', 'p2'), legacy('c', 'p3'), sealedBookmark()]
+    })
+    const first = await migrateBatch(raw, { limit: 2 }, context())
+    assert.equal(first.ok, true)
+    assert.equal(first.migrated, 2)
+    assert.equal(first.remaining, 1)
+    assert.equal(tables.bookmarks.filter(row => row._vault).length, 3)
+    assert.equal(tables.bookmarks.filter(row => row.password).length, 1)
+
+    const second = await migrateBatch(raw, { limit: 2 }, context())
+    assert.equal(second.migrated, 1)
+    assert.equal(second.remaining, 0)
+    assert.equal(tables.bookmarks.filter(row => row.password).length, 0)
+
+    const third = await migrateBatch(raw, {}, context())
+    assert.equal(third.migrated, 0)
+    assert.equal(third.remaining, 0)
+  })
+
+  it('锁定态迁移被拒绝', async () => {
+    const { raw } = fakeDb({ bookmarks: [legacy('a', 'p')] })
+    const got = await migrateBatch(raw, {}, context({ unlocked: false }))
+    assert.equal(got.ok, false)
+    assert.equal(got.reason, 'vault-locked')
+  })
+
+  it('库没启用时迁移被拒绝', async () => {
+    const { raw } = fakeDb({ bookmarks: [legacy('a', 'p')] })
+    const got = await migrateBatch(raw, {}, context({ enabled: false }))
+    assert.equal(got.ok, false)
+    assert.equal(got.reason, 'no-vault')
+  })
+})
+
+describe('停用前反解', () => {
+  it('unsealAll 把封存行还原成明文并删掉封套', async () => {
+    const { raw, tables } = fakeDb({
+      bookmarks: [sealedBookmark(), { _id: 'plain', password: 'p' }]
+    })
+    const got = await unsealAll(raw, context())
+    assert.equal(got.unsealed, 1)
+    assert.equal(got.failed, 0)
+    assert.equal(tables.bookmarks[0].password, 'p@ss')
+    assert.equal(tables.bookmarks[0]._vault, undefined)
+    // 本来就是旧格式的行不动
+    assert.equal(tables.bookmarks[1].password, 'p')
+  })
+
+  it('单行解不开计入 failed，且不会被写成空行', async () => {
+    const { raw, tables } = fakeDb({
+      bookmarks: [{ _id: 'bad', _vault: { v: 1, data: 'broken' } }]
+    })
+    const got = await unsealAll(raw, context())
+    assert.equal(got.failed, 1)
+    assert.equal(got.unsealed, 0)
+    assert.ok(tables.bookmarks[0]._vault)
+  })
+
+  it('锁定态反解被拒绝', async () => {
+    const { raw } = fakeDb({ bookmarks: [sealedBookmark()] })
+    const got = await unsealAll(raw, context({ unlocked: false }))
+    assert.equal(got.ok, false)
+    assert.equal(got.reason, 'vault-locked')
+  })
+})
+
+describe('按 id 取回凭据', () => {
+  it('只回敏感字段，不回标题/主机', async () => {
+    const { raw } = fakeDb({ bookmarks: [sealedBookmark()] })
+    const got = await revealSecrets(raw, 'b1', context())
+    assert.equal(got.ok, true)
+    assert.equal(got.secrets.top.password, 'p@ss')
+    assert.equal(got.secrets.hoppings[0].password, 'hop-pass')
+    assert.equal(got.secrets.title, undefined)
+    assert.equal(got.secrets.host, undefined)
+  })
+
+  it('锁定态拒绝封印行', async () => {
+    const { raw } = fakeDb({ bookmarks: [sealedBookmark()] })
+    const got = await revealSecrets(raw, 'b1', context({ unlocked: false }))
+    assert.equal(got.ok, false)
+    assert.equal(got.reason, 'vault-locked')
+  })
+
+  it('旧格式行锁定态也能取（明文本来就在行里）', async () => {
+    const { raw } = fakeDb({ bookmarks: [{ _id: 'legacy', password: 'old' }] })
+    const got = await revealSecrets(raw, 'legacy', context({ unlocked: false }))
+    assert.equal(got.ok, true)
+    assert.equal(got.secrets.top.password, 'old')
+  })
+
+  it('找不到 / id 为空 / 库没启用各有独立 reason', async () => {
+    const { raw } = fakeDb({ bookmarks: [] })
+    assert.equal((await revealSecrets(raw, 'none', context())).reason, 'not-found')
+    assert.equal((await revealSecrets(raw, '', context())).reason, 'bad-id')
+    assert.equal((await revealSecrets(raw, 'b1', context({ enabled: false }))).reason, 'no-vault')
+  })
+})
+
+describe('vault-instance 动作接线（源码契约）', () => {
+  const fs = require('fs')
+  const path = require('path')
+  const src = fs.readFileSync(path.join(__dirname, '../../app/lib/vault-instance.js'), 'utf8')
+
+  it('拦截 migrate / migrateStatus / unsealAll / revealBookmark / disable', () => {
+    for (const action of ["'migrate'", "'migrateStatus'", "'unsealAll'", "'revealBookmark'", "'disable'"]) {
+      assert.ok(src.includes('action === ' + action), 'missing action ' + action)
+    }
+  })
+
+  it('停用顺序是"先解锁 → 再反解 → 最后删 config"', () => {
+    const start = src.indexOf('async function disableVault')
+    const end = src.indexOf('exports.vaultOp')
+    const body = src.slice(start, end)
+    const iUnseal = body.indexOf('unsealAll')
+    const iDisable = body.lastIndexOf("service.run('disable'")
+    assert.ok(iUnseal > 0 && iDisable > iUnseal, 'unseal must happen before disable')
+    assert.ok(body.includes('vault-locked'), 'locked disable must be rejected')
   })
 })

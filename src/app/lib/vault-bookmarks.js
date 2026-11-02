@@ -16,7 +16,8 @@ const {
   stripSecrets,
   hasSealed,
   sealRow,
-  openRow
+  openRow,
+  rowState
 } = require('./vault-secrets')
 
 // 惰性取单例：db.js 在启动早期就被加载，此时 vault-instance 可能还没就绪
@@ -120,6 +121,162 @@ function wrapDbAction (rawDbAction, ctx) {
   }
 }
 
+function withoutId (row) {
+  const copy = { ...row }
+  delete copy._id
+  return copy
+}
+
+function normalizeLimit (value, fallback = 50) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) {
+    return fallback
+  }
+  return Math.min(Math.floor(n), 500)
+}
+
+async function collectByState (rawDbAction) {
+  let total = 0
+  let sealed = 0
+  let plain = 0
+  const plainRows = []
+  const sealedRows = []
+  for (const table of SECRET_TABLES) {
+    const rows = await rawDbAction(table, 'find', {}) || []
+    for (const row of rows) {
+      const state = rowState(row)
+      if (state === 'sealed') {
+        total++
+        sealed++
+        sealedRows.push({ table, row })
+      } else if (state === 'plain') {
+        total++
+        plain++
+        plainRows.push({ table, row })
+      }
+    }
+  }
+  return { total, sealed, plain, plainRows, sealedRows }
+}
+
+/**
+ * 只读统计：给设置页显示"还有多少旧格式行"。
+ * 不需要钥匙，锁定态也能算（只看 `_vault` 在不在）。
+ */
+async function migrateStatus (rawDbAction) {
+  const { total, sealed, plain } = await collectByState(rawDbAction)
+  return { ok: true, total, sealed, plain }
+}
+
+/**
+ * 分批迁移：把旧格式明文行封存。每批最多 limit 行。
+ * 中断安全：已封存的行不会再被扫到；剩下的行仍是旧格式、照样能连接。
+ */
+async function migrateBatch (rawDbAction, options = {}, ctx) {
+  const context = ctx || defaultContext()
+  const state = context.state()
+  if (!state.enabled) {
+    return { ok: false, reason: 'no-vault', message: 'vault is not enabled' }
+  }
+  if (!state.unlocked) {
+    return { ok: false, reason: 'vault-locked', message: 'unlock vault before migrating' }
+  }
+  const limit = normalizeLimit(options.limit)
+  const { total, sealed, plain, plainRows } = await collectByState(rawDbAction)
+  const targets = plainRows.slice(0, limit)
+  // 封存在钥匙生命周期内一次做完，写库放到锁外，避免持锁等待 IO
+  const prepared = context.withDek(dek =>
+    targets.map(target => ({ ...target, next: sealRow(target.row, dek) }))
+  )
+  let migrated = 0
+  for (const item of prepared) {
+    try {
+      await rawDbAction(item.table, 'update', { _id: item.row._id }, { $set: withoutId(item.next) }, {})
+      migrated++
+    } catch (e) {
+      // 单行写失败不拖垮整批：下一轮还会扫到它
+    }
+  }
+  return {
+    ok: true,
+    total,
+    sealed: sealed + migrated,
+    done: sealed + migrated,
+    remaining: plain - migrated,
+    migrated
+  }
+}
+
+/**
+ * 停用前反解：把所有 `_vault` 行还原成旧格式明文。
+ * 需要已解锁；单行解不开或写失败都计入 failed，绝不静默删 config。
+ */
+async function unsealAll (rawDbAction, ctx) {
+  const context = ctx || defaultContext()
+  const state = context.state()
+  if (!state.enabled) {
+    return { ok: false, reason: 'no-vault', message: 'vault is not enabled' }
+  }
+  if (!state.unlocked) {
+    return { ok: false, reason: 'vault-locked', message: 'unlock vault before disabling' }
+  }
+  const { sealedRows } = await collectByState(rawDbAction)
+  const prepared = context.withDek(dek =>
+    sealedRows.map(target => ({ ...target, opened: openRow(target.row, dek) }))
+  )
+  let unsealed = 0
+  let failed = 0
+  for (const item of prepared) {
+    if (item.opened.error || !item.opened.row) {
+      failed++
+      continue
+    }
+    try {
+      await rawDbAction(item.table, 'update', { _id: item.row._id }, { $set: withoutId(item.opened.row) }, {})
+      unsealed++
+    } catch (e) {
+      failed++
+    }
+  }
+  return { ok: true, total: sealedRows.length, unsealed, failed }
+}
+
+/**
+ * 按 id 取回一条书签的敏感字段明文（只回凭据，不回其它字段）。
+ * 锁定态拒绝，旧格式行也能取（明文本来就在行里）。
+ * @returns {{ok: true, secrets: {top, hoppings}} | {ok: false, reason}}
+ */
+async function revealSecrets (rawDbAction, id, ctx) {
+  const context = ctx || defaultContext()
+  const state = context.state()
+  if (!state.enabled) {
+    return { ok: false, reason: 'no-vault' }
+  }
+  if (typeof id !== 'string' || !id) {
+    return { ok: false, reason: 'bad-id' }
+  }
+  const row = await rawDbAction('bookmarks', 'findOne', { _id: id })
+  if (!row) {
+    return { ok: false, reason: 'not-found' }
+  }
+  const empty = { top: {}, hoppings: [] }
+  if (!hasSealed(row)) {
+    return { ok: true, secrets: collectSecrets(row) || empty }
+  }
+  if (!state.unlocked) {
+    return { ok: false, reason: 'vault-locked' }
+  }
+  const { row: opened, error } = context.withDek(dek => openRow(row, dek))
+  if (error) {
+    return { ok: false, reason: 'open-failed' }
+  }
+  return { ok: true, secrets: collectSecrets(opened) || empty }
+}
+
 module.exports = {
-  wrapDbAction
+  wrapDbAction,
+  migrateStatus,
+  migrateBatch,
+  unsealAll,
+  revealSecrets
 }

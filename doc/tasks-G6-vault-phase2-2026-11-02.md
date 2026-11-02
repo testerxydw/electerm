@@ -16,10 +16,10 @@
 - [x] 提交 `feat(vault): 主进程书签读写封装与兼容写入开关`
 
 ## T3 · 迁移 / 反解 / 取回
-- [ ] `vault-bookmarks.js` 增 `migrateBatch`、`unsealAll`
-- [ ] `vault-instance.js` 拦截 `migrate`/`migrateStatus`/`unsealAll`/`revealBookmark`/`disable`
-- [ ] 单测：分批上限、中断后剩余数、unsealAll 失败行保留、reveal 只回敏感字段、锁定 disable 拒绝
-- [ ] 提交 `feat(vault): 凭据迁移与停用前反解`
+- [x] `vault-bookmarks.js` 增 `migrateBatch`、`unsealAll`
+- [x] `vault-instance.js` 拦截 `migrate`/`migrateStatus`/`unsealAll`/`revealBookmark`/`disable`
+- [x] 单测：分批上限、中断后剩余数、unsealAll 失败行保留、reveal 只回敏感字段、锁定 disable 拒绝
+- [x] 提交 `feat(vault): 凭据迁移与停用前反解`
 
 ## T4 · 渲染层连接拦截
 - [ ] 新增 `src/client/common/vault-unlock.js`（`requestUnlock` / `onUnlockRequest` / `settleUnlock`）
