@@ -360,11 +360,21 @@ describe('卡点接线契约', () => {
     const KEY = 'src/client/components/setting-panel/setting-ssh-key.jsx'
     // 新建：先只读 checkBookmark，再 runIdle 里写 —— 判重挪进空闲帧就等于"拦了但已经落库"
     const form = read(F)
-    assert.match(form, /checkBookmark\(tar, \{ selfId: obj\.id \}\)/, '改名那条支路要排除自己')
-    assert.match(form, /checkBookmark\(obj\)/, '新建那条支路要判')
-    assert.match(form, /runIdle\(\(\) => \{\s*addBookmark\(obj\)/, '写库留在空闲帧，判重留在当下')
-    assert.equal(form.match(/message\.warning\(e\('bookmarkDuplicateWarn'\)\)/g).length, 2,
-      '两条支路都得给用户一句话，少一条就是静默失败')
+    assert.match(form, /checkBookmark\(tar, \{ selfId: isEdit \? obj\.id : undefined \}\)/,
+      '改名那条支路要排除自己，新建不需要')
+    assert.match(form, /runIdle\(\(\) => \{\s*addBookmark\(obj, \{ force \}\)/,
+      '写库留在空闲帧，判重留在当下')
+    assert.match(form, /runIdle\(\(\) => \{\s*editBookmark\(obj\.id, tar, \{ force \}\)/,
+      '改名单也一样')
+    // 实机踩出来的：界面放行、store 又拦一道，点「仍然保存」就成了"横幅收了、库没动"
+    assert.match(form, /const \{ addBookmark, editBookmark, checkBookmark \} = props\.store/,
+      '卡点从 props.store 取，别在界面里另造一套写库')
+    assert.match(form, /submit = \(evt, item, type = props\.type, \{ force = false \} = \{\}\)/,
+      'force 是提交参数，默认关闭')
+    assert.match(form, /const pristine = copy\(item\)/,
+      '重试要用没被 trim/换 id 污染过的副本，否则等于把用户填的改第二遍')
+    assert.match(form, /if \(!force\) \{[\s\S]{0,400}?submit\(evt, pristine, type, \{ force: true \}\)/,
+      '「仍然保存」要带着 force 把这次提交原样重跑一遍')
     assert.match(read(HISTORY), /addBookmark\(bookmark\)/)
     assert.match(read(AI), /addBookmark\(fixedBm\)/)
     assert.match(read(TREE), /addBookmark\(newbookmark, \{ force: true \}\)/,
@@ -379,9 +389,26 @@ describe('卡点接线契约', () => {
     }
   })
 
+  it('拦截后要看得见：横幅说清撞在哪几条，并留「仍然保存」出口', () => {
+    const form = read('src/client/components/bookmark-form/form-renderer.jsx')
+    assert.match(form, /e\('bookmarkDuplicateWarn'\)/)
+    assert.match(form, /e\('bookmarkSaveAnyway'\)/)
+    assert.match(form, /describeBookmarkTarget\(/, '给人看 root@h:22，不是内部键')
+    assert.match(form, /onValuesChange=\{dismissDuplicate\}/, '字段一改，上一次碰撞就说明不了了')
+    assert.equal(form.includes("message.warning(e('bookmarkDuplicateWarn')"), false,
+      '同一件事只说一遍：toast 和横幅各来一条就是吵')
+    const reset = form.match(/form\.resetFields\(\)[\s\S]{0,160}?\]/)
+    assert.ok(reset && /setDuplicate\(null\)/.test(reset[0]), '切到别的书签要收起旧横幅')
+    const styl = read('src/client/components/bookmark-form/bookmark-form.styl')
+    assert.match(styl, /\.bookmark-dup-warn/)
+  })
+
   it('提示词条 en/zh_cn 成对，别让用户看到 key', () => {
     const extra = require(path.join(ROOT, 'src/app/common/locales-extra'))
-    for (const k of ['bookmarkDuplicateWarn', 'bookmarkDuplicatesSkipped']) {
+    for (const k of [
+      'bookmarkDuplicateWarn', 'bookmarkDuplicatesSkipped',
+      'bookmarkSaveAnyway', 'bookmarkMoreDuplicates'
+    ]) {
       assert.ok(extra.en[k], 'en 词条缺失：' + k)
       assert.ok(extra.zh_cn[k], 'zh_cn 词条缺失：' + k)
     }

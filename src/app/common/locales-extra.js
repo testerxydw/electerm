@@ -1066,6 +1066,8 @@ const en = {
   // 书签查重：同名 + 同连接才算一条重复（判据见 client/common/bookmark-dedup.js）
   bookmarkDuplicateWarn: 'A bookmark with the same name and the same connection already exists',
   bookmarkDuplicatesSkipped: 'duplicate bookmarks skipped (same name and connection)',
+  bookmarkSaveAnyway: 'Save anyway',
+  bookmarkMoreDuplicates: 'more',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: 'Audit center',
   auditTime: 'Time',
@@ -2209,6 +2211,8 @@ const zhCn = {
   sshConfigNothingNew: '本地 ssh 配置里没有新增主机（都已导入过）',
   bookmarkDuplicateWarn: '已有同名且同连接方式的书签',
   bookmarkDuplicatesSkipped: '条重复书签已跳过（同名且同连接）',
+  bookmarkSaveAnyway: '仍然保存',
+  bookmarkMoreDuplicates: '条同类重复',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: '审计中心',
   auditTime: '时间',

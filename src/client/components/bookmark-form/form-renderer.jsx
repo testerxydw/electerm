@@ -2,7 +2,7 @@
  * Generic form renderer driven by config (flattened path)
  */
 import React, { useEffect, useState, useRef } from 'react'
-import { Form, Tabs } from 'antd'
+import { Alert, Button, Form, Tabs } from 'antd'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import { renderFormItem } from './common/fields'
@@ -22,9 +22,13 @@ import getInitItem from '../../common/init-setting-item'
 import testCon from '../../common/test-connection'
 import newTerm from '../../common/new-terminal'
 import { isValidIP } from '../../common/is-ip'
+import { describeBookmarkTarget } from '../../common/bookmark-dedup'
 import { action as manateAction } from 'manate'
 
 const e = window.translate
+
+// 撞车清单一次别印几十条，能看清"哪几条"就够，剩下的报个数
+const maxHitsShown = 4
 
 export default function FormRenderer ({ config, props, onForm }) {
   const initialValues = config.initValues(props)
@@ -32,6 +36,7 @@ export default function FormRenderer ({ config, props, onForm }) {
   const [ips, setIps] = useState([])
   const [authType, setAuthType] = useState(initialValues.authType || authTypeMap.password)
   const [testing, setTesting] = useState(false)
+  const [duplicate, setDuplicate] = useState(null)
   const action = useRef('submit')
 
   // hand the form instance up so the header can read the current values
@@ -50,6 +55,7 @@ export default function FormRenderer ({ config, props, onForm }) {
     const init = config.initValues(props)
     form.resetFields()
     form.setFieldsValue(init)
+    setDuplicate(null)
   }, [
     props.currentBookmarkGroupId,
     props.formData?.id,
@@ -91,7 +97,10 @@ export default function FormRenderer ({ config, props, onForm }) {
     store.setSettingItem(settingItem)
   }
 
-  const submit = (evt, item, type = props.type) => {
+  const submit = (evt, item, type = props.type, { force = false } = {}) => {
+    // 留一份原样的提交给「仍然创建」重试：下面会 trim、删 category、换新 id，
+    // 把这些副作用带进重试等于把用户填的东西改第二遍
+    const pristine = copy(item)
     if (item.host) {
       item.host = item.host.trim()
     }
@@ -102,15 +111,29 @@ export default function FormRenderer ({ config, props, onForm }) {
     const { addBookmark, editBookmark, checkBookmark } = props.store
     const categoryId = obj.category
     delete obj.category
-    if (!obj.id.startsWith(newBookmarkIdPrefix)) {
-      const tar = copy(obj)
-      delete tar.id
-      // 判重同步做（写库挪到空闲帧是性能考虑，不能把"撞了要当场说"一起挪走）
-      if (!checkBookmark(tar, { selfId: obj.id }).ok) {
-        return message.warning(e('bookmarkDuplicateWarn'))
+    const isEdit = !obj.id.startsWith(newBookmarkIdPrefix)
+    const tar = copy(obj)
+    delete tar.id
+    // 判重同步做（写库挪到空闲帧是性能考虑，不能把"撞了要当场说"一起挪走）
+    if (!force) {
+      const res = checkBookmark(tar, { selfId: isEdit ? obj.id : undefined })
+      if (!res.ok) {
+        setDuplicate({
+          hits: res.duplicates,
+          handleRetry: () => {
+            setDuplicate(null)
+            submit(evt, pristine, type, { force: true })
+          }
+        })
+        return
       }
+    }
+    setDuplicate(null)
+    // 用户点了「仍然保存」只说明"界面这一关过了"：store 卡点还会再判一次，
+    // 不把 force 一路带到写库调用，重试就会点一下没反应（横幅收了、库没动）
+    if (isEdit) {
       runIdle(() => {
-        editBookmark(obj.id, tar)
+        editBookmark(obj.id, tar, { force })
       })
       updateBookmarkGroups(
         obj,
@@ -120,12 +143,9 @@ export default function FormRenderer ({ config, props, onForm }) {
         setNewItem()
       }
     } else {
-      if (!checkBookmark(obj).ok) {
-        return message.warning(e('bookmarkDuplicateWarn'))
-      }
       obj.id = generate()
       runIdle(() => {
-        addBookmark(obj)
+        addBookmark(obj, { force })
       })
       updateBookmarkGroups(
         obj,
@@ -136,6 +156,46 @@ export default function FormRenderer ({ config, props, onForm }) {
         : obj
       )
     }
+  }
+
+  // 撞车就说给人听：撞在哪几条（名字 + 目标）、要不要照旧保存，都在按钮上方一屏里
+  const renderDuplicate = () => {
+    if (!duplicate) {
+      return null
+    }
+    const hits = duplicate.hits
+    const shown = hits.slice(0, maxHitsShown).map(d => (
+      <div key={d.id} className='bookmark-dup-item'>
+        {d.title} · {describeBookmarkTarget(d)}
+      </div>
+    ))
+    const rest = hits.length - shown.length
+    if (rest > 0) {
+      shown.push(
+        <div key='more' className='bookmark-dup-item'>
+          +{rest} {e('bookmarkMoreDuplicates')}
+        </div>
+      )
+    }
+    return (
+      <Alert
+        className='bookmark-dup-warn'
+        type='warning'
+        showIcon
+        message={e('bookmarkDuplicateWarn')}
+        description={<div className='bookmark-dup-list'>{shown}</div>}
+        action={
+          <Button
+            size='small'
+            type='primary'
+            danger
+            onClick={duplicate.handleRetry}
+          >
+            {e('bookmarkSaveAnyway')}
+          </Button>
+        }
+      />
+    )
   }
 
   const test = async (update) => {
@@ -299,6 +359,13 @@ export default function FormRenderer ({ config, props, onForm }) {
     setAuthType(newAuthType)
   }
 
+  // 字段一动，上一次碰撞就说明不了了：判重以点保存的那一刻为准
+  const dismissDuplicate = () => {
+    if (duplicate) {
+      setDuplicate(null)
+    }
+  }
+
   const ctxProps = {
     ...props,
     form,
@@ -345,9 +412,11 @@ export default function FormRenderer ({ config, props, onForm }) {
       form={form}
       onFinish={handleFinish}
       initialValues={initialValues}
+      onValuesChange={dismissDuplicate}
       name={formName}
     >
       {content}
+      {renderDuplicate()}
       <SubmitButtons
         onSave={save}
         onSaveAndCreateNew={saveAndCreateNew}
