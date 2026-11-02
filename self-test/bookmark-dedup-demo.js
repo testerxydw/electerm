@@ -35,6 +35,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
 const { spawn } = require('node:child_process')
+const { pathToFileURL } = require('node:url')
 const { getJson, Cdp, sleep, waitFor, findPageTarget, makeChecker } = require('./db-ui-helpers')
 
 const ROOT = path.join(__dirname, '..')
@@ -265,6 +266,90 @@ const HELPERS = `(() => {
   // 等于把"崩在落库上"的写库读成通过（实机踩过：没 id 的书签 → SQLite 绑定失败）
   window.__errNotice = () => [...document.querySelectorAll('.ant-notification-notice')]
     .map(n => n.innerText.replace(/\\s+/g, ' ').trim()).filter(Boolean)
+  // ── B4 存量重复清单：入口徽标 + 弹窗内容 ──
+  window.__xyOf = el => {
+    const t = window.__reveal(el)
+    return t && window.__vis(t) ? window.__xy(t) : null
+  }
+  window.__dupEntry = () => {
+    // 书签工具栏同时渲染两份（侧栏 + 设置面板的书签页）：认"当前点得着的那份"，
+    // 抓第一条会把被弹层盖住/未展开那份的徽标数字当成界面给的数
+    const list = [...document.querySelectorAll('.dup-bookmarks-entry')]
+      .map(b => ({ b, wrap: b.closest('.ant-badge') || b.parentElement }))
+    let hit = null
+    for (const c of list) {
+      window.__reveal(c.b)
+      if (window.__vis(c.b)) {
+        hit = c
+        break
+      }
+    }
+    return hit || list[0] || null
+  }
+  window.__dupBadge = () => {
+    const hit = window.__dupEntry()
+    if (!hit) return null
+    const sup = hit.wrap ? hit.wrap.querySelector('.ant-badge-count') : null
+    return {
+      has: true,
+      count: sup ? sup.innerText.replace(/\\s/g, '') : '',
+      // antd 的 Badge 数为 0 时是 display:none，不是"没了"：读可见性而不是存在性
+      shown: !!sup && sup.getBoundingClientRect().width > 0,
+      xy: window.__xyOf(hit.b)
+    }
+  }
+  // 同名书签在树里有几条：按书签 id 数树节点，不按标题文本数
+  // （标题文本要穿过 highlight/省略号那层包装，且工具栏/树都可能有多份，按 id 才是一条一判）
+  window.__treeCountFor = ids => ids.map(id =>
+    document.querySelectorAll('.tree-item-title[data-item-id="' + id + '"]').length)
+  window.__dupModal = () => {
+    const m = [...document.querySelectorAll('.dup-bookmarks-modal')][0]
+    if (!m || window.__hidden(m)) return null
+    const txt = n => (n ? String(n.textContent) : '').replace(/\\s+/g, ' ').trim()
+    const title = txt(m.querySelector('.ant-modal-title'))
+    const groups = [...m.querySelectorAll('.dup-group')].map(g => ({
+      head: txt(g.querySelector('.dup-group-head')),
+      rows: [...g.querySelectorAll('.dup-row')].map(r => {
+        const box = r.querySelector('input[type=checkbox]')
+        return {
+          id: r.dataset.bkId || '',
+          name: txt(r.querySelector('.dup-row-name')),
+          meta: txt(r.querySelector('.dup-row-meta')),
+          checked: !!box && box.checked,
+          marked: r.className.indexOf('dup-row-del') >= 0,
+          edit: !!r.querySelector('.dup-row-edit')
+        }
+      })
+    }))
+    const btns = [...m.querySelectorAll('button')]
+    const del = btns.find(x => /删除所选|delete selected/i.test(x.innerText.replace(/\\s/g, '')))
+    return {
+      title,
+      groups,
+      delText: txt(del),
+      delDisabled: !del || del.disabled === true,
+      empty: !!m.querySelector('.ant-empty'),
+      emptyText: txt(m.querySelector('.ant-empty'))
+    }
+  }
+  window.__dupRowBoxXY = (gi, ri) => {
+    const g = [...document.querySelectorAll('.dup-group')][gi]
+    const r = g && [...g.querySelectorAll('.dup-row')][ri]
+    return r ? window.__xyOf(r.querySelector('.ant-checkbox')) : null
+  }
+  window.__dupRowEditXY = (gi, ri) => {
+    const g = [...document.querySelectorAll('.dup-group')][gi]
+    const r = g && [...g.querySelectorAll('.dup-row')][ri]
+    return r ? window.__xyOf(r.querySelector('.dup-row-edit')) : null
+  }
+  window.__dupDelXY = () => window.__xyOf(
+    [...document.querySelectorAll('.dup-bookmarks-modal button')]
+      .find(x => /删除所选|delete selected/i.test(x.innerText.replace(/\\s/g, '')))
+  )
+  window.__dupEntryXY = () => {
+    const hit = window.__dupEntry()
+    return hit ? window.__xyOf(hit.b) : null
+  }
   // 只动"这一批"造出来的书签：按 TAG 前缀筛，默认分组与别的书签不参与判据
   window.__snap = tag => JSON.stringify(window.store.bookmarks
     .filter(b => String(b.title || '').indexOf(tag) === 0)
@@ -521,6 +606,127 @@ async function main () {
       uiOnly.filter(d => d.title === TAG + '-kept').length === 1 &&
       uiOnly.length === 4,
     uiOnly.map(d => d.title + '@' + d.host))
+
+  // ── G B4 存量重复清单：入口 → 清单 → 勾选 → 删除 → 空态 ────
+  // 判据在 Node 侧再算一遍（同一份纯模块）：清单列的不是"界面自己攒的一堆"，
+  // 而是 bookmark-dedup 算出来的那几堆 —— 两边对不上就是界面另造了口径
+  const dedup = await import(pathToFileURL(path.join(ROOT, 'src/client/common/bookmark-dedup.js')).href)
+  const all = JSON.parse(await cdp.eval('JSON.stringify(window.store.bookmarks)'))
+  const wantGroups = dedup.groupDuplicateBookmarks(all)
+  const wantExtra = dedup.countDuplicateBookmarks(all)
+  const wantTotal = wantGroups.reduce((n, g) => n + g.items.length, 0)
+  const badge0 = await cdp.eval('window.__dupBadge()')
+  check('清单入口在书签工具栏上，徽标数的是"多出来的条数"（不是组数）',
+    !!badge0 && badge0.has === true && badge0.shown === true && badge0.count === String(wantExtra),
+    { badge: badge0, wantExtra })
+  await click(await cdp.eval('window.__dupEntryXY()'), 900)
+  const modal0 = await cdp.eval('window.__dupModal()')
+  const titleTotal = modal0 ? Number((modal0.title.match(/\((\d+)\)\s*$/) || [])[1]) : -1
+  check('点入口开出清单，标题给出重复总条数',
+    !!modal0 && titleTotal === wantTotal, { title: modal0 && modal0.title, wantTotal })
+  const shapeOk = !!modal0 && modal0.groups.length === wantGroups.length &&
+    modal0.groups.every((g, i) => {
+      const w = wantGroups[i]
+      return g.rows.length === w.items.length &&
+        g.rows.every(r => r.name === w.title) &&
+        g.head.indexOf(w.title) >= 0 && g.head.indexOf(w.target) >= 0
+    })
+  check('清单列的就是判据算出来的那几堆（组、条数、目标一一对上）',
+    shapeOk, {
+      got: modal0 ? modal0.groups.map(g => g.rows.length + '|' + g.head) : null,
+      want: wantGroups.map(g => g.items.length + '|' + g.title + ' ' + g.target)
+    })
+  check('默认"每组留第一条、勾其余"，删除态与勾选态一致',
+    !!modal0 && modal0.groups.every(g => g.rows.length > 1 &&
+      g.rows[0].checked === false && g.rows.slice(1).every(r => r.checked === true) &&
+      g.rows.every(r => r.marked === r.checked)), modal0 && modal0.groups)
+  check('每行都给出"编辑"这条出路（改名就不算重复，不必非得删）',
+    !!modal0 && modal0.groups.every(g => g.rows.every(r => r.edit === true)), modal0 && modal0.groups)
+  const checked0 = modal0 ? modal0.groups.reduce((n, g) => n + g.rows.filter(r => r.checked).length, 0) : -1
+  check('删除按钮报的数 = 当前勾选数',
+    !!modal0 && modal0.delText.indexOf('(' + checked0 + ')') >= 0 && modal0.delDisabled === false,
+    modal0 && modal0.delText)
+  // 勾选是用户说了算的：点第一条也要跟上（默认只留第一条，不是"第一条锁死"）
+  await click(await cdp.eval('window.__dupRowBoxXY(0, 0)'), 600)
+  const modal1 = await cdp.eval('window.__dupModal()')
+  const picked = modal1 && modal1.groups[0].rows[0]
+  check('勾掉"保留的第一条"也认：勾选态、行删除态、按钮计数三处同步',
+    !!picked && picked.checked === true && picked.marked === true &&
+      modal1.delText.indexOf('(' + (checked0 + 1) + ')') >= 0,
+    { picked, delText: modal1 && modal1.delText })
+  await click(await cdp.eval('window.__dupRowBoxXY(0, 0)'), 600)
+  await shot('5-dup-list-dark.png')
+
+  // 逐行"编辑"：关掉清单并把这条打开到表单 —— 改名脱离重复是比删除更常做的事
+  await click(await cdp.eval('window.__dupRowEditXY(0, 1)'), 900)
+  const g0name = wantGroups[0] ? wantGroups[0].title : ''
+  const formShown = await waitFor(cdp, 'window.__get(' + TITLE + ') === ' + J(g0name),
+    '行内编辑没把这条打开到表单', 9000)
+  const modalGone = !(await cdp.eval('window.__dupModal()'))
+  check('行内"编辑"会收起清单并把这条打开到书签表单',
+    formShown && modalGone, { formShown, modalGone, want: g0name })
+  await click(await cdp.eval('window.__dupEntryXY()'), 900)
+  const reopened = await cdp.eval('window.__dupModal()')
+  check('重新打开清单默认勾选回到"留第一条"，没把上一轮的勾选冻在旧名单上',
+    !!reopened && reopened.groups.length === wantGroups.length &&
+      reopened.groups.every(g => g.rows[0].checked === false),
+    reopened && reopened.groups.map(g => g.rows.map(r => (r.checked ? 1 : 0)).join('')))
+
+  // 树的判据只认"从表单建出来那一组"：E 段的探针书签是直接喂 store 的，
+  // 没进任何分类，本来就不挂在树上（fixBookmarkGroups 只在导入/启动时收编散条），
+  // 拿它们要求"树上必须有"会红得莫名其妙
+  const webRows = modal0
+    ? ((modal0.groups.find(g => g.head.indexOf(T1) >= 0) || {}).rows || [])
+    : []
+  const webDel = webRows.filter(r => r.marked).map(r => r.id)
+  const webKeep = webRows.filter(r => !r.marked).map(r => r.id)
+  const probeIds = webDel.concat(webKeep)
+  const tree0 = JSON.parse(await cdp.eval(
+    'JSON.stringify(window.__treeCountFor(' + J(probeIds) + '))'))
+  check('待删与待留的书签此刻都挂在书签树上（下面才知道删完是不是真的摘掉了）',
+    webDel.length === 1 && webKeep.length >= 1 && tree0.every(n => n >= 1),
+    { webDel, webKeep, tree0 })
+
+  const before = JSON.parse(await cdp.eval('JSON.stringify(window.store.bookmarks.length)'))
+  await click(await cdp.eval('window.__dupDelXY()'), 1200)
+  const after = JSON.parse(await cdp.eval('JSON.stringify(window.store.bookmarks.length)'))
+  check('删除所选后书签真的少了（少的就是勾选那几条，不是整组）',
+    before - after === checked0, { before, after, checked0 })
+  const tree1 = JSON.parse(await cdp.eval(
+    'JSON.stringify(window.__treeCountFor(' + J(probeIds) + '))'))
+  const stillDup = JSON.parse(await cdp.eval(
+    'JSON.stringify(window.store.bookmarks.filter(b => b.title === ' + J(T1) +
+    ' && b.host === ' + J(H1) + ').length)'))
+  check('侧栏书签树跟着更新：勾掉的那条从树上摘干净，保留的那条没被顺手带走',
+    tree1.slice(0, webDel.length).every(n => n === 0) &&
+      tree1.slice(webDel.length).every(n => n >= 1),
+    { probeIds, tree0, tree1 })
+  check('库里同名同连接真的只剩一条', stillDup === 1, { stillDup })
+  const groupLeak = JSON.parse(await cdp.eval(`(() => {
+    const ids = new Set(window.store.bookmarks.map(b => b.id))
+    return JSON.stringify(window.store.bookmarkGroups
+      .filter(g => (g.bookmarkIds || []).some(id => !ids.has(id)))
+      .map(g => g.title))
+  })()`))
+  check('删掉的书签不会在分类里留下悬空 id（走了既有的分组收口）',
+    groupLeak.length === 0, groupLeak)
+  const badge1 = await cdp.eval('window.__dupBadge()')
+  check('清完之后徽标不再显示数字（入口留在原位，不是整个消失）',
+    !!badge1 && badge1.has === true && badge1.shown === false, badge1)
+  await click(await cdp.eval('window.__dupEntryXY()'), 900)
+  const modal2 = await cdp.eval('window.__dupModal()')
+  check('再打开是空态："没有重复书签"，不是一片看起来像坏了的空白',
+    !!modal2 && modal2.empty === true && modal2.groups.length === 0 &&
+      msgRe('noDuplicateBookmarks').test(modal2.emptyText), modal2)
+  await shot('6-dup-list-empty.png')
+  await click(await cdp.eval(`(() => {
+    const m = [...document.querySelectorAll('.dup-bookmarks-modal button')]
+      .find(x => /^(关闭|close)$/i.test(x.innerText.replace(/\\s/g, '')))
+    return m && window.__vis(m) ? window.__xy(m) : null
+  })()`), 700)
+  const notices2 = await cdp.eval('window.__errNotice()')
+  check('清单这一路（打开/勾选/编辑/删除）没弹任何报错通知',
+    (notices2 || []).length === 0, notices2)
 
   const failed = results.filter(r => !r.ok)
   console.log('—— 书签查重实机：' + (results.length - failed.length) + '/' + results.length + ' 通过 ——')

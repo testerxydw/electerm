@@ -302,6 +302,83 @@
   color var(--text-dark)
   font-size 12px
 
+// B4「查看重复书签」清单
+// 每一组 = 一组"同名 + 同连接"的书签；勾掉的行整行压暗，
+// 让"这条要被删"在扫一眼时就能看出来，而不必逐个去读勾选框
+.dup-bookmarks-modal
+  .ant-modal-body
+    max-height 60vh
+    overflow auto
+    padding-top var(--sp-2)
+.dup-group
+  margin-bottom var(--sp-4)
+.dup-group-head
+  display flex
+  align-items center
+  gap var(--sp-2)
+  padding var(--sp-1) var(--sp-2)
+  margin-bottom var(--sp-1)
+  border-left 2px solid var(--primary)
+  background var(--surface-3)
+  border-radius var(--radius-xs)
+  font-size var(--fs)
+  color var(--text)
+.dup-group-title
+  font-weight 600
+.dup-group-target
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  color var(--text-muted)
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+.dup-row
+  display flex
+  align-items center
+  gap var(--sp-2)
+  padding var(--sp-1) var(--sp-2)
+  border-radius var(--radius-xs)
+  font-size var(--fs)
+  &:hover
+    background var(--hover-bg)
+.dup-row-name
+  flex 0 1 auto
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+.dup-row-meta
+  flex 1 1 auto
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  color var(--text-muted)
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+.dup-row-group
+  flex none
+  font-size var(--fs-xs)
+  color var(--text-muted)
+  padding 0 var(--sp-2)
+  height 18px
+  line-height 18px
+  border-radius var(--radius-pill)
+  background var(--surface-3)
+// 勾上 = 待删：文字压淡 + 划掉，跟"已经决定不要了"这个意思对上
+.dup-row-del
+  background var(--error-bg)
+  .dup-row-name
+    color var(--text-muted)
+    text-decoration line-through
+.dup-modal-foot
+  display flex
+  align-items center
+  justify-content space-between
+  gap var(--sp-2)
+.dup-modal-foot-tip
+  font-size var(--fs-sm)
+  color var(--text-muted)
+  text-align left
+
 @keyframes tree-dot-breathe
   0%, 100%
     opacity 1

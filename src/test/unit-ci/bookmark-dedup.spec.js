@@ -407,10 +407,45 @@ describe('卡点接线契约', () => {
     const extra = require(path.join(ROOT, 'src/app/common/locales-extra'))
     for (const k of [
       'bookmarkDuplicateWarn', 'bookmarkDuplicatesSkipped',
-      'bookmarkSaveAnyway', 'bookmarkMoreDuplicates'
+      'bookmarkSaveAnyway', 'bookmarkMoreDuplicates',
+      'dupBookmarks', 'dupBookmarkKeepTip', 'dupBookmarkEditTip',
+      'noDuplicateBookmarks', 'deleteSelected'
     ]) {
       assert.ok(extra.en[k], 'en 词条缺失：' + k)
       assert.ok(extra.zh_cn[k], 'zh_cn 词条缺失：' + k)
     }
+  })
+
+  it('存量重复给一条看得见的清理路：工具栏入口 + 清单弹窗', () => {
+    const TOOLBAR = 'src/client/components/tree-list/bookmark-toolbar.jsx'
+    const MODAL = 'src/client/components/tree-list/duplicate-bookmarks-modal.jsx'
+    const toolbar = read(TOOLBAR)
+    const modal = read(MODAL)
+    // 徽标数"多出来的条数"，和导入报的数同一个口径（不是组数）
+    assert.match(toolbar, /countDuplicateBookmarks\(bookmarks/,
+      '入口要带重复条数，不然没人知道自己有存量重复')
+    assert.match(toolbar, /<Badge count=\{dupCount\}/)
+    assert.match(toolbar, /import DuplicateBookmarksModal from '\.\/duplicate-bookmarks-modal'/)
+    assert.match(toolbar, /<DuplicateBookmarksModal[\s\S]*bookmarkGroups=\{bookmarkGroups\}/,
+      '清单要知道每条挂在哪个分类下，删完才知道少了谁')
+    // 判重口径只能有一处：清单复用同一个分组函数，不在界面里再算一遍
+    assert.match(modal, /groupDuplicateBookmarks\(bookmarks\)/)
+    assert.equal(/isSameBookmark|bookmarkConnKey/.test(modal), false,
+      '清单不许自己另造判据')
+    // 默认"留第一条、勾其余"，且只记用户显式改过的行
+    assert.match(modal, /item\.id in picks \? picks\[item\.id\] : index > 0/,
+      '默认勾选跟着当前列表走，不能冻在上一轮的名单上')
+    // 删除走既有收口：数组 + 分组残留 id + 设置面板选中项
+    assert.match(modal, /store\.delItems\(selected, settingMap\.bookmarks\)/)
+    assert.match(modal, /store\.fixBookmarkGroups\(\)/, '分组里会留下悬空 id')
+    assert.match(modal, /store\.onDelItem\(it, settingMap\.bookmarks\)/,
+      '正在编辑的那条被删掉时，设置面板要收回空态')
+    assert.match(modal, /window\.store\.openBookmarkEdit\(item\)/,
+      '另一条出路：改个名字就不算重复了，不必非得删')
+    assert.match(modal, /<Empty description=\{e\('noDuplicateBookmarks'\)\} \/>/,
+      '清完要给空态，否则看着像列表坏了')
+    const styl = read('src/client/components/tree-list/tree-list.styl')
+    assert.match(styl, /\.dup-group-head/)
+    assert.match(styl, /\.dup-row-del/)
   })
 })

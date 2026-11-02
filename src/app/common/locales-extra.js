@@ -1068,6 +1068,12 @@ const en = {
   bookmarkDuplicatesSkipped: 'duplicate bookmarks skipped (same name and connection)',
   bookmarkSaveAnyway: 'Save anyway',
   bookmarkMoreDuplicates: 'more',
+  // B4 存量重复清单：拦得住新的，拦不掉已有的
+  dupBookmarks: 'Duplicate bookmarks',
+  dupBookmarkKeepTip: 'Kept by default: the first of each group. Tick the extras you want to delete.',
+  dupBookmarkEditTip: 'Rename it and it stops being a duplicate',
+  noDuplicateBookmarks: 'No duplicate bookmarks',
+  deleteSelected: 'Delete selected',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: 'Audit center',
   auditTime: 'Time',
@@ -1161,7 +1167,7 @@ const en = {
   vaultDisable: 'Disable vault',
   vaultDisableConfirm: 'Delete the vault? Saved credentials stay readable, but the master-password layer goes away.',
   vaultDisabled: 'Vault disabled',
-  vaultPhaseCancelTip: 'Skipping is safe for now: no saved credential uses the vault yet, so staying locked changes nothing today.'
+  vaultPhaseCancelTip: 'Skipping is safe for now: no saved credential uses the vault yet, so staying locked changes nothing today.',
 }
 
 // 简体中文
@@ -2213,6 +2219,12 @@ const zhCn = {
   bookmarkDuplicatesSkipped: '条重复书签已跳过（同名且同连接）',
   bookmarkSaveAnyway: '仍然保存',
   bookmarkMoreDuplicates: '条同类重复',
+  // B4 存量重复清单：拦得住新建，拦不掉已经存下来的重复
+  dupBookmarks: '重复书签',
+  dupBookmarkKeepTip: '默认每组保留第一条；勾上你确定要删的其余条。',
+  dupBookmarkEditTip: '改个名字就不再算重复了',
+  noDuplicateBookmarks: '没有重复书签',
+  deleteSelected: '删除所选',
   // G8 审计中心：三来源（连接历史/传输历史/日志目录）合成一条时间线
   auditCenter: '审计中心',
   auditTime: '时间',
@@ -2306,7 +2318,7 @@ const zhCn = {
   vaultDisable: '停用保险库',
   vaultDisableConfirm: '删除保险库？已存凭据照样能用，只是没了主密码这一层。',
   vaultDisabled: '保险库已停用',
-  vaultPhaseCancelTip: '现在跳过没有影响：还没有凭据走保险库，锁定状态今天不会改变什么。'
+  vaultPhaseCancelTip: '现在跳过没有影响：还没有凭据走保险库，锁定状态今天不会改变什么。',
 }
 
 module.exports = {

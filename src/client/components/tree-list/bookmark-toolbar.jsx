@@ -6,16 +6,19 @@ import {
   CodeOutlined,
   MenuOutlined,
   EditOutlined,
-  ApiOutlined
+  ApiOutlined,
+  CopyOutlined
 } from '@ant-design/icons'
 import { useState } from 'react'
-import { Button, Space, Dropdown, Flex, Modal, Input } from 'antd'
+import { Badge, Button, Space, Dropdown, Flex, Modal, Input } from 'antd'
 import copy from 'json-deep-copy'
 import time from '../../common/time'
 import download from '../../common/download'
 import Upload from '../common/upload'
 import { beforeBookmarkUpload } from './bookmark-upload'
 import { parseDbUri } from '../../common/db-uri'
+import { countDuplicateBookmarks } from '../../common/bookmark-dedup'
+import DuplicateBookmarksModal from './duplicate-bookmarks-modal'
 import { dbTypeLabelMap } from '../../common/constants'
 import newTerm from '../../common/new-terminal'
 
@@ -80,6 +83,10 @@ export default function BookmarkToolbar (props) {
     delete window.openTabBatch
     setQuickOpen(false)
   }
+  // B4：拦得住新的，拦不掉已有的 —— 存量重复给一条看得见的路。
+  // 徽标数的是"多出来的条数"（3 条同名同连接 = 2），和导入时报的数是同一个口径。
+  const [dupOpen, setDupOpen] = useState(false)
+  const dupCount = countDuplicateBookmarks(bookmarks || [])
   const titleNew = `${e('new')} ${e('bookmarks')}`
   const titleEdit = `${e('new')} ${e('bookmarkCategory')}`
   const items = [
@@ -117,6 +124,11 @@ export default function BookmarkToolbar (props) {
       label: e('loadSshConfigs'),
       onClick: onSshConfigs,
       icon: <CodeOutlined />
+    },
+    {
+      label: e('dupBookmarks'),
+      onClick: () => setDupOpen(true),
+      icon: <CopyOutlined />
     }
   ]
 
@@ -167,6 +179,14 @@ export default function BookmarkToolbar (props) {
               onClick={openQuickConnect}
               title={e('dbQuickConnect')}
             />
+            <Badge count={dupCount} size='small' offset={[-2, 4]}>
+              <Button
+                icon={<CopyOutlined />}
+                onClick={() => setDupOpen(true)}
+                title={e('dupBookmarks')}
+                className='dup-bookmarks-entry'
+              />
+            </Badge>
           </Space.Compact>
         </div>
         <div>
@@ -204,6 +224,20 @@ export default function BookmarkToolbar (props) {
               }
               <div className='db-uri-tip'>{e('dbQuickConnectTip')}</div>
             </Modal>
+            )
+          : null
+      }
+      {
+        // B4 存量重复清单：关掉即卸载，下次打开重新按"留第一条、勾其余"起算，
+        // 不会把上一轮没清完的勾选当成这一轮的默认
+        dupOpen
+          ? (
+            <DuplicateBookmarksModal
+              open={dupOpen}
+              bookmarks={bookmarks}
+              bookmarkGroups={bookmarkGroups}
+              onClose={() => setDupOpen(false)}
+            />
             )
           : null
       }
