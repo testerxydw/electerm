@@ -146,3 +146,4 @@ redis.png
 self-test/db-sql-value-realdb-shots/
 self-test/db-sql-workbench-realdb-shots/
 self-test/db-sql-params-realdb-shots/
+self-test/db-dictionary-realdb-shots/
