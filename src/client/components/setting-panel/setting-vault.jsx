@@ -296,7 +296,7 @@ export default class SettingVault extends Component {
   }
 
   renderEnable () {
-    const { enable, busy, recoveryCode } = this.state
+    const { enable, busy } = this.state
     const passProps = {
       className: 'vault-pass',
       value: enable.masterPassword,
@@ -338,9 +338,6 @@ export default class SettingVault extends Component {
             {e('vaultEnable')}
           </Button>
         </div>
-        {
-          recoveryCode ? this.renderRecovery(recoveryCode) : null
-        }
       </div>
     )
   }
@@ -631,7 +628,7 @@ export default class SettingVault extends Component {
   }
 
   render () {
-    const { loading } = this.state
+    const { loading, recoveryCode } = this.state
     return (
       <div className='form-wrap pd1y pd2x setting-vault'>
         <div className='pd1y font16 bold'>
@@ -645,6 +642,11 @@ export default class SettingVault extends Component {
           loading
             ? <div className='pd1x aligncenter'>{e('loading')}</div>
             : this.renderBody()
+        }
+        {
+          // 恢复码只在这一次返回，而"建好库"这一刻正好把表单换成管理视图 ——
+          // 挂在 renderEnable 里等于永远不给看，所以挂在 render：换什么视图都得看得见。
+          recoveryCode ? this.renderRecovery(recoveryCode) : null
         }
       </div>
     )

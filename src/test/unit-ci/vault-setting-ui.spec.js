@@ -137,6 +137,17 @@ describe('明文与越权边界', () => {
     assert.match(panel, /vaultRecoveryOnce/)
     assert.match(panel, /vaultRecoveryWarn/)
   })
+
+  it('恢复码挂在 render，不挂在建库表单里（建好库那一刻表单就换成管理视图）', () => {
+    const panel = read(PANEL)
+    const body = panel.match(/renderBody \(\) \{[\s\S]*?\n {2}\}/)
+    const enable = panel.match(/renderEnable \(\) \{[\s\S]*?\n {2}\}/)
+    const render = panel.match(/\n {2}render \(\) \{[\s\S]*?\n {2}\}/)
+    assert.ok(body && enable && render, 'renderBody/renderEnable/render 有一个改名了，判据要先跟着改')
+    assert.equal(body[0].includes('renderRecovery'), false, '管理视图里不该再渲染恢复码（由 render 统一挂）')
+    assert.equal(enable[0].includes('renderRecovery'), false, '恢复码不能只在建库表单里渲染')
+    assert.match(render[0], /recoveryCode \? this\.renderRecovery\(recoveryCode\)/)
+  })
 })
 
 describe('输入取值契约', () => {
