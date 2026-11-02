@@ -25,8 +25,10 @@ import {
   Input,
   InputNumber,
   Popconfirm,
+  Progress,
   Radio,
   Space,
+  Switch,
   Tag
 } from 'antd'
 import message from '../common/message'
@@ -63,6 +65,12 @@ export default class SettingVault extends Component {
     busy: '',
     // 恢复码原文只活在这里：主进程只在 enable 成功那一次返回它
     recoveryCode: '',
+    // migrateStatus 的结果：total/sealed/plain，plain>0 表示还有旧格式行
+    migration: null,
+    // 本页正在跑批（不是库里的 migrating 标记）
+    migrating: false,
+    // 用户点了"稍后"：本页不再自动弹迁移块，刷新页面才回来
+    migrationLater: false,
     error: ''
   }
 
@@ -116,8 +124,61 @@ export default class SettingVault extends Component {
     const patch = { status }
     if (status && status.ok !== false && status.enabled) {
       patch.enable = { ...this.state.enable, autoLockMin: status.autoLockMin }
+      // 迁移进度是只读的独立查询，别 await：拖住状态上屏不值得
+      this.loadMigration()
     }
     this.setState(patch)
+  }
+
+  /** 只读：只问"还有几行旧格式"，锁定态也能问 */
+  loadMigration = async () => {
+    if (!this.mounted) {
+      return
+    }
+    const r = await vaultOp('migrateStatus')
+    if (this.mounted && r && r.ok) {
+      this.setState({ migration: r })
+    }
+  }
+
+  /**
+   * 一批 50 行往前推，直到 remaining 归零或主进程报错。
+   * 中途失败不假装完成：进度停在已搬完的位置，下一轮还能接着走。
+   */
+  handleMigrate = async () => {
+    this.setState({ migrating: true, error: '' })
+    let last = null
+    while (this.mounted) {
+      const r = await vaultOp('migrate', { limit: 50 })
+      if (!r || !r.ok) {
+        // 锁定态会在这里回 vault-locked：翻成"请先解锁"，别把 inProgress 当成功
+        this.setState({ error: vaultErrorText(r, e) })
+        break
+      }
+      last = r
+      this.setState({
+        migration: {
+          ok: true,
+          total: r.total,
+          sealed: r.sealed,
+          plain: r.remaining
+        }
+      })
+      if (r.remaining <= 0) {
+        break
+      }
+      // 一行都没搬动就停手：单行写库全失败时主进程仍回 ok:true + remaining 不变，
+      // 不停下来就是拿 IPC 刷死循环。剩下的下一轮还能继续。
+      if (r.migrated <= 0) {
+        break
+      }
+    }
+    const status = await vaultOp('status')
+    if (this.mounted) {
+      this.setState({ migrating: false })
+      this.applyStatus(status)
+    }
+    return last
   }
 
   handleLoadStatus = async () => {
@@ -542,13 +603,93 @@ export default class SettingVault extends Component {
     )
   }
 
+  /**
+   * 只在"库开着、且确实有活要干"时出现：迁移跑到一半（库里 migrating 标记），
+   * 或者还有旧格式行没搬。没有活可干时摆一个 100% 的进度条纯属噪音。
+   */
+  renderMigration () {
+    const { status, migration, migrationLater, migrating } = this.state
+    if (
+      !migration ||
+      migrationLater ||
+      !(status && status.ok !== false && status.enabled) ||
+      !(status.migrating || migration.plain > 0)
+    ) {
+      return null
+    }
+    const percent = migration.total
+      ? Math.round((migration.sealed / migration.total) * 100)
+      : 100
+    return (
+      <div className='vault-block'>
+        <div className='vault-block-title font16 bold pd1y'>{e('vaultMigrating')}</div>
+        <div className='vault-intro pd1b'>{e('vaultMigrateIntro')}</div>
+        <div className='pd1b'>
+          <Progress percent={percent} />
+          <span className='vault-intro'>
+            {migration.sealed} / {migration.total}
+          </span>
+        </div>
+        <Space size={6} wrap>
+          <Button
+            type='primary'
+            loading={migrating}
+            disabled={migrating || vaultState(status) === 'locked'}
+            onClick={this.handleMigrate}
+          >
+            {e('vaultMigrateResume')}
+          </Button>
+          <Button
+            disabled={migrating}
+            onClick={() => this.setState({ migrationLater: true })}
+          >
+            {e('vaultMigrateLater')}
+          </Button>
+        </Space>
+      </div>
+    )
+  }
+
+  /** 回滚开关：打开后新写凭据仍走旧格式，迁移与连接两条路都照旧可用 */
+  renderLegacyWrite () {
+    const { status, busy } = this.state
+    return (
+      <div className='vault-block'>
+        <div className='vault-block-title font16 bold pd1y'>{e('vaultLegacyWrite')}</div>
+        <div className='pd1b'>
+          <Switch
+            checked={!!status.legacyWrite}
+            loading={busy === 'setLegacyWrite'}
+            disabled={busy === 'setLegacyWrite'}
+            onChange={checked => this.run('setLegacyWrite', { value: !!checked }, null, null)}
+          />
+        </div>
+        <div className='vault-intro'>{e('vaultLegacyWriteHint')}</div>
+      </div>
+    )
+  }
+
   renderDisable () {
     const { disable, busy } = this.state
     const can = hasCredential(disable)
+    const sealed = this.state.migration ? this.state.migration.sealed : 0
     return (
       <div className='vault-block'>
         <div className='vault-block-title font16 bold pd1y'>{e('vaultDisableTitle')}</div>
         <div className='vault-intro pd1b'>{e('vaultDisableIntro')}</div>
+        {
+          // 有封存行时停用会先反解再删库：不说一声，用户会以为库里的东西直接没了
+          sealed > 0
+            ? (
+              <Alert
+                className='vault-intro pd1b'
+                type='info'
+                showIcon
+                message={e('vaultUnsealBeforeDisable')}
+              />
+              )
+            : null
+        }
         <div className='pd1b'>
           <div className='inline-title mg1r'>{e('vaultCurrentPassword')}</div>
           <Input.Password
@@ -650,6 +791,8 @@ export default class SettingVault extends Component {
               )
             : this.renderUnlockedTools()
         }
+        {this.renderMigration()}
+        {this.renderLegacyWrite()}
         {
           state === 'locked' ? this.renderUnlock() : null
         }

@@ -29,11 +29,11 @@
 - [x] 提交 `feat(vault): 锁定态拦截新建连接并自动续解锁`
 
 ## T5 · 设置页与表单提示
-- [ ] `setting-vault.jsx`：迁移进度块（`migrateStatus` + 分批续跑）、`legacyWrite` 开关、停用前反解
-- [ ] `form-renderer.jsx`：锁定态 Alert
-- [ ] `locales-extra.js`：10 条新词条（中英）
-- [ ] 单测 `vault-setting-ui.spec.js` 增源码契约
-- [ ] 提交 `feat(vault): 设置页迁移入口与锁定态表单提示`
+- [x] `setting-vault.jsx`：迁移进度块（`migrateStatus` + 分批续跑）、`legacyWrite` 开关、停用前反解
+- [x] `form-renderer.jsx`：锁定态 Alert
+- [x] `locales-extra.js`：10 条新词条（中英，T4 已提前加 `vaultNeedUnlockToConnect`，本阶段补 9 条）
+- [x] 单测 `vault-setting-ui.spec.js` 增源码契约
+- [x] 提交 `feat(vault): 设置页迁移入口与锁定态表单提示`
 
 ## T6 · 真实例验收与文档
 - [ ] `self-test/vault-phase2-demo.js`（临时 HOME：启用→迁移→检查行内无明文→锁定拦截→解锁续连→停用回填）

@@ -23,6 +23,7 @@ const errorKeyMap = {
   'bad-auto-lock': 'vaultBadAutoLock',
   'already-enabled': 'vaultAlreadyEnabled',
   'bad-recovery-code': 'vaultBadRecoveryCode',
+  'unseal-failed': 'vaultUnsealFailed',
   empty: 'vaultNeedCredential'
 }
 

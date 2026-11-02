@@ -23,6 +23,8 @@ import testCon from '../../common/test-connection'
 import newTerm from '../../common/new-terminal'
 import { isValidIP } from '../../common/is-ip'
 import { describeBookmarkTarget } from '../../common/bookmark-dedup'
+import { onVaultChange } from '../../common/vault-notify'
+import { vaultState } from '../../common/vault-ui'
 import { action as manateAction } from 'manate'
 
 const e = window.translate
@@ -37,7 +39,26 @@ export default function FormRenderer ({ config, props, onForm }) {
   const [authType, setAuthType] = useState(initialValues.authType || authTypeMap.password)
   const [testing, setTesting] = useState(false)
   const [duplicate, setDuplicate] = useState(null)
+  const [vaultLocked, setVaultLocked] = useState(false)
   const action = useRef('submit')
+
+  // 锁定态下密码/私钥/口令暂不可见：这条提示只在库里没钥匙时出现，
+  // 解锁/锁定都会走通知总线，表单开着的时候也得跟着变
+  useEffect(() => {
+    let alive = true
+    const read = async () => {
+      const s = await window.pre.runGlobalAsync('vaultOp', 'status').catch(() => null)
+      if (alive) {
+        setVaultLocked(vaultState(s) === 'locked')
+      }
+    }
+    read()
+    const off = onVaultChange(read)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
 
   // hand the form instance up so the header can read the current values
   useEffect(() => {
@@ -415,6 +436,7 @@ export default function FormRenderer ({ config, props, onForm }) {
       onValuesChange={dismissDuplicate}
       name={formName}
     >
+      {vaultLocked ? <Alert className='bookmark-vault-locked' type='info' showIcon message={e('vaultSealedFormHint')} /> : null}
       {content}
       {renderDuplicate()}
       <SubmitButtons

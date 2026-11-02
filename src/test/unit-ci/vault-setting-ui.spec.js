@@ -13,6 +13,7 @@ const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
 const PANEL = 'src/client/components/setting-panel/setting-vault.jsx'
 const LOCK = 'src/client/components/setting-panel/vault-lock.jsx'
+const FORM = 'src/client/components/bookmark-form/form-renderer.jsx'
 const LIST = 'src/client/common/setting-list.js'
 const TABS = 'src/client/components/setting-panel/tab-settings.jsx'
 const FOOTER = 'src/client/components/footer/footer-entry.jsx'
@@ -78,6 +79,11 @@ describe('入口接线', () => {
     const known = new Set(
       [...handlers[1].matchAll(/^\s+([a-zA-Z]+),?$/gm)].map(m => m[1])
     )
+    // 迁移/反解这几个动作没进服务层 handlers，而是 vault-instance 先拦截：
+    // 它们要碰 DB，服务层不该知道 DB 的存在
+    const instance = read('src/app/lib/vault-instance.js')
+    const intercepted = [...instance.matchAll(/action === '([a-zA-Z]+)'/g)].map(m => m[1])
+    for (const a of intercepted) known.add(a)
     assert.ok(known.size >= 9, '服务动作比想象少：' + [...known].join(', '))
     const src = read(PANEL) + read(LOCK)
     const callRe = /(?:vaultOp|this\.run)\(\s*(?:[\w.]+\s*\?\s*)?'([a-zA-Z]+)'(?:\s*:\s*'([a-zA-Z]+)')?/g
@@ -227,5 +233,82 @@ describe('样式契约', () => {
     const badRadius = lines.filter(l => /border-radius\s+\d/.test(l))
     assert.deepEqual(badRadius, [], '圆角必须走 token：' + badRadius.join(' | '))
     assert.equal(/box-shadow/.test(styl), false, '新组件不引入阴影')
+  })
+})
+
+describe('阶段② 迁移 / 兼容写入 / 表单锁定提示', () => {
+  it('迁移块的读写都走 vaultOp，且只在有活要干时出现', () => {
+    // 读（loadMigration）/ 跑批（handleMigrate）/ 渲染（renderMigration）各管一段，
+    // 分开取函数体才不会因为"动作没写在渲染函数里"误判
+    const src = read(PANEL)
+    const load = src.match(/loadMigration = async \(\) => \{[\s\S]*?\n {2}\}/)
+    const run = src.match(/handleMigrate = async \(\) => \{[\s\S]*?\n {2}\}/)
+    const view = src.match(/renderMigration \(\) \{[\s\S]*?\n {2}\}/)
+    assert.ok(load && run && view, '迁移相关方法改名了，判据要先跟着改')
+    assert.match(load[0], /vaultOp\('migrateStatus'\)/, '进度得来自只读的 migrateStatus')
+    assert.match(run[0], /vaultOp\('migrate'/, '跑批走 migrate（带 limit）')
+    assert.match(view[0], /vaultMigrateResume/)
+    assert.match(view[0], /vaultMigrateLater/)
+    // 显示条件：库里还挂着 migrating 标记，或者还有旧格式行
+    assert.match(view[0], /status\.migrating/)
+    assert.match(view[0], /migration\.plain/)
+  })
+
+  it('legacyWrite 走统一动作入口，且带说明词条', () => {
+    const body = read(PANEL).match(/renderLegacyWrite \(\) \{[\s\S]*?\n {2}\}/)
+    assert.ok(body, 'renderLegacyWrite 找不到了，判据要先跟着改')
+    assert.match(body[0], /this\.run\('setLegacyWrite'/)
+    assert.match(read(PANEL), /vaultLegacyWriteHint/)
+  })
+
+  it('停用前反解提示只在确有封存行时渲染', () => {
+    const body = read(PANEL).match(/renderDisable \(\) \{[\s\S]*?\n {2}\}/)
+    assert.ok(body, 'renderDisable 找不到了，判据要先跟着改')
+    assert.match(body[0], /vaultUnsealBeforeDisable/)
+    assert.match(body[0], /sealed/)
+    assert.match(body[0], /sealed\s*>\s*0/)
+  })
+
+  it('书签表单的锁定提示走总线订阅，只经 vaultOp 通道', () => {
+    const src = read(FORM)
+    assert.match(src, /onVaultChange/)
+    assert.match(src, /vaultState\(/)
+    assert.match(src, /runGlobalAsync\('vaultOp'/)
+    assert.match(src, /vaultSealedFormHint/)
+  })
+
+  it('unseal-failed 有词条映射，且中英文都在', () => {
+    assert.match(
+      read('src/client/common/vault-ui.js'),
+      /'unseal-failed':\s*'vaultUnsealFailed'/,
+      '反解失败要翻成人话，别把 reason 原文甩到屏幕上'
+    )
+    for (const lang of ['en', 'zh_cn']) {
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(extra[lang], 'vaultUnsealFailed'),
+        'vaultUnsealFailed 不在 ' + lang
+      )
+    }
+  })
+
+  it('阶段② 九个新词条中英文各一处', () => {
+    const keys = [
+      'vaultMigrating',
+      'vaultMigrateResume',
+      'vaultMigrateLater',
+      'vaultMigrateIntro',
+      'vaultLegacyWrite',
+      'vaultLegacyWriteHint',
+      'vaultSealedFormHint',
+      'vaultUnsealBeforeDisable',
+      'vaultUnsealFailed'
+    ]
+    const src = read(LOCALES)
+    for (const k of keys) {
+      const hits = (src.match(new RegExp('\\n {2}' + k + ':', 'g')) || []).length
+      assert.equal(hits, 2, k + ' 不是中英文各一处：' + hits)
+      assert.ok(Object.prototype.hasOwnProperty.call(extra.en, k), k + ' 不在 en')
+      assert.ok(Object.prototype.hasOwnProperty.call(extra.zh_cn, k), k + ' 不在 zh_cn')
+    }
   })
 })
