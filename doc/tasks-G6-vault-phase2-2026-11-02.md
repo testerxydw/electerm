@@ -9,11 +9,11 @@
 - [x] `npx standard` + 单测通过 → 提交 `feat(vault): 书签敏感字段封装纯模块`
 
 ## T2 · 读写包装与状态字段
-- [ ] 新增 `src/app/lib/vault-bookmarks.js`：`wrapDbAction`
-- [ ] 改 `src/app/lib/db.js`：导出 `rawDbAction`，`dbAction` 走包装
-- [ ] 改 `src/app/lib/vault.js`：config 增 `legacyWrite`/`migrating`，status 返回，新增 `setLegacyWrite`/`markMigrating`
-- [ ] 单测 `vault-bookmarks.spec.js`（读锁定不泄明文、旧格式透传、无明文更新保留 `_vault`、锁定写明文抛 `vault-locked`、legacyWrite 透传）
-- [ ] 提交 `feat(vault): 主进程书签读写封装与兼容写入开关`
+- [x] 新增 `src/app/lib/vault-bookmarks.js`：`wrapDbAction`
+- [x] 改 `src/app/lib/db.js`：导出 `rawDbAction`，`dbAction` 走包装
+- [x] 改 `src/app/lib/vault.js`：config 增 `legacyWrite`/`migrating`，status 返回，新增 `setLegacyWrite`/`markMigrating`
+- [x] 单测 `vault-bookmarks.spec.js`（读锁定不泄明文、旧格式透传、无明文更新保留 `_vault`、锁定写明文抛 `vault-locked`、legacyWrite 透传）
+- [x] 提交 `feat(vault): 主进程书签读写封装与兼容写入开关`
 
 ## T3 · 迁移 / 反解 / 取回
 - [ ] `vault-bookmarks.js` 增 `migrateBatch`、`unsealAll`

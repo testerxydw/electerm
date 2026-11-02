@@ -100,14 +100,25 @@ function createVaultService (deps = {}) {
       return err
     }
     if (!config) {
-      return { ok: true, enabled: false, unlocked: false, autoLockMin: DEFAULT_AUTO_LOCK_MIN, hasRecovery: false }
+      return {
+        ok: true,
+        enabled: false,
+        unlocked: false,
+        autoLockMin: DEFAULT_AUTO_LOCK_MIN,
+        hasRecovery: false,
+        legacyWrite: false,
+        migrating: false
+      }
     }
     return {
       ok: true,
       enabled: true,
       unlocked: armed(),
       autoLockMin: Number(config.autoLockMin),
-      hasRecovery: vc.hasRecovery(config)
+      hasRecovery: vc.hasRecovery(config),
+      // 阶段②：legacyWrite 是回滚开关，migrating 表示迁移没跑完
+      legacyWrite: !!config.legacyWrite,
+      migrating: !!config.migrating
     }
   }
 
@@ -145,7 +156,7 @@ function createVaultService (deps = {}) {
     if (!created.ok) {
       return traceOut('enable', fail(created.reason, 'cannot create vault: ' + created.reason))
     }
-    const w = write(created.config)
+    const w = write({ ...created.config, legacyWrite: false, migrating: false })
     if (w) {
       clearKey()
       return w
@@ -270,8 +281,49 @@ function createVaultService (deps = {}) {
   }
 
   /**
+   * 阶段② 的回滚开关：打开后新凭据仍走旧格式（safeStorage），已有 `_vault` 不动。
+   * 只改 config，不解锁也不碰钥匙。
+   */
+  function setLegacyWrite (arg = {}) {
+    const { config, err } = read()
+    if (err) {
+      return err
+    }
+    if (!config) {
+      return traceOut('setLegacyWrite', fail('no-vault', 'vault is not enabled'))
+    }
+    const value = !!arg.value
+    const w = write({ ...config, legacyWrite: value })
+    if (w) {
+      return w
+    }
+    return traceOut('setLegacyWrite', { ok: true, legacyWrite: value })
+  }
+
+  /**
+   * 迁移标记：真正搬数据由 vault-instance 做（服务层不碰 DB）。
+   * 中断后重启靠这个标记让界面知道"还有批次没跑完"。
+   */
+  function markMigrating (arg = {}) {
+    const { config, err } = read()
+    if (err) {
+      return err
+    }
+    if (!config) {
+      return traceOut('markMigrating', fail('no-vault', 'vault is not enabled'))
+    }
+    const value = !!arg.value
+    const w = write({ ...config, migrating: value })
+    if (w) {
+      return w
+    }
+    return traceOut('markMigrating', { ok: true, migrating: value })
+  }
+
+  /**
    * 停用。阶段① 没有任何凭据写在库里，所以证明身份后抹掉 config 就是干净收场。
-   * 阶段② 上了迁移以后，这里必须先看清 migrating/已加密条数再放行。
+   * 阶段② 上了迁移以后，停用前必须先把 `_vault` 反解回旧格式，
+   * 那一步由 vault-instance 在调用本方法前完成。
    */
   async function disable (arg = {}) {
     const { config, err } = read()
@@ -318,6 +370,8 @@ function createVaultService (deps = {}) {
     touch,
     changePassword,
     setAutoLock,
+    setLegacyWrite,
+    markMigrating,
     disable
   }
 
