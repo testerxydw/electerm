@@ -6,7 +6,11 @@
  * 判据脚本换数据源可以，换算法不行。
  *
  * PROBE 是一段在渲染进程里跑的表达式：
- *   · 合成矩阵：角色（真实 class）× 底色（卡片/悬停/选中），读 getComputedStyle，不写死色值
+ *   · 合成矩阵：角色（真实 class）× 底色，读 getComputedStyle，不写死色值
+ *     —— 会随行走的格内角色量三档底（卡片/悬停/选中），只会待在卡片底的角色（详情 NULL、
+ *     状态行、计数、字段名、执行计划类型）只量一档。给"盖不到"的组合打分是自造假案：
+ *     真库那轮就在 悬停底/选中底 上报出 4.46/4.23 的"详情 NULL 不达标"，而那个面板自带
+ *     background:var(--hover-bg)、且在表格里不随行变色，用户从来不会看到那一层。
  *   · 实机对照：网格里真实存在的 NULL 格 / 空串格 / 选中行正文，底色应与合成出来的那层一致
  * 依赖 window.__vis / window.__one（self-test/db-ui-helpers.js 的 buildHelpers 注入）。
  */
@@ -81,11 +85,15 @@ const PROBE = `(() => {
     ['格内正文', ''],
     ['数值列', 'db-cell-num'],
     ['NULL 占位', 'db-cell-null'],
-    ['空串占位', 'db-cell-empty'],
-    ['详情 NULL', 'db-row-detail-value is-null']
+    ['空串占位', 'db-cell-empty']
   ]
-  // 壳层角色：只待在卡片底（状态行、计数、字段名、执行计划类型）
-  const CHROME = [
+  // 单底角色：只可能落在卡片底上，量三种底是自找假案
+  //   · 详情 NULL：.db-row-detail-value 自带 background:var(--hover-bg)（db-session.styl:3425），
+  //     且它在 db-row-detail.jsx:45 的面板/弹窗里，不在表格行内 —— 行悬停/选中底永远盖不到它。
+  //     measure() 会把它自己的 hover-bg 叠在卡片底上，所以这一条量的就是用户真看到的那层
+  //   · 壳层角色（状态行、计数、字段名、执行计划类型）同理
+  const SINGLE = [
+    ['详情 NULL', 'db-row-detail-value is-null'],
     ['状态行次级', 'db-grid-total'],
     ['已选计数', 'db-grid-selected'],
     ['详情字段名', 'db-row-detail-type'],
@@ -111,7 +119,7 @@ const PROBE = `(() => {
     }
   }
   run(GRID, BG)
-  run(CHROME, BG.slice(0, 1))
+  run(SINGLE, BG.slice(0, 1))
   host.remove()
 
   // 实机对照：网格里真实的 NULL / 空串格与真实选中行，底色应与合成的卡片底/选中底一致
