@@ -20,7 +20,7 @@ const SESSION_CONTROL_STYL = path.join(ROOT, 'src/client/components/session/sess
 const NO_SESSION_STYL = path.join(ROOT, 'src/client/components/tabs/no-session.styl')
 const MOBILE_STYL = path.join(ROOT, 'src/client/css/mobile.styl')
 
-// T1 顶栏高度单源（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §1）：
+// T1 顶栏高度单源（doc/已完成/TODO-顶栏高度与底栏避让统一-2026-10-30--已完成.md §1）：
 // --session-bar-h 是单行条唯一高度来源，--session-bar-pad-x 是左右内边距唯一来源。
 // 消费方式固定为 flex none + min-height + line-height + padding 0 <token>，
 // 不写死 height（窄窗换行是自然结果）。每项带反向断言，防裸值回潮。

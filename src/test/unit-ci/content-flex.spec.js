@@ -14,7 +14,7 @@ const RDP_JSX = path.join(ROOT, 'src/client/components/rdp/rdp-session.jsx')
 const VNC_JSX = path.join(ROOT, 'src/client/components/vnc/vnc-session.jsx')
 const SPICE_JSX = path.join(ROOT, 'src/client/components/spice/spice-session.jsx')
 
-// T3 内容区 flex 化（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §3/§4）：
+// T3 内容区 flex 化（doc/已完成/TODO-顶栏高度与底栏避让统一-2026-10-30--已完成.md §3/§4）：
 // .session-wrap 是竖向 flex 容器，页根 flex 1 1 0 + min-height 0，
 // 内容高由浏览器分配；JS 扣减逐片删除。每项带反向断言。
 

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 
 const loadMod = () => import('../../client/common/bottom-stack.js')
 
-// T2 底栏避让单源（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §2）：
+// T2 底栏避让单源（doc/已完成/TODO-顶栏高度与底栏避让统一-2026-10-30--已完成.md §2）：
 // resolveBottomStack 一个和式输出四个派生值，六个浮层各取一个。
 // 表驱动覆盖各层组合，并断言"每加一层，session 只会不减"。
 

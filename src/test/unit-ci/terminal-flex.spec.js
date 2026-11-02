@@ -15,7 +15,7 @@ const EVENT = path.join(ROOT, 'src/client/store/event.js')
 const INIT_STATE = path.join(ROOT, 'src/client/store/init-state.js')
 const MAIN = path.join(ROOT, 'src/client/components/main/main.jsx')
 
-// T4 终端内容区 flex 化（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §5）：
+// T4 终端内容区 flex 化（doc/已完成/TODO-顶栏高度与底栏避让统一-2026-10-30--已完成.md §5）：
 // fit 的触发源从"布局 props 变化"换成"容器实测尺寸变化"，隐藏标签的
 // isElementVisible 守卫必须原样保留。
 

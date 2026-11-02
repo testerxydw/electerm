@@ -16,7 +16,7 @@ const FOOTER = path.join(ROOT, 'src/client/components/footer/footer.styl')
 const MOBILE = path.join(ROOT, 'src/client/css/mobile.styl')
 const CONSTANTS = path.join(ROOT, 'src/client/common/constants.js')
 
-// T2 底栏避让接线（doc/TODO-顶栏高度与底栏避让统一-2026-10-30.md §2）：
+// T2 底栏避让接线（doc/已完成/TODO-顶栏高度与底栏避让统一-2026-10-30--已完成.md §2）：
 // JS 只消费 resolveBottomStack().session，CSS 只消费注入的三个派生变量。
 // 反向断言锁住"手写和式回潮"。
 
