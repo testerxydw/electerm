@@ -105,7 +105,7 @@ export default class RdpSession extends PureComponent {
       width: initSize.width,
       height: initSize.height,
       hasRemoteFiles: false,
-      downloadBtnDisabled: true,
+      downloadCount: 0,
       uploadReady: false,
       showCredPrompt: false
     }
@@ -337,7 +337,7 @@ export default class RdpSession extends PureComponent {
       this.fileTransfer.setStateChangeCallback((state) => {
         this.setState({
           hasRemoteFiles: state.hasRemoteFiles,
-          downloadBtnDisabled: !state.hasRemoteFiles
+          downloadCount: state.pendingDownloads.size
         })
       })
 
@@ -845,10 +845,23 @@ export default class RdpSession extends PureComponent {
     }
   }
 
+  // CLIPRDR only learns about remote files when the remote OS puts them on its
+  // clipboard, so a greyed download icon is "not yet", not "broken". Say so on
+  // click instead of letting the request die in a console line.
+  downloadHint = () => {
+    return window.translate('rdpDownloadNeedsCopy') ||
+      'Nothing to download yet - copy a file on the remote desktop, then click here'
+  }
+
   handleDownloadButtonClick = () => {
-    if (this.fileTransfer) {
-      this.fileTransfer.downloadFiles()
+    if (!this.fileTransfer) {
+      return
     }
+    if (!this.fileTransfer.hasRemoteFiles) {
+      message.info(this.downloadHint(), 6)
+      return
+    }
+    this.fileTransfer.downloadFiles()
   }
 
   handlePasteEvent = async () => {
@@ -883,6 +896,7 @@ export default class RdpSession extends PureComponent {
     const {
       id,
       hasRemoteFiles,
+      downloadCount,
       uploadReady
     } = this.state
     const sleProps = {
@@ -907,7 +921,11 @@ export default class RdpSession extends PureComponent {
       className: 'mg1l'
     }
     const uploadTitle = window.translate('upload') || 'Upload files to remote'
-    const downloadTitle = window.translate('download') || 'Download files from remote'
+    // hover has to answer the same "why is it grey" that the click answers
+    const countTpl = window.translate('rdpDownloadCount') || 'Download {n} file(s) copied on the remote'
+    const downloadTitle = hasRemoteFiles
+      ? countTpl.replace('{n}', String(downloadCount))
+      : this.downloadHint()
     return (
       <>
         <ReloadOutlined
