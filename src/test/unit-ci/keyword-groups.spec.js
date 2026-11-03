@@ -38,17 +38,17 @@ describe('keyword groups', () => {
     ])
   })
 
-  test('全部应用 12 个预设：面板统计 136 条，生效规则去重后 102 条', async () => {
+  test('全部应用 13 个预设：面板统计 154 条，生效规则去重后 107 条', async () => {
     const { activeKeywords, setPresetGroupOn } = await load()
     const { keywordPresets } = await loadPresets()
     const applied = keywordPresets.reduce((acc, p) => setPresetGroupOn(acc, p, true), [])
     const active = activeKeywords(applied)
 
-    // 配置里按组各存一份（面板要按组统计勾选），共 136 条
-    assert.equal(applied.length, 136)
-    // 生效侧同正则同色的跨预设重复被去掉 = 102 条不同规则
-    assert.equal(active.length, 102)
-    assert.equal(new Set(active.map(r => r.keyword)).size, 102)
+    // 配置里按组各存一份（面板要按组统计勾选），共 154 条
+    assert.equal(applied.length, 154)
+    // 生效侧同正则同色的跨预设重复被去掉 = 107 条不同规则
+    assert.equal(active.length, 107)
+    assert.equal(new Set(active.map(r => r.keyword)).size, 107)
     // 去重不改变颜色：每条仍取预设里的配色
     const colorOf = new Map()
     for (const p of keywordPresets) {
@@ -160,12 +160,12 @@ describe('keyword groups', () => {
     assert.equal(idx.get(sample), keywordPresets[0].name)
   })
 
-  test('all presets view keeps 12 fixed groups even when nothing is applied', async () => {
+  test('all presets view keeps 13 fixed groups even when nothing is applied', async () => {
     const { allPresetViews } = await load()
     const views = allPresetViews([])
-    assert.equal(views.length, 12)
+    assert.equal(views.length, 13)
     assert.equal(views.every(v => v.on === 0 && !v.checked && !v.indeterminate), true)
-    assert.equal(views.reduce((n, v) => n + v.total, 0), 136)
+    assert.equal(views.reduce((n, v) => n + v.total, 0), 154)
   })
 
   // ---- 自建分组 / 新增规则（keywords-form 新功能）----

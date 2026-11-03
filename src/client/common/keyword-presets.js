@@ -17,6 +17,18 @@
  *     strings, GUIDs, MACs, exception types, stack traces, URLs, namespaces.
  *   - lnav (github.com/tstack/lnav) ships ~60 JSON log format definitions
  *     (access_log, error_log, journald_json, java_log, redis_log, ...).
+ *   - WindTerm ships a default highlight scheme per connection type inside the
+ *     app bundle; the Linux one is terminal/schemes/linux/linux.lexer with the
+ *     colours coming from global/themes/<theme>/scheme.theme. It is the closest
+ *     thing to a drop-in general-purpose set, so its categories are mirrored
+ *     rather than copied: four word tiers (token.error/success/warn/info-token)
+ *     map to lvlError/wordOk/lvlWarn/wordNote, markup.heading (date, IPv4/IPv6,
+ *     MAC) to ts/ipv4/ipv6/mac, constant.numeric to num, variable.language to
+ *     optFlag, entity.name.filename to absPath, and the ls-style permission
+ *     string to permStr. Its PCRE-only syntax (possessive quantifiers, POSIX
+ *     classes like [[:xdigit:]], recursive (?<n>…)\g<n>) has to be rewritten,
+ *     and three of its rules cannot be expressed here at all — see the notes on
+ *     the Shell & command output preset.
  * They are per-command shell wrappers or editor grammars, and none of them
  * uses ANSI colour names, so these presets follow their categories rather
  * than their files.
@@ -51,29 +63,42 @@ const srcExt = 'c|cc|cpp|cxx|h|hh|hpp|hxx|m|mm|go|rs|java|kt|kts|scala|ts|tsx|js
 const srcFile = '\\b[\\w./~-]+\\.(' + srcExt + ')\\b'
 const srcLoc = '\\b[\\w./~-]+\\.(' + srcExt + ')\\b(:\\d+){1,2}'
 
-// 时间戳：ISO 8601 / BSD syslog / 裸时钟，合成一条（原本三条各扫一遍整行，且
-// 各预设给它们配过 cyan / magenta / blue 三种色）。前后排除引号和冒号，
-// 这样 JSON 里的 "created_time":"2026-10-09 10:24:57" 不会被当成时间戳。
+// 时间戳：ISO 8601 / BSD syslog / 时钟（WindTerm 的 datetime 档认 1-2 位小时的
+// hh:mm 与 hh:mm:ss，本条按它放宽，否则 ls -l 的「08:57」只有一半被染成数字色），
+// 合成一条（原本三条各扫一遍整行，且各预设给它们配过 cyan / magenta / blue 三种色）。
+// 小数秒只在有「秒」段时才吃：否则 PCI 地址 00:02.0 会被当成「00:02 加小数」的
+// 时钟抢走（同起点两条等长时，先编译的那条赢，时钟排在设备地址前面）。
+// 前后排除引号和冒号，这样 JSON 里的 "created_time":"2026-10-09 10:24:57" 不会被当成时间戳。
 const ts = '(?<![":])\\b(?:\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?(?:Z|[+-]\\d{2}:?\\d{2})?' +
   '|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?' +
-  '|\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?)\\b(?![":])'
+  '|\\d{1,2}:\\d{2}(?::\\d{2}(?:[.,]\\d{1,6})?)?(?!\\.\\d))\\b(?![":])'
 
 // 方括号里的时间戳：nginx/Apache 的 [09/Oct/2026:08:57:36 +0800]、dmesg 的 [   12.345678]、
 // 测试框架的 [00:12:34.567]
 const tsBracket = '\\[\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2} [+-]\\d{4}\\]|\\[\\s*\\d+\\.\\d+\\]|\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?\\]'
 
-// 时长：数字 + 单位（原本 4 份单位列表各抄一遍，全是 cyan）。长单位排在单字母
-// 之前，否则 "10 min" 会被 [smh] 抢走前半截。
-const dur = '\\b\\d+(?:\\.\\d+)?\\s?(?:ns|us|µs|ms|seconds?|secs?|minutes?|mins?|hours?|hrs?|[smh])\\b'
+// 时长与体积共用的单位表（原本 4 份单位列表各抄一遍，全是 cyan）。长单位排在
+// 单字母之前，否则 "10 min" 会被 [smh] 抢走前半截。
+const unitTime = 'ns|us|µs|ms|seconds?|secs?|minutes?|mins?|hours?|hrs?|[smh]'
+const unitSize = 'bytes?|[KMGTPE]i?B|[KMGTPE]'
+
+// 时长：数字 + 单位
+const dur = '\\b\\d+(?:\\.\\d+)?\\s?(?:' + unitTime + ')\\b'
 
 // 时长：key=value 形式（request_time=0.012 / took 12ms / elapsed: 3.2 s）。
 // 单位必须是真实单位词，不能写成「任意 1-6 个字母」——那会让
 // request_time=0.012 upstream_response_time=0.008 里的 "upstre" 被当成单位吃掉，
 // 顺带毁掉后半截 key 的匹配。
-const durKey = '\\b(?:request_time|upstream_response_time|request_time_ms|duration|latency|elapsed|took|wall ?time)(?:[=:]\\s*|\\s+)\\d+(?:\\.\\d+)?(?:\\s?(?:ns|us|µs|ms|seconds?|secs?|minutes?|mins?|hours?|hrs?|[smh])\\b)?'
+const durKey = '\\b(?:request_time|upstream_response_time|request_time_ms|duration|latency|elapsed|took|wall ?time)(?:[=:]\\s*|\\s+)\\d+(?:\\.\\d+)?(?:\\s?(?:' + unitTime + ')\\b)?'
 
-// 体积与吞吐：字节数、[KMGT]i?B，以及 dmesg 的 220 MB/s
-const size = '\\b\\d+(?:\\.\\d+)?\\s?(?:bytes?|[KMGT]i?B)(?:/s)?\\b'
+// 体积与吞吐：字节数、[KMGT]i?B、df -h / du -h / ls -lh 的裸单位（233G），
+// 以及 dmesg 的 220 MB/s。裸单位只认大写 K/M/G/T/P/E，`40GE1/0/1` 这种
+// 接口名因为单位后面还有单词字符（\b 不成立）不会被吃掉。
+const size = '\\b\\d+(?:\\.\\d+)?\\s?(?:' + unitSize + ')(?:/s)?\\b'
+
+// PCI / 设备地址：lspci 默认输出的 00:02.0、dmesg 与 lspci -D 的 0000:3b:00.0，
+// 以及 WWN 式的 1234:5678。域名段可省，否则裸 `00:02.0` 的尾巴会被 num 捡走半截。
+const devAddr = '\\b(?:[0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\\.\\d\\b|\\b[0-9a-f]{4}:[0-9a-f]{4}\\b'
 
 // 日志级别与泛用报错词。红档一条打尽：级别词（emerg/alert/crit/fatal/panic/severe）
 // 和「这就是失败」的词（error/failed/denied/timeout/corrupt/core dumped/...）在
@@ -121,6 +146,72 @@ const exc = '\\b(?:[\\w$]+\\.)*[A-Z][\\w$]*(?:Error|Exception|Throwable|Fault|Pa
 // JSON 字符串值里的 "null"/"true" 排掉——数据库网格里绝大多数值就是 JSON。
 const nullBool = '(?<![\\w"])\\b(?:NULL|NIL|NONE|UNDEFINED|NaN|TRUE|FALSE)\\b'
 
+// ---- 以下规则来自 WindTerm 默认 Linux 方案的结构档（见文件头说明）----
+// wordOk / wordNote / num / optFlag / absPath / permStr 是本文件新增的六条；
+// hex 与 Database 预设、devAddr 与内核预设原本各已有一份，这里收编成共享对象。
+
+// 「这就是一次成功」的词，对齐 WindTerm 的 token.success-token 档。
+// 不跟 WindTerm 的 true/false/none（那里是绿/红）：本文件把布尔值归 magenta
+// （nullBool），改色会让数据库网格和终端两套裁决给出不同结论。
+// 也不跟裸的 can / any / yes-is-prose 之类：「can」在英文里到处都是。
+const wordOk = '\\b(?:OK|ALL OK|YES|SUCCESS(?:FUL(?:LY)?)?|PASSED|PASSES|VALID|VALIDATED|' +
+  'CORRECT(?:LY)?|SUPPORTED|KNOWN|VERIFIED|RESOLVED|ENABLED|AVAILABLE|REACHABLE|' +
+  'COMPLETE(?:D)?|FINISHED|SUCCEEDED|WORKING|NORMAL|STABLE|CONNECTED|READY|' +
+  'ACCEPT(?:ED)?|GRANTED|CLEAN|UP TO DATE)\\b'
+
+// 安全/会话类名词，对齐 WindTerm 的 token.info-token 档（access/authentication/
+// connection/login/operation/password/permission）。WindTerm 那档还含 info 一词，
+// 本文件的 info 已在 lvlInfo（cyan）里，同一条正则两种配色会被去重掉一种，故不重复。
+// 后面的否定式 lookahead 是硬需求：Auth/Database 预设把「access denied」
+// 「connection refused」整句记红，那条红档与本条同起点但更长，而终端的重叠裁决是
+// 「同起点取更短」——不加这道护栏，红档整句会被截成蓝色的前半截。
+const wordNote = '\\b(?:ACCESS|AUTH(?:ENTICATION|ORIZATION)|CONNECTION|DISCONNECTION|' +
+  'LOGIN|LOGOUT|OPERATION|PASSWORD|PASSPHRASE|PERMISSION|CREDENTIALS?|USERNAME|' +
+  'PRIVATE KEY|PUBLIC KEY|FINGERPRINT)' +
+  '(?!\\s+(?:DENIED|REFUSED|REJECTED|FAIL(?:ED|URE|S)?|ERRORS?|INVALID|RESET|CLOSED|' +
+  'BROKEN|LOST|TIME(?:OUT|ED)|EXPIRED|REVOKED|UNAUTHORIZED|SUCCESS(?:FUL)?|OPENED|GRANTED|ACCEPTED))\\b'
+
+// 裸数字：WindTerm 的 constant.numeric 档。本文件的数字类规则（时间戳/时长/体积/
+// 百分比/AGE/端口）一律 cyan，这里也取 cyan，避免同一行出现两种数字色。
+// 边界比 WindTerm 严，每一条都在挡一个具体的抢占：
+//   - 前后排除 单词字符 . / ~ -（后面还额外排除 :）→ IP 10.1.2.3、时钟 08:57:36、
+//     ISO 日期 2026-11-03、端口映射 8080->80、MAC 00:11:22 都不会被拆成半截数字；
+//   - 后面排除「. + 数字」→ 版本号 6.6.44 保持整段不动（WindTerm 会把它染色）；
+//   - 前面排除「" + 空白」和「status[=:] + 空白」→ HTTP 预设按 2xx/3xx/4xx/5xx
+//     分色的状态码与本条同起点同长度，终端取短、网格取长，两边结论会不一样，
+//     所以直接把状态码的位置让出去，不靠规则的排列顺序；
+//   - 前面排除「数字 + :」→ 时钟 08:57:36 的后半截不能当独立数字染色（ts 规则
+//     已经把整段认成时间戳，同起点抢短的话会让「08」和「57」分两截）；
+//   - 后面排除「空白 + (数字+单位」→ docker ps 的重启次数「12 (30s ago)」整句 magenta；
+//   - 后面排除体积/时长单位 → df -h 的 233G、日志里的 220 MB/s、`0.01 sec`、
+//     `1.5 s` 整段交给 size / dur 染色，不在这里只吃掉数字那一半（同为 cyan，
+//     但单位尾巴该一起亮）。
+// 负数（-5）不认：放行前导「-」会让 ISO 日期和 --flag 的尾巴漏进来。
+const num = '(?<![\\w.~/-])(?<!\\d:)(?<!"\\s)(?<!status[=:]\\s{0,2})\\d+(?:\\.\\d+)?%?' +
+  '(?![\\w~/:-])(?!\\.\\d)(?!\\s*\\(\\d+[dhms])' +
+  '(?!\\s?(?:' + unitSize + ')(?:/s)?\\b)(?!\\s?(?:' + unitTime + ')\\b)'
+
+// 十六进制字面量（WindTerm 的 0x… 与地址），与 Database 预设的 hex 档同色；
+// 后者原本还多认 PostgreSQL bytea 的 \x… 转义，这里一并收下，两边共用同一条。
+const hex = '\\b0x[0-9a-f]{2,}\\b|\\\\x[0-9a-f]{2,}'
+
+// 命令行选项：WindTerm 的 variable.language 档（--?\w[-\w]*，可带 =值）。
+// 中间的 (?:-[A-Za-z][\w]*)* 而不是 [\w-]*，是为了不吃掉 ls -l 的权限串——
+// 「-rw-r--r--」若按 [\w-]* 贪婪匹配，整串会被当成一个选项名染黄。
+const optFlag = '(?<![\\w/~-])-{1,2}[A-Za-z][\\w]*(?:-[A-Za-z][\\w]*)*(?:=[^\\s,;)]*)?(?![-\\w])'
+
+// 绝对路径：WindTerm 的 entity.name.filename 档。那里按「/段/段」无限制匹配，
+// 这里要求首段前有边界（(?<![\w/])），所以 "and/or"、"10/08/26"、"HTTP/1.1"
+// 这些带斜杠的普通文本不会被认成路径；相对路径（src/x.js）交给 srcFile 规则。
+// Auth & security 预设原来内联了一份「只认常见根目录」的写法，本条是它的超集，
+// 两边共用同一个对象（同色 blue），不再各存一份正则文本。
+const absPath = '(?<![\\w/])(?:/(?:etc|var|home|root|usr|opt|tmp|srv|run|proc|sys|dev|bin|sbin|lib|lib64|mnt|media|config)(?![\\w-])(?:/[\\w.@+~/-]*)?|/[\\w.@+~-]{2,}(?:/[\\w.@+~-]*)+/?)'
+
+// ls -l / stat 的权限串：WindTerm 逐字符分色（文件类型/ r / w / sxst）。
+// 本引擎只给整条匹配配一种颜色，所以整串取 blue（与路径、文件名同一类信号），
+// 至少让「这一列是模式位」这件事看得出来，且不抢掉同行的数字与文件名。
+const permStr = '(?<!\\S)[bcCdDlMnpPs?-](?:[rw-]{2}[xsStT-]){3}[.+]?(?=\\s|$)'
+
 // ---- 共享规则：正则与配色一起定义一次，预设引用同一个对象 ----
 const rule = {
   ipv4: { keyword: ipv4, color: 'cyan' },
@@ -131,18 +222,66 @@ const rule = {
   dur: { keyword: dur, color: 'cyan' },
   durKey: { keyword: durKey, color: 'cyan' },
   size: { keyword: size, color: 'cyan' },
+  num: { keyword: num, color: 'cyan' },
+  hex: { keyword: hex, color: 'magenta' },
+  devAddr: { keyword: devAddr, color: 'magenta' },
   srcFile: { keyword: srcFile, color: 'blue' },
   srcLoc: { keyword: srcLoc, color: 'magenta' },
+  absPath: { keyword: absPath, color: 'blue' },
+  optFlag: { keyword: optFlag, color: 'yellow' },
+  permStr: { keyword: permStr, color: 'blue' },
   lvlError: { keyword: lvlError, color: 'red' },
   lvlWarn: { keyword: lvlWarn, color: 'yellow' },
   lvlNotice: { keyword: lvlNotice, color: 'cyan' },
   lvlInfo: { keyword: lvlInfo, color: 'cyan' },
   lvlDebug: { keyword: lvlDebug, color: 'blue' },
+  wordOk: { keyword: wordOk, color: 'green' },
+  wordNote: { keyword: wordNote, color: 'blue' },
   exc: { keyword: exc, color: 'red' },
   nullBool: { keyword: nullBool, color: 'magenta' }
 }
 
 export const keywordPresets = [
+  {
+    // WindTerm 默认连上 Linux 会话时就吃这一套（安装包内
+    // terminal/schemes/linux/linux.lexer），所以把它放在分组列表最前面，
+    // 作为「什么日志都不挑、只想让终端像 WindTerm」时的第一个勾选。
+    // 三档 WindTerm 规则在本引擎里表达不出来，已刻意不搬：
+    //   - prompt 行内的 command / option 分色：需要「这一行是 shell 提示符」的行级
+    //     状态，终端插件按写入片段扫描，没有提示符上下文；
+    //   - 引号字符串整体染色：本引擎给整条匹配配一种颜色，字符串规则会把引号里的
+    //     时间戳、IP、数字全吞掉，JSON 单元格会整片变黄；
+    //   - 权限串逐字符分色（类型/r/w/sxst 四色）与裸月份名、星期名：编译固定吃
+    //     `gi`，月份名会连英文里的 may/sat/sun 一起染色，只有一种配色又比
+    //     WindTerm 的按位分色更难看。
+    // 词档直接复用共享的 lvlError/lvlWarn/lvlInfo/wordOk/wordNote，不另开「带 JSON
+    // 键名护栏」的副本（那违反「一条正则只出现一次」，且与日志类预设口径不一致）：
+    // 代价是只勾这一组时，`"errors":0`、`"ok":true` 这类键名也会染色——和勾了
+    // 「Application log levels」的既有行为相同。数字/体积/时长/PCI/时间戳同样与
+    // 内核、nginx、数据库各组共用同一个规则对象。
+    name: 'Shell & command output',
+    description: 'WindTerm-style highlighting for ordinary shell output (ls, ps, df, free, curl, systemctl, make and other CLI): failure/success/informational words, --options, absolute paths, ls-style permission strings, bare numbers, hex, timestamps, sizes, PCI addresses, IPv4/IPv6/MAC',
+    keywords: [
+      rule.lvlError,
+      rule.lvlWarn,
+      rule.lvlInfo,
+      rule.wordOk,
+      rule.wordNote,
+      rule.optFlag,
+      rule.absPath,
+      rule.permStr,
+      rule.num,
+      rule.hex,
+      rule.size,
+      rule.dur,
+      rule.ts,
+      rule.tsBracket,
+      rule.devAddr,
+      rule.ipv4,
+      rule.ipv6,
+      rule.mac
+    ]
+  },
   {
     name: 'Networking',
     description: 'Switch and router CLI output (Cisco, Juniper, Arista, HPE Aruba and Comware, Huawei, Ubiquiti EdgeOS, MikroTik, Hirschmann, Moxa and similar): link state, errors, syslog severity, IPs, MACs, interfaces',
@@ -207,7 +346,7 @@ export const keywordPresets = [
       { keyword: '\\b(link is up|link up|registered|initialized|attached|mounted|enabled|detected|ready|success(ful)?|started|inserted|now attached|power on|resumed|link becomes ready)\\b', color: 'green' },
       // device names
       { keyword: '\\b(ata\\d+(\\.\\d+)?|sd[a-z]\\d*|nvme\\d+n\\d+(p\\d+)?|mmcblk\\d+(p\\d+)?|dm-\\d+|md\\d+|eth\\d+|wlan\\d+|enp\\d+s\\d+|eno\\d+|wlp\\d+s\\d+|usb \\d+-\\d+(\\.\\d+)?|tty(S|USB|ACM)\\d+|br-\\d+|veth[0-9a-f]+)\\b', color: 'blue' },
-      { keyword: '\\b[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.\\d\\b|\\b[0-9a-f]{4}:[0-9a-f]{4}\\b', color: 'magenta' },
+      rule.devAddr,
       { keyword: '\\bcpu\\d+\\b', color: 'magenta' },
       { keyword: '\\bLinux version \\S+\\b', color: 'cyan' },
       // dmesg 的 [   12.345678] 前缀与体积/吞吐，与 nginx 日志、数据库页共用
@@ -302,8 +441,10 @@ export const keywordPresets = [
       // Exited (N) 必须以独立分支放在 \b...\b 之外：结尾是「)」（非单词字符），
       // 后面跟空格时 \b 不成立，整条交替会被这个尾锚全部判失败。
       { keyword: '\\b(CrashLoopBackOff|ErrImagePull|ImagePullBackOff|CreateContainerConfigError|CreateContainerError|InvalidImageName|OOMKilled|Evicted|Failed|FailedScheduling|Error|BackOff|Unhealthy|Dead|Removing|NotReady|Terminating|NoSchedule)\\b|\\bExited \\([1-9]\\d*\\)', color: 'red' },
-      { keyword: '\\b(Pending|ContainerCreating|Init:\\d+/\\d+|PodInitializing|Waiting|SchedulingDisabled|Unknown|Paused|Restarting|Preempting|Completed|Succeeded|Warning)\\b', color: 'yellow' },
-      { keyword: '\\b(Running|Ready|Healthy|Active|Bound|Started|Pulled|Created|Available|Deployed|Up \\d+ (second|minute|hour|day|week|month|year)s?)\\b|\\bExited \\(0\\)', color: 'green' },
+      { keyword: '\\b(Pending|ContainerCreating|Init:\\d+/\\d+|PodInitializing|Waiting|SchedulingDisabled|Unknown|Paused|Restarting|Preempting|Warning)\\b', color: 'yellow' },
+      // Completed / Succeeded 是「正常跑完」，与共享的 wordOk 绿档同色：留在黄档
+      // 会让同一个词在两个预设里拿到不同配色
+      { keyword: '\\b(Running|Ready|Healthy|Active|Bound|Started|Pulled|Created|Available|Deployed|Completed|Succeeded|Up \\d+ (second|minute|hour|day|week|month|year)s?)\\b|\\bExited \\(0\\)', color: 'green' },
       // resource references: deployment/nginx, pods/nginx-1, svc/api
       { keyword: '\\b(pods?|deploy(ment)?s?|svc|services?|ingress(es)?|configmaps?|secrets?|statefulsets?|daemonsets?|replicasets?|jobs?|cronjobs?|namespaces?|nodes?|pv|pvc|endpoints?|hpa|events?)/[a-z0-9][a-z0-9.-]*\\b', color: 'blue' },
       // generated pod / container names: nginx-7d9f8c6b5-x2k4p
@@ -386,7 +527,8 @@ export const keywordPresets = [
       { keyword: '\\bport \\d{1,5}\\b', color: 'magenta' },
       { keyword: '\\b(SHA256:[A-Za-z0-9+/]{43}=?|MD5:[0-9a-f]{2}(:[0-9a-f]{2}){15})', color: 'magenta' },
       { keyword: '\\b(TLSv1(\\.[0-3])?|SSLv3|TLS_AES_\\w+|ECDHE[\\w-]*|cipher|handshake|verify (returned|ok|error)|Cipher is)\\b', color: 'cyan' },
-      { keyword: '(?<![\\w])(/(?:etc|var|home|root|usr|opt|tmp|srv|run|proc|sys|dev)/[\\w./-]*)', color: 'blue' },
+      // 绝对路径与 Shell 输出预设共用同一条（同色 blue）
+      rule.absPath,
       rule.ipv4,
       rule.ipv6
     ]
@@ -420,9 +562,10 @@ export const keywordPresets = [
       { keyword: '\\b(WARNING|NOTICE|DEPRECATED|slow query|Using filesort|Using temporary|full table scan|seq scan|connection is read-only)\\b', color: 'yellow' },
       // 时间戳复用共享写法（已带 JSON 边界排除）
       rule.ts,
-      // UUID、十六进制字面量（0x… 与 PostgreSQL bytea 的 \x…，同色合并成一条）
+      // UUID（十六进制见下面与 shell 输出预设共用的 rule.hex）
       { keyword: '\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b', color: 'magenta' },
-      { keyword: '\\b0x[0-9a-f]{2,}\\b|\\\\x[0-9a-f]{2,}', color: 'magenta' },
+      // 十六进制与 shell 输出预设共用同一条（同色 magenta，含 \x… 转义）
+      rule.hex,
       // 体积/字节数：SHOW TABLE STATUS、pg_total_relation_size 等
       rule.size,
       // SHOW PROCESSLIST / pg_stat_activity 里的来源主机

@@ -154,6 +154,110 @@ describe('keyword presets', () => {
     assert.ok(all.highlightKeywords('flag true, none left').includes('\u001b[35mtrue'))
   })
 
+  test('Shell & command output 组复刻 WindTerm 默认层的结构档', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const shell = presetByName(keywordPresets, 'Shell & command output')
+    assert.ok(shell, 'shell preset is present')
+    // 排在第一位：「只想让终端像 WindTerm」时不需要往下翻
+    assert.equal(keywordPresets[0].name, 'Shell & command output')
+    const addon = new KeywordHighlighterAddon(shell.keywords)
+    const red = '\u001b[31m'
+    const green = '\u001b[32m'
+    const yellow = '\u001b[33m'
+    const blue = '\u001b[34m'
+    const magenta = '\u001b[35m'
+    const cyan = '\u001b[36m'
+    const end = '\u001b[0m'
+
+    // ls -l：权限串整串染蓝（WindTerm 逐字符四色，本引擎一条匹配只有一种配色）、
+    // 大小 cyan、时钟整段 cyan（曾经只有「57」被当成数字）
+    const ls = addon.highlightKeywords('-rw-r--r-- 1 dp25 dp25 4096 Oct  9 08:57 report.pdf')
+    assert.ok(ls.includes(blue + '-rw-r--r--' + end), ls)
+    // 权限串不能被选项规则吃掉前半截（optFlag 中间段只接字母，不接 -）
+    assert.equal(ls.includes(yellow), false, ls)
+    assert.ok(ls.includes(cyan + '4096' + end))
+    assert.ok(ls.includes(cyan + '08:57' + end), 'the whole clock, not half of it')
+
+    // 选项 / 绝对路径 / 体积 / PCI / 十六进制
+    const curl = addon.highlightKeywords('curl -sS --max-time=30 -o /tmp/out.json')
+    assert.ok(curl.includes(yellow + '-sS' + end) && curl.includes(yellow + '--max-time=30' + end), curl)
+    assert.ok(curl.includes(blue + '/tmp/out.json' + end), curl)
+    const df = addon.highlightKeywords('df -h /dev/sda2  233G   98G  45%')
+    assert.ok(df.includes(cyan + '233G' + end) && df.includes(cyan + '98G' + end), df)
+    assert.ok(df.includes(cyan + '45%' + end), df)
+    const pci = addon.highlightKeywords('0000:3b:00.0 bridge usb 1-2')
+    assert.ok(pci.includes(magenta + '0000:3b:00.0' + end), pci)
+    assert.equal(pci.includes(cyan + '00.0'), false, 'the tail of a PCI address is not a bare number')
+    assert.ok(addon.highlightKeywords('lspci 00:02.0 VGA compatible').includes(magenta + '00:02.0' + end))
+    // 时钟档不把 PCI 地址读成「00:02 加一位小数」：那会和设备地址同起点、抢先命中
+    assert.equal(addon.highlightKeywords('lspci 00:02.0').includes(cyan), false)
+    assert.ok(addon.highlightKeywords('0x4D7953514C').includes(magenta + '0x4D7953514C' + end))
+
+    // 成功 / 失败 / 信息三档
+    assert.ok(addon.highlightKeywords('bash: foo: command not found').includes(red + 'not found' + end))
+    assert.ok(addon.highlightKeywords('bad superblock, unsupported option').includes(red + 'bad' + end))
+    assert.ok(addon.highlightKeywords('permission denied, try again 1.5 s').includes(red + 'permission denied' + end))
+    assert.ok(addon.highlightKeywords('make: *** [Makefile:12] Error 2').includes(red + 'Error' + end))
+    assert.ok(addon.highlightKeywords('Query OK, 3 rows affected (0.01 sec)').includes(green + 'OK' + end))
+    assert.ok(addon.highlightKeywords('Authentication succeeded for login dp25').includes(green + 'succeeded' + end))
+    // 信息档后面紧跟否定式时让位给红档：ACCESS 抢蓝会把「access denied」截成半句
+    const auth = addon.highlightKeywords('access denied for user root@10.1.2.3')
+    assert.equal(auth.includes(blue + 'access'), false, auth)
+    assert.ok(auth.includes(red + 'denied' + end), auth)
+
+    // 负例：散文、版本号、裸日期、状态码位、重启次数都不染色
+    assert.equal(addon.highlightKeywords('the quick brown fox jumps over the lazy dog'), 'the quick brown fox jumps over the lazy dog')
+    assert.equal(addon.highlightKeywords('nginx version: nginx/1.20.1 built with OpenSSL/3.0.2'), 'nginx version: nginx/1.20.1 built with OpenSSL/3.0.2')
+    assert.equal(addon.highlightKeywords('2026-11-03 report'), '2026-11-03 report')
+    assert.equal(addon.highlightKeywords('"GET / HTTP/1.1" 500'), '"GET / HTTP/1.1" 500')
+    const restart = addon.highlightKeywords('restarts 12 (30s ago)')
+    assert.equal(restart.includes(cyan + '12'), false, restart)
+
+    // 与共享对象同引用：hex 与数据库组、devAddr 与内核组各只留一份正则
+    const dmesg = presetByName(keywordPresets, 'Linux kernel & dmesg')
+    const db = presetByName(keywordPresets, 'Database & SQL')
+    const devAddr = dmesg.keywords.find(k => k.keyword.includes('[0-9a-f]{4}:'))
+    const hex = db.keywords.find(k => k.keyword.includes('0x[0-9a-f]{2,}'))
+    assert.ok(devAddr && shell.keywords.includes(devAddr), 'shell and dmesg reuse the same PCI rule object')
+    assert.ok(hex && shell.keywords.includes(hex), 'shell and database reuse the same hex rule object')
+    assert.equal(db.keywords.filter(k => k.keyword.includes('0x[0-9a-f]')).length, 1)
+  })
+
+  test('结构档并进其他组后不改变既有预设的结论', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const byName = n => presetByName(keywordPresets, n)
+    const all = new KeywordHighlighterAddon(
+      keywordPresets.reduce((acc, p) => acc.concat(p.keywords), [])
+    )
+    const red = '\u001b[31m'
+    const green = '\u001b[32m'
+    const cyan = '\u001b[36m'
+    const end = '\u001b[0m'
+
+    // 状态码分色仍然归 HTTP 组：num 把「引号后」和「status[=:] 后」的位置让了出去
+    assert.ok(all.highlightKeywords('"GET / HTTP/1.1" 500 1').includes(red + '500' + end))
+    assert.ok(all.highlightKeywords('"GET / HTTP/1.1" 200 1').includes(green + '200' + end))
+    const req = all.highlightKeywords('request_time=0.012 upstream_response_time=0.008 status=404')
+    assert.ok(req.includes(cyan + 'request_time=0.012' + end), req)
+    assert.ok(req.includes('\u001b[33mstatus=404' + end), req)
+    // 体积单位整段染色，单位尾巴不再只染数字那一半
+    assert.ok(all.highlightKeywords('size 220 MB/s, 0.01 sec, 12 minutes').includes(cyan + '220 MB/s' + end))
+    assert.ok(all.highlightKeywords('took 1.5 s').includes(cyan + 'took 1.5 s' + end))
+    // PCI 地址不被「hh:mm + 小数」的时钟抢走（ls -l 的 08:57 仍然整段是时间戳）
+    assert.ok(all.highlightKeywords('lspci 00:02.0 VGA').includes('\u001b[35m00:02.0' + end))
+    assert.ok(all.highlightKeywords('Oct  9 08:57 report').includes(cyan + '08:57' + end))
+    // Docker 的 Completed/Succeeded 与共享 wordOk 同色：黄绿之争消失，两处都绿
+    for (const name of ['Docker & Kubernetes', 'Shell & command output']) {
+      assert.ok(new KeywordHighlighterAddon(byName(name).keywords)
+        .highlightKeywords('Job my-job Completed Succeeded').includes(green + 'Completed' + end), name)
+    }
+    // 内核组仍然吃得到 PCI 地址（改共享只是换了引用，不是换了规则）
+    assert.ok(new KeywordHighlighterAddon(byName('Linux kernel & dmesg').keywords)
+      .highlightKeywords('pci 0000:3b:00.0').includes('\u001b[35m0000:3b:00.0' + end))
+  })
+
   test('applying a preset keeps custom rules and skips duplicates', async () => {
     const { keywordPresets, mergeKeywordPreset } = await loadPresets()
     const preset = keywordPresets[0]
