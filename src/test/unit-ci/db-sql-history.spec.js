@@ -8,7 +8,7 @@ const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/app/lib/db-sql-history.js')
 const FRONT = path.join(ROOT, 'src/client/common/db-sql-history.js')
 
-// S3-C SQL 执行历史（doc/设计-数据库阶段3-2026-10-22.md §2）：
+// S3-C SQL 执行历史（doc/已完成/设计-数据库阶段3-2026-10-22--已完成.md §2）：
 // 存储已从渲染层 localStorage 迁至主进程固定文件（userData/db-sql-history.json）——
 // UI server 动态端口导致 origin 漂移、localStorage 跨启动互相隔离，历史读空。
 // 本 spec 测主进程实现（纯 fs，无 electron 依赖），文件路径用临时目录隔离。

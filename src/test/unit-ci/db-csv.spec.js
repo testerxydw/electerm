@@ -6,7 +6,7 @@ const { pathToFileURL } = require('node:url')
 const ROOT = path.join(__dirname, '../../..')
 const SRC = path.join(ROOT, 'src/client/common/db-csv.js')
 
-// S3-B CSV 导出（doc/设计-数据库阶段3-2026-10-22.md §1）：
+// S3-B CSV 导出（doc/已完成/设计-数据库阶段3-2026-10-22--已完成.md §1）：
 // RFC 4180 转义 + BOM 头 + \r\n 行间。直接 import 真实源码，防测试拷贝与实现漂移。
 // downloadCsv / downloadText 为 DOM 逻辑不在单测覆盖内。
 //
@@ -123,7 +123,7 @@ describe('db-csv toCsv', () => {
   })
 })
 
-// A1 复制为 SQL/JSON/TSV（doc/设计-数据库阶段3-2026-10-22.md §7.2）
+// A1 复制为 SQL/JSON/TSV（doc/已完成/设计-数据库阶段3-2026-10-22--已完成.md §7.2）
 
 describe('db-csv sqlQuoteVal / sqlQuoteIdent', () => {
   test('null/undefined → NULL', () => {
