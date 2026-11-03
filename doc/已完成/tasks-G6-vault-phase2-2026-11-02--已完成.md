@@ -1,7 +1,7 @@
 # Tasks · G6 阶段②（书签凭据迁入 Vault + 锁定禁连）
 
 > 规格：[`spec-G6-vault-phase2-2026-11-02.md`](./spec-G6-vault-phase2-2026-11-02.md)
-> 状态：⏸ 待用户确认后开工。每完成一项在方框打 `[x]` 并单独提交。
+> 状态：✅ **已完工并归档（2026-11-03）**——T1~T6 与验收门全绿，提交 `fc1e71b2`（T1）/ `62b67108`（T2）/ `8c4275ef`（T3）/ `2793cb16`（T4）/ `bb75132f` + `4c51ceff` + `eab8e0ee`（T5）/ `7e52611d` + `8f59e12d`（T6）。每完成一项单独提交。
 
 ## T1 · 敏感字段纯模块
 - [x] 新增 `src/app/lib/vault-secrets.js`：`SECRET_KEYS`、`collectSecrets`、`stripSecrets`、`sealRow`、`openRow`、`rowState`、`secretCount`
