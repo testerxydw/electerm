@@ -1,5 +1,7 @@
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 
 global.window = global.window || { xtermAddons: {} }
 global.window.xtermAddons = global.window.xtermAddons || {}
@@ -249,7 +251,7 @@ describe('session keepalive', () => {
       addon.sendToServer('rm -rf ./bu')
       goIdle(addon)
       addon._checkKeepalive()
-      assert.deepEqual(sent, [], 'a newline would run the half-typed command')
+      assert.deepEqual(sent, [], 'the probe waits for a provably clean line')
 
       addon.sendToServer('\r')
       goIdle(addon)
@@ -269,7 +271,6 @@ describe('session keepalive', () => {
       addon._checkKeepalive()
       assert.equal(sent.length, 1, 'backspaced back to an empty line')
 
-      addon.stopOutputSuppression() // end the first keepalive's echo suppression
       addon.sendToServer('\x1b[A') // history recall: line content unknown
       goIdle(addon)
       addon._checkKeepalive()
@@ -356,7 +357,7 @@ describe('session keepalive', () => {
       state.type = 'alternate' // vim / less / top
       goIdle(addon)
       addon._checkKeepalive()
-      assert.deepEqual(sent, [], 'a newline there inserts a line or pages forward')
+      assert.deepEqual(sent, [], 'a full-screen app owns the escape traffic')
     } finally {
       addon.dispose()
     }
@@ -369,7 +370,7 @@ describe('session keepalive', () => {
       assert.equal(addon._passwordPromptDetected, true)
       goIdle(addon)
       addon._checkKeepalive()
-      assert.deepEqual(sent, [], 'a newline would submit an empty password')
+      assert.deepEqual(sent, [], 'an unreadable line means no probe')
     } finally {
       addon.dispose()
     }
@@ -421,6 +422,117 @@ describe('session keepalive', () => {
     assert.ok(addon._keepaliveTimer)
     addon.dispose()
     assert.equal(addon._keepaliveTimer, null)
+  })
+
+  // #4628: the keepalive used to have the server write '\n\r\x1b[K' into the
+  // PTY - typing on the user's behalf. It now asks for a DSR round trip that
+  // stays on the renderer side, so the bytes below never reach the shell.
+  describe('keepalive DSR probe (#4628)', () => {
+    const makeProbeAddon = async () => {
+      const ctx = await makeKeepaliveAddon({ line: '$ ' })
+      const writes = []
+      const forwarded = []
+      const write = ctx.term.write
+      ctx.term.write = (data, cb) => {
+        writes.push(data)
+        return write(data, cb)
+      }
+      ctx.addon._sendData = (data) => forwarded.push(data)
+      return { ...ctx, writes, forwarded }
+    }
+
+    const probeMsg = { data: JSON.stringify({ action: 'keepalive-probe', pid: 'p1' }) }
+
+    test('an idle keepalive no longer hides output for 500ms', async () => {
+      const { addon, sent } = await makeProbeAddon()
+      try {
+        addon.writeToTerminal('$ ')
+        goIdle(addon)
+        addon._checkKeepalive()
+        assert.equal(sent.length, 1, 'the frame is still sent')
+        assert.equal(addon.outputSuppressed, false,
+          'nothing is echoed any more, so nothing needs hiding')
+      } finally {
+        addon.dispose()
+      }
+    })
+
+    test('the probe writes the query into the terminal, not into the socket', async () => {
+      const { addon, sent, writes, forwarded } = await makeProbeAddon()
+      try {
+        addon.onMsg(probeMsg)
+        assert.deepEqual(writes, ['\x1b[5n'], 'DSR status query on the display stream')
+        assert.equal(sent.length, 0, 'a probe is not user input')
+        assert.equal(forwarded.length, 0)
+      } finally {
+        addon.dispose()
+      }
+    })
+
+    test('the answer is swallowed and leaves no trace in the input tracking', async () => {
+      const { addon, writes, forwarded } = await makeProbeAddon()
+      try {
+        addon.onMsg(probeMsg)
+        const beforeInputTime = addon._lastInputTime
+        addon.sendToServer('\x1b[0n')
+        assert.equal(forwarded.length, 0, 'the reply must not be forwarded to the pty')
+        assert.equal(addon._pendingInputUnknown, false,
+          'a swallowed escape reply must not latch the unknown-line guard')
+        assert.equal(addon._lastInputTime, beforeInputTime, 'it is not user activity')
+        assert.equal(addon._dsrReplyExpected, false, 'one answer per query')
+        assert.deepEqual(writes, ['\x1b[5n'], 'no second query for the same answer')
+
+        // the window is closed: the same bytes are ordinary input again
+        addon.sendToServer('\x1b[0n')
+        assert.equal(forwarded.length, 1)
+      } finally {
+        addon.dispose()
+      }
+    })
+
+    test('a reply that never arrives does not keep the swallow armed', async () => {
+      const { addon, forwarded } = await makeProbeAddon()
+      try {
+        addon.onMsg(probeMsg)
+        assert.equal(addon._dsrReplyExpected, true)
+        await new Promise(resolve => setTimeout(resolve, 1100))
+        assert.equal(addon._dsrReplyExpected, false, 'the window times out')
+        addon.sendToServer('\x1b[0n')
+        assert.equal(forwarded.length, 1, 'an app-private reply stays untouched')
+      } finally {
+        addon.dispose()
+      }
+    })
+
+    test('two probes in flight write the query once', async () => {
+      const { addon, writes } = await makeProbeAddon()
+      try {
+        addon.onMsg(probeMsg)
+        addon.onMsg(probeMsg)
+        assert.deepEqual(writes, ['\x1b[5n'], 'no pile-up while one answer is awaited')
+      } finally {
+        addon.dispose()
+      }
+    })
+
+    test('dispose releases a pending probe window', async () => {
+      const { addon } = await makeProbeAddon()
+      addon.onMsg(probeMsg)
+      addon.dispose()
+      assert.equal(addon._dsrReplyTimer, null)
+      assert.equal(addon._dsrReplyExpected, false)
+    })
+
+    test('the server side of the keepalive writes nothing to the pty', () => {
+      const src = fs.readFileSync(
+        path.join(__dirname, '../../../src/app/server/session-server.js'), 'utf8'
+      )
+      const handler = /if \(parsed\.action === 'keepalive'\) \{[\s\S]*?\n {14}\}/.exec(src)
+      assert.ok(handler, 'keepalive handler exists')
+      assert.ok(!src.includes("const wake = '\\n\\r\\x1b[K'"), 'the old wake bytes are gone')
+      assert.ok(!/term(\.writeRaw|\.write)\(wake\)/.test(handler[0]), 'no pty write')
+      assert.ok(handler[0].includes("action: 'keepalive-probe'"), 'the probe is delegated to the renderer')
+    })
   })
 })
 

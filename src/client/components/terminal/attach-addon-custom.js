@@ -24,6 +24,18 @@ const CURSOR_ESC_FINALS = new Set(['7', '8', 'D', 'E', 'M'])
 // growing the buffer without limit.
 const MAX_SUPPRESSED_CHARS = 200000
 
+// #4628 保活探针。保活过去让服务端往 PTY 写 '\n\r\x1b[K' 去唤醒 bash
+// （防 TMOUT 登出），那等于替用户按键：回车会提交半截命令、自动应答
+// read/确认提示，ESC[K 在没有 readline 的 sh/dash 里留在行缓冲，用户下次
+// 回车才带出隐形字节。现在改成一次 DSR 往返：服务端只把"该探了"这个信号
+// 发回渲染层，查询由渲染层自己写进 xterm 的显示流（一个字节都不进 PTY），
+// xterm 的应答必须在这里吞掉 —— 它是终端生成的，不是用户敲的，回给服务端
+// 就会被写进 PTY。
+const DSR_PROBE = ESC + '[5n'
+const DSR_REPLY = ESC + '[0n'
+// 查询发下去后等应答的窗口；超时只丢掉这次探针，不重试。
+const DSR_REPLY_TIMEOUT = 1000
+
 function ansiSequenceEnd (str, start) {
   const type = str[start + 1]
   if (!type) {
@@ -225,6 +237,9 @@ export default class AttachAddonCustom {
     this.disposed = false
     this._keepaliveTimer = null
     this._keepaliveInterval = 3000
+    // Set while a DSR keepalive probe awaits its answer (see _startDsrProbe).
+    this._dsrReplyExpected = false
+    this._dsrReplyTimer = null
     // Characters typed on the current command line and not yet submitted.
     // Only a hint: the keepalive decision is made against the terminal buffer
     // (see _lineHasUnsubmittedInput), because escape sequences put text on the
@@ -443,6 +458,10 @@ export default class AttachAddonCustom {
           // how the pty ended, consumed by the terminal component
           'session-exit'
         ]
+        if (msg.action === 'keepalive-probe') {
+          this._startDsrProbe()
+          return
+        }
         if (controlActions.includes(msg.action)) {
           return
         }
@@ -835,12 +854,20 @@ export default class AttachAddonCustom {
   }
 
   sendToServer = (data) => {
+    if (this._isDsrReply(data)) {
+      // Terminal-generated answer to our keepalive probe - see _startDsrProbe.
+      this._dsrReplyExpected = false
+      clearTimeout(this._dsrReplyTimer)
+      this._dsrReplyTimer = null
+      return
+    }
     this._lastInputTime = Date.now()
     this.trafficTracker?.countUp(data)
     // 密码提示状态在本次输入处理中可能被重置（回车结束密码输入），
     // 镜像判定必须用"处理前"的快照，否则提交密码的那个回车会被打到所有目标上。
     const wasPasswordPrompt = this._passwordPromptDetected
-    // Track half-typed input so the keepalive never submits it (see _trackPendingInput)
+    // Track half-typed input so the keepalive probe knows the line is not
+    // readable (see _trackPendingInput)
     this._trackPendingInput(data)
     // Start echo detection when password prompt is suspected
     if (this._passwordPromptDetected && !this._pendingEchoCheck && data !== '\r' && data !== '\n' && data !== '\x03') {
@@ -923,8 +950,8 @@ export default class AttachAddonCustom {
   }
 
   // Sample the input line once xterm has parsed a chunk. While nothing is
-  // pending this is a prompt with an empty line - exactly the state a keepalive
-  // newline is harmless in - so it becomes the reference to compare against.
+  // pending this is a prompt with an empty line - the state a keepalive probe
+  // is worth running in - so it becomes the reference to compare against.
   // Skipped while input is pending or of unknown length, so the echo of what
   // the user typed (or a recalled command) never becomes the new reference.
   _recordLineBaseline = () => {
@@ -935,11 +962,15 @@ export default class AttachAddonCustom {
     this._lineBaseline = info ? { row: info.row, length: info.text.length } : null
   }
 
-  // Would writing \n to the PTY submit something the user did not submit?
+  // Is there anything on the input line we can not account for? The keepalive
+  // probe holds off while the answer is yes - a full-screen app owns the escape
+  // traffic and may be running its own queries, a hidden prompt can not be read
+  // back, and an unexpected line means the screen is not the bare prompt we
+  // think it is. Holding off only delays a probe; nothing is ever typed for the
+  // user (that was #4628).
   _lineHasUnsubmittedInput = () => {
-    // Never type into a password prompt: an empty password attempt can burn an
-    // auth attempt (and retry limits), a skipped keepalive only risks an idle
-    // timeout.
+    // A password prompt hides what it reads, so the screen tells us nothing
+    // about the state we would be probing into.
     if (this._passwordPromptDetected) {
       return true
     }
@@ -950,8 +981,7 @@ export default class AttachAddonCustom {
     }
     const buf = this.term?.buffer?.active
     if (buf && buf.type === 'alternate') {
-      // vim/less/top own the screen; a newline there inserts a line or pages
-      // forward instead of hitting an empty shell line.
+      // vim/less/top own the screen and its escape sequences.
       return true
     }
     const info = this._readInputLine()
@@ -965,12 +995,39 @@ export default class AttachAddonCustom {
     return info.row !== base.row || info.text.length > base.length
   }
 
+  // The answer to our own query is terminal-generated, so it must never leave
+  // the renderer: forwarded, it becomes keystrokes in the PTY (and, worse, an
+  // escape sequence that latches _pendingInputUnknown and silences every later
+  // keepalive). Only an exact ESC[0n is swallowed, and only while a probe is
+  // outstanding: a program that queries the cursor position answers with a
+  // different sequence (ESC[<row>;<col>R), so its reply still reaches the
+  // reader it belongs to.
+  _startDsrProbe = () => {
+    if (this.disposed || !this.term || this._dsrReplyExpected) {
+      return
+    }
+    this._dsrReplyExpected = true
+    this._dsrReplyTimer = setTimeout(() => {
+      this._dsrReplyExpected = false
+      this._dsrReplyTimer = null
+    }, DSR_REPLY_TIMEOUT)
+    // term.write is the display stream: the query never reaches the PTY.
+    this.term.write(DSR_PROBE)
+  }
+
+  _isDsrReply = (data) => {
+    return this._dsrReplyExpected && data === DSR_REPLY
+  }
+
   _checkKeepalive = () => {
     if (this.outputSuppressed) {
       return
     }
-    // The keepalive makes the server write a newline to the PTY, which would
-    // submit a command the user has typed but not yet run.
+    // Don't probe while the screen belongs to someone else: a full-screen app
+    // owns the escape traffic, a password prompt can not show us its line, and
+    // a half-typed command means we cannot tell an idle prompt from an idle
+    // reader. Skipping only delays the probe - nothing is ever typed for the
+    // user, which is the whole point of #4628.
     if (this._lineHasUnsubmittedInput()) {
       return
     }
@@ -978,13 +1035,15 @@ export default class AttachAddonCustom {
     const idleSinceData = now - this._lastDataTime
     const idleSinceInput = now - this._lastInputTime
     if (idleSinceData >= this._keepaliveInterval && idleSinceInput >= this._keepaliveInterval) {
-      // Tell the server to write \n to the PTY so bash's read() wakes up and
-      // resets the TMOUT alarm. The user has explicitly enabled keepalive and
-      // accepts the side-effect of an occasional echoed newline / re-prompt.
-      // Start output suppression to hide the echoed prompt.
+      // Ask the server whether the session is still there; it answers with a
+      // keepalive-probe control message that arms the DSR round trip above.
+      // Connection-level keepalive is ssh2's own job (keepaliveInterval in the
+      // connect options), so nothing here touches the PTY any more - see
+      // session-server.js. The side effect this used to have, an echoed
+      // newline and a 500ms window of discarded output, is gone with it; the
+      // trade-off is that a shell with TMOUT set will no longer be woken up.
       const sock = this._socket
       if (sock && sock.readyState === 1 /* OPEN */) {
-        this.startOutputSuppression(500, null, true)
         sock.send(JSON.stringify({ action: 'keepalive' }))
       }
     }
@@ -1028,6 +1087,10 @@ export default class AttachAddonCustom {
     this._stopKeepalive()
     clearTimeout(this._echoCheckTimer)
     this._echoCheckTimer = null
+    // A probe awaiting its answer dies with the connection.
+    clearTimeout(this._dsrReplyTimer)
+    this._dsrReplyTimer = null
+    this._dsrReplyExpected = false
     // End any pending suppression *before* dropping `term`, so the callback
     // (and the promise the startup queue is awaiting) is released instead of
     // hanging forever on a connection that is already gone.

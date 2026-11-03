@@ -469,20 +469,20 @@ if (type === 'rdp') {
               return
             }
             if (parsed.action === 'keepalive') {
-              // Write \n to the PTY.  In canonical mode the TTY line discipline
-              // only delivers data to read() when a newline completes the line,
-              // so \x00 (NUL) sits in the buffer and never wakes bash up.
-              // A newline wakes bash's read(), resets the TMOUT alarm, and bash
-              // simply re-displays the prompt.  The client suppresses that echo.
-              // This is a protocol-level byte sequence, not typed input, so it
-              // bypasses any tx line-ending rewriting - the same reason XMODEM
-              // data goes through writeRaw.
-              const wake = '\n\r\x1b[K'
-              if (typeof term.writeRaw === 'function') {
-                term.writeRaw(wake)
-              } else {
-                term.write(wake)
-              }
+              // #4628: this used to write '\n\r\x1b[K' into the PTY to wake
+              // bash up so TMOUT would not log the user out. That is typing on
+              // the user's behalf: the newline submits a half-typed command or
+              // answers a `read`/confirmation prompt, and ESC[K survives in the
+              // line buffer of any shell without readline (sh, dash, a serial
+              // device CLI) to come back with the user's next Enter.
+              // Nothing is written to the pty now. The renderer is told to run
+              // a DSR round trip instead (attach-addon-custom.js
+              // _startDsrProbe), which exercises the session without putting a
+              // byte into the shell. Keeping the remote connection alive is
+              // ssh2's job - keepaliveInterval is in the connect options
+              // (session-ssh.js) - and the trade-off, accepted when fixing
+              // #4628, is that a shell with TMOUT set is no longer woken up.
+              ws.s({ action: 'keepalive-probe', pid })
               return
             }
           } catch (e) {
