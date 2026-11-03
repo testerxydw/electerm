@@ -3,8 +3,8 @@
  * 预置关键字高亮合并 + 编译结果共享 —— CDP 实机验收
  *
  * 钉的是合并/优化后的落地效果（对应三个提交点）：
- *   A) 设置面板：13 个预设分组、规则总数 154（WindTerm 对齐前 136）；「全部应用」后
- *      配置里 154 条、跨预设共用的同一条正则不会出现两种颜色（合并纪律）；
+ *   A) 设置面板：13 个预设分组、规则总数 155（WindTerm 对齐前 136）；「全部应用」后
+ *      配置里 155 条、跨预设共用的同一条正则不会出现两种颜色（合并纪律）；
  *      组级勾选/取消的统计与配置一致。
  *   B) 终端真实渲染（真 PTY 往返 → xterm 缓冲区单元格前景色）：
  *      Exited (137) 整段红、Exited (0) 整段绿、[core:error] 整块红、
@@ -12,9 +12,12 @@
  *      Traceback (most recent call last) 整句红、[00:12:34.567] 含方括号青，
  *      普通 prose 不着色；
  *      WindTerm 对齐档：ls -l 权限串整串蓝、08:57 整段青、属主列不着色、
- *      df -h 裸体积单位整段青、长选项连值一段黄、PCI 地址不被时钟档抢成 00:02。
+ *      df -h 裸体积单位整段青、长选项连值一段黄、PCI 地址不被时钟档抢成 00:02；
+ *      同起点抢位收口档：nginx.service 整段蓝（不再「紫 nginx + 蓝 .service」）、
+ *      0.0.0.0:8080->80/tcp 整段紫、Up 3 hours 整段绿、does not exist 整句红、
+ *      /tmp/out.json 与 /favicon.ico 整段蓝。
  *   C) 资源：多个页签共用同一份编译结果（compiledPatterns 是同一个数组引用，
- *      RegExp 对象不按页签翻倍）；「全部应用」后生效规则去重成 107 条而非 154 条。
+ *      RegExp 对象不按页签翻倍）；「全部应用」后生效规则去重成 107 条而非 155 条。
  *   D) 洪泛上限：一行 600 个 error 只有前 maxMatchesPerSegment(512) 个着色。
  *   E) 全部不应用后新建页签 0 条规则、完全不着色（静音路径 + 空规则不缓存）。
  *
@@ -415,27 +418,27 @@ const main = async () => {
   const groups = JSON.parse(await ev(GROUP_ROWS))
   const pillSum = groups.reduce((n, g) => n + g.total, 0)
   check('预置分组 13 个', groups.length === 13, { groups: groups.length })
-  check('13 个分组的规则总数 154（WindTerm 对齐前 136）', pillSum === 154, {
+  check('13 个分组的规则总数 155（WindTerm 对齐前 136）', pillSum === 155, {
     pillSum, byGroup: groups.map(g => g.name + '=' + g.total)
   })
   const t0 = JSON.parse(await ev(STAT_TEXTS))
   const flat = s => String(s).replace(/\s+/g, '')
-  check('未应用时面板统计 0/154',
-    flat(t0.stat).includes('0/154') && flat(t0.badge).includes('0/154'), t0)
+  check('未应用时面板统计 0/155',
+    flat(t0.stat).includes('0/155') && flat(t0.badge).includes('0/155'), t0)
   await cdp.shot(path.join(SHOT_DIR, '01-panel-empty.png'))
 
   console.log(await ev(clickToolbar('kwApplyAll')))
   // 面板未填过的默认空规则也会留在配置里，所以按「带 keyword 的条数」判定
   const cfgApplied = JSON.parse(await waitFor(
     cdp,
-    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.keyword && !x.off).length === 154 ? ${CONFIG_STATS} : null })()`,
-    'apply all -> 154 active rules in config'
+    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.keyword && !x.off).length === 155 ? ${CONFIG_STATS} : null })()`,
+    'apply all -> 155 active rules in config'
   ))
-  check('「全部应用」写入配置 154 条预设规则', cfgApplied.on === 154, cfgApplied)
+  check('「全部应用」写入配置 155 条预设规则', cfgApplied.on === 155, cfgApplied)
   check('跨预设没有一条正则被配成两种颜色（合并纪律）', cfgApplied.conflict.length === 0, cfgApplied.conflict)
   check('「全部应用」后生效规则去重为 107 条', cfgApplied.activeDedup === 107, cfgApplied)
   const t1 = JSON.parse(await ev(STAT_TEXTS))
-  check('面板统计跟随：已应用 154/154', String(t1.stat).replace(/\s+/g, ' ').includes('154/154'), t1)
+  check('面板统计跟随：已应用 155/155', String(t1.stat).replace(/\s+/g, ' ').includes('155/155'), t1)
   await cdp.shot(path.join(SHOT_DIR, '02-panel-applied.png'))
 
   // 组级取消勾选：只静音，不丢规则
@@ -445,8 +448,8 @@ const main = async () => {
     `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.off).length === 10 ? ${CONFIG_STATS} : null })()`,
     'mute Networking group'
   ))
-  check('取消 Networking 分组：10 条静音、生效 144 条（规则保留不丢）',
-    cfgOff.off === 10 && cfgOff.on === 144 && cfgOff.total === cfgApplied.total, cfgOff)
+  check('取消 Networking 分组：10 条静音、生效 145 条（规则保留不丢）',
+    cfgOff.off === 10 && cfgOff.on === 145 && cfgOff.total === cfgApplied.total, cfgOff)
   console.log(await ev(toggleGroupCheck('Networking')))
   const cfgOn = JSON.parse(await waitFor(
     cdp,
@@ -474,7 +477,7 @@ const main = async () => {
     'three terminals compiled'
   ))
   check('三个页签 compiledPatterns 是同一引用（进程级共享）', share.sameReference === true, share)
-  check('RegExp 对象数 = 规则数 107，不按页签翻倍（旧实现 3×154）',
+  check('RegExp 对象数 = 规则数 107，不按页签翻倍（旧实现 3×155）',
     share.regExpObjects === 107 && share.perTab.every(n => n === 107), share)
   const limits = JSON.parse(await ev(addonLimits(ids[0])))
   check('运行期限流参数：4096 / 256K / 512',
@@ -509,6 +512,13 @@ const main = async () => {
     ['df -h /dev/sda2  233G   98G  45%', '233G', 'C', 'df -h 的裸体积单位整段青（单位尾巴不再留白）'],
     ['curl -sS --max-time=30 -o /dev/null', '--max-time=30', 'Y', '长选项连值一段黄（WindTerm 的 variable.language 档）'],
     ['lspci 00:02.0 VGA compatible', '00:02.0', 'M', 'PCI 地址整段紫，不被时钟档读成「00:02 + 小数」'],
+    // 同起点抢位收口：两条规则在同一个起跑线上抢一段文字时，两端（终端/网格）跨度一致
+    ['Oct  9 08:57:36 host systemd[1]: nginx.service: Failed', 'nginx.service', 'B', '单元名整段蓝，不再「紫 nginx + 蓝 .service」'],
+    ['a1b2c3d4e5f6 web-0 Up 3 hours 0.0.0.0:8080->80/tcp', '0.0.0.0:8080->80/tcp', 'M', '端口映射整段紫（裸 IP 档把 IP:端口 让出去了）'],
+    ['a1b2c3d4e5f6 web-0 Up 3 hours 0.0.0.0:8080->80/tcp', 'Up 3 hours', 'G', '在线时长整段绿，不被裸 up 抢成前两个字符'],
+    ['ERROR 1146 (42S02): Table users does not exist', 'does not exist', 'R', '「does not exist」整句红，尾巴不再留白'],
+    ['curl -sS --max-time=30 -o /tmp/out.json', '/tmp/out.json', 'B', '多段路径整段蓝，不再只染 /tmp'],
+    ['404 /favicon.ico', '/favicon.ico', 'B', '单段路径由 absPath 一处认，整段蓝'],
     ['the weather is fine today', 'weather is fine', '0', '负例：普通 prose 不着色']
   ]
   for (const [payload, needle, color, label] of ptyLines) {

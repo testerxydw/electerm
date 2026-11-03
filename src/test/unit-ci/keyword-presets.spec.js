@@ -258,6 +258,82 @@ describe('keyword presets', () => {
       .highlightKeywords('pci 0000:3b:00.0').includes('\u001b[35m0000:3b:00.0' + end))
   })
 
+  test('同一行在终端与数据库网格拿到的着色跨度一致', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { activeKeywords } = await import('../../client/common/keyword-groups.js')
+    const rules = activeKeywords(keywordPresets.reduce((acc, p) => acc.concat(p.keywords), []))
+      .map(k => ({ ...k, re: new RegExp(k.keyword, 'gi') }))
+    // 终端的重叠裁决是「同起点取更短」(highlight-addon.js)，网格是「同起点取更长」
+    // (db-highlight.jsx)。两条规则在同一起跑线上抢位、跨度又不同时，同一个词在终端
+    // 和网格里会被染成不同颜色或不同长度——这里不靠规则排列顺序，只用 lookahead
+    // 让位，所以每行两边必须给出完全相同的着色序列。
+    const termCmp = (a, b) => a.start - b.start || a.end - b.end
+    const gridCmp = (a, b) => a.start - b.start || b.end - a.end
+    const arbitrate = (hits, cmp) => {
+      let last = 0
+      const out = []
+      for (const h of [...hits].sort(cmp)) {
+        if (h.start < last) continue
+        out.push(`${h.color}:${h.text}`)
+        last = h.end
+      }
+      return out.join(' ')
+    }
+    const scan = line => {
+      const hits = []
+      for (const r of rules) {
+        r.re.lastIndex = 0
+        let m
+        while ((m = r.re.exec(line)) !== null) {
+          if (m[0] === '') { r.re.lastIndex++; continue }
+          hits.push({ start: m.index, end: m.index + m[0].length, color: r.color, text: m[0] })
+        }
+      }
+      return hits
+    }
+    const lines = [
+      'drwxr-xr-x 2 root root 4096 Oct  9 08:57 nginx.service',
+      'Oct  9 08:57:36 host systemd[1]: nginx.service: Failed with result exit-code',
+      'a1b2c3d4e5f6   web-0     Up 3 hours          0.0.0.0:8080->80/tcp',
+      'tcp   LISTEN 0  4096  0.0.0.0:22   0.0.0.0:*   sshd',
+      'tcp  ESTAB  0  0  10.1.2.3:443  93.184.216.34:80  elapsed 1.2s',
+      'ERROR 1146 (42S02): Table users does not exist',
+      'df -h /dev/sda2  233G   98G  45%',
+      'curl -sS --max-time=30 -o /tmp/out.json',
+      'root:x:0:0:root:/root:/bin/bash',
+      '"GET /api/x HTTP/1.1" 500 1234 request_time=0.012',
+      '404 /favicon.ico',
+      'ip addr show dev eth0: inet 10.1.2.3/24 scope global eth0',
+      'lspci 0000:3b:00.0 VGA compatible controller'
+    ]
+    for (const line of lines) {
+      const hits = scan(line)
+      assert.ok(hits.length > 0, line)
+      assert.equal(arbitrate(hits, termCmp), arbitrate(hits, gridCmp), line)
+    }
+    // 让位的方向也要盯住：只保证「两边一致」的话，两条规则一起抢错也测不出来
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const end = '\u001b[0m'
+    const red = '\u001b[31m'
+    const green = '\u001b[32m'
+    const cyan = '\u001b[36m'
+    const all = new KeywordHighlighterAddon(rules)
+    assert.ok(all.highlightKeywords('nginx.service').includes('\u001b[34mnginx.service' + end))
+    assert.equal(all.highlightKeywords('nginx.service').includes('\u001b[35mnginx' + end), false)
+    assert.ok(all.highlightKeywords('10.1.2.3:443').includes('\u001b[35m10.1.2.3:443' + end))
+    assert.equal(all.highlightKeywords('10.1.2.3:443').includes(cyan + '10.1.2.3' + end), false)
+    // 裸 IP 不受影响，仍然青
+    assert.ok(all.highlightKeywords('ping 10.1.2.3 ok').includes(cyan + '10.1.2.3' + end))
+    // 单段路径只有 absPath 一处认，多段路径整段蓝
+    assert.ok(all.highlightKeywords('404 /favicon.ico').includes('\u001b[34m/favicon.ico' + end))
+    assert.ok(all.highlightKeywords('open /tmp/out.json').includes('\u001b[34m/tmp/out.json' + end))
+    // 「does not exist」整句红，不再前两个词红、尾巴不着色
+    assert.ok(all.highlightKeywords('Table users does not exist').includes(red + 'does not exist' + end))
+    // docker ps 的在线时长整段绿，裸 up（网络端口状态）不受影响
+    assert.ok(all.highlightKeywords('web-0  Up 3 hours').includes(green + 'Up 3 hours' + end))
+    assert.ok(all.highlightKeywords('Gi1/0/3  up  600').includes(green + 'up' + end))
+  })
+
   test('applying a preset keeps custom rules and skips duplicates', async () => {
     const { keywordPresets, mergeKeywordPreset } = await loadPresets()
     const preset = keywordPresets[0]
@@ -351,7 +427,7 @@ describe('keyword presets', () => {
     assert.ok(out.includes('\u001b[35mnginx-7d9f8c6b5-x2k4p'))
     assert.ok(out.includes('\u001b[31mCrashLoopBackOff'))
     assert.ok(out.includes('\u001b[35m12 (30s ago)'))
-    assert.ok(addon.highlightKeywords('0.0.0.0:8080->80/tcp').includes('\u001b[35m8080->80/tcp'))
+    assert.ok(addon.highlightKeywords('0.0.0.0:8080->80/tcp').includes('\u001b[35m0.0.0.0:8080->80/tcp'))
   })
 
   test('Git preset colours conflicts and leaves the status letters alone', async () => {

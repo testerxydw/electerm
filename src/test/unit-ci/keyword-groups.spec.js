@@ -38,14 +38,14 @@ describe('keyword groups', () => {
     ])
   })
 
-  test('全部应用 13 个预设：面板统计 154 条，生效规则去重后 107 条', async () => {
+  test('全部应用 13 个预设：面板统计 155 条，生效规则去重后 107 条', async () => {
     const { activeKeywords, setPresetGroupOn } = await load()
     const { keywordPresets } = await loadPresets()
     const applied = keywordPresets.reduce((acc, p) => setPresetGroupOn(acc, p, true), [])
     const active = activeKeywords(applied)
 
-    // 配置里按组各存一份（面板要按组统计勾选），共 154 条
-    assert.equal(applied.length, 154)
+    // 配置里按组各存一份（面板要按组统计勾选），共 155 条
+    assert.equal(applied.length, 155)
     // 生效侧同正则同色的跨预设重复被去掉 = 107 条不同规则
     assert.equal(active.length, 107)
     assert.equal(new Set(active.map(r => r.keyword)).size, 107)
@@ -165,7 +165,7 @@ describe('keyword groups', () => {
     const views = allPresetViews([])
     assert.equal(views.length, 13)
     assert.equal(views.every(v => v.on === 0 && !v.checked && !v.indeterminate), true)
-    assert.equal(views.reduce((n, v) => n + v.total, 0), 154)
+    assert.equal(views.reduce((n, v) => n + v.total, 0), 155)
   })
 
   // ---- 自建分组 / 新增规则（keywords-form 新功能）----

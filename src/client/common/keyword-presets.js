@@ -55,7 +55,10 @@
  */
 
 // ---- 共享片段 ----
-const ipv4 = '\\b(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(/\\d{1,2})?\\b'
+// 末尾的 (?!:\d) 是把「IP:端口」整段让给端口映射档（magenta）：那条与本条同起点但
+// 更长，而终端的重叠裁决是「同起点取更短」、网格是「同起点取更长」，不加这道护栏，
+// docker ps 的 0.0.0.0:8080 在终端只染前 7 个字符、在网格里染整段，两处结论不一样。
+const ipv4 = '\\b(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(/\\d{1,2})?\\b(?!:\\d)'
 const ipv6 = '(?<![\\w:])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|:(?::[0-9a-f]{1,4}){1,7}|::)(?![\\w:])'
 const mac = '\\b([0-9a-f]{2}[:-]){5}[0-9a-f]{2}\\b|\\b[0-9a-f]{4}\\.[0-9a-f]{4}\\.[0-9a-f]{4}\\b'
 const srcExt = 'c|cc|cpp|cxx|h|hh|hpp|hxx|m|mm|go|rs|java|kt|kts|scala|ts|tsx|js|jsx|mjs|cjs|py|pyi|rb|php|cs|swift|zig|lua|pl|pm|ex|exs|erl|dart|sh|bash|zsh|ps1|sql|json|ya?ml|toml|ini|cfg|conf|properties|styl|css|scss|sass|less|html|vue|svelte|md|txt|log|csv|tsv'
@@ -114,7 +117,9 @@ const devAddr = '\\b(?:[0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\\.\\d\\b|\\b[0-9a-f
 // （lvlWarn）与 magenta（nullBool）——那几处配色在别的预设里另有用途，跟色会让
 // 已应用过预设的人拿到和面板不一致的结论。裸 not / no 也不跟：终端的重叠裁决是
 // 同起点取更短，红档的「no <词>」会把 Git 预设的整句黄档（no changes added to
-// commit）抢成红色。
+// commit）抢成红色。DOES NOT 后面带可选的 EXIST/MATCH：数据库预设把「does not
+// exist」整句记红，与本条同起点却更长，同一起跑线上终端只染前两个词、网格染整句，
+// 让本条自己吃下整句，两处才拿到同一个跨度。
 const lvlError = '\\b(?:EMERG(?:ENCY)?|ALERT|CRITICAL|CRIT|SEVERE|FATAL|PANIC(?:KED)?|' +
   'ERRORS?|ERR|EXCEPTIONS?|CAUSED BY|' +
   'FAIL(?:ED|ING|URE|URES)?|DENIED|DENY|REFUSED|REJECTED|TIMEOUT|TIMED OUT|UNREACHABLE|' +
@@ -122,7 +127,7 @@ const lvlError = '\\b(?:EMERG(?:ENCY)?|ALERT|CRITICAL|CRIT|SEVERE|FATAL|PANIC(?:
   'ABORT(?:ED|ING)?|CRASH(?:ED|ING|ES)?|EXPIRED|REVOKED|VULNERABILIT(?:Y|IES)|' +
   'BAD|INCORRECT|INVALID|UNSUPPORTED|WRONG|MISMATCH|MISCONFIGURED|MISSING|' +
   'UNEXPECTED|UNAVAILABLE|UNRESOLVED|' +
-  'CANNOT|CAN NOT|COULD ?NOT|SHOULD ?NOT|WOULD ?NOT|WILL ?NOT|DOES NOT|DID NOT|' +
+  'CANNOT|CAN NOT|COULD ?NOT|SHOULD ?NOT|WOULD ?NOT|WILL ?NOT|DOES NOT(?: (?:EXIST|MATCH))?|DID NOT|' +
   "CAN'T|COULDN'T|SHOULDN'T|WOULDN'T|WON'T|DIDN'T|DOESN'T|" +
   'NOT (?:FOUND|ALLOWED|PERMITTED|AVAILABLE|SUPPORTED|RESPONDING|AUTHENTICATED|' +
   'INITIALIZED|ESTABLISHED|REACHABLE|VALID)|' +
@@ -205,7 +210,10 @@ const optFlag = '(?<![\\w/~-])-{1,2}[A-Za-z][\\w]*(?:-[A-Za-z][\\w]*)*(?:=[^\\s,
 // 这些带斜杠的普通文本不会被认成路径；相对路径（src/x.js）交给 srcFile 规则。
 // Auth & security 预设原来内联了一份「只认常见根目录」的写法，本条是它的超集，
 // 两边共用同一个对象（同色 blue），不再各存一份正则文本。
-const absPath = '(?<![\\w/])(?:/(?:etc|var|home|root|usr|opt|tmp|srv|run|proc|sys|dev|bin|sbin|lib|lib64|mnt|media|config)(?![\\w-])(?:/[\\w.@+~/-]*)?|/[\\w.@+~-]{2,}(?:/[\\w.@+~-]*)+/?)'
+// 尾段可选（单段也算，如 /favicon.ico、/api）：HTTP 预设原本自己内联了一条更宽
+// 的单段路径档，与本条同起点、同色但更短，终端取短会把 /bin/bash 只染成 /bin，
+// 网格取长又连冒号一起染——现在单段只由本条一处表达，两处裁决拿到同一个跨度。
+const absPath = '(?<![\\w/])(?:/(?:etc|var|home|root|usr|opt|tmp|srv|run|proc|sys|dev|bin|sbin|lib|lib64|mnt|media|config)(?![\\w-])(?:/[\\w.@+~/-]*)?|/[\\w.@+~-]{2,}(?:/[\\w.@+~-]*)*/?)'
 
 // ls -l / stat 的权限串：WindTerm 逐字符分色（文件类型/ r / w / sxst）。
 // 本引擎只给整条匹配配一种颜色，所以整串取 blue（与路径、文件名同一类信号），
@@ -297,7 +305,7 @@ export const keywordPresets = [
       // "errors":0、"denied_count":0 是键名，不能染色（共享的 lvlError 没有这对
       // 护栏，套到这里会把干净的状态输出全染红）
       { keyword: '(?<![":])\\b(errors?|fail(ed|ure|s)?|denied|deny|invalid|incomplete|unreachable|timeout|timed out|crc|runts|giants|collisions?|input errors|output errors|discard(s|ed)?|drop(s|ped)?|blocking|blk|bkn|broken|alarm|critical|access denied)\\b(?![":])', color: 'red' },
-      { keyword: '(?<![":])\\b(up|connected|link up|permit(ted)?|forwarding|fwd|full|established|active|success(ful)?|enabled?|ok|online|reachable|root)\\b(?![":])|\\bu/u\\b', color: 'green' },
+      { keyword: '(?<![":])\\b(up|connected|link up|permit(ted)?|forwarding|fwd|full|established|active|success(ful)?|enabled?|ok|online|reachable|root)\\b(?![":])(?!\\s+\\d+\\s+(?:second|minute|hour|day|week|month|year)s?)|\\bu/u\\b', color: 'green' },
       { keyword: '(?<![":])\\b(warning|warn|half|learning|lrn|listening|lis|standby|disabled?|shutdown|pending|unknown|desg|altn|alternate|backup)\\b(?![":])', color: 'yellow' },
       // 接口名：Cisco/Arista/Dell(Gi1/0/1, Et1, Po1, Vlan600)、Huawei(XGigabitEthernet0/0/1,
       // 40GE1/0/1, Eth-Trunk1, Vlanif10)、HP Comware(XGE1/0/1, BAGG1)、ProCurve(Trk1)、
@@ -367,15 +375,19 @@ export const keywordPresets = [
       { keyword: '(?:(?<="\\s)|\\bstatus[=:]\\s*)4\\d{2}\\b', color: 'yellow' },
       { keyword: '(?<="\\s)3\\d{2}\\b', color: 'cyan' },
       { keyword: '(?<="\\s)[12]\\d{2}\\b', color: 'green' },
-      // URL、请求行、协议版本：三条同色 blue，合成一条
-      // 请求行 / URL / 协议版本 / 独立路径：原本四条同色 blue，合成一条。
-      // 路径分支的 (?<![\w/]) 是为了不吃到日期里的 "/09"、URL 里的 "//"、"and/or" 的 "/or"
-      { keyword: '\\bhttps?://[^\\s"\']+|\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\\s+\\S+\\s+HTTP/|\\bHTTP/\\d(?:\\.\\d)?|(?<![\\w/])/[\\w.~%!$&()*+,;=:@-]{2,}', color: 'blue' },
+      // URL、请求行、协议版本：三条同色 blue，合成一条。
+      // 独立的单段路径（/favicon.ico）不再由本条内联，改引用共享的 absPath：那条
+      // 与本条同起点同色却更短，终端取短会把多段路径只染首段、网格取长又连冒号染
+      // 进去，两处跨度对不上。
+      { keyword: '\\bhttps?://[^\\s"\']+|\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\\s+\\S+\\s+HTTP/|\\bHTTP/\\d(?:\\.\\d)?', color: 'blue' },
+      rule.absPath,
       rule.dur,
       rule.durKey,
       { keyword: '\\bupstream\\b', color: 'magenta' },
-      // host:port, but not the "08:57" inside a timestamp
-      { keyword: '\\b(?:[a-z][a-z0-9.-]*|\\d{1,3}(?:\\.\\d{1,3}){3}):\\d{2,5}\\b', color: 'magenta' },
+      // host:port, but not the "08:57" inside a timestamp. 尾部的 ->端口/协议 与
+      // 网络组的任意地址档保持一致：两条都在 0.0.0.0:8080 这个起点上命中，一端带
+      // 尾巴一端不带，终端取短、网格取长，同一个端口映射在两个地方跨度就不一样
+      { keyword: '\\b(?:[a-z][a-z0-9.-]*|\\d{1,3}(?:\\.\\d{1,3}){3}):\\d{2,5}(?:->\\d{1,5}/(?:tcp|udp))?\\b', color: 'magenta' },
       { keyword: '\\b(Mozilla/5\\.0|curl/\\S+|Wget/\\S+|Googlebot(?:/\\S+)?|bingbot(?:/\\S+)?|python-requests/\\S+|Go-http-client/\\S+|okhttp/\\S+|PostmanRuntime/\\S+|Apache-HttpClient/\\S+|axios/\\S+|node-fetch/\\S+|Electron/\\S+)\\b', color: 'magenta' },
       rule.ipv4,
       // error-log 的级别。前缀字符类里必须带冒号，才认得 Apache 的 [core:error]、
@@ -455,13 +467,15 @@ export const keywordPresets = [
       { keyword: '\\b\\d+ \\(\\d+[dhms]+ ago\\)', color: 'magenta' },
       // 镜像：常用镜像名（带 tag）、registry 引用、sha256 摘要。三条原本同色
       // magenta，合成一条并保持原顺序；尾部 lookahead 保证 pod 名里的
-      // "nginx"（nginx-7d9f8c6b5-x2k4p）不被单独拆开染色
-      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w-])|\\b[a-z0-9-]+(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b|\\bsha256:[0-9a-f]{12,64}\\b', color: 'magenta' },
-      // ports and port mappings. Two rules, not one alternation: a single rule
-      // that matches "0.0.0.0:8080" would resume scanning after it and never
-      // see the "8080->80/tcp" that sits inside that span
+      // "nginx"（nginx-7d9f8c6b5-x2k4p）不被单独拆开染色。点位也一并排除：
+      // systemd 预设的 nginx.service 与本条同起点、更长却不同色，终端取短会把这个
+      // 单元名染成「紫 nginx + 蓝 .service」，网格取长则是整段蓝，两处不一样
+      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w.-])|\\b[a-z0-9-]+(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b|\\bsha256:[0-9a-f]{12,64}\\b', color: 'magenta' },
+      // ports and port mappings. The any-address form swallows its own
+      // "->80/tcp" tail: the IPv4 rule now yields "IP:port" to this rule, so a
+      // mapping that stopped at the port would leave the tail uncolored.
       { keyword: '\\b\\d{1,5}->\\d{1,5}/(tcp|udp)\\b', color: 'magenta' },
-      { keyword: '(?<![\\w])(0\\.0\\.0\\.0|\\*|::):\\d{1,5}\\b', color: 'magenta' },
+      { keyword: '(?<![\\w])(?:0\\.0\\.0\\.0|\\*|::):\\d{1,5}(?:->\\d{1,5}/(?:tcp|udp))?\\b', color: 'magenta' },
       rule.ipv4,
       rule.ipv6
     ]
