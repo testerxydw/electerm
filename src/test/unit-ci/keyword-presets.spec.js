@@ -111,6 +111,49 @@ describe('keyword presets', () => {
     assert.equal(out('Networking', '"errors":0, "denied_count":0'), '"errors":0, "denied_count":0')
   })
 
+  test('报错/告警词表对齐 WindTerm 默认 Linux 方案的 error 档', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const red = '\u001b[31m'
+    const yellow = '\u001b[33m'
+    const end = '\u001b[0m'
+    // WindTerm 的 token.error-token 认这些失败词，之前只有网络预设的私有词表认
+    // 其中一部分；现在共享的 lvlError 一条打尽，五个引用它的预设同时生效
+    const errorCases = [
+      ['Application log levels', 'bash: foo: command not found', 'not found'],
+      ['Application log levels', 'invalid option --z', 'invalid'],
+      ['Application log levels', 'could not resolve host example.com', 'could not'],
+      ['Build & test output', 'error: wrong type in x.c', 'wrong'],
+      ['Build & test output', 'bad superblock, missing dependency', 'bad'],
+      ['Build & test output', 'unexpected token, mismatched braces', 'unexpected'],
+      ['Linux kernel & dmesg', 'device is unavailable', 'unavailable'],
+      ['Syslog & systemd', 'unit cannot start, rescheduling', 'cannot'],
+      ['Exceptions & Stack Traces', 'certificate expired for host x', 'expired']
+    ]
+    for (const [name, line, word] of errorCases) {
+      const out = new KeywordHighlighterAddon(presetByName(keywordPresets, name).keywords)
+        .highlightKeywords(line)
+      assert.ok(out.includes(red + word + end), `${name}: ${line} → ${word}`)
+    }
+    // WindTerm 放在 error 档、本文件按自己的口径留黄档的三个词
+    const warn = new KeywordHighlighterAddon(presetByName(keywordPresets, 'Application log levels').keywords)
+      .highlightKeywords('deprecated api, feature disabled, unknown mode')
+    assert.ok(warn.includes(yellow + 'deprecated' + end))
+    assert.ok(warn.includes(yellow + 'disabled' + end))
+    assert.ok(warn.includes(yellow + 'unknown' + end))
+    // 否定式只认整词组：裸 not / no 不进红档，否则红档的「no <词>」会在同一位置上
+    // 比 Git 预设的整句更短而抢先命中（终端的重叠裁决是同起点取更短）
+    const all = new KeywordHighlighterAddon(
+      keywordPresets.reduce((acc, p) => acc.concat(p.keywords), [])
+    )
+    const noChanges = all.highlightKeywords('no changes added to commit')
+    assert.ok(noChanges.includes(yellow + 'no changes added to commit' + end), noChanges)
+    const ff = all.highlightKeywords('not possible to fast-forward')
+    assert.ok(ff.includes(red + 'not possible to fast-forward' + end), ff)
+    // true/false/none 保持 magenta（nullBool），不跟 WindTerm 的绿/红
+    assert.ok(all.highlightKeywords('flag true, none left').includes('\u001b[35mtrue'))
+  })
+
   test('applying a preset keeps custom rules and skips duplicates', async () => {
     const { keywordPresets, mergeKeywordPreset } = await loadPresets()
     const preset = keywordPresets[0]

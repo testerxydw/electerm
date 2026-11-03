@@ -80,14 +80,33 @@ const size = '\\b\\d+(?:\\.\\d+)?\\s?(?:bytes?|[KMGT]i?B)(?:/s)?\\b'
 // syslog、应用日志、内核、构建输出里是同一个信号，原本抄了 5 份互有遗漏的列表。
 // 不含 TRACEBACK：终端插件的重叠裁决是「同起点取更短」，这条一旦包含 Traceback，
 // 崩溃栈预设里 'Traceback (most recent call last)' 整句就会被前半截抢掉。
+//
+// WindTerm 默认 Linux 方案（安装包内 terminal/schemes/linux/linux.lexer 的
+// token.error-token 档）里有、我们原先缺的失败词在这里补齐：bad/incorrect/
+// invalid/unsupported/wrong/cannot，以及「助动词 + not」的否定式（command not
+// found、table does not exist、could not resolve）。WindTerm 还把 deprecated/
+// disabled/unknown/false/none 归进 error 档，本文件按自己的口径分别留在黄档
+// （lvlWarn）与 magenta（nullBool）——那几处配色在别的预设里另有用途，跟色会让
+// 已应用过预设的人拿到和面板不一致的结论。裸 not / no 也不跟：终端的重叠裁决是
+// 同起点取更短，红档的「no <词>」会把 Git 预设的整句黄档（no changes added to
+// commit）抢成红色。
 const lvlError = '\\b(?:EMERG(?:ENCY)?|ALERT|CRITICAL|CRIT|SEVERE|FATAL|PANIC(?:KED)?|' +
   'ERRORS?|ERR|EXCEPTIONS?|CAUSED BY|' +
   'FAIL(?:ED|ING|URE|URES)?|DENIED|DENY|REFUSED|REJECTED|TIMEOUT|TIMED OUT|UNREACHABLE|' +
   'CORRUPT(?:ED|ION)?|SEGFAULT|SEGMENTATION FAULT|CORE[- ]DUMP(?:ED|ING)?|DROPPED|' +
-  'ABORT(?:ED|ING)?|NO SUCH FILE|CANNOT (?:FIND|RESOLVE)|NOT FOUND|' +
-  'UNDEFINED (?:REFERENCE|SYMBOL)|UNRESOLVED|PERMISSION DENIED|EACCES|ENOENT|' +
-  'VULNERABILIT(?:Y|IES))\\b|(?:✗|✘|✖)'
-const lvlWarn = '\\b(?:WARN(?:ING)?S?|DEPRECATED|DEPRECATION|OUTDATED|HINT)\\b'
+  'ABORT(?:ED|ING)?|CRASH(?:ED|ING|ES)?|EXPIRED|REVOKED|VULNERABILIT(?:Y|IES)|' +
+  'BAD|INCORRECT|INVALID|UNSUPPORTED|WRONG|MISMATCH|MISCONFIGURED|MISSING|' +
+  'UNEXPECTED|UNAVAILABLE|UNRESOLVED|' +
+  'CANNOT|CAN NOT|COULD ?NOT|SHOULD ?NOT|WOULD ?NOT|WILL ?NOT|DOES NOT|DID NOT|' +
+  "CAN'T|COULDN'T|SHOULDN'T|WOULDN'T|WON'T|DIDN'T|DOESN'T|" +
+  'NOT (?:FOUND|ALLOWED|PERMITTED|AVAILABLE|SUPPORTED|RESPONDING|AUTHENTICATED|' +
+  'INITIALIZED|ESTABLISHED|REACHABLE|VALID)|' +
+  'NO SUCH \\w+|NO (?:ROUTE|PERMISSIONS?|RESPONSE|SPACE|MATCHING|ACCESS|AUTHENTICATION)|' +
+  'UNDEFINED (?:REFERENCE|SYMBOL)|PERMISSION DENIED|EACCES|ENOENT)\\b|(?:✗|✘|✖)'
+// disabled/unknown 在 WindTerm 是红档，但「未开启 / 认不出来」在 syslog、构建、
+// 内核日志里是提醒而不是失败，留在黄档；顺带把只有网络预设认得的 incompatible/
+// legacy 提到共享黄档，让日志侧的「兼容性警告」也能染上色。
+const lvlWarn = '\\b(?:WARN(?:ING)?S?|DEPRECATED|DEPRECATION|OUTDATED|HINT|DISABLED|UNKNOWN|INCOMPATIBLE|LEGACY)\\b'
 const lvlNotice = '\\bNOTICE\\b'
 // INFO 在 syslog 里原本是 cyan、在应用日志里是 green：同一条正则两种配色会被去重
 // 掉一种，统一取 cyan（green 留给「状态正常/成功」这一类词）。
