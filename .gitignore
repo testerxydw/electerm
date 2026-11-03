@@ -157,3 +157,4 @@ self-test/keepalive-dsr-probe-shots/
 self-test/term-theme-background-shots/
 
 self-test/ai-language-shots/
+self-test/agent-db-tools-shots/

@@ -18,6 +18,15 @@ import {
 } from '../components/bookmark-form/fix-bookmark-default'
 import newTerm from '../common/new-terminal'
 import dangerousSessionFields from '../common/dangerous-session-fields'
+import {
+  buildDbContext,
+  collectTables,
+  resolveDbTab,
+  summarizeResultSnapshot,
+  summarizeStructure
+} from '../common/db-agent-tools'
+import { getSqlTarget, isSqlTargetReady } from '../common/db-sql-ai-target'
+import { planSqlInsertion } from '../common/db-sql-ai'
 
 // Dangerous props that must not be accepted from MCP/AI tool calls.
 // Shared with src/client/store/tab.js and the quick connect parser so the
@@ -1571,6 +1580,127 @@ export default Store => {
       remoteFiles,
       saveFolder,
       tabId
+    }
+  }
+
+  // ==================== Database (read-only) APIs ====================
+  // 设计 §5.5：agent 只拿到"看"的能力——连接上下文、表清单、表结构、屏幕上那份结果集，
+  // 外加把 SQL 落进编辑器。这里一个执行入口都没有：跑 SQL 仍由人按运行，
+  // 并照旧过 confirmSqlRisk 那道危险语句闸门（agent 若自己能 executeSql，闸门就被绕掉了）。
+
+  // 除 db_get_context 外都要真能问 SQL：redis 页签的 getMetadata 回的是键，
+  // 给它表清单只会让模型拿着一堆键名去写 SELECT
+  const requireSqlDbTab = (args) => {
+    const resolved = window.store.mcpResolveDbTab(args)
+    const dbType = String((resolved.tab && resolved.tab.dbType) || '').toLowerCase()
+    if (dbType === 'redis') {
+      throw new Error(
+        `Tab "${resolved.tabId}" is a Redis tab; it has no SQL tables or editor.`
+      )
+    }
+    return resolved
+  }
+
+  Store.prototype.mcpResolveDbTab = function (args) {
+    const { store } = window
+    return resolveDbTab({
+      tabs: store.tabs,
+      activeTabId: store.activeTabId,
+      requested: args && args.tabId
+    })
+  }
+
+  Store.prototype.mcpDbGetContext = function (args) {
+    const { tab, tabId } = window.store.mcpResolveDbTab(args)
+    const target = getSqlTarget(tabId)
+    const context = target && target.getContext ? target.getContext() : null
+    return buildDbContext({
+      tab,
+      tabId,
+      context,
+      hasSqlEditor: !!target && isSqlTargetReady(tabId)
+    })
+  }
+
+  Store.prototype.mcpDbListTables = async function (args) {
+    const { tab, tabId } = requireSqlDbTab(args)
+    const database = (args && args.database) || tab.dbName || tab.dbUser || ''
+    const metadata = await window.pre.runGlobalAsync(
+      'dbClientOp', tabId, 'getMetadata', { hideSystemSchemas: true }
+    )
+    return collectTables(metadata, database, {
+      limit: (args && args.limit) || undefined
+    })
+  }
+
+  Store.prototype.mcpDbDescribeTable = async function (args) {
+    const { tabId } = requireSqlDbTab(args)
+    const table = String((args && args.table) || '').trim()
+    if (!table) {
+      throw new Error('table is required (see db_list_tables)')
+    }
+    const context = window.store.mcpDbGetContext({ tabId })
+    const payload = {
+      database: (args && args.database) || context.database,
+      schema: (args && args.schema) || context.schema,
+      table
+    }
+    const structure = await window.pre.runGlobalAsync(
+      'dbClientOp', tabId, 'getTableStructure', payload
+    )
+    return summarizeStructure(structure, payload)
+  }
+
+  Store.prototype.mcpDbReadResult = function (args) {
+    const { tabId } = requireSqlDbTab(args)
+    const target = getSqlTarget(tabId)
+    if (!target || typeof target.getResultSnapshot !== 'function') {
+      throw new Error(
+        `Tab "${tabId}" exposes no result set to read. Run a query in its SQL panel, or select a table in the tree.`
+      )
+    }
+    const snapshot = target.getResultSnapshot()
+    if (!snapshot) {
+      throw new Error(
+        `No result set on screen for tab "${tabId}" yet. Ask the user to run the query, or read structure with db_describe_table.`
+      )
+    }
+    return summarizeResultSnapshot(snapshot, {
+      resultIndex: args && args.resultIndex,
+      offset: args && args.offset,
+      limit: args && args.limit
+    })
+  }
+
+  Store.prototype.mcpDbInsertSql = function (args) {
+    const { tabId } = requireSqlDbTab(args)
+    const sql = String((args && args.sql) || '')
+    if (!sql.trim()) {
+      throw new Error('sql is required')
+    }
+    if (!isSqlTargetReady(tabId)) {
+      throw new Error(
+        `Tab "${tabId}" has no ready SQL editor. Switch to that database tab (switch_tab) and open its SQL panel; this tool only writes into the editor.`
+      )
+    }
+    const target = getSqlTarget(tabId)
+    // 策略写死 cursor（与对话面板 SQL 代码块那颗按钮同一选择）：AI 不该吃掉用户
+    // 已有的选区，更不该有"整篇替换"的入口——清空人写好的 SQL 必须是人的主动行为
+    const selection = target.getSelection ? target.getSelection() : null
+    const plan = planSqlInsertion({
+      text: sql,
+      currentText: target.getDocText ? target.getDocText() : '',
+      selectionRange: selection && selection.range,
+      strategy: 'cursor'
+    })
+    target.insertSql(plan.text, plan)
+    return {
+      tabId,
+      inserted: true,
+      characters: plan.text.length,
+      placement: plan.kind,
+      executed: false,
+      note: 'Written into the SQL editor only. The user runs it (and the danger gate applies then).'
     }
   }
 }

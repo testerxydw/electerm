@@ -3274,6 +3274,12 @@ export default auto(function DbSession (props) {
     readOnly: !!isReadonly
   }
 
+  // AI agent 的只读快照（S2-1）：把"屏幕上现在是什么"交出去——人刚跑出来的结果集，
+  // 或数据网格当前页。同样按渲染刷进 ref，登记出去的对象保持稳定。
+  // 这里没有任何执行能力，交出去的也只是已有 state。
+  const sqlAiLiveRef = useRef(null)
+  sqlAiLiveRef.current = { sqlResult, grid, sel }
+
   // 契约只暴露"写编辑器"的能力（没有 runSql）——AI 拿不到任何执行路径，
   // 危险语句仍由用户按执行时的 confirmSqlRisk 拦
   const sqlAiTarget = useMemo(() => ({
@@ -3293,6 +3299,40 @@ export default auto(function DbSession (props) {
       }
     },
     getContext: () => sqlAiCtxRef.current,
+    // 只读快照：优先人刚执行出来的结果集，其次数据网格当前页；两者都没有回 null
+    // （agent 侧据此报错并给出下一步，而不是返回一张空表让模型编数据）
+    getResultSnapshot () {
+      const live = sqlAiLiveRef.current || {}
+      const sql = live.sqlResult || {}
+      const gridState = live.grid || {}
+      const selected = live.sel || {}
+      if (Array.isArray(sql.results) && sql.results.length) {
+        return {
+          source: 'sql-result',
+          results: sql.results,
+          elapsedMs: sql.elapsedMs,
+          error: sql.error || ''
+        }
+      }
+      if (sql.error || gridState.error) {
+        return {
+          source: 'sql-result',
+          results: [],
+          error: sql.error || gridState.error
+        }
+      }
+      if (Array.isArray(gridState.rows) && gridState.rows.length) {
+        return {
+          source: 'grid',
+          results: [{ rows: gridState.rows }],
+          table: (selected.database ? selected.database + '.' : '') + (selected.table || ''),
+          page: gridState.page,
+          hasMore: gridState.hasMore,
+          totalRows: gridState.totalRows
+        }
+      }
+      return null
+    },
     insertSql (text, plan) {
       const editor = sqlEditorRef.current
       const p = plan || {}

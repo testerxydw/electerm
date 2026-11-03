@@ -21,6 +21,7 @@ const targets = new Map()
  *   getDocText()           当前编辑器全文（与选区区间同一份文档）
  *   getSelection()         { text, range: {start, end} | null }
  *   getContext()           { dbType, database, schema, table, columns, readOnly }
+ *   getResultSnapshot()    屏幕上那份结果集（{source, results, ...}）；没有返回 null
  *   isAvailable()          编辑器是否已就绪（懒加载未完成时返回 false）
  * }
  */

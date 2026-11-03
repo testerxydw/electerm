@@ -463,6 +463,124 @@ export const agentTools = [
         required: ['taskId']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_get_context',
+      description: 'Read the database session the user is working in: engine, host, current database/schema/table, whether the connection is read-only or marked production, and whether its SQL editor is ready to receive text. Call this before any other db_* tool. Never executes anything.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Database tab ID. Omit to use the active tab; if several database tabs are open and the active one is not a database tab, this must be passed.'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_list_tables',
+      description: 'List tables and views of a database on the user\'s open database session (read-only metadata query). Returns name plus kind (table/view) and, on PostgreSQL, the schema they belong to.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Database tab ID. Omit to use the active database tab.'
+          },
+          database: {
+            type: 'string',
+            description: 'Database name. Omit to use the database currently selected in the session.'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum entries to return (default 200, max 500). The total count is reported even when truncated.'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_describe_table',
+      description: 'Read one table\'s structure: columns (type, nullable, primary key, default, comment), indexes and foreign keys, plus a row estimate. Read-only metadata query; use it before writing SQL that depends on column names.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Database tab ID. Omit to use the active database tab.'
+          },
+          table: {
+            type: 'string',
+            description: 'Table or view name to describe.'
+          },
+          database: {
+            type: 'string',
+            description: 'Database name. Omit to use the one currently selected.'
+          },
+          schema: {
+            type: 'string',
+            description: 'Schema name (PostgreSQL). Omit to use the one currently selected.'
+          }
+        },
+        required: ['table']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_read_result',
+      description: 'Read the result set currently on the user\'s screen in that database session: the rows of the last SQL they ran, or the current page of the data grid when no query result is showing. Long cells are truncated and binary values are reported by size only. Does not run any SQL - if nothing is on screen it says so.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Database tab ID. Omit to use the active database tab.'
+          },
+          resultIndex: {
+            type: 'number',
+            description: 'Which result set of the last run (multi-statement runs produce several). Default 0.'
+          },
+          offset: {
+            type: 'number',
+            description: 'Skip this many rows (default 0).'
+          },
+          limit: {
+            type: 'number',
+            description: 'Rows to return (default 20, max 50).'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_insert_sql',
+      description: 'Write SQL into the user\'s SQL editor at the cursor. It does NOT execute: the user reviews and runs it, and write/DDL statements still go through the app\'s danger confirmation. Use this instead of asking the user to copy-paste. If the editor is not ready (wrong tab, SQL panel closed) it fails and says why.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Database tab ID. Omit to use the active database tab.'
+          },
+          sql: {
+            type: 'string',
+            description: 'The SQL text to place in the editor (one statement or several, no markdown fences).'
+          }
+        },
+        required: ['sql']
+      }
+    }
   }
 ]
 
@@ -534,6 +652,16 @@ export async function executeToolCall (toolName, args) {
       return JSON.stringify(await store.mcpGetBackgroundTaskLog(args))
     case 'cancel_background_task':
       return JSON.stringify(await store.mcpCancelBackgroundTask(args))
+    case 'db_get_context':
+      return JSON.stringify(store.mcpDbGetContext(args))
+    case 'db_list_tables':
+      return JSON.stringify(await store.mcpDbListTables(args))
+    case 'db_describe_table':
+      return JSON.stringify(await store.mcpDbDescribeTable(args))
+    case 'db_read_result':
+      return JSON.stringify(store.mcpDbReadResult(args))
+    case 'db_insert_sql':
+      return JSON.stringify(store.mcpDbInsertSql(args))
     default:
       throw new Error(`Unknown agent tool: ${toolName}`)
   }
