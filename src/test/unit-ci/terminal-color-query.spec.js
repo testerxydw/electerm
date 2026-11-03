@@ -87,4 +87,22 @@ describe('terminal OSC color query helpers', () => {
     assert.equal(blendSelectionOverBackground('#20111b', 'nope'), null)
     assert.equal(blendSelectionOverBackground('#20111b', 'rgba(255, 255, 255, 0)'), null)
   })
+
+  test('lets the terminal theme paint its own background (#4539)', async () => {
+    const { resolveThemeBackgroundOverride } = await import('../../../src/client/components/terminal/terminal-color-query.mjs')
+
+    // no background image: the configured colour is what the user asked for
+    assert.equal(resolveThemeBackgroundOverride('#20111b', false), '#20111b')
+    assert.equal(resolveThemeBackgroundOverride('rgba(32, 17, 27, 0.9)', false), 'rgba(32, 17, 27, 0.9)')
+
+    // a pane with a background image keeps the CSS base under the image
+    assert.equal(resolveThemeBackgroundOverride('#20111b', true), '')
+
+    // nothing usable to paint -> the stylesheet stays in charge
+    assert.equal(resolveThemeBackgroundOverride('', false), '')
+    assert.equal(resolveThemeBackgroundOverride(undefined, false), '')
+    assert.equal(resolveThemeBackgroundOverride('transparent', false), '')
+    assert.equal(resolveThemeBackgroundOverride('rgba(1,2,3,0)', false), '')
+    assert.equal(resolveThemeBackgroundOverride('not-a-color', false), '')
+  })
 })

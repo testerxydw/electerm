@@ -4,7 +4,8 @@ import { rendererTypes } from '../../../common/constants.js'
 import {
   createRendererThemeConfig,
   handleTerminalColorQuery,
-  blendSelectionOverBackground
+  blendSelectionOverBackground,
+  resolveThemeBackgroundOverride
 } from '../terminal-color-query.mjs'
 
 /**
@@ -77,7 +78,29 @@ export const themeMixin = {
     this.terminalColorQueryDisposables.length = 0
   },
 
+  // Does this pane draw a background image? Then the image - not a flat colour
+  // - is what the user wants to look at (see resolveThemeBackgroundOverride).
+  // 'none' is the explicit opt-out, so it counts as no image.
+  hasTerminalBackgroundImage () {
+    const bg = (this.props.tab && this.props.tab.terminalBackground) || {}
+    const image = bg.terminalBackgroundImagePath ||
+      (this.props.config || {}).terminalBackgroundImagePath
+    return !!image && image !== 'none'
+  },
+
+  // Colour painted on .term-wrap, or '' to leave the stylesheet in charge.
+  getTerminalBackgroundOverride () {
+    return resolveThemeBackgroundOverride(
+      (this.props.themeConfig || {}).background,
+      this.hasTerminalBackgroundImage()
+    )
+  },
+
   getVisibleTerminalBackground () {
+    const override = this.getTerminalBackgroundOverride()
+    if (override) {
+      return override
+    }
     const uiThemeConfig = window.store?.getUiThemeConfig?.() || {}
     // The store value (uiThemeConfig.main) is always immediately up-to-date
     // when the theme changes, because it reads directly from store.config.theme.
@@ -102,14 +125,18 @@ export const themeMixin = {
     if (!term?.parser?.registerOscHandler) {
       return
     }
-    const background = this.getVisibleTerminalBackground()
     const foregroundFallback = this.getVisibleTerminalForeground()
     this.terminalColorQueryDisposables.push(
       term.parser.registerOscHandler(10, data => {
         return handleTerminalColorQuery(term, 10, themeConfig.foreground, foregroundFallback, data)
       }),
+      // Read the background when the question is asked, not when the handler was
+      // registered: the visible colour also flips with the background-image
+      // setting (#4539), which does not re-run this registration.
       term.parser.registerOscHandler(11, data => {
-        return handleTerminalColorQuery(term, 11, background, themeConfig.background, data)
+        return handleTerminalColorQuery(
+          term, 11, this.getVisibleTerminalBackground(), themeConfig.background, data
+        )
       })
     )
   },

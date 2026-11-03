@@ -440,6 +440,8 @@ class Term extends Component {
       }
     )
     // 铺满 .terms-box：尺寸由外层 flex 分配，fit 只看实测容器
+    // backgroundColor 用长写：只换掉 terminal.styl 那层 background 的底色分量，
+    // 右上角氛围光（background-image）留在样式表里，#4539
     const prps1 = {
       className: cls,
       style: {
@@ -447,7 +449,8 @@ class Term extends Component {
         top: 0,
         right: 0,
         bottom: 0,
-        zIndex: 10
+        zIndex: 10,
+        backgroundColor: this.getTerminalBackgroundOverride() || undefined
       },
       onDrop: this.onDrop,
       onContextMenu: this.onContextMenuInner,

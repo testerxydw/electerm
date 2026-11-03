@@ -183,3 +183,21 @@ export function createRendererThemeConfig (themeConfig = {}, rendererType, visib
       : 'rgba(0,0,0,0)'
   }
 }
+
+/**
+ * #4539: a terminal theme's `background` never reached the screen - the pane is
+ * coloured by CSS (--main) while xterm stays transparent, so the key was inert
+ * and OSC 11 answered the main colour too. This is the colour the theme asks
+ * for, or '' when the CSS colour stays in charge. One answer feeds every layer
+ * that has to agree about the visible background (the painted container, the
+ * WebGL renderer's theme - #4407 DOM/WebGL alignment - the OSC 11 reply and the
+ * selection blend).
+ *
+ * A pane with a background image keeps the CSS base: there the image is the
+ * look the user chose, and colouring underneath it would change how it reads.
+ */
+export function resolveThemeBackgroundOverride (themeBackground, hasBackgroundImage) {
+  return !hasBackgroundImage && colorToOscRgb(themeBackground)
+    ? themeBackground
+    : ''
+}
