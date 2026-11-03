@@ -60,12 +60,16 @@ describe('keyword presets', () => {
     assert.ok(keywordPresets.length > 1)
 
     const names = new Set()
+    // 同一条正则在不同预设里必须是同一种配色：应用时按「正则字符串」去重，
+    // 同正则不同色会静默丢掉后应用的那个预设的规则，「已应用 N 条」也会算错
+    const colorOfPattern = new Map()
     for (const preset of keywordPresets) {
       assert.ok(preset.name, 'preset has a name')
       assert.ok(!names.has(preset.name), `duplicate preset name: ${preset.name}`)
       names.add(preset.name)
       assert.ok(preset.description && preset.description.length > 20, `description for ${preset.name}`)
-      assert.ok(preset.keywords.length >= 5, `enough rules for ${preset.name}`)
+      // 合并后同一条共享片段会被多个预设引用，单预设最低只有 3 条（Timestamps）
+      assert.ok(preset.keywords.length >= 3, `enough rules for ${preset.name}`)
 
       const seen = new Set()
       for (const { keyword, color } of preset.keywords) {
@@ -74,6 +78,12 @@ describe('keyword presets', () => {
         assert.ok(colors.includes(color), `${preset.name}: bad color ${color}`)
         assert.ok(!seen.has(keyword), `${preset.name}: duplicate rule ${keyword}`)
         seen.add(keyword)
+        const prev = colorOfPattern.get(keyword)
+        assert.ok(
+          prev === undefined || prev === color,
+          `pattern used with two colors: ${prev} and ${color} (${preset.name}) — ${keyword}`
+        )
+        if (prev === undefined) colorOfPattern.set(keyword, color)
       }
     }
   })
@@ -86,7 +96,7 @@ describe('keyword presets', () => {
 
     // 各预设的典型高亮
     assert.ok(out('Application log levels', '2026-10-09 ERROR boom').includes('\u001b[31mERROR'))
-    assert.ok(out('Timestamps', 'up since 2026-10-09T08:00:00Z').includes('\u001b[35m2026-10-09T08:00:00Z'))
+    assert.ok(out('Timestamps', 'up since 2026-10-09T08:00:00Z').includes('\u001b[36m2026-10-09T08:00:00Z'))
     assert.ok(out('Exceptions & Stack Traces', 'java.lang.NullPointerException: x').includes('\u001b[31mjava.lang.NullPointerException'))
     assert.ok(out('Docker & Kubernetes', 'pod/web-0 CrashLoopBackOff').includes('\u001b[31mCrashLoopBackOff'))
     assert.ok(out('Git', '<<<<<<< HEAD').includes('\u001b[31m<<<<<<<'))
@@ -122,8 +132,44 @@ describe('keyword presets', () => {
 
     assert.equal(new Set(patterns).size, patterns.length)
     // the shared IPv4 rule is in all four of them
-    const ipv4 = presetByName(keywordPresets, 'Networking').keywords.find(k => k.color === 'cyan')
+    const ipv4 = presetByName(keywordPresets, 'Networking').keywords.find(k => k.keyword.includes('25[0-5]'))
+    assert.ok(ipv4, 'Networking carries the IPv4 rule')
     assert.equal(patterns.filter(k => k === ipv4.keyword).length, 1)
+    for (const name of ['Docker & Kubernetes', 'HTTP & web logs', 'Auth & security']) {
+      assert.ok(presetByName(keywordPresets, name).keywords.includes(ipv4), `${name} reuses the same IPv4 rule object`)
+    }
+  })
+
+  test('merged rules keep whole phrases intact', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { KeywordHighlighterAddon } = await loadAddon()
+    const byName = n => keywordPresets.find(p => p.name === n)
+    const addon = n => new KeywordHighlighterAddon(byName(n).keywords)
+    const cyan = '\u001b[36m'
+    const red = '\u001b[31m'
+
+    const end = '\u001b[0m'
+    // Python 栈头是整句，不被共享报错词表抢成前半截
+    assert.ok(addon('Exceptions & Stack Traces')
+      .highlightKeywords('Traceback (most recent call last):').includes(red + 'Traceback (most recent call last)' + end))
+    // docker ps 的退出码状态：括号结尾不能把 \b 锚断掉整条交替
+    assert.ok(addon('Docker & Kubernetes').highlightKeywords('Exited (137) 2 minutes ago').includes(red + 'Exited (137)' + end))
+    assert.ok(addon('Docker & Kubernetes').highlightKeywords('Exited (0) 3 minutes ago').includes('\u001b[32mExited (0)' + end))
+    // 方括号里的计时器连括号一起染，裸时钟不吞括号
+    assert.ok(addon('Timestamps').highlightKeywords('[00:12:34.567] worker').includes(cyan + '[00:12:34.567]' + end))
+    // BSD 时间戳带小数秒时整段是一个时间戳
+    assert.ok(addon('HTTP & web logs')
+      .highlightKeywords('[Wed Oct 09 08:57:36.123456 2026]').includes(cyan + 'Oct 09 08:57:36.123456' + end))
+    // Apache「模块:级别」写法
+    assert.ok(addon('HTTP & web logs').highlightKeywords('[core:error] boom').includes(red + '[core:error]' + end))
+    assert.ok(addon('HTTP & web logs').highlightKeywords('[ssl:warn] cert').includes('\u001b[33m[ssl:warn]' + end))
+    // 时长 key=value：单位尾巴必须是单位，不能把下一个 key 的前缀吃掉
+    const both = addon('HTTP & web logs')
+      .highlightKeywords('request_time=0.012 upstream_response_time=0.008')
+    assert.ok(both.includes(cyan + 'request_time=0.012\u001b[0m'), 'unit tail must not eat the next key')
+    assert.ok(both.includes(cyan + 'upstream_response_time=0.008\u001b[0m'))
+    // 合并后的接口名规则不再把 IP/掩码的尾巴当接口
+    assert.equal(addon('Networking').highlightKeywords('address 10.1.2.3/24 masked').includes('\u001b[34m'), false)
   })
 
   test('Syslog preset colours severity and unit lifecycle', async () => {

@@ -127,7 +127,7 @@ describe('keyword groups', () => {
     const views = allPresetViews([])
     assert.equal(views.length, 12)
     assert.equal(views.every(v => v.on === 0 && !v.checked && !v.indeterminate), true)
-    assert.equal(views.reduce((n, v) => n + v.total, 0), 164)
+    assert.equal(views.reduce((n, v) => n + v.total, 0), 136)
   })
 
   // ---- 自建分组 / 新增规则（keywords-form 新功能）----
