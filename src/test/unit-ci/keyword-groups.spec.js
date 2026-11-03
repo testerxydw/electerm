@@ -23,6 +23,44 @@ describe('keyword groups', () => {
     assert.equal(groups[0].indeterminate, true)
   })
 
+  test('生效规则按「正则 + 颜色」去重：跨预设共用的规则只编译扫描一次', async () => {
+    const { activeKeywords } = await load()
+    const list = [
+      { keyword: 'ipv4', color: 'cyan', source: 'preset', group: 'Networking' },
+      { keyword: 'ipv4', color: 'cyan', source: 'preset', group: 'Docker & Kubernetes' },
+      // 同正则不同颜色 = 两条真实意图不同的规则，不能去重
+      { keyword: 'ipv4', color: 'red', source: 'user' },
+      { keyword: 'ipv4', color: 'cyan', source: 'preset', group: 'HTTP & web logs', off: true }
+    ]
+    assert.deepEqual(activeKeywords(list), [
+      { keyword: 'ipv4', color: 'cyan' },
+      { keyword: 'ipv4', color: 'red' }
+    ])
+  })
+
+  test('全部应用 12 个预设：面板统计 136 条，生效规则去重后 102 条', async () => {
+    const { activeKeywords, setPresetGroupOn } = await load()
+    const { keywordPresets } = await loadPresets()
+    const applied = keywordPresets.reduce((acc, p) => setPresetGroupOn(acc, p, true), [])
+    const active = activeKeywords(applied)
+
+    // 配置里按组各存一份（面板要按组统计勾选），共 136 条
+    assert.equal(applied.length, 136)
+    // 生效侧同正则同色的跨预设重复被去掉 = 102 条不同规则
+    assert.equal(active.length, 102)
+    assert.equal(new Set(active.map(r => r.keyword)).size, 102)
+    // 去重不改变颜色：每条仍取预设里的配色
+    const colorOf = new Map()
+    for (const p of keywordPresets) {
+      for (const k of p.keywords) {
+        colorOf.set(k.keyword, k.color)
+      }
+    }
+    for (const r of active) {
+      assert.equal(r.color, colorOf.get(r.keyword))
+    }
+  })
+
   test('applying a preset adds its rules with source/group, unchecking only mutes them', async () => {
     const { setPresetGroupOn, presetGroupView, activeKeywords } = await load()
     const on = setPresetGroupOn([], preset, true)

@@ -28,11 +28,36 @@ export const normalizeRule = (r) => {
 
 export const isRuleOn = r => !!r && !!r.keyword && !r.off
 
-// 传给终端 / 数据库页高亮的规则（跳过 off）
-export const activeKeywords = list => (list || [])
-  .map(normalizeRule)
-  .filter(isRuleOn)
-  .map(({ keyword, color }) => ({ keyword, color }))
+/**
+ * 传给终端 / 数据库页高亮的规则（跳过 off）
+ *
+ * 同一份预设规则被多个预设共用时，「全部应用」会按预设各写一条（分组标记不同，
+ * 面板才能按组统计勾选），但生效规则里它就是同一条：同 keyword 同 color 的重复
+ * 条目扫描结果完全一致（重叠区先到先得，第二条永远被丢弃），却要多编译一个
+ * RegExp、多跑一轮 exec。这里按「正则 + 颜色」去重：136 条 → 102 条，
+ * 渲染结果不变。
+ *
+ * 只去重「正则和颜色都相同」的：同一条正则配不同颜色是两条真实意图不同的规则
+ * （用户自定义规则允许和预设撞正则，见面板的「同预设」提示），必须都保留。
+ */
+export const activeKeywords = list => {
+  const seen = new Set()
+  const out = []
+  for (const item of list || []) {
+    const rule = normalizeRule(item)
+    if (!isRuleOn(rule)) {
+      continue
+    }
+    const { keyword, color } = rule
+    const key = keyword + '\u0000' + (color || 'red')
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    out.push({ keyword, color })
+  }
+  return out
+}
 
 const clone = list => (list || []).map(normalizeRule)
 
