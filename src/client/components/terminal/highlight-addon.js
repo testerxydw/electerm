@@ -1,7 +1,11 @@
+import { compileKeywords } from '../../common/keyword-compile.js'
+
 export class KeywordHighlighterAddon {
   constructor (keywords) {
-    this.keywords = keywords || []
-    this.compiledPatterns = this.compilePatterns()
+    // 编译走进程级共享缓存（keyword-compile.js）：同一份配置开 N 个页签、
+    // 断线重连 N 次都只编译一次，不再每个终端常驻一套 RegExp。
+    // 缓存按内容摘要命中，所以这里不必保留 keywords 数组。
+    this.compiledPatterns = compileKeywords(keywords)
     // Lines longer than this are written without highlighting. Write coalescing
     // in the attach addon merges ordinary command output (e.g. `show running-config`)
     // into chunks well over this size, so large writes are highlighted line by
@@ -11,44 +15,17 @@ export class KeywordHighlighterAddon {
     // flood or download progress, where scanning every byte (and rebuilding the
     // result string) is pure overhead.
     this.maxHighlightChunkLength = 256 * 1024
+    // Upper bound on match objects collected per text segment. A flooded line
+    // ("error error error...") otherwise allocates one record per hit per
+    // pattern; with the DB grid the same rule of thumb (see db-highlight.jsx),
+    // hits past the cap are simply not coloured.
+    this.maxMatchesPerSegment = 512
     // Compile the ANSI/OSC splitter once instead of allocating a new RegExp on
     // every write (this was the #1 allocation in the hot path under load).
     const ESC = String.fromCharCode(27) // \x1b
     const BEL = String.fromCharCode(7) // \x07
     // eslint-disable-next-line no-control-regex
     this._ansiPattern = new RegExp('(' + ESC + '\\][^' + BEL + ESC + ']*(?:' + BEL + '|' + ESC + '\\\\)|' + ESC + '\\[\\??[0-9;]*[A-Za-z])', 'g')
-  }
-
-  // Pre-compile all regex patterns once for better performance
-  compilePatterns = () => {
-    const patterns = []
-    for (const obj of this.keywords) {
-      const { keyword, color = 'red' } = obj || {}
-      if (keyword) {
-        try {
-          patterns.push({
-            regex: new RegExp(keyword, 'gi'),
-            colorCode: this.getColorCode(color)
-          })
-        } catch (e) {
-          console.error('Invalid keyword regex:', keyword, e)
-        }
-      }
-    }
-    return patterns
-  }
-
-  getColorCode = (color) => {
-    const colorMap = {
-      green: '\u001b[32m',
-      yellow: '\u001b[33m',
-      blue: '\u001b[34m',
-      magenta: '\u001b[35m',
-      cyan: '\u001b[36m',
-      white: '\u001b[37m',
-      red: '\u001b[31m'
-    }
-    return colorMap[color] || colorMap.red
   }
 
   containsDcsSequence = (text) => {
@@ -100,12 +77,12 @@ export class KeywordHighlighterAddon {
       const content = seg.content
       // Phase 1: collect all match positions from all patterns on original text
       const matches = []
-      for (const { regex, colorCode } of this.compiledPatterns) {
-        regex.lastIndex = 0
+      for (const { re, colorCode } of this.compiledPatterns) {
+        re.lastIndex = 0
         let m
-        while ((m = regex.exec(content)) !== null) {
+        while ((m = re.exec(content)) !== null) {
           if (m[0].length === 0) {
-            regex.lastIndex++
+            re.lastIndex++
             continue
           }
           matches.push({
@@ -114,6 +91,12 @@ export class KeywordHighlighterAddon {
             text: m[0],
             colorCode
           })
+          if (matches.length >= this.maxMatchesPerSegment) {
+            break
+          }
+        }
+        if (matches.length >= this.maxMatchesPerSegment) {
+          break
         }
       }
       if (matches.length === 0) {

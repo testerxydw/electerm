@@ -11,28 +11,12 @@
 
 import { useMemo } from 'react'
 import { activeKeywords } from '../../common/keyword-groups.js'
+import { compileKeywords, keywordsSignature } from '../../common/keyword-compile.js'
 
 // 与终端高亮插件同口径的默认上限：超长文本/超多命中跳过（表格单元格性能考量）。
 // 值预览（<pre>，单值专用查看区）通过 opts 放宽，见 highlightValue
 const maxHighlightLength = 4096
 const maxHits = 200
-
-function compilePatterns (keywords) {
-  const out = []
-  for (const item of keywords || []) {
-    const { keyword, color = 'red' } = item || {}
-    if (!keyword) {
-      continue
-    }
-    try {
-      // 与终端一致用 gi；用户正则可能不合法，跳过即可（不拖垮整表）
-      out.push({ re: new RegExp(keyword, 'gi'), color })
-    } catch (err) {
-      // ignore invalid regex
-    }
-  }
-  return out
-}
 
 // 配置变化极少，按内容摘要缓存编译结果
 export function useKeywordPatterns () {
@@ -42,8 +26,10 @@ export function useKeywordPatterns () {
   const raw = (window.store && window.store._config && window.store._config.keywords) || []
   // 与终端同一口径：被取消勾选（off）的规则不参与高亮
   const keywords = activeKeywords(raw)
-  const sig = JSON.stringify(keywords)
-  return useMemo(() => compilePatterns(keywords), [sig])
+  const sig = keywordsSignature(keywords)
+  // compileKeywords 是进程级共享缓存：终端页签和本网格用同一份配置时，
+  // RegExp 只编译一次、只存一份
+  return useMemo(() => compileKeywords(keywords), [sig])
 }
 
 export function highlightValue (text, patterns, themeConfig, opts = {}) {
