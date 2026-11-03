@@ -152,3 +152,4 @@ self-test/db-contrast-realdb-shots/
 self-test/db-tree-font-realdb-shots/
 self-test/db-cell-edit-realdb-shots/
 self-test/db-font-realdb-shots/
+self-test/term-visibility-shots/

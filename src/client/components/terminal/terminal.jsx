@@ -164,9 +164,27 @@ class Term extends Component {
       this.handleError({ message: e.message })
     })
     this.observeTermBox()
+    // #4216：最小化后恢复，容器像素尺寸没变 → ResizeObserver 不触发，
+    // xterm 重绘器留白。补可见性/焦点通道，恢复可见时强制一次 fit + refresh。
+    document.addEventListener('visibilitychange', this.onWindowBack)
+    window.addEventListener('focus', this.onWindowBack)
     if (this.props.tab.enableSsh === false) {
       this.props.tab.pane = paneMap.fileManager
     }
+  }
+
+  // 隐藏态（最小化/切到后台）不处理：真正回到前台那一次才重绘。
+  // 用 rAF 等浏览器完成恢复后的布局，fitAndRefresh 内部会跳过 display:none
+  // 的隐藏标签，不会算出 0 列。
+  onWindowBack = () => {
+    if (this.onClose || document.visibilityState !== 'visible') {
+      return
+    }
+    requestAnimationFrame(() => {
+      if (!this.onClose) {
+        this.fitAndRefresh()
+      }
+    })
   }
 
   observeTermBox = () => {
@@ -269,6 +287,8 @@ class Term extends Component {
 
   componentWillUnmount () {
     this.unobserveTermBox()
+    document.removeEventListener('visibilitychange', this.onWindowBack)
+    window.removeEventListener('focus', this.onWindowBack)
     refs.remove(this.id)
     // this tab id will never be connected again (reload mints a new one)
     clearNeedsInteractiveInput(this.props.tab.id)
