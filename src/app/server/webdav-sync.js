@@ -14,19 +14,11 @@ rp.defaults.proxy = false
 function createClient (serverUrl, username, password, proxy, skipVerify = false) {
   const https = require('https')
 
-  const proxyAgent = createProxyAgent(proxy)
+  // skipVerify also has to apply to the agent that dials the proxy, hence extraOptions
+  const proxyAgent = createProxyAgent(proxy, skipVerify ? { rejectUnauthorized: false } : {})
   let conf
   if (proxyAgent) {
-    if (skipVerify) {
-      // apply skipVerify through the proxy
-      const Cls = proxy.startsWith('http')
-        ? require('https-proxy-agent').HttpsProxyAgent
-        : require('socks-proxy-agent').SocksProxyAgent
-      const agent = new Cls(proxy, { keepAlive: true, rejectUnauthorized: false })
-      conf = { httpAgent: agent, httpsAgent: agent }
-    } else {
-      conf = { httpAgent: proxyAgent, httpsAgent: proxyAgent }
-    }
+    conf = { httpAgent: proxyAgent, httpsAgent: proxyAgent }
   } else if (skipVerify) {
     conf = {
       httpAgent: new https.Agent({ rejectUnauthorized: false }),

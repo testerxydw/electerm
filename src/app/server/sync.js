@@ -18,7 +18,12 @@ async function doSync (type, func, args, token, proxy) {
     return doWebdavSync(func, args, token, proxy)
   }
 
-  const agent = createProxyAgent(proxy)
+  let agent
+  try {
+    agent = createProxyAgent(proxy)
+  } catch (e) {
+    return { error: e }
+  }
   const conf = agent
     ? {
         httpAgent: agent,

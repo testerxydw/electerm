@@ -76,7 +76,13 @@ class Upgrade {
       proxy,
       mirror
     } = this.options
-    const agent = createProxyAgent(proxy)
+    let agent
+    try {
+      agent = createProxyAgent(proxy)
+    } catch (err) {
+      this.onError(err, id, ws)
+      return
+    }
     const releaseInfoUrl = `${packInfo.homepage}/data/electerm-github-release.json?_=${+new Date()}`
     const filter = r => {
       return r.name.endsWith(installSrc)

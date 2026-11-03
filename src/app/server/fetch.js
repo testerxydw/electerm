@@ -20,7 +20,16 @@ function fetch (options) {
 
 async function wsFetchHandler (ws, msg) {
   const { id, options, proxy } = msg
-  const agent = createProxyAgent(proxy)
+  let agent
+  try {
+    agent = createProxyAgent(proxy)
+  } catch (e) {
+    ws.s({
+      error: e.message,
+      id
+    })
+    return
+  }
   if (agent) {
     options.httpAgent = agent
     options.httpsAgent = agent
