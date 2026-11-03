@@ -4,6 +4,7 @@ import AIStopIcon from './ai-stop-icon'
 import AgentToolCallCard from './agent-tool-call-card'
 import { runAgentLoop, stopAgentRun } from './agent'
 import { appendMandatoryGuardrails } from './ai-guardrails'
+import { buildAiRole } from '../../common/ai-role'
 import { buildSessionMessages, summarizeContext } from './ai-context'
 import { resolveImage } from './ai-image-cache'
 import {
@@ -73,8 +74,7 @@ export default memo(function AIChatHistoryItem ({ item }) {
   }
 
   function buildRole () {
-    const lang = languageAI || window.store.getLangName()
-    return appendMandatoryGuardrails(roleAI + `;用[${lang}]回复`)
+    return appendMandatoryGuardrails(buildAiRole(item, window.store.getLangName()))
   }
 
   // The context this turn sends: the session history up to and including the

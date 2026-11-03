@@ -16,6 +16,7 @@ import {
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import { appendMandatoryGuardrails } from '../ai/ai-guardrails'
+import { resolveAiLanguage } from '../../common/ai-role'
 import AiHistory, { addHistoryItem } from '../ai/ai-history.jsx'
 import HelpIcon from '../common/help-icon'
 import { getItem, setItem } from '../../common/safe-local-storage'
@@ -39,7 +40,7 @@ const wiki = 'https://github.com/electerm/electerm/wiki/Create-quick-command-by-
  * @return {string}
  */
 export function buildPrompt (description) {
-  const lang = window.store.config.languageAI || window.store.getLangName()
+  const lang = resolveAiLanguage(window.store.config.languageAI, window.store.getLangName())
   const templateList = templates.map(t => `{{${t}}}`).join(', ')
   return `You are an electerm quick command generator. Based on the user's natural language description, generate ONE quick command definition in JSON format.
 

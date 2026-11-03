@@ -15,6 +15,7 @@
  */
 
 import { getDialect } from './sql-dialects.js'
+import { replyLanguageInstruction } from './ai-role.js'
 
 /** 四种模式：生成 / 解释 / 修复 / 优化 */
 export const SQL_AI_MODES = ['generate', 'explain', 'fix', 'optimize']
@@ -167,7 +168,7 @@ function dialectLabel (dbType) {
  * @param {string} opts.table
  * @param {Array<object>} opts.columns
  * @param {boolean} opts.readOnly 只读连接：不允许给写语句
- * @param {string} opts.language  回复语言（config.languageAI）
+ * @param {string} opts.language  回复语言（resolveAiLanguage 解析出的语言名）
  * @returns {{ prompt: string, role: string, mode: string }}
  */
 export function buildSqlAiPrompt (opts = {}) {
@@ -285,10 +286,10 @@ export function buildSqlAiPrompt (opts = {}) {
     parts.push('Note: the connection is read-only.')
   }
 
-  // 回复语言跟 AI 配置走（与右侧面板同一写法 `;用[lang]回复`），不再硬编码中文
-  const lang = String(language || '').trim()
-  if (lang) {
-    system.push(';用[' + lang + ']回复')
+  // 回复语言跟 AI 配置走，写法与聊天面板共用一个构造函数
+  const replyIn = replyLanguageInstruction(language)
+  if (replyIn) {
+    system.push(replyIn)
   }
   const prompt = parts.join('\n\n')
 

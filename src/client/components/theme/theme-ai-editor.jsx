@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import message from '../common/message'
 import { appendMandatoryGuardrails } from '../ai/ai-guardrails'
+import { resolveAiLanguage } from '../../common/ai-role'
 import AiHistory, { addHistoryItem } from '../ai/ai-history.jsx'
 import HelpIcon from '../common/help-icon'
 import { getItem, setItem } from '../../common/safe-local-storage'
@@ -72,7 +73,7 @@ const themePropDescriptions = {
  * @return {string}
  */
 function buildThemePrompt (description) {
-  const lang = window.store.config.languageAI || window.store.getLangName()
+  const lang = resolveAiLanguage(window.store.config.languageAI, window.store.getLangName())
   const fieldList = requiredThemeProps
     .map(key => `  ${key}=${themePropDescriptions[key] || 'color value'}`)
     .join('\n')

@@ -8,6 +8,7 @@ import { appendMandatoryGuardrails } from '../components/ai/ai-guardrails'
 import { buildSessionMessages } from '../components/ai/ai-context'
 import { dropImage, clearImages } from '../components/ai/ai-image-cache'
 import { COMPRESS_SUMMARY_PROMPT } from '../components/ai/ai-auto-compress'
+import { buildAiRole } from '../common/ai-role'
 import { debounce, some, get, pickBy } from 'lodash-es'
 import {
   leftSidePanelWidthKey,
@@ -596,14 +597,13 @@ export default Store => {
     }
 
     const firstEntry = sessionEntries[0]
-    const lang = firstEntry.languageAI || store.getLangName()
     // Same message list the chat turn would send (including the response of
     // every entry), so the summary describes the conversation the model
     // actually saw.
     const messages = buildSessionMessages({
       history: store.aiChatHistory,
       chatSessionId: sessionId,
-      role: appendMandatoryGuardrails(firstEntry.roleAI + `;用[${lang}]回复`)
+      role: appendMandatoryGuardrails(buildAiRole(firstEntry, store.getLangName()))
     })
 
     // The same closing request the agent loop's auto compression sends (see

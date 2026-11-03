@@ -1,3 +1,5 @@
+import { replyLanguageInstruction } from '../../common/ai-role'
+
 const bookmarkSchema = {
   ssh: {
     type: 'ssh',
@@ -178,7 +180,11 @@ const bookmarkSchema = {
 }
 
 export function buildPrompt (description) {
-  const lang = window.store.config.languageAI || window.store.getLangName()
+  const replyIn = replyLanguageInstruction(
+    window.store.config.languageAI, window.store.getLangName()
+  )
+  // 没有可用语言时整条不占号，否则给模型留一条空的 "13. "
+  const languageRule = replyIn ? '\n13. ' + replyIn : ''
   const schemaDescription = Object.entries(bookmarkSchema)
     .map(([type, fields]) => {
       const fieldList = Object.entries(fields)
@@ -205,8 +211,7 @@ Important rules:
 9. For Local terminal, use type "local"
 10. Only include fields that are relevant to the connection type
 11. Always include a meaningful title if not specified
-12. Respond ONLY with valid JSON, no markdown formatting or explanations
-13. Reply in ${lang} language
+12. Respond ONLY with valid JSON, no markdown formatting or explanations${languageRule}
 
 User description: ${description}
 

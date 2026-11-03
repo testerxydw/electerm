@@ -1,5 +1,6 @@
 import { agentTools, executeToolCall } from './agent-tools'
 import { appendMandatoryGuardrails } from './ai-guardrails'
+import { replyLanguageInstruction } from '../../common/ai-role'
 import { buildAgentMessages, summarizeContext, buildUserContent, CONTEXT_DANGER_PERCENT } from './ai-context'
 import { resolveImage } from './ai-image-cache'
 import {
@@ -28,7 +29,7 @@ const AUTO_COMPRESS_RETRY_GROWTH_PERCENT = 5
 let activeRunId = null
 
 function buildAgentSystemPrompt (config) {
-  const lang = config.languageAI || window.store.getLangName()
+  const replyIn = replyLanguageInstruction(config.languageAI, window.store.getLangName())
   const baseRole = config.roleAI || 'You are a helpful assistant.'
   return appendMandatoryGuardrails(`${baseRole}
 
@@ -46,7 +47,7 @@ Prefer using the active terminal unless the user specifies otherwise.
 For SSH connections, prefer using open_tab to connect directly, or create a bookmark with add_bookmark and open it with open_bookmark if the user wants to save the connection.
 For file transfers, use the sftp_upload and sftp_download tools. The tab must be an SSH/FTP connection with SFTP initialized.
 
-Reply in ${lang} language.`)
+${replyIn ? replyIn + '.' : ''}`)
 }
 
 function updateChatEntry (chatEntry, updates) {

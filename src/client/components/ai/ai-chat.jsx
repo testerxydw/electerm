@@ -15,6 +15,7 @@ import SwitchLabel from '../common/switch'
 import { buildSessionMessages, summarizeContext, getUsageLevel } from './ai-context'
 import { resolveImage, putImage, dropImage } from './ai-image-cache'
 import { appendMandatoryGuardrails } from './ai-guardrails'
+import { buildAiRole } from '../../common/ai-role'
 import uid from '../../common/uid'
 import { pick } from 'lodash-es'
 import {
@@ -127,9 +128,8 @@ export default function AIChat (props) {
     if (!currentChatSessionId) {
       return null
     }
-    const lang = config.languageAI || window.store.getLangName()
     const role = appendMandatoryGuardrails(
-      (config.roleAI || '') + `;用[${lang}]回复`
+      buildAiRole(config, window.store.getLangName())
     )
     const messages = buildSessionMessages({
       history: props.aiChatHistory,
@@ -419,7 +419,11 @@ export default function AIChat (props) {
       )
       window.store.aiChatHistory = all.slice(-MAX_HISTORY)
     }
-  }, [prompt, attachments, mode, currentChatSessionId, imageSend])
+  }, [
+    prompt, attachments, mode, currentChatSessionId, imageSend,
+    // 配置快照按 _configVersion 换引用：漏了它，改完 AI 设置直接点发送仍会带上旧语言
+    props.config
+  ])
 
   // 外部递交过来的 prompt（终端"解释输出"/数据库页"AI 解释"）。
   // 由面板在拿到它的这一次渲染里消费，而不是让调用方猜面板挂载要多久：

@@ -20,6 +20,7 @@ import { RobotOutlined, LoadingOutlined, CopyOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import { copy } from '../../common/clipboard'
 import { appendMandatoryGuardrails } from '../ai/ai-guardrails'
+import { resolveAiLanguage } from '../../common/ai-role'
 import { buildSqlAiPrompt, parseSqlFromAiResponse } from '../../common/db-sql-ai'
 import { classifySql } from '../../common/db-sql-risk'
 // 风险等级词条映射只此一份（危险确认弹窗在用），这里复用而不是抄一遍
@@ -121,7 +122,7 @@ export default function DbSqlAiDialog (props) {
       table: (context && context.table) || '',
       columns: (context && context.columns) || [],
       readOnly: !!(context && context.readOnly),
-      language: config.languageAI
+      language: resolveAiLanguage(config.languageAI, window.store.getLangName())
     })
     setLoading(true)
     setFailed('')

@@ -73,7 +73,7 @@ describe('db-sql-ai 接线：会话页登记编辑器目标', () => {
       SESSION.indexOf('const askAiAboutSql') + 1200)
     assert.match(fn, /buildSqlAiPrompt\(\{[\s\S]*mode: 'explain'/, '提示词没走纯函数')
     assert.match(fn, /selection,/, '没把选区交给提示词（整段照旧会盖掉选区）')
-    assert.match(fn, /language: \(window\.store\.config \|\| \{\}\)\.languageAI/, '回复语言没跟配置走')
+    assert.match(fn, /language: resolveAiLanguage\(\(window\.store\.config \|\| \{\}\)\.languageAI, window\.store\.getLangName\(\)\)/, '回复语言没跟配置走（或未落到统一解析）')
     assert.match(fn, /window\.store\.setPendingAiPrompt\(built\.prompt\)/, '没走待填 prompt 状态')
     assert.ok(!/setTimeout/.test(fn), '解释入口还在猜面板挂载时间')
     assert.ok(!/请解释以下 SQL/.test(SESSION), '还留着硬编码中文提示词')

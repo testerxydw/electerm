@@ -106,6 +106,7 @@ import { classifySql } from '../../common/db-sql-risk'
 // AI 第一批：提示词/落编辑器策略都是纯函数（db-sql-ai.js），回复解析在弹层里做；
 // 会话页只负责把编辑器句柄登记到目标表、把弹层的产出落到编辑器
 import { buildSqlAiPrompt, planSqlInsertion } from '../../common/db-sql-ai'
+import { resolveAiLanguage } from '../../common/ai-role'
 import { registerSqlTarget, unregisterSqlTarget } from '../../common/db-sql-ai-target'
 import {
   BYPASS_TTL_MS,
@@ -3721,7 +3722,7 @@ export default auto(function DbSession (props) {
       schema: ctx.schema,
       table: ctx.table,
       columns: ctx.columns,
-      language: (window.store.config || {}).languageAI
+      language: resolveAiLanguage((window.store.config || {}).languageAI, window.store.getLangName())
     })
     window.store.setPendingAiPrompt(built.prompt)
   }

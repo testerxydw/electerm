@@ -11,6 +11,7 @@
 import { buildSessionMessages, summarizeContext } from './ai-context'
 import { resolveImage } from './ai-image-cache'
 import { appendMandatoryGuardrails } from './ai-guardrails'
+import { buildAiRole } from '../../common/ai-role'
 import {
   COMPRESS_SUMMARY_PROMPT,
   shouldAutoCompress
@@ -85,8 +86,7 @@ export function sessionContextInfo (sessionId, config = {}) {
   if (!sessionId || !store) {
     return null
   }
-  const lang = config.languageAI || store.getLangName()
-  const role = appendMandatoryGuardrails((config.roleAI || '') + `;用[${lang}]回复`)
+  const role = appendMandatoryGuardrails(buildAiRole(config, store.getLangName()))
   const messages = buildSessionMessages({
     history: store.aiChatHistory,
     chatSessionId: sessionId,

@@ -134,7 +134,7 @@ describe('buildSqlAiPrompt：四种模式的提示词', () => {
       language: '中文'
     })
     assert.match(r.prompt, /Current database\/table context: shop\.users/)
-    assert.match(r.role, /;用\[中文\]回复/, '语言跟配置走，不再硬编码中文')
+    assert.match(r.role, /Reply in 中文 language/, '语言跟配置走，写法与聊天面板同一构造函数')
   })
 })
 
