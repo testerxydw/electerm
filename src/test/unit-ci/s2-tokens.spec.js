@@ -24,6 +24,15 @@ const LAYOUT_STYL = path.join(ROOT, 'src/client/components/layout/layout.styl')
 // 每项含反向断言（裸 32px/36px 回归、补偿复活都会被拦）。
 
 const load = p => fs.readFileSync(p, 'utf8')
+// 扫 src/client 下全部 JS/JSX（产品代码，测试与自测脚本不算）
+function clientJs (dir = path.join(ROOT, 'src/client'), acc = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) clientJs(p, acc)
+    else if (/\.(js|jsx)$/.test(e.name)) acc.push(p)
+  }
+  return acc
+}
 // 取 styl 顶级选择器块（至下一个顶级选择器）；先按行首匹配，避免命中后代选择器
 function stylBlock (src, sel) {
   let i = src.indexOf('\n' + sel + '\n')
@@ -46,9 +55,15 @@ describe('S2: session-bar-h / tabs-bar-h tokens exist', () => {
     assert.match(src, /--tabs-bar-h 36px/, '--tabs-bar-h 36px')
   })
 
-  test('JS mirrors locked to same values (reverse: drift is caught)', () => {
-    assert.match(load(CONSTANTS), /export const termControlHeight = 32/, 'termControlHeight=32')
+  test('JS 侧只有 tabsHeight 是活的镜像；termControlHeight 无人消费（残留）', () => {
+    // 活的：init-state 的 tabsHeight 仍是布局格子的高度口径（layout.jsx 往下传）
     assert.match(load(INIT_STATE), /tabsHeight: 36/, 'tabsHeight=36')
+    // 残留：T4-b 起内容区由 flex 分配，JS 不再扣 32。除定义处外任何产品代码引用它，
+    // 都说明"JS 扣减"复活了——那时必须先重建与 --session-bar-h 的同步口径
+    const refs = clientJs()
+      .filter(f => f !== CONSTANTS && /termControlHeight/.test(load(f)))
+      .map(f => path.relative(ROOT, f))
+    assert.deepEqual(refs, [], 'termControlHeight 不得有消费方（条高单点在 --session-bar-h）')
   })
 
   test('CSS consumers use the tokens (reverse: bare px regression)', () => {

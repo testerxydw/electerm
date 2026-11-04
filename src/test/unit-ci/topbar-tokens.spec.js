@@ -5,7 +5,6 @@ const path = require('node:path')
 
 const ROOT = path.join(__dirname, '../../..')
 const TOKENS = path.join(ROOT, 'src/client/css/includes/tokens.styl')
-const CONSTANTS = path.join(ROOT, 'src/client/common/constants.js')
 const SHELL_STYL = path.join(ROOT, 'src/client/components/common/session-shell.styl')
 const SESSION_STYL = path.join(ROOT, 'src/client/components/session/session.styl')
 const TERMINAL_STYL = path.join(ROOT, 'src/client/components/terminal/terminal.styl')
@@ -48,9 +47,9 @@ describe('T1: session bar tokens', () => {
     assert.match(src, /--session-bar-pad-x 10px/, '--session-bar-pad-x=10')
   })
 
-  test('JS 镜像 termControlHeight 与条高同值', () => {
-    assert.match(load(CONSTANTS), /export const termControlHeight = 32/, 'termControlHeight=32')
-  })
+  // 条高不在 JS 侧立第二条镜像：T4-b 起内容区由 flex 分配，constants.js 的
+  // termControlHeight 只剩定义没有消费方。"不得再有消费方"由 s2-tokens.spec.js 扫
+  // 全量产品代码来钉，这里不再断言它等于 32（否则将来清掉这个残留会被本测拦住）。
 })
 
 describe('T1: 五类顶栏消费 token（反向：裸值回归）', () => {

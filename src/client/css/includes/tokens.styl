@@ -85,9 +85,10 @@
   --fs-lg 16px
 
   // ---- 骨架高度（S2 单点化）----
-  // 顶栏（终端控制条 / DB 工具条）统一高度。
-  // 与 JS 侧 src/client/common/constants.js 的 termControlHeight=32 互为镜像
-  // （JS 布局扣减拿不到 CSS 变量），两值必须同步，由 s2-tokens.spec.js 锁定
+  // 顶栏（终端控制条 / DB 工具条）统一高度。单点就是这里：T4-b 起内容区由 flex
+  // 分配高度，JS 侧不再扣 32（constants.js 的 termControlHeight 已无人消费，
+  // 由 s2-tokens.spec.js 反向钉住"不得复活 JS 扣减"）。
+  // --tabs-bar-h 才是活的 JS 镜像：init-state 的 tabsHeight 仍参与格子布局，两值必须同步
   --session-bar-h 32px
   // 会话顶栏左右内边距：终端/DB/remote/web/sftp 五类顶栏共用
   // （原 8/10/5 三套；统一后只改这一处）

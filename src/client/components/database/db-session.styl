@@ -8,8 +8,8 @@
   font-variant-ligatures none
 
 // 顶部工具条：引擎/目标/状态 + 只读/刷新。
-// 高度口径 = tokens.styl --session-bar-h（与 .terminal-control 统一；
-// session/sessions.jsx 的扣减依赖该值，JS 侧镜像见 constants.js termControlHeight）
+// 高度口径 = tokens.styl --session-bar-h（与 .terminal-control 同一个单点；
+// 内容区高度由 flex 分配，JS 侧不再扣这一条 —— 见 s2-tokens.spec.js 的反向守卫）
 .db-head
   flex none
   height var(--session-bar-h)
