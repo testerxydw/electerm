@@ -7,6 +7,7 @@ import Modal from '../components/common/modal'
 import { appendMandatoryGuardrails } from '../components/ai/ai-guardrails'
 import { buildSessionMessages } from '../components/ai/ai-context'
 import { dropImage, clearImages } from '../components/ai/ai-image-cache'
+import { forgetImage, clearPersistedImages } from '../components/ai/ai-image-persist'
 import { COMPRESS_SUMMARY_PROMPT } from '../components/ai/ai-auto-compress'
 import { buildAiRole } from '../common/ai-role'
 import { debounce, some, get, pickBy } from 'lodash-es'
@@ -520,6 +521,8 @@ export default Store => {
     }
     for (const img of entry.images) {
       dropImage(img && img.id)
+      // 磁盘冷层同样只归这条条目所有（附件 id 一次性），一起删掉才不占配额
+      forgetImage(img && img.id)
     }
   }
 
@@ -567,6 +570,7 @@ export default Store => {
     store.aiChatHistory = []
     // 一条都不剩了，图片缓存也没有引用它的条目了
     clearImages()
+    clearPersistedImages()
     store.showChatSessions = false
     store.startNewChat()
   })

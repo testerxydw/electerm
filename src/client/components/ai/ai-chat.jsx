@@ -14,6 +14,7 @@ import {
 import SwitchLabel from '../common/switch'
 import { buildSessionMessages, summarizeContext, getUsageLevel } from './ai-context'
 import { resolveImage, putImage, dropImage } from './ai-image-cache'
+import { persistImage, forgetImage, hydrateImages } from './ai-image-persist'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import { buildAiRole } from '../../common/ai-role'
 import uid from '../../common/uid'
@@ -96,6 +97,44 @@ export default function AIChat (props) {
     ),
     [props.aiChatHistory, currentChatSessionId]
   )
+
+  // 冷层回填：重启后内存缓存是空的，当前会话历史里的图片要从磁盘补回来，否则
+  // 下一轮追问只会把"已过期"的占位文本发给模型（S2-2）。同一个会话只补一次，
+  // 切换会话时再补；新发出的那几张本来就在内存里，resolveImage 会直接跳过。
+  const hydratedSessionRef = useRef('')
+  useEffect(() => {
+    if (!currentChatSessionId ||
+      hydratedSessionRef.current === currentChatSessionId) {
+      return
+    }
+    const ids = []
+    for (const h of props.aiChatHistory || []) {
+      if (h.chatSessionId !== currentChatSessionId) {
+        continue
+      }
+      for (const img of h.images || []) {
+        if (img && img.id) {
+          ids.push(img.id)
+        }
+      }
+    }
+    if (!ids.length) {
+      return
+    }
+    hydratedSessionRef.current = currentChatSessionId
+    hydrateImages(ids).then(hydrated => {
+      // 补回来的字节不会自己浮到界面上：卡片上的"已过期"是渲染时读内存缓存算出来
+      // 的，缓存填好了但没人重新渲染，徽标就一直挂着。给真正拿到图的条目换一个新
+      // 对象，条目级的 memo 才看得见变化；没补到（磁盘也没有）的保持过期原样。
+      if (!hydrated || !hydrated.length ||
+        window.store.currentChatSessionId !== currentChatSessionId) {
+        return
+      }
+      const hit = new Set(hydrated)
+      window.store.aiChatHistory = window.store.aiChatHistory.map(h => (h.images || [])
+        .some(img => img && hit.has(img.id)) ? { ...h } : h)
+    })
+  }, [currentChatSessionId, props.aiChatHistory])
 
   const config = props.config || {}
 
@@ -236,6 +275,9 @@ export default function AIChat (props) {
         problems.bytes = true
         continue
       }
+      // 同时写一份到磁盘冷层：内存一重启就空，没有这份副本，历史里的图片
+      // 之后只能显示"已过期"。写盘失败不拦这一轮（内存副本照常可用）
+      persistImage({ id, dataUrl: attachment.dataUrl })
       const { dataUrl, ...meta } = attachment
       next = [...next, meta]
     }
@@ -313,6 +355,8 @@ export default function AIChat (props) {
     if (a.kind === 'image') {
       // 草稿里删掉就释放缓存字节；已经发出去的那一轮靠历史条目和 LRU 预算兜住
       dropImage(a.id)
+      // 冷层副本一并删掉：这张图还没有任何历史条目引用，留着只是占配额
+      forgetImage(a.id)
     }
     setAttachments(arr => arr.filter(x => x.id !== a.id))
   }
@@ -414,9 +458,12 @@ export default function AIChat (props) {
     if (window.store.aiChatHistory.length > MAX_HISTORY) {
       const all = window.store.aiChatHistory
       // the entries falling off the end take their picture bytes with them
-      all.slice(0, all.length - MAX_HISTORY).forEach(
-        e => (e.images || []).forEach(img => dropImage(img && img.id))
-      )
+      all.slice(0, all.length - MAX_HISTORY).forEach(e => {
+        (e.images || []).forEach(img => {
+          dropImage(img && img.id)
+          forgetImage(img && img.id)
+        })
+      })
       window.store.aiChatHistory = all.slice(-MAX_HISTORY)
     }
   }, [

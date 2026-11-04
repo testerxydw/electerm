@@ -158,3 +158,4 @@ self-test/term-theme-background-shots/
 
 self-test/ai-language-shots/
 self-test/agent-db-tools-shots/
+self-test/ai-image-persist-shots/

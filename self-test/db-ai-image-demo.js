@@ -10,7 +10,8 @@
  *      不含 data:image 的 base64。
  *   D) 能力闸门：用户覆盖为 off 时出现芯片 + 警告卡 + 横幅，发送被拦，
  *      「仍要发送」放行一次；路径不是 /chat/completions 时连放行都不给。
- *   E) 重启降级：内存缓存没了，历史卡片标灰，下一轮把上一轮的图换成
+ *   E) 重启：先验磁盘冷层回填（S2-2）——卡片不再标灰、追问仍带上上一轮那张真图；
+ *      再把冷层文件清空后重启，验"只有两层都没了"才降级成
  *      [attached image unavailable: ...] 占位符，绝不静默丢图。
  *
  * 用法：
@@ -20,6 +21,8 @@
  *      DISPLAY=:131 HOME=/tmp/electerm-img/home ELECTRON_RUN_AS_NODE= \
  *        ./node_modules/electron/dist/electron work/app/app.js \
  *        --remote-debugging-port=9226 --no-sandbox --window-size=1600,1000
+ *      HOME 必须是临时目录：E2 会直接删 appData 下的 ai_images/*.data，
+ *      跑在真实用户目录上就是删用户的图片缓存
  *   4) node self-test/db-ai-image-demo.js [debugPort] [shotDir]
  */
 const fs = require('node:fs')
@@ -447,7 +450,7 @@ const main = async () => {
     Number(await cdp.eval('window.__aiN()')) === nBeforeT)
   await cdp.shot(path.join(SHOT_DIR, '3-transport-blocked.png'))
 
-  // ---------- 重启：缓存没了，但不静默丢图 ----------
+  // ---------- 重启：先验磁盘冷层回填，再验"冷层真没了"才降级 ----------
   await cdp.eval('window.store.setConfig({ apiPathAI: "/v1/chat/completions" })')
   const kept = JSON.parse(await cdp.eval('window.__historyStats()'))
   push('E) 重启前会话里有 3 条带图条目（夹具前置）', kept.entries === 3 && kept.withImages === 3, kept)
@@ -455,39 +458,85 @@ const main = async () => {
   // 发完立刻刷页会读到还没写进去的库，重启后"历史不见了"其实是夹具没等落盘
   await sleep(2200)
 
-  await cdp.call('Page.reload', { ignoreCache: true })
-  await sleep(2200)
-  push('重启后渲染进程可用',
-    await waitFor(cdp, '!!(window.store && window.pre && window.translate)', 'boot-2', 40000))
-  push('重启后桩重新装上', await installStub(cdp))
-  await cdp.eval(buildHelpers('electerm-db-sql-value-split'))
-  await cdp.eval(PROBE)
-  await cdp.eval('window.store.handleOpenAIPanel()')
-  push('重启后 AI 面板与历史都回来了',
-    await waitFor(cdp, 'window.__panel() && (window.store.aiChatHistory || []).length >= 3', 'panel-2', 20000),
-    await cdp.eval('JSON.stringify({ panel: !!window.__panel(), n: (window.store.aiChatHistory || []).length })'))
+  const reboot = async (label) => {
+    await cdp.call('Page.reload', { ignoreCache: true })
+    await sleep(2200)
+    push(label + ') 重启后渲染进程可用',
+      await waitFor(cdp, '!!(window.store && window.pre && window.translate)', 'boot-' + label, 40000))
+    push(label + ') 重启后桩重新装上', await installStub(cdp))
+    await cdp.eval(buildHelpers('electerm-db-sql-value-split'))
+    await cdp.eval(PROBE)
+    await cdp.eval('window.store.handleOpenAIPanel()')
+    return waitFor(
+      cdp,
+      'window.__panel() && (window.store.aiChatHistory || []).length >= 3',
+      'panel-' + label,
+      20000
+    )
+  }
 
-  const expired = JSON.parse(await cdp.eval('window.__historyCards()'))
-  push('E) 历史里的图片卡片仍在，但全部标灰（is-expired）且没有缩略图',
-    expired.length >= 3 &&
-    expired.every(c => c.expired && c.thumb === '' && /占位符|过期|expired|placeholder/i.test(c.title)),
-    expired)
+  push('E1) 重启后 AI 面板与历史都回来了（内存层这次是空的）', await reboot('E1'))
+
+  const backFromDisk = await waitFor(
+    cdp,
+    'JSON.parse(window.__historyCards()).length === 3 && ' +
+      'JSON.parse(window.__historyCards()).every(c => !c.expired)',
+    'hydrated',
+    10000
+  )
+  const liveCards = JSON.parse(await cdp.eval('window.__historyCards()'))
+  push('E1) 磁盘冷层把图补回内存：卡片不再标灰（S2-2 之前这里必然全灰）',
+    backFromDisk && liveCards.length === 3 && liveCards.every(c => !c.expired), liveCards)
+  push('E1) 补回来的是字节，不是把 base64 塞回历史：历史卡片仍然没有缩略图',
+    liveCards.every(c => c.thumb === ''), liveCards)
 
   const nAfterReload = Number(await cdp.eval('window.__aiN()'))
   await cdp.eval('window.__setPrompt("continue the conversation")')
   await sleep(150)
   await cdp.eval('window.__send()')
-  push('E) 重启后发一条纯文本', await waitWire(cdp, nAfterReload + 1, 'wire-reload'))
+  push('E1) 重启后发一条纯文本', await waitWire(cdp, nAfterReload + 1, 'wire-reload'))
   const wire4 = JSON.parse(await cdp.eval('window.__lastWire()'))
+  const hydrated = JSON.parse(await cdp.eval('window.__placeholders()'))
+  push('E1) 追问真的带上了上一轮那张图：一条占位符都没有，历史里能看到分片数组',
+    hydrated.length === 0 && wire4.allContentTypes.some(t => t === 'array'),
+    { placeholders: hydrated, allContentTypes: wire4.allContentTypes })
+  await cdp.shot(path.join(SHOT_DIR, '4-hydrated-after-reload.png'))
+
+  // 冷层被收回（保留期到点、超配额、换机器、手动删目录）之后，才回到原来那套
+  // "明确标过期 + 发占位符"：回填不能变成"以为图还在"的借口，缺图必须说出来
+  const imgDir = String(await cdp.eval('window.pre.runGlobalAsync("aiImageOp", "dir", null)'))
+  const coldFiles = fs.existsSync(imgDir)
+    ? fs.readdirSync(imgDir).filter(f => f.endsWith('.data'))
+    : []
+  // 3 张历史图 + 至多 1 张"贴进输入框但没发出去"的草稿（D 组里通道被拦那次）。
+  // 草稿的组件状态随卸载就没了，冷层副本没人引用，交给保留期/配额收——
+  // 所以这里不能钉死成 3，钉死了量到的只是"有没有孤儿"这件本来就该由 GC 兜的事
+  push('E2) 前置：3 张历史图都在冷层，外加最多一张待回收的草稿孤儿',
+    coldFiles.length >= 3 && coldFiles.length <= 4, { imgDir, coldFiles })
+  coldFiles.forEach(f => fs.rmSync(path.join(imgDir, f), { force: true }))
+
+  push('E2) 冷层清空后再次重启：历史仍在，但内存与磁盘都没有图了', await reboot('E2'))
+  const expired = JSON.parse(await cdp.eval('window.__historyCards()'))
+  push('E2) 这时卡片全部标灰（is-expired）并给出过期原因，而不是让一条"看起来带图"的记录骗人',
+    expired.length >= 3 &&
+    expired.every(c => c.expired && c.thumb === '' && /占位符|过期|expired|placeholder/i.test(c.title)),
+    expired)
+
+  const nAfterCold = Number(await cdp.eval('window.__aiN()'))
+  await cdp.eval('window.__setPrompt("continue after cache lost")')
+  await sleep(150)
+  await cdp.eval('window.__send()')
+  push('E2) 冷层没了之后再发一条纯文本', await waitWire(cdp, nAfterCold + 1, 'wire-cold'))
+  const wire5 = JSON.parse(await cdp.eval('window.__lastWire()'))
   const placeholders = JSON.parse(await cdp.eval('window.__placeholders()'))
-  push('E) 上一轮已过期的图换成占位符文本，而不是静默消失',
+  push('E2) 已过期的图换成占位符文本，而不是静默消失',
     placeholders.length >= 2 &&
     placeholders.some(t => t.indexOf('shot.png') >= 0) &&
     placeholders.some(t => t.indexOf('two.png') >= 0), placeholders)
-  push('E) 过期图不再被当成 image_url 发出去（历史里没有分片数组）',
-    wire4.lastType === 'string' && wire4.allContentTypes.every(t => t !== 'array'),
-    wire4.allContentTypes)
-  await cdp.shot(path.join(SHOT_DIR, '4-expired-after-reload.png'))
+  push('E2) 过期图不再被当成 image_url 发出去（历史里没有分片数组）',
+    wire5.lastType === 'string' && wire5.allContentTypes.every(t => t !== 'array'),
+    wire5.allContentTypes)
+  await cdp.shot(path.join(SHOT_DIR, '5-expired-after-reload.png'))
 
   const netNoise = /Failed to fetch dynamically imported module|Failed to load resource/
   const hard = cdpRef.events.filter(l => {

@@ -245,6 +245,9 @@ function initIpc () {
     const config = globalState.get('config') || {}
     return config.sessionLogPath || join(app.getPath('appData'), 'electerm', 'session_logs')
   }
+  // AI 图片磁盘层 (S2-2): 目录固定, 渲染层只递 id——路径拼接留在主进程,
+  // 免得 runGlobalAsync 变成一个任意路径读写器。
+  const getAiImageDir = () => join(app.getPath('appData'), 'electerm', 'ai_images')
   const createRecordFile = async () => {
     const dir = getSessionLogDir()
     fs.mkdirSync(dir, { recursive: true })
@@ -291,6 +294,34 @@ function initIpc () {
     // G6 主密码 Vault：DEK 只在主进程内存，渲染层只能报动作（status/unlock/…），
     // 既拿不到 DEK 也拿不到恢复码原文；口令走 IPC 但不进日志，见 ./vault.js。
     vaultOp: async (action, arg) => require('./vault-instance').vaultOp(action, arg),
+    // S2-2 AI 图片本体的磁盘层：渲染层只报 id 与 dataUrl，配额/保留期/回收都在主进程，
+    // 目录也不交给渲染层拼（它会变成任意路径读写）。
+    aiImageOp: async (action, arg) => {
+      const dir = getAiImageDir()
+      const s = require('./ai-image-store')
+      if (action === 'put') {
+        return s.putImage(dir, arg || {})
+      }
+      if (action === 'get') {
+        return s.readImage(dir, (arg && arg.id) || arg)
+      }
+      if (action === 'list') {
+        return s.listImages(dir)
+      }
+      if (action === 'drop') {
+        return { ok: s.deleteImage(dir, (arg && arg.id) || arg) }
+      }
+      if (action === 'clear') {
+        return s.clearImages(dir)
+      }
+      if (action === 'sweep') {
+        return s.sweep(dir, arg || {})
+      }
+      if (action === 'dir') {
+        return dir
+      }
+      throw new Error('unknown aiImageOp action: ' + action)
+    },
     // SQL 执行历史走主进程固定文件（userData），不进渲染层 localStorage：
     // UI server 动态端口导致 origin 漂移，localStorage 跨启动互相隔离
     dbSqlHistoryOp: async (action, arg) => {
