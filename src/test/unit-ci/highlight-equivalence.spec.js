@@ -9,6 +9,7 @@ const loadCompile = () => import('../../client/common/keyword-compile.js')
 // 旧引擎的参考实现：逐规则把整段扫一遍、收集全部命中，再按「起点升序、同起点取
 // 更短」排序并跳过重叠。新引擎（单大正则单遍扫描）必须与它逐字节一致。
 function referenceHighlight (text, patterns, maxMatches) {
+  // eslint-disable-next-line no-control-regex
   const ansiPattern = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[\??[0-9;]*[A-Za-z]/g
   const segments = []
   let last = 0
@@ -92,13 +93,12 @@ const corpus = [
   'warning: deprecated API, feature disabled, unknown mode, invalid option',
   'TLSv1.3 handshake verify returned ok Cipher is TLS_AES_256_GCM_SHA384',
   'eth0 u/u   eth1 A/D   GE1/0/2 ADM   port 10/1/1 status down',
-  'HOST: 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ONLINE',
+  'HOST: 2001:0db8:85a3:0000:0000:8a2e:0370:7334 ONLINE'
 ]
 
 const subsets = async () => {
   const { keywordPresets } = await loadPresets()
   const { activeKeywords } = await loadGroups()
-  const all = keywordPresets.reduce((acc, p) => acc.concat(p.keywords), [])
   const names = keywordPresets.map(p => p.name)
   const out = []
   // 全量、每个单组、Shell+日志混合、以及若干两两组合
