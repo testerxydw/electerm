@@ -17,12 +17,18 @@
 // 又不会让隐藏的 VNC/RDP/SPICE 空转太久（M6 实测：隐藏也在全速收帧）。
 export const suspendGraceDefaultMs = 5 * 60 * 1000
 
+// “永不挂起”的哨兵值。remoteSuspendSeconds 取此值表示隐藏 tab 永不自动断连。
+// 不能复用 0/负数：0/负数被 suspendGraceMs 当作异常值回退默认，故单独用 -1。
+export const REMOTE_SUSPEND_NEVER = -1
+
 // 读当前配置的挂起宽限期（秒）。config 没有这个键时回到默认 5 分钟。
 // 三端 remote 组件不在 manate 订阅范围内，不会随 config 版本自动重渲染，
 // 所以宽限期必须在这里"到点才读"，而不是构造时读一次写死 ——
 // 用户改完档位，下一次切走就用新值。
 export function suspendGraceMs () {
   const sec = window.store?.config?.remoteSuspendSeconds
+  // 永不挂起：返回 Infinity，RemoteSuspend 据此跳过武装计时器
+  if (sec === REMOTE_SUSPEND_NEVER) return Infinity
   // 0/负数是异常值（setTimeout(fn, 0) 会立即挂起），与缺失同样回默认
   return (!Number.isFinite(sec) || sec <= 0)
     ? suspendGraceDefaultMs
@@ -65,11 +71,16 @@ export default class RemoteSuspend {
       return
     }
     // 到点才读当前宽限期：见 suspendGraceMs 的注释
+    const grace = suspendGraceMs()
+    // 永不挂起（grace 为 Infinity）：不武装计时器，隐藏即持续渲染
+    if (!Number.isFinite(grace)) {
+      return
+    }
     this.timer = setTimeout(() => {
       this.timer = null
       this.suspended = true
       this.onSuspend()
-    }, suspendGraceMs())
+    }, grace)
   }
 
   stop () {
