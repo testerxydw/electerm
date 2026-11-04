@@ -117,15 +117,18 @@ const near = (a, b, tol = 1) => Math.abs(a - b) <= tol
 
 // 探针：一次读回整条链的矩形，判据在 node 侧算
 const PROBE = `
+// 隐藏标签页也留在 DOM 里，全局 querySelector 会先命中它们（0 高）——
+// 一律取实测最高的那个，即当前可见的那套。
+// 必须在"装探针"这一步就挂到 window 上：node 侧在第一次调 __t3b() 之前
+// 就要用它定位目录输入框（挂在 __t3b 体内的话，那几次 eval 全是 not a function）。
+window.__t3bVis = sel => {
+  const els = [...document.querySelectorAll(sel)]
+  if (!els.length) return null
+  return els.reduce((a, b) =>
+    b.getBoundingClientRect().height > a.getBoundingClientRect().height ? b : a)
+}
 window.__t3b = () => {
-  // 隐藏标签页也留在 DOM 里，全局 querySelector 会先命中它们（0 高）——
-  // 一律取实测最高的那个，即当前可见的那套
-  const vis = sel => {
-    const els = [...document.querySelectorAll(sel)]
-    if (!els.length) return null
-    return els.reduce((a, b) =>
-      b.getBoundingClientRect().height > a.getBoundingClientRect().height ? b : a)
-  }
+  const vis = window.__t3bVis
   const rect = sel => {
     const el = vis(sel)
     if (!el) return null
@@ -195,6 +198,13 @@ const main = async () => {
   await waitFor(cdp, 'window.store && window.store.configLoaded === true', 'store ready', 20000)
   await sleep(600)
   await cdp.eval(PROBE)
+  // 探针助手必须在装完就能用，别等到第一次用才报 "not a function"（那时已经点坏了页面状态）
+  const probeOk = await waitFor(cdp,
+    "typeof window.__t3bVis === 'function' && typeof window.__t3b === 'function'",
+    'probe helpers installed', 5000)
+  if (!probeOk) {
+    throw new Error('探针助手没装上：window.__t3bVis / window.__t3b 必须在 PROBE 求值时就挂到 window 上')
+  }
 
   await cdp.eval(`(() => {
     const st = window.store
