@@ -5,7 +5,8 @@ import AgentToolCallCard from './agent-tool-call-card'
 import { runAgentLoop, stopAgentRun } from './agent'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import { buildAiRole } from '../../common/ai-role'
-import { buildSessionMessages, summarizeContext } from './ai-context'
+import { buildSessionMessages, summarizeContext, countContextImages, isImageRequestRejected, stripImageParts } from './ai-context'
+import Modal from '../common/modal'
 import { resolveImage } from './ai-image-cache'
 import {
   shouldAutoCompress,
@@ -180,8 +181,30 @@ export default memo(function AIChatHistoryItem ({ item }) {
     }
   }, [item.id, chatSessionId, requestConfig])
 
-  const startRequest = useCallback(async () => {
+  // 响应到手之后走哪条通道：流式就轮询，一次性就把答案写回去。
+  // 降级重发也走这里，所以单独提出来，避免把"重发"写成第二份成功分支。
+  const applyResponse = useCallback((aiResponse) => {
+    if (aiResponse && aiResponse.isStream && aiResponse.sessionId) {
+      setIsStreaming(true)
+      window.store.updateAiHistoryEntry(item.id, {
+        sessionId: aiResponse.sessionId,
+        response: aiResponse.content || ''
+      })
+      pollStreamContent(aiResponse.sessionId)
+    } else if (aiResponse && aiResponse.response) {
+      window.store.updateAiHistoryEntry(item.id, {
+        response: aiResponse.response
+      })
+      // No stream to poll: the answer is in the store, so the session can be
+      // summarized for the turns that follow this one.
+      autoCompressSession(chatSessionId, requestConfig)
+    }
+  }, [item.id, chatSessionId, requestConfig, pollStreamContent])
+
+  const startRequest = useCallback(async (messagesOverride) => {
     try {
+      // 降级重发带着已经构造好的消息回来；首次发送才现算
+      const messages = messagesOverride || await buildOutgoingMessages()
       const aiResponse = await window.pre.runGlobalAsync(
         'AIchat',
         prompt,
@@ -193,34 +216,39 @@ export default memo(function AIChatHistoryItem ({ item }) {
         proxyAI,
         true,
         authHeaderNameAI,
-        await buildOutgoingMessages()
+        messages
       )
 
       if (aiResponse && aiResponse.error) {
+        // 带图请求被 provider 以 400 拒掉时，先给一次"去掉图重发"的机会：
+        // 各网关对 content 数组的支持差异很大，直接报错用户无从判断是自己
+        // 的配置还是图片的问题（S2-3 / 设计 §6-14）。只给一次，重发时不再问。
+        if (!messagesOverride &&
+          isImageRequestRejected(aiResponse.error) &&
+          countContextImages(messages) > 0) {
+          Modal.confirm({
+            title: window.translate('aiImageFallbackTitle'),
+            content: window.translate('aiImageFallbackText'),
+            okText: window.translate('aiImageFallbackOk'),
+            cancelText: window.translate('cancel'),
+            onOk: () => startRequest(stripImageParts(messages)),
+            onCancel: () => {
+              window.store.removeAiHistory(item.id)
+              window.store.onError(new Error(aiResponse.error))
+            }
+          })
+          return
+        }
         window.store.removeAiHistory(item.id)
         return window.store.onError(new Error(aiResponse.error))
       }
 
-      if (aiResponse && aiResponse.isStream && aiResponse.sessionId) {
-        setIsStreaming(true)
-        window.store.updateAiHistoryEntry(item.id, {
-          sessionId: aiResponse.sessionId,
-          response: aiResponse.content || ''
-        })
-        pollStreamContent(aiResponse.sessionId)
-      } else if (aiResponse && aiResponse.response) {
-        window.store.updateAiHistoryEntry(item.id, {
-          response: aiResponse.response
-        })
-        // No stream to poll: the answer is in the store, so the session can be
-        // summarized for the turns that follow this one.
-        autoCompressSession(chatSessionId, requestConfig)
-      }
+      applyResponse(aiResponse)
     } catch (error) {
       window.store.removeAiHistory(item.id)
       window.store.onError(error)
     }
-  }, [prompt, modelAI, baseURLAI, apiPathAI, apiKeyAI, proxyAI, authHeaderNameAI, item.id, chatSessionId, requestConfig, pollStreamContent, buildOutgoingMessages])
+  }, [prompt, modelAI, baseURLAI, apiPathAI, apiKeyAI, proxyAI, authHeaderNameAI, item.id, chatSessionId, requestConfig, buildOutgoingMessages, applyResponse])
 
   const startAgentRequest = useCallback(async () => {
     abortRef.current = false

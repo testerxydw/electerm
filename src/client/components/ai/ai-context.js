@@ -211,6 +211,49 @@ export function countContextImages (messages) {
   return n
 }
 
+// 兼容性降级（S2-3 / 设计 §6-14）：中转站与网关对 content 数组的支持差异很大，
+// 带图请求被拒时给用户一次"去掉图再发一遍"的机会。判定只看 400——那是
+// "请求体不合法"的标准状态码；鉴权/配额/超时都不该被误当成图片问题。
+export function isImageRequestRejected (error) {
+  const s = String(error === undefined || error === null ? '' : error)
+  return /\b400\b/.test(s)
+}
+
+// 把已经构造好的消息里所有图片分片换成一段说明文字，其余原样保留。
+// 之所以在消息列表上做，而不是重新调用 buildUserContent：重发要跟第一次
+// 发出的是同一份内容（含自动压缩生成的摘要），只把图拿掉才是"降级"，
+// 重新构造会顺手改变历史裁剪结果。
+export function stripImageParts (messages) {
+  if (!Array.isArray(messages)) {
+    return messages
+  }
+  return messages.map(m => {
+    if (!m || !Array.isArray(m.content)) {
+      return m
+    }
+    const texts = []
+    let dropped = 0
+    for (const part of m.content) {
+      if (!part) {
+        continue
+      }
+      if (part.type === 'image_url' || part.type === 'image' ||
+        part.type === 'input_image') {
+        dropped += 1
+      } else if (typeof part.text === 'string' && part.text) {
+        texts.push(part.text)
+      }
+    }
+    if (!dropped) {
+      return m
+    }
+    return {
+      ...m,
+      content: [...texts, `[${dropped} attached image(s) omitted]`].join('\n\n')
+    }
+  })
+}
+
 // Best effort hints, checked 2026-09. No provider publishes the window over
 // the API, and relays rename models freely, so this is only a starting point:
 // the "Context length" field in the AI config always wins over it.

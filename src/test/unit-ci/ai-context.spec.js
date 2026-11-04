@@ -565,3 +565,44 @@ describe('formatting', () => {
     assert.equal(m.getUsageLevel(null), 'unknown')
   })
 })
+
+describe('image rejection fallback (S2-3)', () => {
+  it('only treats 400 as an image rejection', () => {
+    assert.equal(m.isImageRequestRejected('Request failed with status code 400: bad content'), true)
+    assert.equal(m.isImageRequestRejected('Request failed with status code 401'), false)
+    assert.equal(m.isImageRequestRejected('Request failed with status code 429'), false)
+    assert.equal(m.isImageRequestRejected('timeout of 30000ms exceeded'), false)
+    assert.equal(m.isImageRequestRejected(null), false)
+  })
+
+  it('strips image parts but keeps the text and the other messages', () => {
+    const messages = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'plain string turn' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look at this' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,BBBB' } }
+        ]
+      },
+      { role: 'assistant', content: 'ok' }
+    ]
+    const out = m.stripImageParts(messages)
+    assert.equal(out.length, messages.length)
+    assert.equal(out[0].content, 'sys')
+    assert.equal(out[1].content, 'plain string turn')
+    assert.equal(out[2].content, 'look at this\n\n[2 attached image(s) omitted]')
+    assert.equal(out[3].content, 'ok')
+    // 原始列表不被就地改写：重发失败时还要拿它报错
+    assert.equal(Array.isArray(messages[2].content), true)
+  })
+
+  it('leaves messages without images untouched', () => {
+    const messages = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]
+    const out = m.stripImageParts(messages)
+    assert.equal(out[0], messages[0])
+    assert.equal(m.stripImageParts(null), null)
+  })
+})

@@ -1,7 +1,7 @@
 import { agentTools, executeToolCall } from './agent-tools'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import { replyLanguageInstruction } from '../../common/ai-role'
-import { buildAgentMessages, summarizeContext, buildUserContent, CONTEXT_DANGER_PERCENT } from './ai-context'
+import { buildAgentMessages, summarizeContext, buildUserContent, CONTEXT_DANGER_PERCENT, countContextImages, isImageRequestRejected, stripImageParts } from './ai-context'
 import { resolveImage } from './ai-image-cache'
 import {
   shouldAutoCompress,
@@ -16,6 +16,9 @@ import {
 import uid from '../../common/uid'
 
 const MAX_ITERATIONS = 150
+
+// 降级重发后留在回答里的一句说明：图片确实没送到模型，不能让它看起来像送过
+const IMAGE_FALLBACK_NOTE = '*(The provider rejected the image request, so this turn was resent without images.)*'
 
 // A summary request that failed (provider hiccup, rate limit) must not be
 // retried on every following iteration -- that would turn a full window into a
@@ -105,7 +108,7 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
   let autoCompressAttemptTokens = 0
   let runErrored = false
   try {
-    const messages = buildAgentMessages({
+    let messages = buildAgentMessages({
       systemPrompt: buildAgentSystemPrompt(config),
       conversationMessages,
       // string when the turn has no picture, part array when it has one --
@@ -184,7 +187,7 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
       if (abortRef) {
         abortRef.requestId = requestId
       }
-      const result = await callBackendAIchatWithTools(messages, config, requestId)
+      let result = await callBackendAIchatWithTools(messages, config, requestId)
       if (abortRef && abortRef.requestId === requestId) {
         abortRef.requestId = null
       }
@@ -195,6 +198,25 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
       if (isAborted()) {
         markStopped()
         return
+      }
+
+      // 带图请求被 400 拒：去掉图片分片再发一次（S2-3 / 设计 §6-14）。
+      // 只重试一次，并把这次降级写进会话，用户能看到"图没真正发出去"。
+      if (result.error &&
+        isImageRequestRejected(result.error) &&
+        countContextImages(messages) > 0) {
+        messages = stripImageParts(messages)
+        accumulatedContent += (accumulatedContent ? '\n\n' : '') + IMAGE_FALLBACK_NOTE
+        updateChatEntry(chatEntry, { response: accumulatedContent })
+        publishContext(messages, config, lastUsage)
+        result = await callBackendAIchatWithTools(messages, config, requestId)
+        if (abortRef && abortRef.requestId === requestId) {
+          abortRef.requestId = null
+        }
+        if (isAborted()) {
+          markStopped()
+          return
+        }
       }
 
       if (result.usage) {
