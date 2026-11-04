@@ -284,6 +284,12 @@ const main = async () => {
   await waitFor(cdp, 'window.__res !== null', 'listRecordings answers', 15000)
   const listing = JSON.parse(await cdp.eval('window.__resGet()'))
   const dir = listing && listing.dir
+  // 全新的档案目录里从没录过东西时 session_logs 还不存在 —— 主进程只在真正开录制时
+  // 才 mkdir（ipc.js 的 createRecordFile）。铺假录制之前按产品同款方式把目录建出来，
+  // 否则这条判据把"第一次跑"误判成"产品没给出目录"（2026-11-04 第四轮扫掠的红）。
+  if (dir) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
   check('主进程给出录制目录（渲染层不参与拼路径）', !!dir && fs.existsSync(dir), { dir })
   if (!dir) {
     throw new Error('no recording dir')
