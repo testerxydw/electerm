@@ -14,10 +14,24 @@
  * the layout props, because in fullscreen the session is re-parented to the
  * whole window by term-fullscreen.styl and those props are stale. Measured
  * size is what lets the remote surface scale up to fill the screen.
+ *
+ * The control bar is contracted here (N3), not by each protocol. Left, in
+ * order: the `onReconnect` icon, the protocol's bar items (`displayItems` -
+ * light action icons plus the display controls: resolution / screen picker and
+ * the scale toggle), the connection info. Right: the fullscreen icon and the
+ * `⋮` menu, which stays a list of actions - it is not a settings page, so the
+ * controls a user has to see before deciding are not hidden behind it
+ * (2026-11-03 decision). Items are sized to sit inside one 32px row
+ * (`--session-bar-h`): a narrow window still wraps the bar, but every protocol
+ * wraps the same way, so the viewport height stays comparable.
+ * See doc/分析-远程会话顶栏差异与统一-2026-10-30.md §3/§5.
  */
 import { PureComponent, createRef } from 'react'
 import { Spin } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
 import classnames from 'classnames'
+import SessionInfo from './session-info'
+import RemoteFloatControl from './remote-float-control'
 import './session-shell.styl'
 
 export default class SessionShell extends PureComponent {
@@ -89,14 +103,28 @@ export default class SessionShell extends PureComponent {
     }
   }
 
+  // the same menu renders twice: inline in the bar (windowed) and floating
+  // (fullscreen) - the bar itself is hidden in fullscreen
+  getFloatProps = () => {
+    const {
+      fullscreen,
+      onSendCtrlAltDel
+    } = this.props
+    return {
+      isFullScreen: !!fullscreen,
+      onSendCtrlAltDel
+    }
+  }
+
   render () {
     const {
       loading,
       fit,
       wrapClassName,
-      controlLeft,
-      controlRight,
-      floatControl,
+      onReconnect,
+      info,
+      displayItems,
+      fullscreenIcon,
       overlay,
       children
     } = this.props
@@ -108,6 +136,7 @@ export default class SessionShell extends PureComponent {
         fit: !!fit
       }
     )
+    const floatProps = this.getFloatProps()
     return (
       <Spin
         spinning={!!loading}
@@ -116,10 +145,25 @@ export default class SessionShell extends PureComponent {
         <div className={cls}>
           <div className='remote-session-control session-v-info'>
             <div className='remote-session-control-left'>
-              {controlLeft}
+              <ReloadOutlined
+                onClick={onReconnect}
+                className='mg2r mg1l pointer'
+              />
+              {displayItems}
+              <SessionInfo {...info} />
             </div>
             <div className='remote-session-control-right'>
-              {controlRight}
+              {
+                fullscreenIcon
+                  ? fullscreenIcon()
+                  : null
+              }
+              <RemoteFloatControl
+                {...floatProps}
+                fixedPosition={false}
+                showExitFullscreen={false}
+                className='mg1l'
+              />
             </div>
           </div>
           <div
@@ -129,7 +173,7 @@ export default class SessionShell extends PureComponent {
             {children}
           </div>
           {overlay}
-          {floatControl}
+          <RemoteFloatControl {...floatProps} />
         </div>
       </Spin>
     )

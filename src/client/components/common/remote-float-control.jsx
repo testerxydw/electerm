@@ -9,6 +9,13 @@ import './remote-float-control.styl'
 
 const e = window.translate
 
+/**
+ * The `⋮` menu of a remote session - actions only.
+ *
+ * Display controls (resolution / screen picker, scale toggle) stay in the
+ * control bar so they are visible without opening a popup; this menu is not a
+ * settings page. See doc/分析-远程会话顶栏差异与统一-2026-10-30.md §5.
+ */
 export default function RemoteFloatControl (props) {
   const {
     isFullScreen,
@@ -44,17 +51,16 @@ export default function RemoteFloatControl (props) {
     })
   }
 
-  // 已删除多显示器子菜单：选屏只在 VNC 有，而它已经把入口放在顶栏左侧的 Select
-  // 里，同一个功能两个入口会让用户不知道该点哪个（见
-  // doc/分析-远程会话顶栏差异与统一-2026-10-30.md §4）。RDP/SPICE/DB 一直传的是空数组。
-
   const containerClassName = (fixedPosition ? 'remote-float-control' : 'remote-float-control-inline') + (className ? ' ' + className : '')
   const buttonClassName = fixedPosition ? 'remote-float-btn' : 'remote-float-btn-inline'
   const iconClassName = fixedPosition ? 'font20' : ''
 
   return (
     <div className={containerClassName}>
-      <Dropdown menu={{ items }} trigger={['click']}>
+      <Dropdown
+        menu={{ items }}
+        trigger={['click']}
+      >
         <div className={buttonClassName}>
           <MoreOutlined className={iconClassName} />
         </div>
