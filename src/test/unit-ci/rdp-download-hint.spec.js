@@ -36,7 +36,8 @@ describe('RDP 下载：无远端文件时的提示接线', () => {
   })
 
   test('hover 与点击共用同一句提示文案', () => {
-    const render = slice(src, 'const uploadTitle =', 'return (\n      <>\n        <ReloadOutlined')
+    // tooltip 的取值在 renderDisplayItems 里（重连图标交给了共享壳，显示控件也在这段）
+    const render = slice(src, 'const uploadTitle =', '  render () {')
     assert.ok(render.includes('hasRemoteFiles'), 'tooltip 未按灰/亮分流')
     assert.ok(render.includes('this.downloadHint()'), 'tooltip 没有复用提示方法')
     assert.ok(render.includes("window.translate('rdpDownloadCount')"), '亮态 tooltip 缺少文件数')
