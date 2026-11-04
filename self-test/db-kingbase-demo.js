@@ -6,7 +6,7 @@
 //   2) addTab(dbType:'kingbase') → 页签标题带 [KingbaseES] 前缀（dbTypeLabelMap）
 //   3) 引擎圆柱徽标用 postgres 家族色（--db-engine-kingbase var(--db-engine-postgres)），
 //      深/浅两主题各取一次
-//   4) 数据页走 PG 词法（双引号标识符）打开、出数（db-engine-family 把 kingbase 归 postgres）
+//   4) 数据页打开、出数，取数交结构化标识符（双引号词法在主进程 quoteIdent，不在这一层重复断言）
 //   5) 快速连接 kingbase:// 解析成 kingbase 标签页（db-uri SCHEME_MAP + 54321 缺省端口）
 //
 // 用法（自建 HOME，端口与并行会话错开）：
@@ -51,13 +51,11 @@ const STUB = `
     { emp_id: 2, emp_name: '李雷', salary: '15000.00' }
   ]
   window.__queries = []
-  window.__metaCalls = 0
   window.pre.runGlobalAsync = function (name, ...a) {
     if (name === 'dbClientOp') {
       const op = a[1]
       const args = a[2] || {}
       if (op === 'getMetadata') {
-        window.__metaCalls++
         // KingbaseES 走 PG 协议 → 元数据是 库 → schema → 表 三层
         // （postgres.js getMetadata 的返回形状），与真金仓返回同构
         return Promise.resolve([{
@@ -77,8 +75,17 @@ const STUB = `
         return Promise.resolve({ columns: COLS, foreignKeys: [] })
       }
       if (op === 'getPageData') {
-        // 服务端拿到的手表查询：PG 家族该用双引号标识符（Kingbase 归 postgres）
-        window.__queries.push(args.sql || '')
+        // 渲染层→主进程递的是结构化标识符（database/schema/table 分开）；把
+        // "table.column" 拼成带引号的 SQL 是主进程 postgres.js 的 quoteIdent，
+        // 词法本身由 unit-ci/db-engine-family.spec.js 的 ['kingbase','double'] 钉住。
+        // 这里把每次取数的入参与（若有）手写 SQL 都记下来，判据只看渲染层这一层。
+        window.__queries.push({
+          sql: String(args.sql || ''),
+          database: String(args.database || ''),
+          schema: String(args.schema || ''),
+          table: String(args.table || ''),
+          count: !!args.count
+        })
         return Promise.resolve({ rows: ROWS, totalRows: ROWS.length, page: 1, hasMore: false })
       }
       if (op === 'getReferences') return Promise.resolve({ references: [], degraded: false })
@@ -126,7 +133,7 @@ const STUB = `
   }
   window.__gridRows = () => [...document.querySelectorAll('.ant-table-row')]
     .filter(window.__vis).length
-  window.__lastQuery = () => window.__queries[window.__queries.length - 1] || ''
+  window.__pageCalls = () => JSON.stringify(window.__queries)
   return 'kingbase-stub'
 })()
 `
@@ -287,38 +294,49 @@ const main = async () => {
   check('页签标题带 [KingbaseES] 前缀（dbTypeLabelMap 带出）',
     String(tabTitles).indexOf('[KingbaseES]') >= 0, tabTitles)
 
-  // ---- 3) 数据页走 PG 词法（双引号标识符）打开、出数 ----
+  // ---- 3) 数据页打开、出数（db-engine-family 把 kingbase 归 postgres）----
   await waitFor(cdp, '!!document.querySelector(".db-tree")', 'tree')
-  console.log('DBG tree meta=', await cdp.eval('window.__metaCalls'),
-    'nodes=', await cdp.eval('JSON.stringify([...document.querySelectorAll(\'.db-tree .ant-tree-node-content-wrapper\')].map(n=>n.innerText.trim()))'),
-    'tabs=', await cdp.eval('JSON.stringify(window.store.tabs.map(t=>({type:t.type,dbType:t.dbType,err:t.error})))'))
   await waitFor(cdp, 'JSON.parse(window.__activeTab() || \'null\').dbType === "kingbase"', 'tab stable')
   // 树里打开表：先展开 库(kingdemo) → schema(public)，再点表(employee)
+  //
+  // 匹配不能拿整段 innerText 去全等：U4 起树节点里除了名字还带图标字母与计数
+  // （schema 节点是 "S\npublic\n1"），全等匹配从那天起就再也点不中第二、三层
+  // ——2026-11-04 第四轮扫掠的 4 条红就是这么来的（库那层没图标所以还能中）。
+  // 按行拆开取其中一行等于目标名，图标/计数怎么变都不影响。
   const clickNode = async (label) => {
     const r = await cdp.eval(`(() => {
       const all = [...document.querySelectorAll('.db-tree .ant-tree-node-content-wrapper')]
         .filter(window.__vis)
-      const hit = all.find(n => n.innerText.trim() === ${JSON.stringify(label)})
+      const hit = all.find(n => String(n.innerText).split('\\n').map(s => s.trim()).includes(${JSON.stringify(label)}))
       if (!hit) return 'no-node'
       hit.click()
       return 'ok'
     })()`)
     return r
   }
-  check('树展开 库(kingdemo)', await clickNode('kingdemo') === 'ok')
+  const nodeTexts = () => cdp.eval(
+    `JSON.stringify([...document.querySelectorAll('.db-tree .ant-tree-node-content-wrapper')]
+      .filter(window.__vis).map(n => n.innerText.trim()))`)
+  check('树展开 库(kingdemo)', await clickNode('kingdemo') === 'ok', { nodes: await nodeTexts() })
   await sleep(800)
-  console.log('DBG after kingdemo nodes=', await cdp.eval('JSON.stringify([...document.querySelectorAll(\'.db-tree .ant-tree-node-content-wrapper\')].map(n => n.innerText.trim()))'))
-  check('树展开 schema(public)', await clickNode('public') === 'ok')
+  check('树展开 schema(public)', await clickNode('public') === 'ok', { nodes: await nodeTexts() })
   await sleep(500)
-  check('树里点到 employee 表', await clickNode('employee') === 'ok')
+  check('树里点到 employee 表', await clickNode('employee') === 'ok', { nodes: await nodeTexts() })
   await waitFor(cdp, 'window.__gridRows() >= 2', 'grid rows', 15000)
   await sleep(800)
   const rows = await cdp.eval('window.__gridRows()')
   check('Kingbase 数据页出数（假适配器 2 行）', rows >= 2, { rows })
 
-  // 服务端拿到的查询含 PG 双引号标识符（Kingbase 归 postgres 家族的关键证据）
-  const q = await cdp.eval('window.__lastQuery()')
-  check('数据页查询走 PG 词法（双引号标识符）', /"[a-z_]+"/.test(q), { q: q.slice(0, 120) })
+  // 渲染层→主进程递的是结构化标识符：database/schema/table 各自一个字段，
+  // 渲染层不把 MySQL 反引号拼好塞给 PG 家族。把 "public"."employee" 这种带引号
+  // 的 SQL 拼出来是主进程 postgres.js 的 quoteIdent，词法本身由
+  // unit-ci/db-engine-family.spec.js 的 ['kingbase','double'] 钉住，不在这一层重复断言。
+  const pageCalls = JSON.parse(await cdp.eval('window.__pageCalls()'))
+  check('数据页取数交结构化标识符（渲染层不拼反引号 SQL，双引号词法归主进程 quoteIdent）',
+    pageCalls.length > 0 &&
+    pageCalls.some(c => c.database === 'kingdemo' && c.schema === 'public' && c.table === 'employee') &&
+    !pageCalls.some(c => /`/.test(c.sql)),
+    { n: pageCalls.length, first: pageCalls[0] })
 
   // ---- 4) 引擎圆柱徽标用 postgres 家族色（深色主题） ----
   const markDark = await cdp.eval('window.__engineColor()')
