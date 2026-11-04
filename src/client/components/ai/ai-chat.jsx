@@ -131,8 +131,11 @@ export default function AIChat (props) {
         return
       }
       const hit = new Set(hydrated)
-      window.store.aiChatHistory = window.store.aiChatHistory.map(h => (h.images || [])
-        .some(img => img && hit.has(img.id)) ? { ...h } : h)
+      window.store.aiChatHistory = window.store.aiChatHistory.map(h => (
+        (h.images || []).some(img => img && hit.has(img.id))
+          ? { ...h }
+          : h
+      ))
     })
   }, [currentChatSessionId, props.aiChatHistory])
 
