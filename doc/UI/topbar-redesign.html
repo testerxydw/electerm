@@ -1,0 +1,350 @@
+<style>
+  .tb-root {
+    --main: #121214; --surface-1: #17171a; --surface-2: #1e1e22;
+    --hover: #26262b; --border: #2b2b31; --text: #dddddd; --text-2: #8a8a93; --text-3: #5f5f68;
+    --primary: #0088cc; --ok: #06d6a0; --err: #ef476f;
+    --bar-h: 32px; --pad-x: 10px; --gap: 8px;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    color: var(--text); background: var(--main);
+    padding: 22px 20px 60px; line-height: 1.6;
+  }
+  .tb-root.light {
+    --main: #ffffff; --surface-1: #fafbfc; --surface-2: #f0f1f3;
+    --hover: #e6eaef; --border: #dfe3e8; --text: #1f2329; --text-2: #6a707a; --text-3: #98a0ab;
+  }
+  .tb-root h1 { font-size: 21px; margin: 0 0 6px; }
+  .tb-root h2 { font-size: 15px; margin: 34px 0 4px; display: flex; align-items: center; gap: 8px; }
+  .tb-root h2::before { content: ""; width: 3px; height: 14px; background: var(--primary); border-radius: 2px; }
+  .tb-sub { color: var(--text-2); font-size: 12.5px; margin: 0 0 16px; }
+  .tb-root code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+
+  .tb-tool { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 22px; padding: 10px 12px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+  .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { appearance: none; border: 0; background: transparent; color: var(--text-2); font-size: 12.5px; padding: 5px 13px; cursor: pointer; font-family: inherit; }
+  .seg button.on { background: var(--primary); color: #fff; }
+  .lbl { font-size: 12px; color: var(--text-2); margin-right: 6px; }
+  .chk { font-size: 12px; color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+
+  .tb-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-1); margin: 0 0 14px; }
+  .tb-card-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+
+  .bar { display: flex; align-items: center; gap: var(--gap); min-height: var(--bar-h); line-height: var(--bar-h); padding: 0 var(--pad-x); background: var(--main); border-bottom: 1px solid var(--border); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+  .bar.wrap { flex-wrap: wrap; row-gap: 4px; padding-top: 4px; padding-bottom: 4px; overflow: visible; min-height: 44px; }
+  .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap); }
+  .zone { display: inline-flex; align-items: center; gap: var(--gap); padding: 0 6px; border-radius: 6px; min-height: 26px; outline: 1px dashed transparent; outline-offset: -1px; }
+  .tb-root.show-zones .zone-a { background: rgba(0, 136, 204, .1); outline-color: rgba(0, 136, 204, .5); }
+  .tb-root.show-zones .zone-b { background: rgba(6, 214, 160, .08); outline-color: rgba(6, 214, 160, .45); }
+  .tb-root.show-zones .zone-c { background: rgba(255, 209, 102, .1); outline-color: rgba(255, 209, 102, .5); }
+  .zlabel { font-size: 9.5px; color: var(--text-3); font-family: ui-monospace, Menlo, monospace; }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); display: inline-block; flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(6, 214, 160, .16); }
+  .dot.err { background: var(--err); box-shadow: 0 0 0 3px rgba(239, 71, 111, .16); }
+  .host { font-weight: 600; color: var(--text); max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-family: ui-monospace, Menlo, monospace; font-size: 10px; line-height: 15px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-2); }
+  .badge.ok { background: rgba(6, 214, 160, .14); border-color: rgba(6, 214, 160, .4); color: var(--ok); }
+  .badge.err { background: rgba(239, 71, 111, .14); border-color: rgba(239, 71, 111, .4); color: var(--err); }
+  .meta { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-2); }
+  .name { font-weight: 600; }
+
+  .tabs { display: inline-flex; gap: 14px; align-items: center; }
+  .tabs span { font-size: 12.5px; color: var(--text-2); padding-bottom: 2px; }
+  .tabs span.on { color: var(--primary); border-bottom: 2px solid var(--primary); font-weight: 600; }
+
+  .ic { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-size: 12.5px; }
+  .ic svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .ic.act { color: var(--primary); }
+  .ic.dis { color: var(--text-3); }
+  .sep { width: 1px; height: 16px; background: var(--border); flex: none; }
+
+  .sel { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); font-size: 11.5px; }
+  .sel svg { width: 9px; height: 9px; stroke: var(--text-2); fill: none; stroke-width: 2; }
+  .sw { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); }
+  .sw i { width: 24px; height: 14px; border-radius: 999px; background: var(--primary); position: relative; display: inline-block; flex: none; }
+  .sw i::after { content: ""; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #fff; top: 2px; right: 2px; }
+  .sw.off i { background: var(--border); }
+  .sw.off i::after { left: 2px; right: auto; }
+  .btn { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); font-size: 11.5px; }
+  .flag { font-size: 10.5px; padding: 1px 7px; border-radius: 4px; background: rgba(239, 71, 111, .16); color: var(--err); border: 1px solid rgba(239, 71, 111, .4); }
+  .url { flex: 1; min-width: 120px; display: flex; align-items: center; gap: 7px; height: 22px; padding: 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-2); overflow: hidden; }
+
+  .surface { height: 78px; background: repeating-linear-gradient(135deg, var(--surface-1), var(--surface-1) 12px, var(--surface-2) 12px, var(--surface-2) 24px); display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: 11.5px; text-align: center; padding: 0 14px; }
+
+  .rows { display: grid; gap: 20px; }
+  .row-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .row-h b { font-size: 13.5px; }
+  .row-h span { font-size: 12px; color: var(--text-2); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-2); font-family: ui-monospace, Menlo, monospace; }
+  .tag.now { border-color: rgba(239, 71, 111, .45); color: var(--err); background: rgba(239, 71, 111, .1); }
+  .tag.rec { border-color: rgba(6, 214, 160, .45); color: var(--ok); background: rgba(6, 214, 160, .1); }
+
+  table.spec { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+  table.spec th { background: var(--surface-2); font-weight: 600; color: var(--text); }
+  table.spec th, table.spec td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+  table.spec td { color: var(--text-2); }
+  table.spec td b { color: var(--text); }
+  table.spec col.zone-a-col { width: 118px; }
+
+  .callout { border-left: 3px solid var(--primary); background: var(--surface-1); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 12.5px; color: var(--text-2); margin: 16px 0 0; }
+  .callout b { color: var(--text); }
+</style>
+
+<div class="tb-root" id="tbRoot">
+  <h1>顶栏统一规范 · 草图（连接信息在前，操作按钮在后）</h1>
+  <p class="tb-sub">RDP / VNC / SPICE 现在把操作按钮排在连接信息左边，与终端页、数据库页相反。本页给出跨七类页面的共同契约与逐页改法。</p>
+
+  <div class="tb-tool">
+    <span><span class="lbl">排序方案</span><span class="seg" id="segOrder"><button data-v="rec" class="on" type="button">推荐 A→B→C</button><button data-v="now" type="button">现状</button></span></span>
+    <span><span class="lbl">主题</span><span class="seg" id="segTheme"><button data-v="dark" class="on" type="button">深色</button><button data-v="light" type="button">浅色</button></span></span>
+    <label class="chk"><input id="cbZones" type="checkbox">显示分区（A 信息 / B 操作 / C 窗口）</label>
+    <label class="chk"><input id="cbNarrow" type="checkbox">窄窗口换行</label>
+  </div>
+
+  <h2>一、共同规范：一条顶栏只有三个区</h2>
+  <p class="tb-sub">从左到右读得通 —— 我在哪（A）→ 对它做什么（B）→ 对这个窗口做什么（C）。</p>
+  <div class="tb-card">
+    <div class="bar wrap">
+      <span class="zone zone-a"><span class="zlabel">A 信息</span><span class="dot ok"></span><span class="host">user@10.0.0.8</span><span class="badge ok">已连接</span><span class="badge">SSH</span><span class="meta">zsh 5.9 · ↑2.1k ↓8.4k</span></span>
+      <span class="zone zone-b"><span class="zlabel">B 操作</span><span class="ic" data-i="reload"><span>重连</span></span><span class="sep"></span><span class="ic" data-i="pin"><span>跟随</span></span><span class="ic" data-i="keep"><span>保活</span></span><span class="ic" data-i="bcast"><span>广播</span></span><span class="ic" data-i="rec"><span>录制</span></span></span>
+      <span class="right zone zone-c"><span class="zlabel">C 窗口</span><span class="ic" data-i="search"><span></span></span><span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span></span>
+    </div>
+  </div>
+  <table class="spec">
+    <colgroup><col class="zone-a-col"><col><col></colgroup>
+    <thead><tr><th>区</th><th>放什么</th><th>规则</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>A 连接 / 上下文</b></td>
+        <td>状态点 · 目标（<code>user@host:port</code> / <code>引擎 · 库 · 用户</code> / <code>本地</code>）· 类型徽标 · 运行态元信息</td>
+        <td>永远是栏内最左；缺字段的那一段不渲染，不留半截 <code>@</code> 或 <code>:0</code>。身份文本 12.5px + 600 字重，徽标 10px 胶囊，元信息 11px 等宽。</td>
+      </tr>
+      <tr>
+        <td><b>B 会话操作</b></td>
+        <td>重连、显示控件（分辨率 / 选屏 / 缩放 / <code>ctrl⇄cmd</code>）、页面专有动作（SFTP 导航刷新、DB 只读 / 生产 / 刷新、终端跟随 / 保活 / 广播 / 录制）</td>
+        <td>紧接 A 之后。归属判据：<b>这个动作改变远端会话吗？</b>改变（重连、分辨率、缩放、上传下载、DB 查询、终端录制）留 B；只改变本地窗口（查找、全屏）进 C。栏内图标统一 16px，控件一律 <code>size="small"</code>，压在同一个 32px 行盒里；组内用 1px 分隔线切语义。</td>
+      </tr>
+      <tr>
+        <td><b>C 窗口动作</b></td>
+        <td>查找 → 全屏 → <code>⋮</code> 菜单</td>
+        <td><code>margin-left: auto</code> 贴右，顺序七页一致。<code>⋮</code> 内只放动作（退出全屏、Send Ctrl+Alt+Del），不放设置。</td>
+      </tr>
+      <tr>
+        <td><b>B 组内顺序</b></td>
+        <td colspan="2">先「让画面/连接回到正轨」再「调显示」再「传数据」：<br>RDP：<code>重连 → 分辨率 + 编辑 → 缩放 → ctrl⇄cmd → 上传 / 下载 / help</code>。<br>VNC：<code>重连 → 选屏 → 缩放</code>。SPICE：<code>重连 → 缩放</code>。<br>终端：<code>跟随 → 分屏 → 保活 → 广播 → 录制 → 换行</code>。数据库：<code>生产标记 → 临时解除 → 只读 → 系统库 → 刷新</code>。</td>
+      </tr>
+      <tr>
+        <td><b>高度 / 换行</b></td>
+        <td colspan="2">单点 <code>--session-bar-h: 32px</code>、<code>--session-bar-pad-x: 10px</code>。放不下时整条 <code>flex-wrap</code>，退让顺序固定：C 保持贴右 → B 先换第二行 → A 的元信息最后换。页面专有栏（DB / web / SFTP）不换行，用省略号 + tooltip 兜。</td>
+      </tr>
+      <tr>
+        <td><b>全屏</b></td>
+        <td colspan="2">整条 <code>display: none</code>，只留右上角浮层 <code>⋮</code>（现有行为保留，栏内不留半个死图标）。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>二、逐页：现状 → 推荐</h2>
+  <p class="tb-sub">左卡现状、右卡推荐；用顶部「排序方案」把推荐挪到左边对照阅读。</p>
+  <div class="rows" id="pages"></div>
+
+  <h2>三、异常态与特殊布局</h2>
+  <div class="rows">
+    <div>
+      <div class="row-h"><b>断连 / 加载中</b><span>A 区自己就能说话：状态点变红、徽标换成「已断开」，B 区的「重连」亮起 —— 不需要额外弹层</span></div>
+      <div class="tb-card">
+        <div class="bar">
+          <span class="zone zone-a"><span class="dot err"></span><span class="host">vnc@192.168.3.20:5901</span><span class="badge err">已断开</span></span>
+          <span class="zone zone-b"><span class="ic act" data-i="reload"><span>重连</span></span><span class="sep"></span><span class="ic dis" data-i="screen"><span></span></span><span class="sw off"><i></i><span>缩放</span></span></span>
+          <span class="right zone zone-c"><span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span></span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="row-h"><b>窄窗口换行</b><span>B 区整组换到第二行，A 与 C 仍在第一行 —— 三端换行方式一致，视口高度不再按协议漂移</span></div>
+      <div class="tb-card" style="max-width: 520px">
+        <div class="bar wrap">
+          <span class="zone zone-a"><span class="dot ok"></span><span class="host">winnie@10.0.0.8:3389</span><span class="badge ok">已连接</span></span>
+          <span class="right zone zone-c"><span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span></span>
+          <span class="zone zone-b" style="flex: 1 1 100%"><span class="ic" data-i="reload"><span></span></span><span class="sel"><span>自动（跟随窗口）</span><svg viewBox="0 0 12 12"><path d="M2 4l4 4 4-4"></path></svg></span><span class="sw"><i></i><span>缩放</span></span><span class="ic" data-i="up"><span></span></span><span class="ic" data-i="down"><span></span></span></span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="row-h"><b>全屏浮层</b><span>顶栏隐藏，只剩浮层 <code>⋮</code>（退出全屏 + Ctrl+Alt+Del）</span></div>
+      <div class="tb-card">
+        <div class="surface" style="position: relative"><span>远端画面（全屏）</span><span class="ic" style="position: absolute; right: 12px; top: 10px" data-i="more"><span></span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>四、实施落点（已按本草图落地）</h2>
+  <table class="spec">
+    <thead><tr><th style="width: 150px">位置</th><th>改动</th></tr></thead>
+    <tbody>
+      <tr><td><b>共享壳</b></td><td>左栏顺序改为 <code>SessionInfo → 重连 → displayItems</code>，A 与 B 之间补 1px 竖线；条目间距收进 <code>column-gap 8px</code>，三端不再写 <code>mg1l / mg2l / mg1r</code>。</td></tr>
+      <tr><td><b>RDP</b></td><td>B 组内改为 <code>分辨率 + 编辑 → 缩放 → ctrl⇄cmd → 上传 / 下载 / help</code>（文件传输原排在最前）。</td></tr>
+      <tr><td><b>图标字号</b></td><td>16px 规则从子选择器改为后代选择器（Tooltip 套两层时原来选不中，文件传输图标实际一直是 14px）；Select 箭头显式 <code>inherit</code> 不受影响。</td></tr>
+      <tr><td><b>SFTP</b></td><td>面板标题行改左对齐：身份串（走 <code>formatConnInfo</code>）在左、刷新贴右；地址行保持浏览器习惯（导航在 URL 之前）。</td></tr>
+      <tr><td><b>终端 / 数据库</b></td><td>已符合 A→B→C，未改动，只作为口径来源。</td></tr>
+    </tbody>
+  </table>
+  <p class="tb-note">验证：<code>remote-session-bar.spec.js</code> 跟齐新契约（左栏顺序 / RDP 组内顺序 / column-gap 单点 / sftp 标题顺序 / 字号选择器）；<code>self-test/topbar-order-probe.js</code> 编译真实 <code>.styl</code> + 真实 antd DOM 骨架在 headless Edge 实测，9/9 通过（条高 32px、条目同中线、竖线 1×16px、图标 16px、箭头 12px）。</p>
+
+  <div class="callout">
+    <b>落点：</b>契约收在 <code>SessionShell</code>（RDP / VNC / SPICE 共用，改左栏顺序）与 <code>sftp-entry.jsx</code> 的面板标题行两处即可。终端页 <code>SessionControl</code>、数据库页 <code>.db-head</code> 已符合，只需对齐状态点与徽标口径；web 页 URL 栏是可编辑的 A 区，保持浏览器习惯（导航在前）不动。
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById('tbRoot')
+  var ICONS = {
+    reload: '<path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path>',
+    refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path>',
+    screen: '<rect x="2.5" y="4" width="19" height="13" rx="2"></rect><path d="M9 21h6"></path>',
+    edit: '<path d="M4 20h4l10-10-4-4L4 16z"></path>',
+    up: '<path d="M12 20V5"></path><path d="M6 11l6-6 6 6"></path>',
+    down: '<path d="M12 4v15"></path><path d="M6 13l6 6 6-6"></path>',
+    help: '<circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1 1-1.1 1.9"></path><path d="M12 17h.01"></path>',
+    pin: '<path d="M9 4h6l-1 6 3 3H7l3-3z"></path><path d="M12 16v4"></path>',
+    keep: '<path d="M3 12h4l2-5 3 10 2-5h7"></path>',
+    bcast: '<circle cx="12" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="18" r="2.4"></circle><path d="M12 8.4v3.2"></path><path d="M10.4 13 7.4 16"></path><path d="M13.6 13l3 3"></path>',
+    rec: '<circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"></circle>',
+    wrap: '<path d="M4 6h16M4 12h13a3 3 0 1 1 0 6H9"></path><path d="M11 21l-2-3 2-3"></path>',
+    search: '<circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path>',
+    fs: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path>',
+    more: '<circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"></circle>',
+    save: '<path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v5h7V4"></path><path d="M8 14h8v6H8z"></path>',
+    home: '<path d="M4 11 12 4l8 7"></path><path d="M6 10v10h12V10"></path>',
+    back: '<path d="M15 5 8 12l7 7"></path>',
+    fwd: '<path d="M9 5l7 7-7 7"></path>',
+    eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12"></path><circle cx="12" cy="12" r="3"></circle>',
+    lock: '<rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path>'
+  }
+
+  var PAGES = [
+    {
+      id: 'RDP', title: 'RDP 远程桌面', tag: 'rdp-session.jsx → SessionShell',
+      a: '<span class="dot ok"></span><span class="host">winnie@10.0.0.8:3389</span><span class="badge ok">已连接</span><span class="badge">RDP</span>',
+      b: '<span class="ic" data-i="up"><span></span></span><span class="ic" data-i="down"><span></span></span><span class="ic" data-i="help"><span></span></span><span class="ic" data-i="reload"><span></span></span><span class="sel"><span>自动（跟随窗口）</span><svg viewBox="0 0 12 12"><path d="M2 4l4 4 4-4"></path></svg></span><span class="ic" data-i="edit"><span></span></span><span class="sw"><i></i><span>缩放</span></span><span class="sw"><i></i><span>ctrl ⇄ cmd</span></span>',
+      bRec: '<span class="ic" data-i="reload"><span>重连</span></span><span class="sep"></span><span class="sel"><span>自动（跟随窗口）</span><svg viewBox="0 0 12 12"><path d="M2 4l4 4 4-4"></path></svg></span><span class="ic" data-i="edit"><span></span></span><span class="sw"><i></i><span>缩放</span></span><span class="sw"><i></i><span>ctrl ⇄ cmd</span></span><span class="sep"></span><span class="ic" data-i="up"><span></span></span><span class="ic" data-i="down"><span></span></span><span class="ic" data-i="help"><span></span></span>',
+      c: '<span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span>',
+      why: '上传 / 下载 / help 已在 B 区（displayItems），但它们排在重连之前；整组又都在连接信息左边，读序变成「先操作、后知道是谁」。'
+    },
+    {
+      id: 'VNC', title: 'VNC 远程桌面', tag: 'vnc-session.jsx → SessionShell',
+      a: '<span class="dot ok"></span><span class="name">ubuntu-desktop</span><span class="host">vnc@192.168.3.20:5901</span><span class="badge ok">已连接</span><span class="badge">VNC</span>',
+      b: '<span class="ic" data-i="reload"><span></span></span><span class="sel"><span>Screen 1</span><svg viewBox="0 0 12 12"><path d="M2 4l4 4 4-4"></path></svg></span><span class="sw"><i></i><span>缩放</span></span>',
+      bRec: '<span class="ic" data-i="reload"><span>重连</span></span><span class="sep"></span><span class="sel"><span>Screen 1</span><svg viewBox="0 0 12 12"><path d="M2 4l4 4 4-4"></path></svg></span><span class="sw"><i></i><span>缩放</span></span>',
+      c: '<span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span>',
+      why: '远端上报的桌面名留在 A 区，作为 600 字重前缀，不占操作位。'
+    },
+    {
+      id: 'SPICE', title: 'SPICE 远程桌面', tag: 'spice-session.jsx → SessionShell',
+      a: '<span class="dot ok"></span><span class="host">user@10.0.0.30:5930</span><span class="badge ok">已连接</span><span class="badge">SPICE</span>',
+      b: '<span class="ic" data-i="reload"><span></span></span><span class="sw"><i></i><span>缩放</span></span>',
+      bRec: '<span class="ic" data-i="reload"><span>重连</span></span><span class="sep"></span><span class="sw"><i></i><span>缩放</span></span>',
+      c: '<span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span>',
+      why: '与 RDP / VNC 同一个壳：协议只交 A 区内容和 B 区控件，顺序由壳固定。'
+    },
+    {
+      id: 'TERM', title: '终端（SSH / 本地 / Telnet / Serial）', tag: 'session-control.jsx', ok: true,
+      a: '<span class="dot ok"></span><span class="host">root@172.16.0.5</span><span class="badge ok">已连接</span><span class="badge">SSH</span><span class="tabs"><span class="on">Terminal</span><span>Files</span></span><span class="meta">zsh 5.9 · ↑2.1k ↓8.4k</span>',
+      b: '<span class="ic" data-i="pin"><span></span></span><span class="ic" data-i="bcast"><span></span></span><span class="ic" data-i="keep"><span></span></span><span class="ic" data-i="rec"><span></span></span><span class="ic" data-i="wrap"><span></span></span>',
+      c: '<span class="ic" data-i="search"><span></span></span><span class="ic" data-i="fs"><span></span></span>',
+      why: '参照页：A（信息 + 页签 + 运行态）→ B（会话操作）→ C（查找 / 全屏）已是规范形态。'
+    },
+    {
+      id: 'SFTP', title: '文件面板（本地 / 远端两栏）', tag: 'sftp-entry.jsx · renderSftpPanelTitle',
+      flat: true,
+      now: '<span class="ic" data-i="reload"><span></span></span><span class="host" style="margin-left: auto"><span>remote: user@172.16.0.5</span></span><span class="ic" data-i="eye"><span></span></span><span class="ic" data-i="up"><span></span></span><span class="ic" data-i="home"><span></span></span>',
+      aRec: '<span class="dot ok"></span><span class="host">user@172.16.0.5</span><span class="badge">SFTP</span><span class="meta">/var/www</span>',
+      bRec: '<span class="ic" data-i="reload"><span>刷新</span></span><span class="sep"></span><span class="ic" data-i="up"><span></span></span><span class="ic" data-i="home"><span></span></span><span class="ic" data-i="eye"><span></span></span>',
+      cRec: '<span class="ic" data-i="save"><span></span></span><span class="ic" data-i="more"><span></span></span>',
+      why: '整行右对齐 + 图标在最左，两个方向都反。'
+    },
+    {
+      id: 'DB', title: '数据库', tag: 'db-session.jsx · .db-head', ok: true,
+      a: '<span class="badge">MySQL</span><span class="host">172.16.0.9:3306 · appdb · app</span><span class="dot ok"></span><span class="meta">已连接</span>',
+      b: '<span class="flag">生产</span><span class="btn">临时解除 5 分钟</span><span class="sw"><i></i><span>只读</span></span><span class="sw"><i></i><span>系统库</span></span><span class="sep"></span><span class="ic" data-i="refresh"><span></span></span>',
+      c: '<span class="ic" data-i="search"><span></span></span><span class="ic" data-i="fs"><span></span></span>',
+      why: '参照页：引擎 · 目标 · 状态 → 风险开关 / 工具组 → 查找 / 全屏。只缺与终端同尺寸同色的状态点。'
+    },
+    {
+      id: 'WEB', title: 'Web 页面', tag: 'web/address-bar.jsx', ok: true,
+      a: '<span class="ic" data-i="lock"><span></span></span><span class="url"><span>https://intranet.example.com/dashboard</span></span>',
+      b: '<span class="ic" data-i="back"><span></span></span><span class="ic" data-i="fwd"><span></span></span><span class="ic" data-i="reload"><span></span></span><span class="ic" data-i="home"><span></span></span>',
+      c: '<span class="ic" data-i="search"><span></span></span><span class="ic" data-i="fs"><span></span></span><span class="ic" data-i="more"><span></span></span>',
+      why: 'URL 栏是可编辑的 A 区，天然占满剩余宽度；导航按钮按浏览器习惯保持在左。'
+    }
+  ]
+
+  function bar (inner, extra) {
+    return '<div class="bar' + (extra || '') + '">' + inner + '</div>'
+  }
+  function nowBar (p) {
+    if (p.flat) {
+      return bar(p.now)
+    }
+    if (p.ok) {
+      return bar('<span class="zone zone-a">' + p.a + '</span><span class="zone zone-b">' + p.b + '</span><span class="right zone zone-c">' + p.c + '</span>')
+    }
+    return bar('<span class="zone zone-b">' + p.b + p.a + '</span><span class="right zone zone-c">' + p.c + '</span>')
+  }
+  function recBar (p) {
+    return bar(
+      '<span class="zone zone-a">' + (p.aRec || p.a) + '</span>' +
+      '<span class="zone zone-b">' + (p.bRec || p.b) + '</span>' +
+      '<span class="right zone zone-c">' + (p.cRec || p.c) + '</span>'
+    )
+  }
+  function card (p) {
+    var nowHead = p.ok ? '现状（已符合，保持）' : '现状'
+    var nowTag = p.ok ? '<span class="tag">保持不动</span>' : '<span class="tag now">' + (p.flat ? '右对齐 + 图标在前' : '信息在后') + '</span>'
+    return '<div>' +
+      '<div class="row-h"><b>' + p.title + '</b><span class="tag">' + p.tag + '</span></div>' +
+      '<div class="pair">' +
+        '<div class="tb-card"><div class="tb-card-head"><span>' + nowHead + '</span>' + nowTag + '</div>' + nowBar(p) + '<div class="surface"><span>' + p.why + '</span></div></div>' +
+        '<div class="tb-card"><div class="tb-card-head"><span>推荐</span><span class="tag rec">A → B → C</span></div>' + recBar(p) + '</div>' +
+      '</div></div>'
+  }
+  document.getElementById('pages').innerHTML = PAGES.map(card).join('')
+
+  function paint (el) {
+    var svg = '<svg viewBox="0 0 24 24">' + (ICONS[el.getAttribute('data-i')] || '') + '</svg>'
+    el.innerHTML = svg + el.innerHTML
+  }
+  function paintAll () {
+    root.querySelectorAll('.ic[data-i]').forEach(function (el) { paint(el) })
+  }
+  paintAll()
+
+  function bindSeg (id, fn) {
+    var box = document.getElementById(id)
+    box.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('button')
+      if (!btn) { return }
+      box.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', b === btn) })
+      fn(btn.getAttribute('data-v'))
+    })
+  }
+  bindSeg('segTheme', function (v) { root.classList.toggle('light', v === 'light') })
+  bindSeg('segOrder', function (v) {
+    var showRec = v === 'rec'
+    document.querySelectorAll('#pages > div > .pair').forEach(function (pair) {
+      pair.insertBefore(showRec ? pair.children[1] : pair.children[0], pair.children[0])
+    })
+  })
+  document.getElementById('cbZones').addEventListener('change', function (ev) {
+    root.classList.toggle('show-zones', ev.target.checked)
+  })
+  document.getElementById('cbNarrow').addEventListener('change', function (ev) {
+    root.querySelectorAll('.tb-card .bar').forEach(function (b) {
+      if (b.dataset.w0 === undefined) { b.dataset.w0 = b.classList.contains('wrap') ? '1' : '' }
+      b.style.maxWidth = ev.target.checked ? '540px' : ''
+      if (ev.target.checked) { b.classList.add('wrap') } else if (b.dataset.w0 !== '1') { b.classList.remove('wrap') }
+    })
+  })
+})()
+</script>
