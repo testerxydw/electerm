@@ -137,7 +137,9 @@ const lvlError = '\\b(?:EMERG(?:ENCY)?|ALERT|CRITICAL|CRIT|SEVERE|FATAL|PANIC(?:
 // 内核日志里是提醒而不是失败，留在黄档；顺带把只有网络预设认得的 incompatible/
 // legacy 提到共享黄档，让日志侧的「兼容性警告」也能染上色。
 const lvlWarn = '\\b(?:WARN(?:ING)?S?|DEPRECATED|DEPRECATION|OUTDATED|HINT|DISABLED|UNKNOWN|INCOMPATIBLE|LEGACY)\\b'
-const lvlNotice = '\\bNOTICE\\b'
+// NOTICE 不再单独一条 cyan：它是 Database 组黄档 (WARNING|NOTICE|DEPRECATED|…)
+// 的真子集（同起点同跨度，原本靠「等跨度取原序最先」才赢下 cyan），按「子集并入
+// 包含者」删除，裸 NOTICE 改随包含者染黄。
 // INFO 在 syslog 里原本是 cyan、在应用日志里是 green：同一条正则两种配色会被去重
 // 掉一种，统一取 cyan（green 留给「状态正常/成功」这一类词）。
 const lvlInfo = '\\bINFO(?:RMATION|RMATIONAL)?\\b'
@@ -240,7 +242,6 @@ const rule = {
   permStr: { keyword: permStr, color: 'blue' },
   lvlError: { keyword: lvlError, color: 'red' },
   lvlWarn: { keyword: lvlWarn, color: 'yellow' },
-  lvlNotice: { keyword: lvlNotice, color: 'cyan' },
   lvlInfo: { keyword: lvlInfo, color: 'cyan' },
   lvlDebug: { keyword: lvlDebug, color: 'blue' },
   wordOk: { keyword: wordOk, color: 'green' },
@@ -310,7 +311,8 @@ export const keywordPresets = [
       // 接口名：Cisco/Arista/Dell(Gi1/0/1, Et1, Po1, Vlan600)、Huawei(XGigabitEthernet0/0/1,
       // 40GE1/0/1, Eth-Trunk1, Vlanif10)、HP Comware(XGE1/0/1, BAGG1)、ProCurve(Trk1)、
       // MikroTik(ether1, sfp-sfpplus1)、EdgeOS(eth0, eth1.100, switch0, br0)、
-      // Juniper(ge-0/0/0, irb.100, em0)、槽位口(1/1, cpu/1, lag/1)。
+      // Juniper(ge-0/0/0, irb.100, em0)、槽位口(1/1, cpu/1, lag/1)；cpuN 原本是
+      // 内核组单列的 magenta 真子集，已并入这里的 (cpu|vlan|lag|ch) 分支。
       // 三段原本各自一条、同色 blue，合成一条并保持原顺序：同一位置上排在前的
       // 备选赢，与原来「排在前面的规则赢」等价，着色不变。裸槽位加了 (?<![\w./])
       // 护栏，不再把 10.1.2.3/24 的尾巴 "3/24" 认成接口。
@@ -326,7 +328,7 @@ export const keywordPresets = [
       // severity（红档合并成共享的 lvlError，worst-first 的次序靠它自己排在前面）
       rule.lvlError,
       rule.lvlWarn,
-      rule.lvlNotice,
+      // 裸 NOTICE 不再单独一条：它是 Database 组黄档的子集，已并入（见文件头 lvlWarn 注）
       rule.lvlInfo,
       rule.lvlDebug,
       // systemd unit lifecycle（failed 已由 lvlError 覆盖，这里不再重列）
@@ -355,7 +357,9 @@ export const keywordPresets = [
       // device names
       { keyword: '\\b(ata\\d+(\\.\\d+)?|sd[a-z]\\d*|nvme\\d+n\\d+(p\\d+)?|mmcblk\\d+(p\\d+)?|dm-\\d+|md\\d+|eth\\d+|wlan\\d+|enp\\d+s\\d+|eno\\d+|wlp\\d+s\\d+|usb \\d+-\\d+(\\.\\d+)?|tty(S|USB|ACM)\\d+|br-\\d+|veth[0-9a-f]+)\\b', color: 'blue' },
       rule.devAddr,
-      { keyword: '\\bcpu\\d+\\b', color: 'magenta' },
+      // cpuN 设备名不再单列 magenta：Networking 组接口名的 \b(cpu|vlan|lag|ch)…\b
+      // 分支是它的包含者（且同起点跨度相等或更长），按「子集并入包含者」删除，
+      // 整组启用时 cpuN 随接口名染蓝。
       { keyword: '\\bLinux version \\S+\\b', color: 'cyan' },
       // dmesg 的 [   12.345678] 前缀与体积/吞吐，与 nginx 日志、数据库页共用
       rule.tsBracket,
@@ -403,7 +407,7 @@ export const keywordPresets = [
     keywords: [
       rule.lvlError,
       rule.lvlWarn,
-      rule.lvlNotice,
+      // 裸 NOTICE 已并入 Database 组黄档（子集规则，见 lvlWarn 注）
       rule.lvlInfo,
       rule.lvlDebug,
       rule.nullBool,
@@ -572,7 +576,8 @@ export const keywordPresets = [
       { keyword: '\\b(Query OK|Empty set|rows? affected|rows? matched|rows? returned|in set|PONG|QUEUED)\\b|\\(\\d+ rows?\\)', color: 'green' },
       // 耗时：MySQL/psql 结尾的 (0.01 sec)
       { keyword: '\\(\\d+(?:\\.\\d+)? ?(?:sec|ms|min)\\)', color: 'cyan' },
-      // 警告与执行计划里的性能提示
+      // 警告与执行计划里的性能提示；NOTICE 原本另有共享 cyan 单条（其真子集），
+      // 已并入这里——裸 NOTICE 随本条染黄
       { keyword: '\\b(WARNING|NOTICE|DEPRECATED|slow query|Using filesort|Using temporary|full table scan|seq scan|connection is read-only)\\b', color: 'yellow' },
       // 时间戳复用共享写法（已带 JSON 边界排除）
       rule.ts,
