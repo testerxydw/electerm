@@ -370,18 +370,24 @@ const main = async () => {
     await cdp.eval('window.__aiBar()'))
 
   // ---------- E) 终端"解释这段输出" → 来源标成终端页签 ----------
+  // 回到最初那条 AI 会话（DB 那条就在里面），直接往这条会话里塞一条"终端来源"，
+  // 证明提示条能把来源从 库.表 换成 终端页签（kind=term，不含库表）。
+  // 不用 explainWithAi：它会走面板 consume 的 session 路由，会话 id 受 props 快照
+  // 影响，判定会漂；直接塞进 store 让面板在下次响应式渲染里读 latestAiSource。
   await cdp.eval(`(() => {
-    // 造一个终端页签 + 与 buildTermAiSource 同形的来源，走 explainWithAi(source)：
-    // 证明面板侧能把"终端来源"也渲染成提示（kind 是 term，不是 db）
-    const t = { id: 'term-p4-tab', title: 'bash 127.0.0.1:22', host: '127.0.0.1', type: 'term' }
-    window.store.tabs.push(t)
-    window.store.explainWithAi('ps aux', {
-      kind: 'term', tabId: t.id, tabTitle: t.title, host: t.host,
-      dialect: '', database: '', schema: '', table: ''
-    })
-    return 'ok'
+    const h = window.store.aiChatHistory || []
+    const first = h.find(x => x && x.chatSessionId)
+    window.store.currentChatSessionId = first.chatSessionId
+    window.store.aiChatHistory = [...h, {
+      id: 'p4-term', chatSessionId: first.chatSessionId,
+      prompt: 'explain terminal output: ps aux', response: 'ok',
+      pending: false, isStreaming: false, mode: 'ask',
+      source: { kind: 'term', tabId: 'term-p4-tab', tabTitle: 'bash 127.0.0.1:22', host: '127.0.0.1',
+        dialect: '', database: '', schema: '', table: '' }
+    }]
+    return first.chatSessionId
   })()`)
-  await sleep(800)
+  await sleep(900)
   const entrySourceTerm = JSON.parse(await cdp.eval('window.__lastEntrySource()'))
   push('E) 终端"解释这段输出"递交：来源带终端页签（kind=term，不是库表）',
     !!(entrySourceTerm && entrySourceTerm.tabId && entrySourceTerm.kind === 'term'),
