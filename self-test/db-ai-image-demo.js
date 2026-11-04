@@ -189,6 +189,22 @@ const PROBE = `
     i.click()
     return 'ok'
   }
+  // Ask/Agent 模式是真的会记住的（ai-chat.jsx 把它写进 localStorage），
+  // 而两条通道走的 IPC 不一样：Ask 走 AIchat（本桩拦的就是它），Agent 走
+  // AIchatWithTools。同一个 Electron 用户数据目录里前一个 demo 留在 Agent，
+  // 这里点了发送也一次请求都收不到 —— 必须用真 UI 把模式钉回 Ask。
+  window.__modeNow = () => {
+    const sel = visBy('.ai-chat-terminals .ant-segmented-item-selected')[0]
+    return sel ? String(sel.innerText).trim() : 'none'
+  }
+  window.__clickMode = label => {
+    const items = visBy('.ai-chat-terminals .ant-segmented-item')
+    const hit = items.find(el => String(el.innerText).trim() === label)
+    if (!hit) return 'missing'
+    if (hit.className.indexOf('ant-segmented-item-selected') >= 0) return 'already'
+    hit.click()
+    return 'clicked'
+  }
   // 生成一张真 PNG 并当成剪贴板内容派发 paste。返回 dispatchEvent 的结果：
   // true = 没被 preventDefault（纯文本粘贴就该如此）
   window.__pasteImage = (w, h, color, name) => new Promise(resolve => {
@@ -314,6 +330,13 @@ const main = async () => {
   push('AI 面板打开（输入框可见）',
     await waitFor(cdp, '!!window.__panel()', 'panel', 8000))
   await sleep(500)
+
+  // 钉住本 demo 的前提：Ask 通道。点击后轮询确认，别拿"点了"当"生效了"
+  const modePin = await cdp.eval('window.__clickMode("Ask")')
+  push('模式钉回 Ask（本 demo 验的是 AIchat 通道；Agent 走 AIchatWithTools，桩收不到）',
+    modePin !== 'missing' &&
+    await waitFor(cdp, 'window.__modeNow() === "Ask"', 'mode-ask', 5000),
+    { action: modePin, now: await cdp.eval('window.__modeNow()') })
 
   push('A) 能力判定为支持（gpt-4o）时芯片不出现：没有要动手的事就不占位置',
     (await cdp.eval('window.__chip()')) === 'none', await cdp.eval('window.__chip()'))

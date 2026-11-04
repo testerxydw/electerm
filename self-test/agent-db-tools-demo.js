@@ -467,6 +467,10 @@ const main = async () => {
   await cdp.eval('window.store.changeActiveTabId("' + dbTabId + '")')
 
   // ---------- C：走完整 agent 循环 ----------
+  // Ask/Agent 会写进 localStorage，同一个用户数据目录里是跟着实例走的。
+  // 记下进入前的值，收尾还原 —— 不还原的话，后面任何吃 AIchat 通道的 demo
+  // （比如 db-ai-image-demo）一点发送都收不到请求，因为 Agent 走的是 AIchatWithTools。
+  const modeBefore = await cdp.eval("localStorage.getItem('ai-chat-mode') || ''")
   await cdp.eval('window.__reset("agent")')
   await cdp.eval('window.__closePanel()')
   await sleep(300)
@@ -514,6 +518,14 @@ const main = async () => {
     req2.toolContents.some(c => /truncatedCells/.test(c)),
     { roles: req2.roles, sample: (req2.toolContents[1] || '').slice(0, 120) })
   await cdp.shot(path.join(SHOT_DIR, '1-agent-tool-run.png'))
+
+  // 还原进入本 demo 前的模式，别把 Agent 留给共用同一份配置目录的下一个 demo
+  await cdp.eval(
+    '(function () { const v = ' + JSON.stringify(modeBefore) +
+    "; if (v) localStorage.setItem('ai-chat-mode', v); else localStorage.removeItem('ai-chat-mode') })()")
+  ck('收尾把 Ask/Agent 记忆还原成进入前的值（不把 Agent 留给后面的 demo）',
+    await cdp.eval("localStorage.getItem('ai-chat-mode') || ''") === modeBefore,
+    { before: modeBefore || '(unset)', after: await cdp.eval("localStorage.getItem('ai-chat-mode') || '(unset)'") })
 
   const hard = cdp.events.filter(l => {
     const s = String(l)
