@@ -21,7 +21,10 @@
  *   2) HOME=/tmp/xxx/home TMPDIR=/tmp/xxx DISPLAY=:130 \
  *        ./node_modules/electron/dist/electron work/app/app.js \
  *        --remote-debugging-port=9225 --no-sandbox --window-size=1600,1000
- *   3) node self-test/db-workspace-shell-demo.js [debugPort] [shotDir]
+ *   3) DISPLAY=:130 node self-test/db-workspace-shell-demo.js [debugPort] [shotDir]
+ *      （第 3 步的 DISPLAY 必须是第 2 步那个实例所在的 X 显示；不一致时脚本不再
+ *        去缩别的显示上的同名窗口，而是直接判红。认不到实例进程号时可加
+ *        --instance-pid=<pid> 显式指定）
  *
  * 桩数据直接复用 db-grid-interactions-demo.js 里的 STUB/OPEN_TAB（同一份 12 行
  * 带主键的假表），两处各写一份必然打架。
@@ -227,10 +230,21 @@ const closeTab = async (cdp, id) => {
 
   // 窗口宽度只能靠窗口管理器改：Emulation.setDeviceMetricsOverride 不会让应用真正重排，
   // Electron 下 Browser.getWindowForTarget 也不可用。
-  // 机器上可能同时开着好几个 electerm 窗口（并行自测各占一个端口），按名字取第一个
-  // 会缩错窗口——页面 innerWidth 纹丝不动，测出来的"三档宽度"全是同一档。
-  // 所以逐个试缩（记下原尺寸、缩完立刻还原），谁跟着变谁就是这个页面的窗口。
+  // 机器上可能同时开着好几个 electerm 窗口（并行自测各占一个端口，桌面上还装着
+  // /opt/electerm 本人），按名字取第一个会缩错窗口。以前这里对**所有**同名窗口逐个
+  // 试缩（缩完还原）来认页面自己那个——代价是同屏的真人窗口会被闪一下：
+  // 2026-11-04 一次扫掠忘了转发 DISPLAY，就把用户正在用的真 RDP 会话窗口缩到
+  // 1023 宽又还原回去。窗口能还原，画面不能。
+  // 现在只按**归属进程**筛：候选先收敛到"监听这个调试端口的 electron 自己的窗口"，
+  // 再在这一个进程内部试缩认页面；别人的窗口一律不碰，筛空了直接判红交人看诊断。
   const xdo = (...args) => execFileSync('xdotool', args, { env: { ...process.env, DISPLAY } }).toString()
+  const xprop = (id, prop) => {
+    try {
+      return execFileSync('xprop', ['-id', id, prop], { env: { ...process.env, DISPLAY } }).toString()
+    } catch (e) {
+      return ''
+    }
+  }
   const innerW = async () => Number(await cdp.eval('window.innerWidth'))
   const geometryOf = (id) => {
     try {
@@ -240,9 +254,34 @@ const closeTab = async (cdp, id) => {
       return [1600, 1000]
     }
   }
-  const candidates = xdo('search', '--name', '^electerm').trim().split('\n').filter(Boolean)
+  const isViewable = (id) => /Map State:\s*IsViewable/.test(
+    execFileSync('xwininfo', ['-id', id], { env: { ...process.env, DISPLAY } }).toString())
+  // 调试端口由主进程监听，_NET_WM_PID 由 Electron 自己打在窗口上，两边一撞就是"我的窗口"
+  const ownsDebugPort = (pid) => {
+    if (!pid) return false
+    const forced = process.argv.find(a => /^--instance-pid=\d+$/.test(a))
+    if (forced) return Number(forced.split('=')[1]) === pid
+    try {
+      return fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8')
+        .includes('--remote-debugging-port=' + PORT)
+    } catch (e) {
+      return false
+    }
+  }
+  const instancePid = () => {
+    const forced = process.argv.find(a => /^--instance-pid=\d+$/.test(a))
+    return forced ? Number(forced.split('=')[1]) : null
+  }
+  const allWindows = xdo('search', '--name', '^electerm').trim().split('\n').filter(Boolean)
+  const pidOf = id => {
+    const m = /=\s*(\d+)/.exec(xprop(id, '_NET_WM_PID'))
+    return m ? Number(m[1]) : null
+  }
+  const owned = allWindows.filter(id => ownsDebugPort(pidOf(id)))
+  const diag = { forcedPid: instancePid(), all: allWindows.map(id => ({ id, pid: pidOf(id) })) }
   let winId = null
-  for (const id of candidates) {
+  for (const id of owned) {
+    if (!isViewable(id)) continue
     const [w0, h0] = geometryOf(id)
     xdo('windowsize', id, '1023', String(h0))
     await sleep(450)
@@ -254,8 +293,8 @@ const closeTab = async (cdp, id) => {
       break
     }
   }
-  check('在多个 electerm 窗口里认出了本页面的窗口', !!winId,
-    { candidates, innerWidth: await innerW() })
+  check('只在本实例自己的窗口里认出了本页面的窗口（别人的窗口一律不缩）', !!winId,
+    { ...diag, owned: owned.length, innerWidth: await innerW(), DISPLAY })
   const setSize = async (w) => {
     if (!winId) return
     xdo('windowsize', winId, String(w), '1000')
