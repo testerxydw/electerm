@@ -150,6 +150,46 @@ describe('db-sql-ai 接线：AI 面板三个既有缺陷', () => {
     assert.ok(!/setTimeout\(\(\) => \{\s*refsStatic\.get\('AIChat'\)/.test(STORE), 'explainWithAi 还在猜延时')
   })
 
+  // 全新档案（localStorage 还没有 lastAiChatSessionId）下"点 AI 解释 → 面板打开 →
+  // 什么都没发生"：面板同一次挂载里「建会话」与「消费这句」两个 effect 都会跑，但消费
+  // 用的 currentChatSessionId 还是这一帧的 props（空串），条目落进 '' 会话后既不被
+  // 按会话过滤的历史列表显示、也不会发出请求。id 必须由递交方在写 pendingAiPrompt 前落定。
+  test('递交前先把会话 id 落定：空 id 先建会话，已有 id 不动', () => {
+    const head = STORE.indexOf('Store.prototype.setPendingAiPrompt = function')
+    assert.ok(head > 0, '找不到 setPendingAiPrompt 的实现')
+    // 尾界定符 '\n  }' 共 4 个字符，+4 才把函数自己的右括号留在切片里
+    const body = STORE.slice(
+      STORE.indexOf('function (', head),
+      STORE.indexOf('\n  }', head) + 4)
+    const run = (currentChatSessionId, text) => {
+      const calls = []
+      const store = {
+        currentChatSessionId,
+        handleOpenAIPanel: () => calls.push('open-panel'),
+        startNewChat: () => {
+          calls.push('start-new-chat')
+          store.currentChatSessionId = 'sid-new'
+        },
+        pendingAiPrompt: null
+      }
+      // 函数体只碰 window.store 和它上面的模块级计数器 pendingAiSeq（当形参喂进去）
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('window', 'pendingAiSeq', 'return (' + body + ')')({ store }, 7)
+      fn(text)
+      return { calls, prompt: store.pendingAiPrompt, id: store.currentChatSessionId }
+    }
+    const fresh = run('', '解释这条 SQL')
+    assert.deepEqual(fresh.calls, ['open-panel', 'start-new-chat'], '空会话 id 没在递交前补上')
+    assert.equal(fresh.id, 'sid-new', '递交后当前会话仍是空的')
+    assert.equal((fresh.prompt || {}).text, '解释这条 SQL', '这句没被递交出去')
+
+    const existing = run('sid-old', '解释这条 SQL')
+    assert.ok(!existing.calls.includes('start-new-chat'), '已有会话被覆盖成新会话，用户会丢上下文')
+
+    const empty = run('', '')
+    assert.deepEqual(empty.calls, [], '空文本也该什么都不做')
+  })
+
   test('override 提交不带面板附件、也不清空草稿', () => {
     const submit = CHAT.slice(
       CHAT.indexOf('const handleSubmit'),

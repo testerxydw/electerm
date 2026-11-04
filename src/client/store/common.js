@@ -469,6 +469,13 @@ export default Store => {
       return
     }
     store.handleOpenAIPanel()
+    // 会话 id 必须在递交方就落定，不能指望面板挂载时补：面板的同一次挂载里
+    // "建会话"和"消费这句"两个 effect 都会跑，但消费拿到的 currentChatSessionId
+    // 还是这一帧的 props（全新档案下是空串），条目就被写进了 '' 会话 —— 既不会
+    // 被按会话过滤的历史列表显示，也不会发出请求，用户看到的就是一片空白。
+    if (!store.currentChatSessionId) {
+      store.startNewChat()
+    }
     store.pendingAiPrompt = {
       text: t,
       autoSubmit: !!autoSubmit,
