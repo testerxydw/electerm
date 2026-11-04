@@ -185,6 +185,15 @@ const STUB = `
   )
   window.__rowCount = () =>
     [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis).length
+  window.__mutedColor = () => {
+    // 取主题里 --text-muted 的真实像素色：占位弱化的口径是"颜色"，得有个可对比的基准
+    const d = document.createElement('div')
+    d.style.cssText = 'position:fixed;left:-9999px;color:var(--text-muted)'
+    document.body.appendChild(d)
+    const c = window.getComputedStyle(d).color
+    d.remove()
+    return c
+  }
   window.__cellClasses = (col, text) => {
     const c = window.__cellIn(col, text)
     if (!c) return JSON.stringify({ found: 0 })
@@ -194,7 +203,9 @@ const STUB = `
       text: c.innerText.trim(),
       cls: span ? span.className : '',
       opacity: span ? window.getComputedStyle(span).opacity : '',
-      weight: span ? window.getComputedStyle(span).fontWeight : ''
+      weight: span ? window.getComputedStyle(span).fontWeight : '',
+      color: span ? window.getComputedStyle(span).color : '',
+      muted: window.__mutedColor()
     })
   }
   window.__pageFilterInput = () => {
@@ -482,8 +493,13 @@ const main = async () => {
   check('NULL 带 .db-cell-null', nullCell.text === 'NULL' && nullCell.cls === 'db-cell-null', nullCell)
   check('字符串 "NULL" 两个类都没有（值 vs 空值分得开）',
     literalNull.text === 'NULL' && literalNull.cls === '', literalNull)
-  check('空串比 NULL 更淡更细',
-    Number(emptyCell.opacity) < Number(nullCell.opacity) && Number(emptyCell.weight) < Number(nullCell.weight),
+  // 弱化口径自 3a30571a 起是"颜色（--text-muted）"，不是 opacity（实测 0.45/0.5
+  // 在浅色卡片底只剩 2.0~2.2:1，AA 守不住）。所以钉：两者同色且确实等于 --text-muted、
+  // 都是满不透明（反向：谁再把弱化改回 opacity 就红），空串靠更细的字重与 "" 字形区分。
+  check('空串与 NULL 同色同不透明，靠字形与字重区分（弱化用 --text-muted 不用 opacity）',
+    emptyCell.color === nullCell.color && emptyCell.color === emptyCell.muted &&
+    Number(emptyCell.opacity) === 1 && Number(nullCell.opacity) === 1 &&
+    Number(emptyCell.weight) < Number(nullCell.weight) && emptyCell.text !== nullCell.text,
     { empty: emptyCell, null: nullCell })
 
   // ---- 7) 外键跳转 ----
