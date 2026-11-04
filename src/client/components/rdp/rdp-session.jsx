@@ -32,6 +32,7 @@ import {
   resolveInitialSize,
   resolveScaleViewport
 } from '../../common/remote-adapt'
+import RemoteSuspend, { isTabActive } from '../../common/remote-suspend'
 import HelpIcon from '../common/help-icon'
 import Modal from '../common/modal'
 import RdpCredForm from './rdp-cred-form'
@@ -115,6 +116,10 @@ export default class RdpSession extends PureComponent {
     this.log = createFileLogger()
     // what the main process currently believes; see syncMenuShortcuts
     this._menuShortcutsIgnored = false
+    this._suspendGuard = new RemoteSuspend({
+      onSuspend: () => this._suspendRemote(),
+      onResume: () => this._resumeRemote()
+    })
   }
 
   componentDidMount () {
@@ -127,11 +132,31 @@ export default class RdpSession extends PureComponent {
       }
       this.remoteInit()
     })
+    this._suspendGuard.update(isTabActive(this.props))
+  }
+
+  // 隐藏的 tab 只是 display:none，组件不卸载：RDP 的 WASM 解码循环与整帧位图
+  // 会一直为看不见的画面付费。切走超过宽限期就断掉（服务器端 ws close 会
+  // 收掉子进程），回切时按 handleReInit 同口径重连。
+  _suspendRemote = () => {
+    if (!this.session) {
+      return
+    }
+    this.cleanup()
+    this._releaseCanvas()
+  }
+
+  _resumeRemote = () => {
+    if (this._unmounting || this.session) {
+      return
+    }
+    this.remoteInit()
   }
 
   componentWillUnmount () {
     // 主动卸载时不再把会话结束误判为连接失败
     this._unmounting = true
+    this._suspendGuard.stop()
     this.cleanup()
     this._releaseCanvas()
   }
@@ -907,8 +932,11 @@ export default class RdpSession extends PureComponent {
     }
   }
 
-  componentDidUpdate () {
+  componentDidUpdate (prevProps) {
     this.setupInputHandlers()
+    if (prevProps.currentBatchTabId !== this.props.currentBatchTabId) {
+      this._suspendGuard.update(isTabActive(this.props))
+    }
   }
 
   // 栏内条目（N3 契约里的 displayItems），顺序按「先让画面回到正轨，再传数据」：

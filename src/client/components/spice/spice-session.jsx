@@ -11,6 +11,7 @@ import * as ls from '../../common/safe-local-storage'
 import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
 import { resolveScaleViewport } from '../../common/remote-adapt'
+import RemoteSuspend, { isTabActive } from '../../common/remote-suspend'
 import './spice.styl'
 
 async function loadSpiceModule () {
@@ -39,6 +40,10 @@ export default class SpiceSession extends PureComponent {
     }
     this.spiceConn = null
     this.screenId = `spice-screen-${props.tab.id}`
+    this._suspendGuard = new RemoteSuspend({
+      onSuspend: () => this._suspendRemote(),
+      onResume: () => this._resumeRemote()
+    })
   }
 
   domRef = createRef()
@@ -46,14 +51,40 @@ export default class SpiceSession extends PureComponent {
   componentDidMount () {
     this.remoteInit()
     this.attachMouseScaleFix()
+    this._suspendGuard.update(isTabActive(this.props))
+  }
+
+  // 隐藏的 tab 只是 display:none，组件不卸载：SPICE 的 spice-html5 解码循环会
+  // 一直为看不见的画面付费。切走超过宽限期就停掉（服务器端 ws close 会收掉
+  // 子进程），回切时走与"重连"按钮同一条 reloadTab 路径重建。
+  _suspendRemote = () => {
+    if (!this.spiceConn) {
+      return
+    }
+    this._releaseCanvases()
+    this.cleanup()
+  }
+
+  _resumeRemote = () => {
+    if (this._unmounting || this.spiceConn) {
+      return
+    }
+    this.props.reloadTab(this.props.tab)
   }
 
   componentWillUnmount () {
     // 主动卸载时不再把连接错误误判为失败
     this._unmounting = true
+    this._suspendGuard.stop()
     this.detachMouseScaleFix()
     this._releaseCanvases()
     this.cleanup()
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.currentBatchTabId !== this.props.currentBatchTabId) {
+      this._suspendGuard.update(isTabActive(this.props))
+    }
   }
 
   // SPICE 自行在挂载点里建 canvas：cleanup()/stop() 之后这些画布就不再由我们

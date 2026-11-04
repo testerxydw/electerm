@@ -275,7 +275,11 @@ export default class SessionWrapper extends Component {
           'config',
           'reloadTab',
           'editTab',
-          'fullscreen'
+          'fullscreen',
+          // 挂起隐藏会话要用"本批次里我是不是当前 tab"这个信号（M1）。
+          // sessions.jsx 已经把它下发到 Session，但这里过去只挑了固定几个键，
+          // 所以远程组件一直收不到，隐藏 tab 会全速继续收帧。
+          'currentBatchTabId'
         ]),
         ...pick(
           this,

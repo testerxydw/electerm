@@ -22,6 +22,7 @@ import {
   resolveScaleViewport,
   shouldReLayout
 } from '../../common/remote-adapt'
+import RemoteSuspend, { isTabActive } from '../../common/remote-suspend'
 import './vnc.styl'
 
 // noVNC module imports — loaded dynamically
@@ -95,6 +96,10 @@ export default class VncSession extends PureComponent {
       scaleViewport,
       failure: ''
     }
+    this._suspendGuard = new RemoteSuspend({
+      onSuspend: () => this._suspendRemote(),
+      onResume: () => this._resumeRemote()
+    })
   }
 
   domRef = createRef()
@@ -106,6 +111,27 @@ export default class VncSession extends PureComponent {
   vncFailureReason = ''
 
   componentDidMount () {
+    this.remoteInit()
+    this._suspendGuard.update(isTabActive(this.props))
+  }
+
+  // 隐藏的 tab 只是 display:none，组件不卸载、ws 继续全速推帧，所以切走超过
+  // 宽限期就断开（连子进程一起，服务器端 ws close 会 cleanup），回切时重连。
+  _suspendRemote = () => {
+    if (!this.rfb) {
+      return
+    }
+    // 挂起不是连接失败：挡住 onDisconnect，否则 tab 上会冒重连按钮
+    this._suspending = true
+    this._detachClipboardSync()
+    this._releaseRfb()
+  }
+
+  _resumeRemote = () => {
+    this._suspending = false
+    if (this._unmounting || this.rfb) {
+      return
+    }
     this.remoteInit()
   }
 
@@ -135,6 +161,7 @@ export default class VncSession extends PureComponent {
   componentWillUnmount () {
     // 主动卸载时不再把"断开"误判为连接失败（否则正在删除的 tab 会闪 error）
     this._unmounting = true
+    this._suspendGuard.stop()
     this._detachClipboardSync()
     this._releaseRfb()
     clearTimeout(this.timer)
@@ -446,6 +473,11 @@ export default class VncSession extends PureComponent {
     // ① 组件正卸载时主动调用 rfb.disconnect() 触发的断开；
     // ② 旧 RFB 实例的迟到 disconnect（handleReInit 已建新实例，连接实际仍活着）。
     // 二者都会让实际未断开的会话被标记 error，从而在 tab 上冒出重连按钮。
+    if (this._suspending) {
+      // ③ 挂起（tab 隐藏超过宽限期）：画布已由 _releaseRfb 归零，
+      // 这不是失败，不该在 tab 上留 error / 重连按钮
+      return
+    }
     if (this._unmounting) {
       // 此刻 _sock 已关闭，noVNC 不会再读 _display；解引用隐藏 backbuffer
       // 与显示层，让它们随 rfb 一起被回收（卸载瞬间置空会撞上 3 秒断开定时器）
@@ -629,6 +661,9 @@ export default class VncSession extends PureComponent {
       prevState.currentScreen !== this.state.currentScreen
     ) {
       this.updateViewLayout()
+    }
+    if (prevProps.currentBatchTabId !== this.props.currentBatchTabId) {
+      this._suspendGuard.update(isTabActive(this.props))
     }
   }
 

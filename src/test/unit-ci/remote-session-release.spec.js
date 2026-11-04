@@ -10,6 +10,7 @@ const VNC = path.join(SRC, 'client/components/vnc/vnc-session.jsx')
 const SPICE = path.join(SRC, 'client/components/spice/spice-session.jsx')
 const SERVER = path.join(SRC, 'app/server/session-server.js')
 const TAB_STORE = path.join(SRC, 'client/store/tab.js')
+const SESSION = path.join(SRC, 'client/components/session/session.jsx')
 
 const read = p => fs.readFileSync(p, 'utf8')
 const at = (src, s) => src.indexOf(s)
@@ -217,5 +218,54 @@ describe('tab 关闭：统一的按 tab 资源释放', () => {
         pos = block.indexOf('tabs.splice', cursor + 1)
       }
     }
+  })
+})
+
+describe('隐藏远程 tab 挂起（M1）：切走超过宽限期就断开，回切自动重连', () => {
+  const SRC_ = SRC
+
+  test('激活信号必须下发到远程组件（session.jsx 的 rdpProps 带 currentBatchTabId）', () => {
+    const src = read(SESSION)
+    assert.match(
+      src,
+      /'currentBatchTabId'/,
+      'VNC/RDP/SPICE 收不到 currentBatchTabId 的话，挂起逻辑无从谈起'
+    )
+  })
+
+  test('每个远程组件都接入同一个挂起器，且信号缺失时按“激活”兜底', () => {
+    const sus = read(path.join(SRC_, 'client/common/remote-suspend.js'))
+    assert.match(sus, /export function isTabActive \(props\)/)
+    assert.match(sus, /currentBatchTabId === undefined[\s\S]{0,80}return true/, '信号缺失绝不能误挂起正在看的会话')
+    for (const [name, file] of [
+      ['vnc', 'client/components/vnc/vnc-session.jsx'],
+      ['rdp', 'client/components/rdp/rdp-session.jsx'],
+      ['spice', 'client/components/spice/spice-session.jsx']
+    ]) {
+      const src = read(path.join(SRC_, file))
+      assert.match(src, /new RemoteSuspend\(/, name + ' 必须接入挂起器')
+      assert.match(src, /_suspendRemote = \(\) => \{/, name + ' 必须有挂起方法')
+      assert.match(src, /_resumeRemote = \(\) => \{/, name + ' 必须有恢复方法')
+      assert.match(src, /componentDidUpdate \(prevProps[\s\S]{0,400}_suspendGuard\.update\(isTabActive\(this\.props\)\)/, name + ' 激活变化时同步挂起器')
+    }
+  })
+
+  test('vnc：挂起走共享释放且不误报失败，恢复走 remoteInit', () => {
+    const src = read(path.join(SRC_, 'client/components/vnc/vnc-session.jsx'))
+    assert.match(src, /_suspendRemote = \(\) => \{[\s\S]{0,200}_releaseRfb\(\)/, 'vnc 挂起必须复用 canvas 归零的释放')
+    assert.match(src, /_resumeRemote = \(\) => \{[\s\S]{0,160}this\.remoteInit\(\)/, 'vnc 恢复按重连按钮同口径')
+    assert.match(src, /if \(this\._suspending\) \{[\s\S]{0,120}return\s*\}/, '挂起主动断开不能误判为连接失败')
+  })
+
+  test('rdp：挂起走 cleanup + 归零，恢复走 remoteInit，且 unmount 前不重连', () => {
+    const src = read(path.join(SRC_, 'client/components/rdp/rdp-session.jsx'))
+    assert.match(src, /_suspendRemote = \(\) => \{[\s\S]{0,120}this\.cleanup\(\)[\s\S]{0,120}this\._releaseCanvas\(\)/, 'rdp 挂起 = cleanup + 归零 canvas')
+    assert.match(src, /_resumeRemote = \(\) => \{[\s\S]{0,200}if \(this\._unmounting \|\| this\.session\) \{[\s\S]{0,120}this\.remoteInit\(\)/, 'rdp 恢复前必须先确认已卸载/未建新会话')
+  })
+
+  test('spice：挂起走归零 + cleanup，恢复走 reloadTab（与重连按钮同一条路径）', () => {
+    const src = read(path.join(SRC_, 'client/components/spice/spice-session.jsx'))
+    assert.match(src, /_suspendRemote = \(\) => \{[\s\S]{0,120}this\._releaseCanvases\(\)[\s\S]{0,80}this\.cleanup\(\)/, 'spice 挂起 = 先归零再 stop')
+    assert.match(src, /_resumeRemote = \(\) => \{[\s\S]{0,200}this\.props\.reloadTab\(this\.props\.tab\)/, 'spice 恢复与重连按钮一致走 reloadTab')
   })
 })
