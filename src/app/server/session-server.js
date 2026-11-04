@@ -142,6 +142,16 @@ if (type === 'rdp') {
     ws.on('error', (err) => {
       log.error(err)
     })
+    // SPICE 一个页面有多条通道 ws（display/inputs/cursor…），单条通道关闭不代表
+    // 页面关闭，所以不能像 rdp/vnc 那样直接 cleanup()。只有最后一条通道断开
+    // （session-spice 的 onCleanup 先把 wsMap 删空）才结束本进程：否则每关一个
+    // SPICE 页面就会留下一个常驻的 session server 子进程。
+    ws.on('close', () => {
+      if (term.wsMap && term.wsMap.size === 0) {
+        log.debug('ws: spice session closed ->', pid)
+        cleanup()
+      }
+    })
   })
 } else {
   app.ws('/terminals/:pid', function (ws, req) {
@@ -508,6 +518,9 @@ if (type === 'rdp') {
   // sftp function
   app.ws('/sftp/:id', (ws, req) => {
     verify(req)
+    // 独立 SFTP/FTP tab 只开 /sftp、/transfer 两条通道（没有 /terminals/:pid），
+    // 这里不置位的话 2 分钟的孤儿兜底定时器会把正在使用的子进程整体 kill
+    markConnected()
     wsDec(ws)
     const { id } = req.params
     ws.on('close', () => {
@@ -568,6 +581,7 @@ if (type === 'rdp') {
   // transfer function
   app.ws('/transfer/:id', (ws, req) => {
     verify(req)
+    markConnected()
     wsDec(ws)
     const { id } = req.params
     const { sftpId } = req.query

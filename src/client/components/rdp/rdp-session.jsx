@@ -133,8 +133,13 @@ export default class RdpSession extends PureComponent {
     // 主动卸载时不再把会话结束误判为连接失败
     this._unmounting = true
     this.cleanup()
-    // RDP 的帧缓冲直接画在这张 canvas 上；脱离文档后 backing store 要等 GC 才
-    // 归还，显式归零可以把显存/位图立刻还给系统
+    this._releaseCanvas()
+  }
+
+  // RDP 的帧缓冲直接画在这张 canvas 上；脱离文档后 backing store 要等 GC 才
+  // 归还，显式归零可以把显存/位图立刻还给系统。卸载与原地重连共用这一份，
+  // 否则每重连一次就多滞留一帧位图。
+  _releaseCanvas = () => {
     const canvas = this._canvasEl
     if (canvas && canvas.width && canvas.height) {
       canvas.width = 0
@@ -760,6 +765,8 @@ export default class RdpSession extends PureComponent {
     // 对齐 VNC：原地断开重连。reloadTab 会重建整个 tab（丢掉会话上下文），
     // 而改分辨率/改缩放并不需要重来一次
     this.cleanup()
+    // 与卸载同口径归零旧位图；重连后 desktopSize() 会重新写 canvas.width/height
+    this._releaseCanvas()
     this.remoteInit()
   }
 
@@ -904,8 +911,11 @@ export default class RdpSession extends PureComponent {
     this.setupInputHandlers()
   }
 
-  // 栏内条目（N3 契约里的 displayItems）：轻量动作图标 + 显示控件（分辨率、缩放）
-  // 全部留在顶栏，用户一眼看得见，不必先开 ⋮（2026-11-03 决定）。
+  // 栏内条目（N3 契约里的 displayItems），顺序按「先让画面回到正轨，再传数据」：
+  // 分辨率 + 编辑 → 缩放 → ctrl⇄cmd → 上传 / 下载 / help。文件传输走 ms-rdpefs
+  // 通道、作用在远端磁盘上，所以属 B 组而不是右端那组窗口动作；help 只是它的
+  // 解释入口，跟着它排。间距由栏的 column-gap 给，条目不再带外边距。
+  // 显示控件全部留在顶栏，用户一眼看得见，不必先开 ⋮（2026-11-03 决定）。
   renderDisplayItems = () => {
     const {
       id,
@@ -922,25 +932,8 @@ export default class RdpSession extends PureComponent {
       : this.downloadHint()
     return (
       <>
-        <Tooltip title={uploadTitle}>
-          <UploadOutlined
-            onClick={this.handleUploadButtonClick}
-            className={`mg1r mg2l pointer rdp-file-transfer-btn${uploadReady ? ' rdp-download-flash' : ''}`}
-          />
-        </Tooltip>
-        <Tooltip title={downloadTitle}>
-          <DownloadOutlined
-            onClick={this.handleDownloadButtonClick}
-            className={`mg2r mg1l pointer rdp-file-transfer-btn${hasRemoteFiles ? ' rdp-download-flash' : ' rdp-download-disabled'}`}
-          />
-        </Tooltip>
-        <HelpIcon
-          link='https://github.com/electerm/electerm/wiki/RDP-File-Transfer'
-          className='mg2r mg1l'
-        />
         <Select
           size='small'
-          className='mg2l'
           value={id}
           onChange={this.handleResChange}
           popupMatchSelectWidth={false}
@@ -963,11 +956,10 @@ export default class RdpSession extends PureComponent {
         </Select>
         <EditOutlined
           onClick={this.handleEditResolutions}
-          className='mg1l pointer'
+          className='pointer'
         />
         <SwitchLabel
           size='small'
-          className='mg2l'
           label={window.translate('scaleViewport')}
           checked={this.getFit()}
           onChange={this.handleScaleViewChange}
@@ -981,7 +973,6 @@ export default class RdpSession extends PureComponent {
             ? (
               <SwitchLabel
                 size='small'
-                className='mg2l'
                 label='ctrl ⇄ cmd'
                 checked={!!swapCtrlCmd}
                 onChange={this.handleSwapCtrlCmdChange}
@@ -989,6 +980,21 @@ export default class RdpSession extends PureComponent {
               )
             : null
         }
+        <Tooltip title={uploadTitle}>
+          <UploadOutlined
+            onClick={this.handleUploadButtonClick}
+            className={`pointer rdp-file-transfer-btn${uploadReady ? ' rdp-download-flash' : ''}`}
+          />
+        </Tooltip>
+        <Tooltip title={downloadTitle}>
+          <DownloadOutlined
+            onClick={this.handleDownloadButtonClick}
+            className={`pointer rdp-file-transfer-btn${hasRemoteFiles ? ' rdp-download-flash' : ' rdp-download-disabled'}`}
+          />
+        </Tooltip>
+        <HelpIcon
+          link='https://github.com/electerm/electerm/wiki/RDP-File-Transfer'
+        />
       </>
     )
   }

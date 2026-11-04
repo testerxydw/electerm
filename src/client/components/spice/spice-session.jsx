@@ -52,8 +52,14 @@ export default class SpiceSession extends PureComponent {
     // 主动卸载时不再把连接错误误判为失败
     this._unmounting = true
     this.detachMouseScaleFix()
-    // SPICE 自行在挂载点里建 canvas：cleanup()/stop() 之后这些画布就不再由我们
-    // 掌控，先把 backing store 归零，让显存立刻释放而不是等 GC
+    this._releaseCanvases()
+    this.cleanup()
+  }
+
+  // SPICE 自行在挂载点里建 canvas：cleanup()/stop() 之后这些画布就不再由我们
+  // 掌控（也查不到了），所以必须在 stop 之前把 backing store 归零，
+  // 让显存立刻释放而不是等 GC。卸载与原地重连共用这一份。
+  _releaseCanvases = () => {
     const canvases = this.domRef.current?.querySelectorAll('canvas') || []
     for (const canvas of canvases) {
       if (canvas.width && canvas.height) {
@@ -61,7 +67,6 @@ export default class SpiceSession extends PureComponent {
         canvas.height = 0
       }
     }
-    this.cleanup()
   }
 
   // The spice client sends event.offsetX/offsetY to the remote as-is, but when
@@ -180,7 +185,6 @@ export default class SpiceSession extends PureComponent {
     return (
       <SwitchLabel
         size='small'
-        className='mg2l'
         label={window.translate('scaleViewport')}
         checked={this.getFit()}
         onChange={this.handleScaleViewChange}
@@ -282,6 +286,8 @@ export default class SpiceSession extends PureComponent {
   }
 
   handleReInit = () => {
+    // 与卸载同口径：stop() 会销毁画布，先归零再停，位图不必等 GC
+    this._releaseCanvases()
     this.cleanup()
     this.props.reloadTab(
       this.props.tab

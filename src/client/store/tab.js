@@ -42,6 +42,26 @@ function captureSshSessionState (tab, config) {
     : undefined
 }
 
+// tab 被移除/替换后的统一资源释放：数据库连接（连接池 + SSH 隧道）、
+// 顶栏会话数据、快速命令运行/录制状态、会话录制状态。
+// 以前只有 removeTabs（经 delTab）会做这些，右键“关闭右侧/关闭其他”直接
+// splice，数据库连接和 sessionInfoMap 条目就会一直挂着。
+function releaseTabResources (tab) {
+  const { store } = window
+  if (tab.type === 'database') {
+    window.pre.runGlobalAsync('closeDbTab', tab.id).catch(() => {})
+  }
+  clearSessionInfo(tab.id)
+  store.stopQuickCommand(tab.id)
+  if (store.recState && store.recState[tab.id]) {
+    delete store.recState[tab.id]
+  }
+  // keep what was recorded in a closed tab, the user can still save it
+  if (store.qmRecording?.tabId === tab.id) {
+    store.stopQuickCommandRecording()
+  }
+}
+
 export default Store => {
   Store.prototype.nextTabCount = function () {
     return updateCount()
@@ -123,8 +143,6 @@ export default Store => {
     store.autoClosePaneIfEmpty(batch)
     // G1 广播：关掉主控/目标时同步收敛广播态（关目标不用等 socket 断开）
     store.onBroadcastTabClosed?.(id)
-    // 顶栏会话数据随 tab 移除 (common/session-bar-data.js)
-    clearSessionInfo(id)
     return res
   }
 
@@ -149,6 +167,7 @@ export default Store => {
           store[`activeTabId${targetBatch}`] = id
         }
 
+        releaseTabResources(closingTab)
         tabs.splice(i, 1)
       }
     }
@@ -195,6 +214,8 @@ export default Store => {
 
     // Remove old tab
     tabs.splice(index, 1)
+    // 重连会把 tab 换成新 id，旧 id 上的连接/会话数据同样要收掉
+    releaseTabResources(oldTab)
 
     // Update active tab id synchronously (same as addTab) so the new tab's
     // container is already visible (display:block) by the time its Terminal
@@ -291,6 +312,7 @@ export default Store => {
         if (tab.id === store[`activeTabId${currentBatch}`]) {
           store[`activeTabId${currentBatch}`] = id
         }
+        releaseTabResources(tab)
         tabs.splice(i, 1)
       }
     }
@@ -300,17 +322,11 @@ export default Store => {
     const { tabs } = window.store
     const removedIds = []
 
-    // 关闭被移除的数据库连接（如有）
-    const closeRemovedDb = (tab) => {
-      if (tab.type === 'database') {
-        window.pre.runGlobalAsync('closeDbTab', tab.id).catch(() => {})
-      }
-    }
     if (typeof condition === 'function') {
       for (let i = tabs.length - 1; i >= 0; i--) {
         const tab = tabs[i]
         if (condition(tab, i)) {
-          closeRemovedDb(tab)
+          releaseTabResources(tab)
           removedIds.push(tab.id)
           tabs.splice(i, 1)
         }
@@ -323,7 +339,7 @@ export default Store => {
         for (let i = tabs.length - 1; i >= 0; i--) {
           const tab = tabs[i]
           if (tab[key] === value) {
-            closeRemovedDb(tab)
+            releaseTabResources(tab)
             removedIds.push(tab.id)
             tabs.splice(i, 1)
           }
@@ -339,7 +355,7 @@ export default Store => {
             }
           }
           if (match) {
-            closeRemovedDb(tab)
+            releaseTabResources(tab)
             removedIds.push(tab.id)
             tabs.splice(i, 1)
           }
@@ -349,15 +365,6 @@ export default Store => {
 
     if (removedIds.length) {
       window.store.fixCurrentTabIds(tabs, removedIds)
-      // a quick command waiting on a delay would otherwise linger until
-      // the delay ends
-      for (const id of removedIds) {
-        window.store.stopQuickCommand(id)
-      }
-      // keep what was recorded in a closed tab, the user can still save it
-      if (removedIds.includes(window.store.qmRecording?.tabId)) {
-        window.store.stopQuickCommandRecording()
-      }
     }
   }
 

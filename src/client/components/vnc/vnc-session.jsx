@@ -109,10 +109,10 @@ export default class VncSession extends PureComponent {
     this.remoteInit()
   }
 
-  componentWillUnmount () {
-    // 主动卸载时不再把"断开"误判为连接失败（否则正在删除的 tab 会闪 error）
-    this._unmounting = true
-    this._detachClipboardSync()
+  // 断开并把显存交还系统。卸载和原地重连（handleReInit）必须走同一份实现：
+  // 重连只做 disconnect 的话，旧实例的可见 canvas + 隐藏 backbuffer 要等 GC 才还，
+  // 点一次重连就多留两份帧缓冲，看上去就是"重连之后内存反而涨了"。
+  _releaseRfb = () => {
     const rfb = this.rfb
     if (rfb) {
       // noVNC 的 disconnect 只是把 _screen（含 canvas）从挂载点摘下来，
@@ -130,6 +130,13 @@ export default class VncSession extends PureComponent {
       rfb.disconnect()
     }
     delete this.rfb
+  }
+
+  componentWillUnmount () {
+    // 主动卸载时不再把"断开"误判为连接失败（否则正在删除的 tab 会闪 error）
+    this._unmounting = true
+    this._detachClipboardSync()
+    this._releaseRfb()
     clearTimeout(this.timer)
     clearTimeout(this.screenTimer)
     clearTimeout(this.layoutTimer)
@@ -704,8 +711,8 @@ export default class VncSession extends PureComponent {
 
   handleReInit = () => {
     this._detachClipboardSync()
-    this.rfb?.disconnect()
-    delete this.rfb
+    // 与卸载同口径：先归零两份 canvas 再断开，否则每重连一次就多滞留一帧显存
+    this._releaseRfb()
     this.remoteInit()
   }
 
@@ -724,7 +731,6 @@ export default class VncSession extends PureComponent {
             ? (
               <Select
                 size='small'
-                className='mg2l'
                 value={currentScreen}
                 onChange={this.handleSelectScreen}
                 popupMatchSelectWidth={false}
@@ -745,7 +751,6 @@ export default class VncSession extends PureComponent {
         }
         <SwitchLabel
           size='small'
-          className='mg2l'
           label={window.translate('scaleViewport')}
           checked={this.getFit()}
           onChange={this.handleScaleViewChange}
