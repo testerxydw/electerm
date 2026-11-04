@@ -441,8 +441,12 @@ const main = async () => {
   check('列：id 类型 int(11) → bigint(20)，旧值/新值都在',
     /int\(11\)/.test(row('id').values || '') && /bigint\(20\)/.test(row('id').values || ''),
     row('id').values)
-  check('列：note 只有注释变了（旧侧显示 NULL，不是空白）',
-    /备注/.test(row('note').values || '') && /NULL/.test(row('note').values || ''), row('note').values)
+  // bddb67e7 起，"压根没有这个值"走 dbStructDiffNoValue 词条（中文（无）/ 英文 none），
+  // 与字面量 NULL 不同形 —— 这里既要看到缺值占位，也要确认不再印 NULL
+  check('列：note 只有注释变了（旧侧缺值走"（无）"占位，不再印成 NULL）',
+    /备注/.test(row('note').values || '') &&
+    /（无）|\bnone\b/.test(row('note').values || '') &&
+    !/NULL/.test(row('note').values || ''), row('note').values)
   check('列：created_at 的 CURRENT_TIMESTAMP 写法差异不算差异（未出现在列表里）',
     !colRows.some(r => r.name === 'created_at'), colRows.map(r => r.name))
   const idxRows = byTitle('索引').rows
