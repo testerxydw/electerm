@@ -9,18 +9,13 @@ import {
 import {
   Select
 } from 'antd'
-import {
-  ReloadOutlined
-} from '@ant-design/icons'
+import SwitchLabel from '../common/switch'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import Modal from '../common/modal'
 import { copy, readClipboard } from '../../common/clipboard'
 import VncForm from './vnc-form'
-import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
-import SessionInfo from '../common/session-info'
-import SwitchLabel from '../common/switch'
 import * as ls from '../../common/safe-local-storage'
 import {
   RESIZE_MERGE_MS,
@@ -118,7 +113,22 @@ export default class VncSession extends PureComponent {
     // 主动卸载时不再把"断开"误判为连接失败（否则正在删除的 tab 会闪 error）
     this._unmounting = true
     this._detachClipboardSync()
-    this.rfb && this.rfb.disconnect()
+    const rfb = this.rfb
+    if (rfb) {
+      // noVNC 的 disconnect 只是把 _screen（含 canvas）从挂载点摘下来，
+      // backing store 要等 GC 才归还；先归零可以让显存立刻释放。
+      // 两块都要归零：可见 canvas 之外，显示层还有一个同尺寸的隐藏 canvas
+      // （_display._backbuffer，渲染时 drawImage 到可见层），它同样占一份
+      // 帧缓冲大小的显存（实测 2048x1152 时约 9MB）。
+      const canvases = [rfb._canvas, rfb._display && rfb._display._backbuffer]
+      for (const canvas of canvases) {
+        if (canvas && canvas.width && canvas.height) {
+          canvas.width = 0
+          canvas.height = 0
+        }
+      }
+      rfb.disconnect()
+    }
     delete this.rfb
     clearTimeout(this.timer)
     clearTimeout(this.screenTimer)
@@ -190,46 +200,6 @@ export default class VncSession extends PureComponent {
     return `ws://${host}:${port}/${type}/${id}?token=${tokenElecterm}${extra}`
   }
 
-  getControlProps = (options = {}) => {
-    const {
-      fixedPosition = true,
-      showExitFullscreen = true,
-      className = ''
-    } = options
-
-    return {
-      isFullScreen: this.props.fullscreen,
-      onSendCtrlAltDel: this.handleSendCtrlAltDel,
-      fixedPosition,
-      showExitFullscreen,
-      className
-    }
-  }
-
-  renderScreensSelect = () => {
-    const {
-      screens,
-      currentScreen
-    } = this.state
-    if (screens.length <= 1) {
-      return null
-    }
-    return (
-      <Select
-        value={currentScreen}
-        onChange={this.handleSelectScreen}
-        className='mg2r'
-        popupMatchSelectWidth={false}
-      >
-        {
-          screens.map(s => (
-            <Option key={s.id} value={s.id}>{s.name}</Option>
-          ))
-        }
-      </Select>
-    )
-  }
-
   remoteInit = async (term = this.term) => {
     this.vncFailureReason = ''
     this.setState({
@@ -283,6 +253,11 @@ export default class VncSession extends PureComponent {
       console.error('[VNC-CLIENT] Failed to load VNC module:', e)
       this.setState({ loading: false })
       this.setStatus(statusMap.error)
+      return
+    }
+    // 关闭 tab 发生在异步窗口里：componentWillUnmount 已跑过且 this.rfb 还不存在，
+    // 继续 new RFB 会建出一条没人关闭的 ws，session server 也就一直推流不退出
+    if (this._unmounting) {
       return
     }
 
@@ -464,7 +439,15 @@ export default class VncSession extends PureComponent {
     // ① 组件正卸载时主动调用 rfb.disconnect() 触发的断开；
     // ② 旧 RFB 实例的迟到 disconnect（handleReInit 已建新实例，连接实际仍活着）。
     // 二者都会让实际未断开的会话被标记 error，从而在 tab 上冒出重连按钮。
-    if (this._unmounting) return
+    if (this._unmounting) {
+      // 此刻 _sock 已关闭，noVNC 不会再读 _display；解引用隐藏 backbuffer
+      // 与显示层，让它们随 rfb 一起被回收（卸载瞬间置空会撞上 3 秒断开定时器）
+      if (rfb._display) {
+        rfb._display._backbuffer = null
+        rfb._display = null
+      }
+      return
+    }
     if (this.rfb !== rfb) return
     this._detachClipboardSync()
     this.setStatus(statusMap.error)
@@ -726,22 +709,48 @@ export default class VncSession extends PureComponent {
     this.remoteInit()
   }
 
-  renderInfo () {
+  // 栏内条目（N3 契约里的 displayItems）：选屏与缩放开关都留在顶栏，用户一眼
+  // 看得见，不必先开 ⋮（2026-11-03 决定）。
+  renderDisplayItems = () => {
     const {
-      name
+      screens,
+      currentScreen
     } = this.state
-    const {
-      host,
-      port,
-      username
-    } = this.props.tab || {}
     return (
-      <SessionInfo
-        name={name}
-        username={username}
-        host={host}
-        port={port}
-      />
+      <>
+        {
+          // 只有一个屏就不出选择器：一个没有可选项的 "Screen 1" 只是噪声
+          screens.length > 1
+            ? (
+              <Select
+                size='small'
+                className='mg2l'
+                value={currentScreen}
+                onChange={this.handleSelectScreen}
+                popupMatchSelectWidth={false}
+              >
+                {
+                  screens.map(s => (
+                    <Option
+                      key={s.id}
+                      value={s.id}
+                    >
+                      {s.name}
+                    </Option>
+                  ))
+                }
+              </Select>
+              )
+            : null
+        }
+        <SwitchLabel
+          size='small'
+          className='mg2l'
+          label={window.translate('scaleViewport')}
+          checked={this.getFit()}
+          onChange={this.handleScaleViewChange}
+        />
+      </>
     )
   }
 
@@ -788,56 +797,28 @@ export default class VncSession extends PureComponent {
     )
   }
 
-  renderControlLeft = () => {
-    const scaleProps = {
-      checked: this.getFit(),
-      onChange: this.handleScaleViewChange,
-      label: window.translate('scaleViewport'),
-      className: 'mg1l',
-      // 全屏时 fit 被 getFit 强制打开，开关不参与，置灰以免自相矛盾
-      disabled: !!this.props.fullscreen
-    }
-    return (
-      <>
-        <ReloadOutlined
-          onClick={this.handleReInit}
-          className='mg2r mg1l pointer'
-        />
-        {this.renderScreensSelect()}
-        {this.renderInfo()}
-        <SwitchLabel
-          {...scaleProps}
-        />
-      </>
-    )
-  }
-
-  renderControlRight = () => {
-    const contrlProps = this.getControlProps({
-      fixedPosition: false,
-      showExitFullscreen: false,
-      className: 'mg1l'
-    })
-    return (
-      <>
-        {this.props.fullscreenIcon()}
-        <RemoteFloatControl {...contrlProps} />
-      </>
-    )
-  }
-
   render () {
-    const { loading } = this.state
-    const floatProps = this.getControlProps()
+    const {
+      loading,
+      name
+    } = this.state
+    const {
+      host,
+      port,
+      username
+    } = this.props.tab || {}
     return (
       <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='vnc-session-wrap'
         onViewportResize={this.handleViewportResize}
-        controlLeft={this.renderControlLeft()}
-        controlRight={this.renderControlRight()}
-        floatControl={<RemoteFloatControl {...floatProps} />}
+        onReconnect={this.handleReInit}
+        info={{ name, username, host, port }}
+        displayItems={this.renderDisplayItems()}
+        fullscreen={this.props.fullscreen}
+        fullscreenIcon={this.props.fullscreenIcon}
+        onSendCtrlAltDel={this.handleSendCtrlAltDel}
         overlay={this.renderConfirm()}
       >
         <div

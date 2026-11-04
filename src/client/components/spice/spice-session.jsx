@@ -6,16 +6,11 @@ import { handleErr } from '../../common/fetch'
 import {
   statusMap
 } from '../../common/constants'
-import {
-  ReloadOutlined
-} from '@ant-design/icons'
+import SwitchLabel from '../common/switch'
 import * as ls from '../../common/safe-local-storage'
-import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
-import SessionInfo from '../common/session-info'
 import { eventToRemotePos } from '../common/remote-pointer'
 import { resolveScaleViewport } from '../../common/remote-adapt'
-import SwitchLabel from '../common/switch'
 import './spice.styl'
 
 async function loadSpiceModule () {
@@ -57,6 +52,15 @@ export default class SpiceSession extends PureComponent {
     // 主动卸载时不再把连接错误误判为失败
     this._unmounting = true
     this.detachMouseScaleFix()
+    // SPICE 自行在挂载点里建 canvas：cleanup()/stop() 之后这些画布就不再由我们
+    // 掌控，先把 backing store 归零，让显存立刻释放而不是等 GC
+    const canvases = this.domRef.current?.querySelectorAll('canvas') || []
+    for (const canvas of canvases) {
+      if (canvas.width && canvas.height) {
+        canvas.width = 0
+        canvas.height = 0
+      }
+    }
     this.cleanup()
   }
 
@@ -171,54 +175,16 @@ export default class SpiceSession extends PureComponent {
     })
   }
 
-  getControlProps = (options = {}) => {
-    const {
-      fixedPosition = true,
-      showExitFullscreen = true,
-      className = ''
-    } = options
-
-    return {
-      isFullScreen: this.props.fullscreen,
-      onSendCtrlAltDel: this.handleSendCtrlAltDel,
-      fixedPosition,
-      showExitFullscreen,
-      className
-    }
-  }
-
-  renderControlLeft = () => {
-    const scaleProps = {
-      checked: this.state.scaleViewport,
-      onChange: this.handleScaleViewChange,
-      label: window.translate('scaleViewport'),
-      className: 'mg1l'
-    }
+  // 栏内条目（N3 契约里的 displayItems）：缩放开关留在顶栏，一眼看得见
+  renderDisplayItems = () => {
     return (
-      <>
-        <ReloadOutlined
-          onClick={this.handleReInit}
-          className='mg2r mg1l pointer'
-        />
-        {this.renderInfo()}
-        <SwitchLabel
-          {...scaleProps}
-        />
-      </>
-    )
-  }
-
-  renderControlRight = () => {
-    const contrlProps = this.getControlProps({
-      fixedPosition: false,
-      showExitFullscreen: false,
-      className: 'mg1l'
-    })
-    return (
-      <>
-        {this.props.fullscreenIcon()}
-        <RemoteFloatControl {...contrlProps} />
-      </>
+      <SwitchLabel
+        size='small'
+        className='mg2l'
+        label={window.translate('scaleViewport')}
+        checked={this.getFit()}
+        onChange={this.handleScaleViewChange}
+      />
     )
   }
 
@@ -263,6 +229,11 @@ export default class SpiceSession extends PureComponent {
       console.error('[SPICE] Failed to load SPICE module:', e)
       this.setState({ loading: false })
       this.setStatus(statusMap.error)
+      return
+    }
+    // 关闭 tab 发生在异步窗口里：componentWillUnmount 已跑过且 this.spiceConn
+    // 还不存在，继续建连会留下一条没人 stop 的会话（子进程还会持续推流）
+    if (this._unmounting) {
       return
     }
 
@@ -317,33 +288,25 @@ export default class SpiceSession extends PureComponent {
     )
   }
 
-  renderInfo () {
+  render () {
+    const { loading } = this.state
     const {
       host,
       port,
       username
     } = this.props.tab || {}
     return (
-      <SessionInfo
-        username={username}
-        host={host}
-        port={port}
-      />
-    )
-  }
-
-  render () {
-    const { loading } = this.state
-    const contrlProps = this.getControlProps()
-    return (
       <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='spice-session-wrap'
         onViewportResize={this.handleViewportResize}
-        controlLeft={this.renderControlLeft()}
-        controlRight={this.renderControlRight()}
-        floatControl={<RemoteFloatControl {...contrlProps} />}
+        onReconnect={this.handleReInit}
+        info={{ username, host, port }}
+        displayItems={this.renderDisplayItems()}
+        fullscreen={this.props.fullscreen}
+        fullscreenIcon={this.props.fullscreenIcon}
+        onSendCtrlAltDel={this.handleSendCtrlAltDel}
       >
         <div
           className='spice-session-mount'

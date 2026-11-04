@@ -8,7 +8,6 @@ import {
   statusMap
 } from '../../common/constants'
 import {
-  ReloadOutlined,
   EditOutlined,
   UploadOutlined,
   DownloadOutlined
@@ -17,14 +16,13 @@ import {
   Select,
   Tooltip
 } from 'antd'
+import SwitchLabel from '../common/switch'
 import * as ls from '../../common/safe-local-storage'
 import { isMac } from '../../common/platform'
 import { getScancode } from './code-scan'
 import resolutions from './resolutions'
 import { readClipboardAsync } from '../../common/clipboard'
-import RemoteFloatControl from '../common/remote-float-control'
 import SessionShell from '../common/session-shell'
-import SessionInfo from '../common/session-info'
 import { eventToRemotePos } from '../common/remote-pointer'
 import {
   FALLBACK_DESKTOP,
@@ -34,7 +32,6 @@ import {
   resolveInitialSize,
   resolveScaleViewport
 } from '../../common/remote-adapt'
-import SwitchLabel from '../common/switch'
 import HelpIcon from '../common/help-icon'
 import Modal from '../common/modal'
 import RdpCredForm from './rdp-cred-form'
@@ -136,6 +133,14 @@ export default class RdpSession extends PureComponent {
     // 主动卸载时不再把会话结束误判为连接失败
     this._unmounting = true
     this.cleanup()
+    // RDP 的帧缓冲直接画在这张 canvas 上；脱离文档后 backing store 要等 GC 才
+    // 归还，显式归零可以把显存/位图立刻还给系统
+    const canvas = this._canvasEl
+    if (canvas && canvas.width && canvas.height) {
+      canvas.width = 0
+      canvas.height = 0
+    }
+    this._canvasEl = null
   }
 
   cleanup = () => {
@@ -147,6 +152,8 @@ export default class RdpSession extends PureComponent {
       } catch (e) {
         this.log(`session.shutdown() error: ${e.message}`, 'error')
       }
+      // 注意：不能在这里 free()。Rust 侧 run() 的 future 还在借用该会话，
+      // 提前释放会 use-after-free；free 统一放在 run() 结束后的 finally 里
       this.session = null
     }
     if (this.fileTransfer) {
@@ -257,6 +264,11 @@ export default class RdpSession extends PureComponent {
       this.setStatus(statusMap.error)
       return
     }
+    // 关闭 tab 发生在 createTerm 的异步窗口里：componentWillUnmount 已跑过，
+    // 这里继续建连只会留下无人关闭的连接（子进程没有 ws 时由 noConnectionTimer 兜底）
+    if (this._unmounting) {
+      return
+    }
 
     const {
       pid, port
@@ -275,6 +287,9 @@ export default class RdpSession extends PureComponent {
       this.setStatus(statusMap.error)
       return
     }
+    if (this._unmounting) {
+      return
+    }
 
     this.setStatus(statusMap.success)
 
@@ -285,6 +300,7 @@ export default class RdpSession extends PureComponent {
         this.setState({ loading: false })
         return
       }
+      this._canvasEl = canvas
 
       const rdpHost = tab.host
       const rdpPort = tab.port || 3389
@@ -375,6 +391,14 @@ export default class RdpSession extends PureComponent {
 
       this.session = await builder.connect()
 
+      // 卸载发生在 connect 期间：cleanup() 当刻 session 还是 null，什么都关不掉。
+      // 交给 cleanup() 补做 shutdown（Rust 侧内存在 run() 结束后由 finally 释放），
+      // 否则这条已握手的代理连接会永久驻留（session server 也不会退出）
+      if (this._unmounting) {
+        this.cleanup()
+        return
+      }
+
       const ds = this.session.desktopSize()
 
       canvas.width = ds.width
@@ -402,6 +426,14 @@ export default class RdpSession extends PureComponent {
         }
         this.showError(e)
         this.onSessionEnd(session)
+      }).finally(() => {
+        // run() 结束（正常结束或被 shutdown 打断）后才能安全释放 Rust 侧会话内存，
+        // 否则 close 后这段 WASM 堆要等 GC 的 FinalizationRegistry 才还
+        try {
+          session.free()
+        } catch (e) {
+          this.log(`session.free() error: ${e.message}`, 'error')
+        }
       })
     } catch (e) {
       this.showError(e)
@@ -774,26 +806,6 @@ export default class RdpSession extends PureComponent {
     })
   }
 
-  renderHelp = () => {
-    return null
-  }
-
-  getControlProps = (options = {}) => {
-    const {
-      fixedPosition = true,
-      showExitFullscreen = true,
-      className = ''
-    } = options
-
-    return {
-      isFullScreen: this.props.fullscreen,
-      onSendCtrlAltDel: this.handleSendCtrlAltDel,
-      fixedPosition,
-      showExitFullscreen,
-      className
-    }
-  }
-
   handleSendCtrlAltDel = () => {
     if (!this.session) return
     try {
@@ -892,34 +904,16 @@ export default class RdpSession extends PureComponent {
     this.setupInputHandlers()
   }
 
-  renderControlLeft = () => {
+  // 栏内条目（N3 契约里的 displayItems）：轻量动作图标 + 显示控件（分辨率、缩放）
+  // 全部留在顶栏，用户一眼看得见，不必先开 ⋮（2026-11-03 决定）。
+  renderDisplayItems = () => {
     const {
       id,
       hasRemoteFiles,
       downloadCount,
-      uploadReady
+      uploadReady,
+      swapCtrlCmd
     } = this.state
-    const sleProps = {
-      value: id,
-      onChange: this.handleResChange,
-      popupMatchSelectWidth: false
-    }
-    const scaleProps = {
-      checked: this.state.scaleViewport,
-      onChange: this.handleScaleViewChange,
-      label: window.translate('scaleViewport'),
-      className: 'mg1l'
-    }
-    // macOS only: swapping Ctrl/Command is meaningless on a Mac host, and the
-    // remote has to be Windows for the Win key to be the other half of the swap.
-    // The label is a literal glyph pair, not a translated string: "ctrl <-> cmd"
-    // reads the same in every language and needs no locale slot.
-    const swapProps = {
-      checked: !!this.state.swapCtrlCmd,
-      onChange: this.handleSwapCtrlCmdChange,
-      label: 'ctrl ⇄ cmd',
-      className: 'mg1l'
-    }
     const uploadTitle = window.translate('upload') || 'Upload files to remote'
     // hover has to answer the same "why is it grey" that the click answers
     const countTpl = window.translate('rdpDownloadCount') || 'Download {n} file(s) copied on the remote'
@@ -928,12 +922,28 @@ export default class RdpSession extends PureComponent {
       : this.downloadHint()
     return (
       <>
-        <ReloadOutlined
-          onClick={this.handleReInit}
-          className='mg2r mg1l pointer'
+        <Tooltip title={uploadTitle}>
+          <UploadOutlined
+            onClick={this.handleUploadButtonClick}
+            className={`mg1r mg2l pointer rdp-file-transfer-btn${uploadReady ? ' rdp-download-flash' : ''}`}
+          />
+        </Tooltip>
+        <Tooltip title={downloadTitle}>
+          <DownloadOutlined
+            onClick={this.handleDownloadButtonClick}
+            className={`mg2r mg1l pointer rdp-file-transfer-btn${hasRemoteFiles ? ' rdp-download-flash' : ' rdp-download-disabled'}`}
+          />
+        </Tooltip>
+        <HelpIcon
+          link='https://github.com/electerm/electerm/wiki/RDP-File-Transfer'
+          className='mg2r mg1l'
         />
         <Select
-          {...sleProps}
+          size='small'
+          className='mg2l'
+          value={id}
+          onChange={this.handleResChange}
+          popupMatchSelectWidth={false}
         >
           {this.getAllRes().map(d => {
             const v = d.id
@@ -953,78 +963,55 @@ export default class RdpSession extends PureComponent {
         </Select>
         <EditOutlined
           onClick={this.handleEditResolutions}
-          className='mg2r mg1l pointer'
+          className='mg1l pointer'
         />
-        {this.renderInfo()}
         <SwitchLabel
-          {...scaleProps}
+          size='small'
+          className='mg2l'
+          label={window.translate('scaleViewport')}
+          checked={this.getFit()}
+          onChange={this.handleScaleViewChange}
         />
         {
+          // macOS only: swapping Ctrl/Command is meaningless on a Mac host, and the
+          // remote has to be Windows for the Win key to be the other half of the swap.
+          // The label is a literal glyph pair, not a translated string: "ctrl <-> cmd"
+          // reads the same in every language and needs no locale slot.
           isMac
-            ? <SwitchLabel {...swapProps} />
+            ? (
+              <SwitchLabel
+                size='small'
+                className='mg2l'
+                label='ctrl ⇄ cmd'
+                checked={!!swapCtrlCmd}
+                onChange={this.handleSwapCtrlCmdChange}
+              />
+              )
             : null
         }
-        <Tooltip title={uploadTitle}>
-          <UploadOutlined
-            onClick={this.handleUploadButtonClick}
-            className={`mg1r mg2l pointer rdp-file-transfer-btn${uploadReady ? ' rdp-download-flash' : ''}`}
-          />
-        </Tooltip>
-        <Tooltip title={downloadTitle}>
-          <DownloadOutlined
-            onClick={this.handleDownloadButtonClick}
-            className={`mg2r mg1l pointer rdp-file-transfer-btn${hasRemoteFiles ? ' rdp-download-flash' : ' rdp-download-disabled'}`}
-          />
-        </Tooltip>
-        <HelpIcon
-          link='https://github.com/electerm/electerm/wiki/RDP-File-Transfer'
-          className='mg2r mg1l'
-        />
       </>
     )
   }
 
-  renderControlRight = () => {
-    const contrlProps = this.getControlProps({
-      fixedPosition: false,
-      showExitFullscreen: false,
-      className: 'mg1l'
-    })
-    return (
-      <>
-        {this.props.fullscreenIcon()}
-        <RemoteFloatControl {...contrlProps} />
-      </>
-    )
-  }
-
-  renderInfo () {
+  render () {
+    const { width, height, loading } = this.state
     const {
       host,
       port,
       username
     } = this.props.tab || {}
     return (
-      <SessionInfo
-        username={username}
-        host={host}
-        port={port}
-      />
-    )
-  }
-
-  render () {
-    const { width, height, loading } = this.state
-    const controlProps = this.getControlProps()
-    return (
       <SessionShell
         loading={loading}
         fit={this.getFit()}
         wrapClassName='rdp-session-wrap'
         onViewportResize={this.handleViewportResize}
-        controlLeft={this.renderControlLeft()}
-        controlRight={this.renderControlRight()}
-        floatControl={<RemoteFloatControl {...controlProps} />}
+        onReconnect={this.handleReInit}
+        displayItems={this.renderDisplayItems()}
+        info={{ username, host, port }}
+        fullscreen={this.props.fullscreen}
+        fullscreenIcon={this.props.fullscreenIcon}
+        onSendCtrlAltDel={this.handleSendCtrlAltDel}
         overlay={this.renderCredPrompt()}
       >
         <canvas
