@@ -21,8 +21,7 @@ export default function RemoteFloatControl (props) {
     isFullScreen,
     onSendCtrlAltDel,
     fixedPosition = true,
-    showExitFullscreen = true,
-    className = ''
+    showExitFullscreen = true
   } = props
 
   if (fixedPosition && !isFullScreen) return null
@@ -51,7 +50,7 @@ export default function RemoteFloatControl (props) {
     })
   }
 
-  const containerClassName = (fixedPosition ? 'remote-float-control' : 'remote-float-control-inline') + (className ? ' ' + className : '')
+  const containerClassName = fixedPosition ? 'remote-float-control' : 'remote-float-control-inline'
   const buttonClassName = fixedPosition ? 'remote-float-btn' : 'remote-float-btn-inline'
   const iconClassName = fixedPosition ? 'font20' : ''
 

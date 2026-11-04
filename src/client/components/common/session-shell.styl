@@ -38,6 +38,9 @@
   display flex
   flex-wrap wrap
   align-items center
+  // 条目间距单点在这里：协议不再往栏内条目塞 mg1l/mg2r 之类的外边距，
+  // 否则和 column-gap 叠起来，三端间距又会各走各的
+  column-gap 8px
   row-gap 0
   min-width 0
 
@@ -45,16 +48,29 @@
   margin-left auto
 
 // 顶栏图标统一 16px。三端往栏里塞的图标默认尺寸不一致（RDP 的文件传输自己写了
-// 16px，重连/编辑/全屏走 antd 默认 14px），同一行里看上去"轻重"不同。只作用在
-// 栏的直接子图标和帮助图标那层 span 上：Select 的下拉箭头、Switch 都由 antd 的
-// 尺寸 token 管，跟着改会让控件变形。
+// 16px，重连/编辑/全屏走 antd 默认 14px），同一行里看上去"轻重"不同。
+// 用后代选择器而不是 >：Tooltip / HelpIcon 会在栏直接子和 .anticon 之间插一层
+// span。Select 的下拉箭头与 Switch 的内部图标显式排除 —— 它们由 antd 的尺寸
+// token 管，跟着改会让控件变形。
 .remote-session-control-left
 .remote-session-control-right
-  > .anticon
-  > span > .anticon
+  .anticon
     font-size 16px
-  > .remote-float-control-inline > .remote-float-btn-inline > .anticon
-    font-size 16px
+  .ant-select-arrow .anticon
+  .ant-select-suffix .anticon
+    font-size inherit
+
+// A（连接信息）与 B（会话操作）之间的一条竖线：顺序改了以后，读起来仍然是
+// "信息一断、操作一断"，不靠间距猜
+.remote-session-info
+  &::after
+    content ''
+    width 1px
+    height 16px
+    flex none
+    margin-left 4px
+    align-self center
+    background var(--border)
 
 // 连接信息（SessionInfo），桌面名是次要层级但要能一眼挑出来
 .remote-session-info-name

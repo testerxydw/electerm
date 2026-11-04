@@ -16,12 +16,17 @@
  * size is what lets the remote surface scale up to fill the screen.
  *
  * The control bar is contracted here (N3), not by each protocol. Left, in
- * order: the `onReconnect` icon, the protocol's bar items (`displayItems` -
- * light action icons plus the display controls: resolution / screen picker and
- * the scale toggle), the connection info. Right: the fullscreen icon and the
- * `⋮` menu, which stays a list of actions - it is not a settings page, so the
- * controls a user has to see before deciding are not hidden behind it
- * (2026-11-03 decision). Items are sized to sit inside one 32px row
+ * order: the connection info, then the session actions - the `onReconnect`
+ * icon and the protocol's bar items (`displayItems`: light action icons plus
+ * the display controls, and for RDP the file-transfer icons). Right: the
+ * fullscreen icon and the `⋮` menu, which stays a list of actions - it is not
+ * a settings page, so the controls a user has to see before deciding are not
+ * hidden behind it (2026-11-03 decision).
+ *
+ * The order is the A → B → C contract: "where am I" reads before "what I do
+ * to it". Anything that acts on the remote session belongs to the left group;
+ * only window-scoped actions (fullscreen, the `⋮` menu) go right. Items are
+ * spaced by the group's `column-gap` and sized to sit inside one 32px row
  * (`--session-bar-h`): a narrow window still wraps the bar, but every protocol
  * wraps the same way, so the viewport height stays comparable.
  * See doc/分析-远程会话顶栏差异与统一-2026-10-30.md §3/§5.
@@ -145,12 +150,12 @@ export default class SessionShell extends PureComponent {
         <div className={cls}>
           <div className='remote-session-control session-v-info'>
             <div className='remote-session-control-left'>
+              <SessionInfo {...info} />
               <ReloadOutlined
                 onClick={onReconnect}
-                className='mg2r mg1l pointer'
+                className='pointer'
               />
               {displayItems}
-              <SessionInfo {...info} />
             </div>
             <div className='remote-session-control-right'>
               {
@@ -162,7 +167,6 @@ export default class SessionShell extends PureComponent {
                 {...floatProps}
                 fixedPosition={false}
                 showExitFullscreen={false}
-                className='mg1l'
               />
             </div>
           </div>

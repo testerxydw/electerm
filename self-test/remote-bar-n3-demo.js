@@ -4,7 +4,8 @@
  *
  * N3 改的是"栏里摆什么"（doc/分析-远程会话顶栏差异与统一-2026-10-30.md §5）：
  * SessionShell 不再收 controlLeft/controlRight 两个自由槽，改成条目契约
- * （左 = 重连｜栏内条目｜信息，右 = 全屏｜⋮）。栏内条目含显示控件——分辨率/
+ * （左 = 信息｜重连｜栏内条目，右 = 全屏｜⋮ —— 2026-11-04 起连接信息排在操作之前，
+ * 先读得到"我在哪"才轮到"对它做什么"）。栏内条目含显示控件——分辨率/
  * 选屏 Select 与缩放开关，2026-11-03 决定不收进 ⋮（要先看得见才决定改不改），
  * ⋮ 回到"只有动作"。要钉住的三件事都只有真实渲染能答：
  *
@@ -368,7 +369,7 @@ const barOf = wrapSel => `(() => {
     switchChecked: !!left.querySelector('.ant-switch.ant-switch-checked'),
     rightIcons: right.querySelectorAll('.anticon').length,
     hasMore: !!right.querySelector('.remote-float-control-inline'),
-    firstIsReload: !!(left.firstElementChild && left.firstElementChild.classList.contains('anticon-reload'))
+    firstIsInfo: !!(left.firstElementChild && left.firstElementChild.classList.contains('remote-session-info'))
   })
 })()`
 
@@ -559,9 +560,9 @@ const main = async () => {
     { barH: bar.barH, selectH: bar.selectH, switchH: bar.switchH })
   check('栏内只有一行：左组高度不超过条高（控件没撑出第二行）',
     bar.singleRow === true, { leftH: bar.leftH, barH: bar.barH, centerOff: bar.centerOff })
-  check('左栏顺序：重连在最前，控件在连接信息之前',
-    bar.firstIsReload && /127\.0\.0\.1/.test(bar.leftText) && /fake-desktop/.test(bar.nameText) &&
-      bar.leftX.select < bar.leftX.info, bar.leftX)
+  check('左栏顺序：连接信息在最前，控件排在信息之后',
+    bar.firstIsInfo && /127\.0\.0\.1/.test(bar.leftText) && /fake-desktop/.test(bar.nameText) &&
+      bar.leftX.info < bar.leftX.select, bar.leftX)
   check('右栏只有全屏 + ⋮', bar.hasMore === true, bar)
   await cdp.shot(path.join(SHOT_DIR, '01-vnc-bar.png'))
 
@@ -633,8 +634,9 @@ const main = async () => {
     !!rdpBar && Math.abs(rdpBar.barH - 32) <= 0.5 && rdpBar.singleRow === true &&
       rdpBar.sameRow === true && Math.abs(rdpBar.viewportH - bar.viewportH) <= 0.5,
     { rdp: rdpBar && { barH: rdpBar.barH, viewportH: rdpBar.viewportH, leftH: rdpBar.leftH, centerOff: rdpBar.centerOff }, vnc: { barH: bar.barH, viewportH: bar.viewportH } })
-  check('RDP 栏内：分辨率 Select + 缩放开关 + 文件传输/帮助图标',
-    !!rdpBar && rdpBar.selects === 1 && rdpBar.switches >= 1 && rdpBar.leftIcons >= 4, rdpBar)
+  check('RDP 栏内：信息在最前，分辨率 Select + 缩放开关 + 文件传输/帮助图标',
+    !!rdpBar && rdpBar.firstIsInfo === true && rdpBar.leftX.info < rdpBar.leftX.select &&
+      rdpBar.selects === 1 && rdpBar.switches >= 1 && rdpBar.leftIcons >= 4, rdpBar)
   await cdp.shot(path.join(SHOT_DIR, '06-rdp-bar.png'))
   await ev(closeTab)
   await waitFor(cdp, NO_BAR, 'rdp tab closed', 10000)

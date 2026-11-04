@@ -32,6 +32,31 @@
   min-height var(--session-bar-h)
   line-height var(--session-bar-h)
   padding 0 var(--session-bar-pad-x)
+
+// 远端面板标题行：A 区（身份文本）在左，刷新动作贴右端 —— 顺序读得通，
+// 动作也仍在一个拇指可及的位置
+.sftp-panel-title-remote
+  display flex
+  align-items center
+  gap 8px
+  .sftp-panel-title-text
+    min-width 0
+    font-weight 600
+    position relative
+    padding-right 10px
+    &::after
+      content ''
+      position absolute
+      right 0
+      top 50%
+      transform translateY(-50%)
+      width 1px
+      height 16px
+      background var(--border)
+  .sftp-panel-refresh
+    margin-left auto
+    // mg1r 是给流式排布用的，这里已经贴右端，留着会让图标顶出内边距
+    margin-right 0
 .sftp-title-wrap
   position relative
   flex none

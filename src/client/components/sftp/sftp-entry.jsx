@@ -2,7 +2,7 @@ import { Component } from 'react'
 import { refs } from '../common/ref'
 import generate from '../../common/uid'
 import runIdle from '../../common/run-idle'
-import { Spin } from 'antd'
+import { Spin, Tooltip } from 'antd'
 import { notification } from '../common/notification'
 import Modal from '../common/modal'
 import clone from '../../common/to-simple-obj'
@@ -33,6 +33,7 @@ import ListTable from './list-table-ui'
 import deepCopy from 'json-deep-copy'
 import isValidPath from '../../common/is-valid-path'
 import normalizeRemotePath from '../../common/normalize-remote-path'
+import { formatConnInfo } from '../../common/remote-display'
 import { LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import * as owner from './owner-list'
 import AddressBar from './address-bar'
@@ -1288,15 +1289,23 @@ export default class Sftp extends Component {
     )
   }
 
+  // 面板标题行 = 顶栏契约里的 A 区：先说"这一栏是谁"，动作（刷新）排在信息之后。
+  // 原来整行右对齐、刷新图标在最左，读序正好是反的。
+  // 身份串走 formatConnInfo：缺 username 不会拼出半截的 `@host`。
   renderSftpPanelTitle (type, username, host) {
     if (type === typeMap.remote) {
       return (
-        <div className='sftp-panel-title alignright elli'>
-          <ReloadOutlined
-            className='mg1r pointer'
-            onClick={this.handleReloadRemoteSftp}
-          />
-          {e('remote')}: {username}@{host}
+        <div className='sftp-panel-title sftp-panel-title-remote'>
+          <span className='sftp-panel-title-text elli'>{formatConnInfo({ username, host }).conn || e('remote')}</span>
+          <Tooltip
+            title={e('refresh')}
+            placement='topLeft'
+          >
+            <ReloadOutlined
+              className='mg1r pointer sftp-panel-refresh'
+              onClick={this.handleReloadRemoteSftp}
+            />
+          </Tooltip>
         </div>
       )
     }

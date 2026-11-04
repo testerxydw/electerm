@@ -4,8 +4,9 @@
 // "怎么摆"（controlLeft/controlRight 两个自由槽位），没有统一"摆什么"，于是
 // RDP/VNC/SPICE 三端的顶栏在 2024-05 ~ 2026-04 各自长成了三个样子：连接信息格式
 // 不一致、图标字号不一致、VNC 选屏有两个入口、VNC 会话内改不了缩放。
-// N1/N2 收了格式与开关，N3 把"摆什么"也交给共享壳：左 = 重连｜栏内条目｜信息，
-// 右 = 全屏｜⋮。栏内条目（displayItems）含显示控件——分辨率/选屏 Select 与缩放
+// N1/N2 收了格式与开关，N3 把"摆什么"也交给共享壳：左 = 信息｜重连｜栏内条目，
+// 右 = 全屏｜⋮（2026-11-04 起连接信息排在操作之前 —— 先读得到"我在哪"，
+// 才轮到"对它做什么"）。栏内条目（displayItems）含显示控件——分辨率/选屏 Select 与缩放
 // 开关，2026-11-03 决定不收进 ⋮（先看得到才决定改不改），但一律用小尺寸，
 // 保证 32px 的行盒装得下；⋮ 只是动作菜单，不是设置页。
 //
@@ -135,6 +136,10 @@ describe('顶栏接线（N1）', () => {
     const shell = read('src/client/components/common/session-shell.styl')
     assert.match(shell, /\.remote-session-control-left\n\.remote-session-control-right/)
     assert.match(shell, /font-size 16px/)
+    // Tooltip / HelpIcon 会在栏直接子和 .anticon 之间插一层 span，所以用后代选择器；
+    // Select 的下拉箭头必须显式排除，否则控件会被撑变形
+    assert.match(shell, /^ {2}\.anticon\n\s+font-size 16px/m, '图标字号走后代选择器')
+    assert.match(shell, /\.ant-select-arrow \.anticon\n\s+\.ant-select-suffix \.anticon\n\s+font-size inherit/)
     const rdpStyl = read('src/client/components/rdp/rdp.styl')
     assert.doesNotMatch(rdpStyl, /font-size/, '字号该由共享壳给，不该各端自己写')
   })
@@ -169,17 +174,59 @@ describe('顶栏条目契约（N3）· 共享壳', () => {
     assert.match(SHELL, /import RemoteFloatControl from '\.\/remote-float-control'/)
   })
 
-  test('栏内顺序契约：左 = 重连｜显示项｜信息，右 = 全屏｜⋮', () => {
+  test('栏内顺序契约（A→B→C）：左 = 信息｜重连｜显示项，右 = 全屏｜⋮', () => {
     const left = SHELL.slice(SHELL.indexOf('remote-session-control-left'), SHELL.indexOf('remote-session-control-right'))
     const order = [
+      '<SessionInfo',
       '<ReloadOutlined',
-      '{displayItems}',
-      '<SessionInfo'
+      '{displayItems}'
     ].map(s => left.indexOf(s))
     assert.ok(order.every(i => i > -1), '左栏三件都要有：' + JSON.stringify(order))
-    assert.deepEqual([...order].sort((a, b) => a - b), order, '左栏顺序：重连 → 显示项 → 信息')
+    assert.deepEqual([...order].sort((a, b) => a - b), order, '左栏顺序：信息 → 重连 → 显示项')
     const right = SHELL.slice(SHELL.indexOf('remote-session-control-right'), SHELL.indexOf('remote-session-viewport'))
     assert.ok(right.indexOf('fullscreenIcon()') < right.indexOf('<RemoteFloatControl'), '右栏顺序：全屏 → ⋮')
+  })
+
+  test('RDP 的 B 组内顺序：显示控件在前，文件传输排在最后', () => {
+    const region = displayRegion(sessions.rdp, 'RDP')
+    const seq = [
+      '<Select',
+      '<EditOutlined',
+      "label={window.translate('scaleViewport')}",
+      '<UploadOutlined',
+      '<DownloadOutlined',
+      '<HelpIcon'
+    ].map(s => region.indexOf(s))
+    assert.ok(seq.every(i => i > -1), 'RDP 栏内条目都要有：' + JSON.stringify(seq))
+    assert.deepEqual([...seq].sort((a, b) => a - b), seq, 'RDP 顺序：分辨率 → 编辑 → 缩放 → 上传 → 下载 → help')
+  })
+
+  test('栏内间距单点在壳的 column-gap：协议不再自带外边距', () => {
+    const shell = read('src/client/components/common/session-shell.styl')
+    assert.match(shell, /\.remote-session-control-left\n\.remote-session-control-right[\s\S]*?column-gap 8px/)
+    for (const [name, src] of Object.entries(sessions)) {
+      const region = displayRegion(src, name)
+      assert.doesNotMatch(region, /className='mg[12][lr]/, name + ' 栏内条目不该再写左右外边距（会和 column-gap 叠加）')
+    }
+    assert.doesNotMatch(SHELL, /className='mg\d[lr]/, '壳的重连图标不再自带外边距')
+  })
+
+  test('文件面板标题行：身份在左、刷新在右', () => {
+    const src = read('src/client/components/sftp/sftp-entry.jsx')
+    const region = src.slice(
+      src.indexOf('renderSftpPanelTitle (type, username, host)'),
+      src.indexOf('renderSection (type, width)')
+    )
+    assert.ok(region.length > 0, 'renderSftpPanelTitle 区域存在')
+    assert.match(region, /sftp-panel-title-remote/, '远端标题走带顺序规则的类')
+    assert.match(region, /formatConnInfo\(\{ username, host \}/, '身份串走共享纯函数')
+    assert.doesNotMatch(region, /alignright/, '标题行不再右对齐')
+    assert.ok(
+      region.indexOf('sftp-panel-title-text') < region.indexOf('<ReloadOutlined'),
+      '刷新图标排在连接信息之后'
+    )
+    const styl = read('src/client/components/sftp/sftp.styl')
+    assert.match(styl, /\.sftp-panel-refresh\n\s+margin-left auto/)
   })
 
   test('⋮ 由壳统一渲染两份：栏内 + 全屏浮层', () => {
