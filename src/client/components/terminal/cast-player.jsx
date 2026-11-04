@@ -141,6 +141,13 @@ export default function CastPlayer (props) {
 
   const pump = upto => {
     const term = termRef.current
+    // 终端还没建好（xterm 是异步 chunk，冷启动能慢过整段回放）时**不能消费事件**：
+    // idx/written 一旦推进，建好终端那次补画就从队尾开始，整段输出被记成"已写"
+    // 却一帧都没上屏——进度条走满、徽标走到最后一条命令，画面却是一片黑。
+    // 原地返回，等 loadTerminal 那次的 pump(clockRef.current) 一次性追上当前的钟。
+    if (!term) {
+      return
+    }
     const events = eventsRef.current
     const sched = schedRef.current
     let i = idxRef.current
@@ -290,8 +297,13 @@ export default function CastPlayer (props) {
         // 空录制也开得起：给一句提示而不是画一块黑屏
         term.write('\x1b[90m' + e('castEmpty') + '\x1b[0m')
       } else {
-        // 终端是异步建的，建好前时钟可能已经走过几毫秒：按当前位置补画
+        // 终端是异步建的，建好前时钟可能已经走过几毫秒：按当前位置补画。
+        // 补完必须把计数刷回 state——播放可能在终端就绪前就走完了（帧里那次
+        // setTick 记的是 0），不刷就成了"画面有内容、data-cast-written 还是 0"，
+        // 界面自己报的事件数和真实画面各说一套。
         pump(clockRef.current)
+        setTick({ pos: clockRef.current, written: writtenRef.current })
+        setCmd(cmdRef.current)
       }
     }).catch(err => {
       if (!dead) {

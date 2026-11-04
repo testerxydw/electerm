@@ -56,6 +56,26 @@ describe('G2-3 回放器：画面真实性', () => {
     assert.ok(build.includes('pump(clockRef.current)'), 'open 后没有按当前位置补画')
   })
 
+  test('终端就绪前不消费事件，就绪后将计数刷回界面（黑屏但进度走满的那个坑）', () => {
+    const s = src()
+    const pump = s.slice(s.indexOf('const pump = upto'), s.indexOf('const resetScreen'))
+    // 未就绪就 return：idxRef/writtenRef 一推进，后面那次补画就从队尾开始，
+    // 整段输出被记成"已写"却一帧没上屏
+    assert.match(
+      pump,
+      /const term = termRef\.current[\s\S]{0,400}if \(!term\) \{\s*\n\s*return\s*\n\s*\}/,
+      'pump 在终端未就绪时仍会消费事件')
+    assert.ok(
+      pump.indexOf('if (!term) {') < pump.indexOf('idxRef.current = i'),
+      '未就绪的短路必须在推进 idx 之前')
+    // 补画之后要 setTick/setCmd：播放可能在终端就绪前就走完，帧里那次 setTick
+    // 记的是 0，不刷就是"画面有内容、data-cast-written 还是 0"
+    const build = s.slice(s.indexOf('term.open(boxRef.current)'))
+    assert.ok(build.includes('pump(clockRef.current)'), 'open 后没有补画')
+    assert.match(build, /setTick\(\{ pos: clockRef\.current, written: writtenRef\.current \}\)/)
+    assert.match(build, /setCmd\(cmdRef\.current\)/)
+  })
+
   test('空录制可打开：给一句提示而不是黑屏', () => {
     assert.match(src(), /load\.empty/)
     assert.match(src(), /e\('castEmpty'\)/)
