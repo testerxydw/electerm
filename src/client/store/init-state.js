@@ -65,6 +65,9 @@ export default () => {
     loadTime: 0,
     lastDataUpdateTime: 0,
     tabs: [],
+    // 关掉的 tab 快照栈（右键"重新打开已关闭的页签"弹栈重开）。只存可重建的
+    // 连接字段，运行时字段在关那一刻就被剪掉；栈顶封顶，防止连关/批量关膨胀。
+    closedTabs: [],
     activeTabId: '',
     history: [],
     sshConfigs: [],

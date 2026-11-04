@@ -324,6 +324,10 @@ class Tab extends Component {
     window.store.closeTabsRight(this.props.tab.id)
   }
 
+  reopenClosedTab = () => {
+    window.store.reopenClosedTab()
+  }
+
   stopQuickCommand = () => {
     window.store.stopQuickCommand(this.props.tab.id)
   }
@@ -378,6 +382,11 @@ class Tab extends Component {
         key: 'closeTabsRight',
         icon: <iconsMap.CloseCircleOutlined />,
         label: e('closeTabRight')
+      },
+      (window.store.closedTabs || []).length > 0 && {
+        key: 'reopenClosedTab',
+        icon: <iconsMap.HistoryOutlined />,
+        label: e('reopenClosedTab')
       },
       {
         key: 'newTab',

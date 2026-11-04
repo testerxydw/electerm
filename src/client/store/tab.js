@@ -26,6 +26,45 @@ import { distributeTabsEvenly } from '../common/distribute-tabs'
 
 const e = window.translate
 
+// 已关闭页签栈：右键"重新打开已关闭的页签"从栈顶弹一条重开。
+// 只存能重建连接的字段（同一份剪法用于 updateHistory 的去重），运行时字段
+// （id/status/pane/batch/tabCount/state 等）在关那一刻就剪掉，重开时由
+// addTab 补上新的 id/status。栈顶封顶，连关/批量关也不会膨胀。
+const closedTabsCap = 20
+const closedTabsPrune = [
+  'id',
+  'tabCount',
+  'status',
+  'pane',
+  'batch',
+  'isPinned',
+  'sftpCreated',
+  'sshSftpSplitView',
+  'sshTunnelResults',
+  'displayRaw',
+  'autoReConnect',
+  '_reloadState',
+  'keepaliveEnabled'
+]
+function snapshotClosedTab (tab) {
+  const copy = deepCopy(tab)
+  closedTabsPrune.forEach(key => delete copy[key])
+  return copy
+}
+function pushClosedTab (tab) {
+  if (!tab || !tab.host) {
+    return
+  }
+  const { store } = window
+  if (!store.closedTabs) {
+    store.closedTabs = []
+  }
+  store.closedTabs.unshift(snapshotClosedTab(tab))
+  if (store.closedTabs.length > closedTabsCap) {
+    store.closedTabs.length = closedTabsCap
+  }
+}
+
 // 批量输入目标兜底：优先当前 tab（须为 shell 会话 tab），否则取第一个 shell
 // tab；无 shell tab 返回空串（选中集允许为空，执行端遍历为 no-op）
 function pickBatchInputFallbackId (tabs, activeTabId) {
@@ -168,6 +207,7 @@ export default Store => {
         }
 
         releaseTabResources(closingTab)
+        pushClosedTab(closingTab)
         tabs.splice(i, 1)
       }
     }
@@ -313,9 +353,22 @@ export default Store => {
           store[`activeTabId${currentBatch}`] = id
         }
         releaseTabResources(tab)
+        pushClosedTab(tab)
         tabs.splice(i, 1)
       }
     }
+  }
+
+  // 重新打开最近关掉的页签：从 closedTabs 栈顶弹一条快照，addTab 会补上新的
+  // id/status/batch/tabCount 并置为活动页签。快照只含可重建连接的字段（见
+  // snapshotClosedTab），重开就是一次全新连接，不留上次的运行时状态。
+  Store.prototype.reopenClosedTab = function () {
+    const { store } = window
+    const stack = store.closedTabs
+    if (!stack || !stack.length) {
+      return
+    }
+    store.addTab(stack.shift())
   }
 
   Store.prototype.removeTabs = function (condition) {
@@ -327,6 +380,7 @@ export default Store => {
         const tab = tabs[i]
         if (condition(tab, i)) {
           releaseTabResources(tab)
+          pushClosedTab(tab)
           removedIds.push(tab.id)
           tabs.splice(i, 1)
         }
@@ -340,6 +394,7 @@ export default Store => {
           const tab = tabs[i]
           if (tab[key] === value) {
             releaseTabResources(tab)
+            pushClosedTab(tab)
             removedIds.push(tab.id)
             tabs.splice(i, 1)
           }
@@ -356,6 +411,7 @@ export default Store => {
           }
           if (match) {
             releaseTabResources(tab)
+            pushClosedTab(tab)
             removedIds.push(tab.id)
             tabs.splice(i, 1)
           }
