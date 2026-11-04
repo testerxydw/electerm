@@ -78,3 +78,48 @@ function closedTabsPruneHas (src, field) {
   const end = src.indexOf(']', start)
   return src.slice(start, end).includes(`'${field}'`)
 }
+
+describe('P-8b 接线：closeTabsLeft / closeAllTabs 对称 closeTabsRight / closeOtherTabs', () => {
+  test('store 有 closeTabsLeft / closeAllTabs 方法，且都压 closedTabs 栈', () => {
+    assert.match(STORE, /Store\.prototype\.closeTabsLeft = function/, '缺 closeTabsLeft')
+    assert.match(STORE, /Store\.prototype\.closeAllTabs = function/, '缺 closeAllTabs')
+    const closeLeftBody = STORE.slice(STORE.indexOf('closeTabsLeft'), STORE.indexOf('closeAllTabs'))
+    assert.match(closeLeftBody, /pushClosedTab\(closingTab\)/, 'closeTabsLeft 没压栈')
+    const closeAllBody = STORE.slice(STORE.indexOf('closeAllTabs'), STORE.indexOf('Store.prototype.reloadTab'))
+    assert.match(closeAllBody, /pushClosedTab\(closingTab\)/, 'closeAllTabs 没压栈')
+  })
+
+  test('closeTabsLeft 按 batch 过滤、从左往右 splice', () => {
+    const body = STORE.slice(STORE.indexOf('closeTabsLeft'), STORE.indexOf('closeAllTabs'))
+    assert.match(body, /batch === targetBatch/, 'closeTabsLeft 应按 batch 过滤，不越 pane')
+    assert.match(body, /for \(let i = targetIndex - 1; i >= 0; i--\)/, 'closeTabsLeft 应从左边界开始 splice（索引递减）')
+  })
+
+  test('closeAllTabs 按 batch 全关（含自身），不越 pane', () => {
+    const body = STORE.slice(STORE.indexOf('closeAllTabs'), STORE.indexOf('Store.prototype.reloadTab'))
+    assert.match(body, /closingTab\.batch !== targetBatch/, 'closeAllTabs 应按 batch 过滤')
+    assert.match(body, /for \(let i = tabs\.length - 1; i >= 0; i--\)/, 'closeAllTabs 应从右往左 splice')
+  })
+
+  test('菜单有 closeTabsLeft / closeAllTabs / setColor 三项', () => {
+    assert.match(MENU, /key: 'closeTabsLeft'/, '菜单缺 closeTabsLeft')
+    assert.match(MENU, /key: 'closeAllTabs'/, '菜单缺 closeAllTabs')
+    assert.match(MENU, /key: 'setColor'/, '菜单缺 setColor')
+    assert.match(MENU, /store\.closeTabsLeft/, 'closeTabsLeft 没接 store')
+    assert.match(MENU, /store\.closeAllTabs/, 'closeAllTabs 没接 store')
+    assert.match(MENU, /BgColorsOutlined/, 'setColor 缺 icon')
+    assert.match(MENU, /ColorPicker/, 'setColor 缺 ColorPicker')
+    assert.match(MENU, /tab-context-color-item/, 'setColor 缺样式类')
+  })
+
+  test('closeTabsLeft 在非首 tab 才出现（index > 0 门）', () => {
+    assert.match(MENU, /index > 0 && \{/, 'closeTabsLeft 应按 index>0 门控')
+  })
+
+  test('三条词条中英文都在', () => {
+    for (const key of ['closeTabLeft', 'closeAllTabs', 'setTabColor']) {
+      const count = (LOCALES.match(new RegExp(key + '\\s*:', 'g')) || []).length
+      assert.equal(count, 2, `${key} 应中英各一条，实际 ${count}`)
+    }
+  })
+})

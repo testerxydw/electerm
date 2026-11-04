@@ -911,6 +911,9 @@ const en = {
   moveToPane: 'Move to pane',
   cannotSplitFurther: 'Already at max layout, cannot split further',
   reopenClosedTab: 'Reopen closed tab',
+  closeTabLeft: 'Close tabs to the left',
+  closeAllTabs: 'Close all tabs',
+  setTabColor: 'Set tab color',
   // E2-3b 命令面板
   dbQuickOpenPlaceholder: 'Search actions, tables, columns and history...',
   dbQuickOpenGroupAction: 'Actions',
@@ -2045,6 +2048,9 @@ const zhCn = {
   moveToPane: '移动到窗格',
   cannotSplitFurther: '已达最大分屏数，无法继续分屏',
   reopenClosedTab: '重新打开已关闭的页签',
+  closeTabLeft: '关闭左侧页签',
+  closeAllTabs: '关闭全部页签',
+  setTabColor: '设置页签颜色',
   // —— E2 结果集视角条（构建器 ⇄ SQL）——
   dbViewConditions: '筛选 {n} 个条件',
   dbViewHint: '条件作用在结果集上，也会跟着导出',

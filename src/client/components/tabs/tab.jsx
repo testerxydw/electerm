@@ -12,11 +12,13 @@ import {
   LockOutlined,
   PushpinFilled,
   LoadingOutlined,
-  BorderOutlined
+  BorderOutlined,
+  BgColorsOutlined
 } from '@ant-design/icons'
 import {
   Tooltip,
-  Dropdown
+  Dropdown,
+  ColorPicker
 } from 'antd'
 import message from '../common/message'
 import classnames from 'classnames'
@@ -324,6 +326,18 @@ class Tab extends Component {
     window.store.closeTabsRight(this.props.tab.id)
   }
 
+  closeTabsLeft = () => {
+    window.store.closeTabsLeft(this.props.tab.id)
+  }
+
+  closeAllTabs = () => {
+    window.store.closeAllTabs(this.props.tab.id)
+  }
+
+  handleColorChange = (color) => {
+    this.props.tab.color = color.toHexString()
+  }
+
   reopenClosedTab = () => {
     window.store.reopenClosedTab()
   }
@@ -383,6 +397,16 @@ class Tab extends Component {
         icon: <iconsMap.CloseCircleOutlined />,
         label: e('closeTabRight')
       },
+      index > 0 && {
+        key: 'closeTabsLeft',
+        icon: <iconsMap.CloseCircleOutlined />,
+        label: e('closeTabLeft')
+      },
+      {
+        key: 'closeAllTabs',
+        icon: <iconsMap.CloseCircleOutlined />,
+        label: e('closeAllTabs')
+      },
       (window.store.closedTabs || []).length > 0 && {
         key: 'reopenClosedTab',
         icon: <iconsMap.HistoryOutlined />,
@@ -428,6 +452,26 @@ class Tab extends Component {
           ? <iconsMap.PushpinFilled />
           : <iconsMap.PushpinOutlined />,
         label: tab.isPinned ? e('unpin') : e('pin')
+      },
+      {
+        key: 'setColor',
+        icon: <BgColorsOutlined />,
+        label: (
+          <span
+            onClick={e => e.stopPropagation()}
+            className='tab-context-color-item'
+          >
+            {e('setTabColor')}
+            <ColorPicker
+              size='small'
+              value={tab.color || '#0088cc'}
+              onChange={this.handleColorChange}
+              styles={{
+                popupOverlayInner: { padding: 8 }
+              }}
+            />
+          </span>
+        )
       },
       {
         key: 'handleReloadTab',

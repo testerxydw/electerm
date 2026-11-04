@@ -213,6 +213,63 @@ export default Store => {
     }
   }
 
+  // 关闭同 batch 中当前 tab 左侧的所有页签（closeTabsRight 的对称）。
+  // 不越 batch（分屏后各 pane 自己管），activeTabId 保留当前 tab。
+  Store.prototype.closeTabsLeft = function (id) {
+    const { store } = window
+    const { tabs } = store
+    const targetTab = tabs.find(t => t.id === id)
+    if (!targetTab) {
+      return
+    }
+    const targetBatch = targetTab.batch
+    const targetIndex = tabs.findIndex(t => t.id === id)
+
+    // 从左往右 splice，i 每减一 tabs 长度也减一，所以直接用当前值
+    for (let i = targetIndex - 1; i >= 0; i--) {
+      const closingTab = tabs[i]
+      if (closingTab.batch === targetBatch) {
+        // activeTabId 不可能是左侧 tab（当前 index 比它们都大），
+        // 所以不用像 closeTabsRight 那样重指向；activeTabId<id 时不影响
+        if (closingTab.id === store.activeTabId) {
+          store.activeTabId = id
+        }
+        if (closingTab.id === store[`activeTabId${targetBatch}`]) {
+          store[`activeTabId${targetBatch}`] = id
+        }
+
+        releaseTabResources(closingTab)
+        pushClosedTab(closingTab)
+        tabs.splice(i, 1)
+      }
+    }
+  }
+
+  // 关闭同 batch 的所有页签（包括自己）——closeOtherTabs 是"除我之外的其他"，
+  // 本方法是"整个 pane 全部清掉"，activeTabId 指向 batch 里最后一条被删的
+  // （循环从右往左 splice 保证 active 在左侧不会提前移位），保留给框架处理。
+  Store.prototype.closeAllTabs = function (id) {
+    const { store } = window
+    const { tabs } = store
+    const targetTab = tabs.find(t => t.id === id)
+    if (!targetTab) {
+      return
+    }
+    const targetBatch = targetTab.batch
+
+    // 循环从右往左，避免 splice 影响左侧索引
+    for (let i = tabs.length - 1; i >= 0; i--) {
+      const closingTab = tabs[i]
+      if (closingTab.batch !== targetBatch) {
+        continue
+      }
+      releaseTabResources(closingTab)
+      pushClosedTab(closingTab)
+      tabs.splice(i, 1)
+    }
+    // batch 全部清空了，activeTabId 交给框架（tab 组件 mount/unmount 时会修正）
+  }
+
   Store.prototype.reloadTab = function (tabId = window.store.activeTabId) {
     const { store } = window
     const { tabs } = store
