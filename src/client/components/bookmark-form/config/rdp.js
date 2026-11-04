@@ -13,6 +13,7 @@ const rdpConfig = {
     return createBaseInitValues(props, terminalRdpType, {
       port: 3389,
       scaleViewport: true,
+      nla: true,
       connectionHoppings: [],
       ...getAuthTypeDefault(props)
     })
@@ -32,6 +33,11 @@ const rdpConfig = {
         commonFields.colorTitle,
         { type: 'input', name: 'host', label: () => e('host'), rules: [{ required: true, message: e('host') + ' required' }] },
         commonFields.port,
+        // manual, never on connect: see host-check.jsx
+        { type: 'hostCheck', name: '__hostCheck__', label: 'Host check' },
+        // the bookmark's decision, not something the client negotiates:
+        // without NLA nothing authenticates the server, so no password is sent
+        { type: 'switch', name: 'nla', label: 'Network level authentication (NLA)', valuePropName: 'checked' },
         // 与 vnc/spice 同一载体：书签字段能被 profile 覆盖、能同步、能被 AI/MCP 建书签带上；
         // 会话内工具栏的开关只是按 host 记忆的本机覆盖（优先级见 rdp-session 构造函数）
         { type: 'switch', name: 'scaleViewport', label: () => e('scaleViewport'), valuePropName: 'checked' },

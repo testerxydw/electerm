@@ -48,6 +48,7 @@ const {
 const { saveUserConfig } = require('./user-config-controller')
 const { changeHotkeyReg, initShortCut } = require('./shortcut')
 const lastStateManager = require('./last-state')
+const { checkHost } = require('./check-host')
 const { createDialogLastDir } = require('./dialog-last-dir')
 const {
   registerDeepLink,
@@ -479,6 +480,7 @@ function initIpc () {
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
     checkMigrate,
     migrate,
+    checkHost,
     getExitStatus: () => globalState.get('exitStatus'),
     setExitStatus: (status) => {
       globalState.set('exitStatus', status)

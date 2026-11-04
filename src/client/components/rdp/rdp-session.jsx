@@ -21,6 +21,8 @@ import RemoteSuspendSelect from '../common/remote-suspend-select'
 import * as ls from '../../common/safe-local-storage'
 import { isMac } from '../../common/platform'
 import { getScancode } from './code-scan'
+import { getRDCleanPathDetails, rdCleanPathText, negotiationText } from './rdp-errors'
+import { logonSettings } from './rdp-logon'
 import resolutions from './resolutions'
 import { readClipboardAsync } from '../../common/clipboard'
 import SessionShell from '../common/session-shell'
@@ -253,6 +255,9 @@ export default class RdpSession extends PureComponent {
     return `ws://${host}:${port}/${type}/${id}?token=${tokenElecterm}${extra}`
   }
 
+  /**
+   * @param {object} [credOverride] user name and password from the form
+   */
   remoteInit = async (credOverride) => {
     this.setState({
       loading: true
@@ -324,6 +329,8 @@ export default class RdpSession extends PureComponent {
 
     this.setStatus(statusMap.success)
 
+    const mode = logonSettings(tab)
+
     try {
       const canvas = this.canvasRef.current
       if (!canvas) {
@@ -337,10 +344,13 @@ export default class RdpSession extends PureComponent {
       const rdpPort = tab.port || 3389
       const destination = `${rdpHost}:${rdpPort}`
       const username = tab.username || ''
-      const password = tab.password || ''
+      const { password } = mode
 
       const desktopSize = new window.ironRdp.DesktopSize(width, height)
-      const enableCredsspExt = new window.ironRdp.Extension('enable_credssp', true)
+      // NLA only when the bookmark asks for it; without it the server is not
+      // authenticated, so logonSettings drops the password (rdp-logon.js)
+      this.nla = mode.nla
+      const enableCredsspExt = new window.ironRdp.Extension('enable_credssp', mode.nla)
       // Unknown extensions are ignored by older wasm builds, so this is safe to
       // pass unconditionally.
       const pointerExt = new window.ironRdp.Extension('enable_server_pointer', ENABLE_SERVER_POINTER)
@@ -513,13 +523,19 @@ export default class RdpSession extends PureComponent {
     if (this.isAuthError(err)) {
       return window.translate('loginFail') + ` (${this.formatError(err)})`
     }
-    return this.formatError(err)
+    const { host, port = 3389 } = this.props.tab || {}
+    return rdCleanPathText(getRDCleanPathDetails(err), host, port) ||
+      negotiationText(err, this.nla !== false) ||
+      this.formatError(err)
   }
 
+  // stays until closed: a connect can fail after a 20s timeout, when
+  // nobody looks at a toast any more
   showError = (err) => {
     const text = this.errText(err)
     this.log(`Connection failed: ${this.formatError(err)}`, 'error')
-    // 连接失败含堆栈/凭据错误详情，走统一错误弹窗（带一键复制）而非瞬态 toast
+    // 连接失败含堆栈/凭据错误详情，走统一错误弹窗（带一键复制）而非瞬态 toast；
+    // 上游 rdp-errors 的诊断文本已合入 errText，本弹窗即其展示载体
     showErrorModal({ error: text })
   }
 
