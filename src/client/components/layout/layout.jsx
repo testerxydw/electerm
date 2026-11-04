@@ -10,6 +10,8 @@ import {
 } from '../../common/constants'
 import layoutAlg from './layout-alg'
 import calcSessionSize from './session-size-alg'
+import { handleAxis, dragRatio, normalizeRatios } from './split-ratios'
+import * as ls from '../../common/safe-local-storage'
 import Footer from '../footer/footer-entry'
 import RemoteMonitorBar from '../remote-monitor/remote-monitor-bar-entry'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
@@ -26,9 +28,48 @@ export default auto(function Layout (props) {
     layout
   } = store
   const conf = splitConfig[layout]
+  // 分界线按比例存（S2-4 / #4549）：拖动只改比例，窗口缩放/侧栏开合后仍成立
+  const ratios = normalizeRatios(layout, (store.splitRatios || {})[layout])
 
-  const handleMousedown = (e) => {
-
+  const handleMousedown = (e, index) => {
+    const axis = handleAxis(layout, index)
+    if (!axis) {
+      return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+    // 按下时的那份比例是拖动的基准：每次都从它算总位移，不做逐帧累加，
+    // 免得拖回原处对不准
+    const baseRatios = ratios.slice()
+    const start = axis === 'x' ? e.clientX : e.clientY
+    const handleEl = e.currentTarget
+    handleEl.classList.add('dragging')
+    const onMove = ev => {
+      const pos = axis === 'x' ? ev.clientX : ev.clientY
+      const next = dragRatio(layout, index, baseRatios, pos - start, {
+        width: termWidth,
+        height
+      })
+      store.splitRatios = {
+        ...(store.splitRatios || {}),
+        [layout]: next
+      }
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.classList.remove('split-dragging')
+      document.body.classList.remove('split-dragging-x')
+      document.body.classList.remove('split-dragging-y')
+      handleEl.classList.remove('dragging')
+      // 只在松手时写一次 localStorage，拖动过程不进磁盘
+      ls.setItemJSON('splitRatios', store.splitRatios || {})
+    }
+    // 拖动期间给 body 加类：终端里选中的文本不该被拖动"顺手"选中
+    document.body.classList.add('split-dragging')
+    document.body.classList.add(axis === 'x' ? 'split-dragging-x' : 'split-dragging-y')
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
   }
 
   const calcLayoutStyle = () => {
@@ -109,8 +150,8 @@ export default auto(function Layout (props) {
     left: termLeft,
     width: termWidth
   })
-  const styles = layoutAlg(layout, layoutSize.width, height)
-  const termStyles = layoutAlg(layout, termWidth, height)
+  const styles = layoutAlg(layout, layoutSize.width, height, ratios)
+  const termStyles = layoutAlg(layout, termWidth, height, ratios)
   const shift = termLeft - layoutSize.left
   const paneGap = layoutSize.width - termWidth
   const shiftNum = (v, delta) => (typeof v === 'number' ? v + delta : `calc(${v} + ${delta}px)`)
@@ -133,7 +174,7 @@ export default auto(function Layout (props) {
     layoutStyle: pixedLayoutStyle,
     handleMousedown
   }
-  const sizes = calcSessionSize(layout, termWidth, height)
+  const sizes = calcSessionSize(layout, termWidth, height, ratios)
 
   function renderSessions (conf, layout) {
     const {

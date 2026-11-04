@@ -3,6 +3,7 @@ import {
 } from '../../common/constants'
 import LayoutItem from './layout-item'
 import pixed from './pixed'
+import { handleAxis } from './split-ratios'
 
 export default function LayoutWrap (props) {
   const {
@@ -43,12 +44,17 @@ export default function LayoutWrap (props) {
       }
       {
         new Array(handleCount).fill(0).map((v, i) => {
+          const style = handleStyles[i] || {}
+          const axis = handleAxis(layout, i)
           const itemProps = {
-            className: 'layout-handle h' + (i + 1),
+            // 轴向进类名：CSS 靠它决定 cursor 与 4px 命中带的宽窄（S2-4）
+            className: 'layout-handle h' + (i + 1) + (axis ? ' ' + axis : ''),
             'data-layout': layout,
             'data-index': i,
-            style: handleStyles[i],
+            style,
             onMouseDown: handleMousedown
+              ? (e) => handleMousedown(e, i)
+              : undefined
           }
           return (
             <div

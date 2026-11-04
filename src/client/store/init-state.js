@@ -51,6 +51,8 @@ function getDefaultBookmarkGroups (bookmarks) {
 
 export default () => {
   const layout = ls.getItem('layout') || splitMap.c1
+  // 分屏分界线比例 (S2-4 / #4549)：按布局各存一份，切换布局后各自的拖拽结果还在
+  const splitRatios = ls.getItemJSON('splitRatios', {})
   // far-left icon bar is open by default; once the user toggles it, honor the
   // saved preference ('true'/'false') from localStorage.
   const storedSideBarOpen = ls.getItem(leftSideBarOpenKey)
@@ -77,6 +79,7 @@ export default () => {
     terminalThemes: [],
     itermThemes: exclude([]),
     currentBookmarkGroupId: defaultBookmarkGroupId,
+    splitRatios,
     expandedKeys: ls.getItemJSON(expandedKeysLsKey, [
       defaultBookmarkGroupId
     ]),

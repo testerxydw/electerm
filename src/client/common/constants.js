@@ -482,7 +482,7 @@ export const splitConfig = {
   },
   c2x2: {
     children: 4,
-    handle: 3
+    handle: 2
   },
   c1r2: {
     children: 3,

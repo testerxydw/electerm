@@ -17,3 +17,44 @@
   height var(--tabs-bar-h)
   background var(--surface-0)
   border-bottom 1px solid var(--border)
+// 分屏分隔条 (S2-4 / #4549)：6px 含两侧各 1px 的"借位"，正好压在两格之间
+// 的 4px 缝上；不加宽的话 4px 拖起来抖。轴向类由 layouts.jsx 给。
+.layout-wrap .layout-handle
+  position absolute
+  z-index 30
+  background transparent
+  &.x
+    width 6px
+    margin-left -1px
+    cursor col-resize
+  &.y
+    height 6px
+    margin-top -1px
+    cursor row-resize
+  &::after
+    content ''
+    position absolute
+    background var(--border)
+    transition background .15s
+  &.x::after
+    left 2px
+    right 2px
+    top 0
+    bottom 0
+  &.y::after
+    top 2px
+    bottom 2px
+    left 0
+    right 0
+  &:hover::after
+  &.dragging::after
+    background var(--primary)
+// 拖动期间禁掉文本选中，鼠标离开把手也不变回文本光标
+body.split-dragging
+  user-select none
+body.split-dragging-x,
+body.split-dragging-x *
+  cursor col-resize !important
+body.split-dragging-y,
+body.split-dragging-y *
+  cursor row-resize !important
