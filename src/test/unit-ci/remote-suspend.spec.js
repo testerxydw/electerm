@@ -31,18 +31,24 @@ describe('suspendGraceMs：读 config，非法值回默认', () => {
     }
   })
 
-  test('反向：0/非数值不能当成 0ms 立即挂起，必须回默认', async () => {
-    const { suspendGraceDefaultMs, suspendGraceMs } = await import(MOD)
-    for (const bad of [0, 'x', null, NaN]) {
-      window.store.config.remoteSuspendSeconds = bad
-      assert.equal(suspendGraceMs(), suspendGraceDefaultMs, `非法值 ${String(bad)} 回默认`)
-    }
+  test('0 表示隐藏即断联，返回 0ms（立即挂起）', async () => {
+    const { suspendGraceMs } = await import(MOD)
+    window.store.config.remoteSuspendSeconds = 0
+    assert.equal(suspendGraceMs(), 0, '0 -> 0ms 隐藏即断联')
   })
 
   test('REMOTE_SUSPEND_NEVER(-1) 表示永不挂起，返回 Infinity', async () => {
     const { REMOTE_SUSPEND_NEVER, suspendGraceMs } = await import(MOD)
     window.store.config.remoteSuspendSeconds = REMOTE_SUSPEND_NEVER
     assert.equal(suspendGraceMs(), Infinity, '永不挂起返回 Infinity')
+  })
+
+  test('非数值/负数（除 -1 哨兵）回默认 5 分钟', async () => {
+    const { suspendGraceDefaultMs, suspendGraceMs } = await import(MOD)
+    for (const bad of ['x', null, NaN, -5]) {
+      window.store.config.remoteSuspendSeconds = bad
+      assert.equal(suspendGraceMs(), suspendGraceDefaultMs, `非法值 ${String(bad)} 回默认`)
+    }
   })
 })
 
@@ -120,6 +126,22 @@ describe('RemoteSuspend：切走宽限期到点挂起，切回恢复', () => {
     guard.stop()
     mock.timers.tick(5 * 60 * 1000)
     assert.equal(fired.suspend, 0)
+  })
+
+  test('0 档位：隐藏即立刻挂起（grace=0），切回恢复', async () => {
+    const { default: RemoteSuspend } = await import(MOD)
+    window.store.config.remoteSuspendSeconds = 0
+    const fired = { suspend: 0, resume: 0 }
+    const guard = new RemoteSuspend({
+      onSuspend: () => { fired.suspend++ },
+      onResume: () => { fired.resume++ }
+    })
+    guard.update(false)
+    mock.timers.tick(0)
+    assert.equal(fired.suspend, 1, '0 档：隐藏即挂起（不等宽限）')
+    guard.update(true)
+    assert.equal(fired.resume, 1, '切回恢复')
+    guard.stop()
   })
 
   test('永不挂起(-1)：隐藏也不武装计时器，再久也不断连', async () => {

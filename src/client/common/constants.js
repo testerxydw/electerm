@@ -372,9 +372,14 @@ export const srcsSkipUpgradeCheck = [
 ]
 export const termLSPrefix = 'term:sess:'
 export const batchInputLsKey = 'batch-inputs'
+// 终端渲染方式。注意 xterm 6.x 已移除独立的 canvas 渲染器插件，'canvas'
+// 与 'dom' 都走 xterm 内置的 DOM 渲染器（行为等价）；'webGL' 额外加载
+// @xterm/addon-webgl 走 GPU 渲染（更流畅但更吃显存）。保留 'canvas' 选项
+// 仅为设置项完整、向后兼容旧配置，不与 'dom' 产生差异。
 export const rendererTypes = {
   dom: 'dom',
-  webGL: 'webGL'
+  webGL: 'webGL',
+  canvas: 'canvas'
 }
 export const downloadUpgradeTimeout = 20000
 export const expandedKeysLsKey = 'expanded-keys'

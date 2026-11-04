@@ -18,6 +18,7 @@ import {
 } from 'antd'
 import SwitchLabel from '../common/switch'
 import RemoteSuspendSelect from '../common/remote-suspend-select'
+import { freezeFrame, unfreezeFrame, FROZEN_OVERLAY_STYLE } from '../../common/frozen-frame'
 import * as ls from '../../common/safe-local-storage'
 import { isMac } from '../../common/platform'
 import { getScancode } from './code-scan'
@@ -97,6 +98,7 @@ export default class RdpSession extends PureComponent {
     const swapCtrlCmd = ls.getItemJSON(swapCtrlCmdLsKey(props.tab.host), false)
     super(props)
     this.canvasRef = createRef()
+    this.frozenRef = createRef()
     this.state = {
       loading: false,
       scaleViewport,
@@ -145,6 +147,8 @@ export default class RdpSession extends PureComponent {
     if (!this.session) {
       return
     }
+    // 挂起瞬间快照末帧到覆盖层，切回重连期间盖住黑屏（见 frozen-frame.js）
+    freezeFrame(this._canvasEl, this.frozenRef.current)
     this.cleanup()
     this._releaseCanvas()
   }
@@ -452,6 +456,8 @@ export default class RdpSession extends PureComponent {
         width: ds.width,
         height: ds.height
       })
+      // 重连成功：撤掉挂起期间盖在上面的末帧覆盖层，露出新画面
+      unfreezeFrame(this.frozenRef.current)
 
       canvas.focus()
 
@@ -1066,13 +1072,20 @@ export default class RdpSession extends PureComponent {
         onSendCtrlAltDel={this.handleSendCtrlAltDel}
         overlay={this.renderCredPrompt()}
       >
-        <canvas
-          className='rdp-canvas'
-          width={width}
-          height={height}
-          tabIndex={0}
-          ref={this.canvasRef}
-        />
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          <canvas
+            className='rdp-canvas'
+            width={width}
+            height={height}
+            tabIndex={0}
+            ref={this.canvasRef}
+          />
+          <canvas
+            ref={this.frozenRef}
+            className='frozen-frame-overlay'
+            style={FROZEN_OVERLAY_STYLE}
+          />
+        </div>
       </SessionShell>
     )
   }

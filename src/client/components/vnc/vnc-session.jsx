@@ -11,6 +11,7 @@ import {
 } from 'antd'
 import SwitchLabel from '../common/switch'
 import RemoteSuspendSelect from '../common/remote-suspend-select'
+import { freezeFrame, unfreezeFrame, FROZEN_OVERLAY_STYLE } from '../../common/frozen-frame'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import Modal from '../common/modal'
@@ -104,6 +105,7 @@ export default class VncSession extends PureComponent {
   }
 
   domRef = createRef()
+  frozenRef = createRef()
 
   // clipboard sync state (local -> remote direction)
   lastClip = null
@@ -125,6 +127,8 @@ export default class VncSession extends PureComponent {
     // 挂起不是连接失败：挡住 onDisconnect，否则 tab 上会冒重连按钮
     this._suspending = true
     this._detachClipboardSync()
+    // 挂起瞬间快照末帧到覆盖层，切回重连期间盖住黑屏（见 frozen-frame.js）
+    freezeFrame(this.rfb._display && this.rfb._display._target, this.frozenRef.current)
     this._releaseRfb()
   }
 
@@ -463,6 +467,8 @@ export default class VncSession extends PureComponent {
       loading: false,
       failure: ''
     })
+    // 重连成功：撤掉挂起期间盖在上面的末帧覆盖层，露出新画面
+    unfreezeFrame(this.frozenRef.current)
     this._attachClipboardSync()
   }
 
@@ -866,8 +872,14 @@ export default class VncSession extends PureComponent {
         <div
           className='remote-session-fill vnc-session-mount'
           ref={this.domRef}
+          style={{ position: 'relative' }}
         >
           {this.renderFailure()}
+          <canvas
+            ref={this.frozenRef}
+            className='frozen-frame-overlay'
+            style={FROZEN_OVERLAY_STYLE}
+          />
         </div>
       </SessionShell>
     )

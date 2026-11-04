@@ -10,6 +10,9 @@
  *
  * 所以：切走超过宽限期就断掉连接并归零画布，切回来时自动重连。
  * 宽限期是权衡的结果 —— 用户来回切 tab（查终端、看文件）不该触发 1–2 秒的重连。
+ * 档位存 `config.remoteSuspendSeconds`（秒）：0 表示"隐藏即断联"（宽限期压到 0，
+ * 下一拍即断连），-1 为"永不挂起"哨兵。因 noVNC / IronRDP / spice-html5 均无
+ * "保留连接仅暂停渲染"的原生 API，隐藏即停收帧在技术上等同于立即断连。
  */
 
 // 切走多久之后挂起（毫秒）的默认值。太短会让"切去看一眼就回来"变成重连，
@@ -17,8 +20,8 @@
 // 又不会让隐藏的 VNC/RDP/SPICE 空转太久（M6 实测：隐藏也在全速收帧）。
 export const suspendGraceDefaultMs = 5 * 60 * 1000
 
-// “永不挂起”的哨兵值。remoteSuspendSeconds 取此值表示隐藏 tab 永不自动断连。
-// 不能复用 0/负数：0/负数被 suspendGraceMs 当作异常值回退默认，故单独用 -1。
+// “永不挂起”的哨兵值（-1）。remoteSuspendSeconds 取此值表示隐藏 tab 永不自动断连。
+// 0 另有含义（隐藏即断联），不能是"缺失"的回退值，故永不单独用 -1 哨兵。
 export const REMOTE_SUSPEND_NEVER = -1
 
 // 读当前配置的挂起宽限期（秒）。config 没有这个键时回到默认 5 分钟。
@@ -29,10 +32,11 @@ export function suspendGraceMs () {
   const sec = window.store?.config?.remoteSuspendSeconds
   // 永不挂起：返回 Infinity，RemoteSuspend 据此跳过武装计时器
   if (sec === REMOTE_SUSPEND_NEVER) return Infinity
-  // 0/负数是异常值（setTimeout(fn, 0) 会立即挂起），与缺失同样回默认
-  return (!Number.isFinite(sec) || sec <= 0)
-    ? suspendGraceDefaultMs
-    : sec * 1000
+  // 0 = 隐藏即断联：宽限期压到 0，下一拍即断连（setTimeout(fn,0) 不阻塞渲染）
+  if (sec === 0) return 0
+  // 缺失 / 非数值 / 负数（除 -1 哨兵外）回默认 5 分钟
+  if (!Number.isFinite(sec) || sec < 0) return suspendGraceDefaultMs
+  return sec * 1000
 }
 
 /**
