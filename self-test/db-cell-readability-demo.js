@@ -600,8 +600,14 @@ const HELPERS = `
       handle: hr ? { x: cx, y: cy, w: Math.round(hr.width), h: Math.round(hr.height) } : null
     }
   }
+  // 行选择勾选框那一列不是数据列（无列名、没有手柄、宽度固定 77）：键列表开了批量勾选后
+  // 它排在最前，不过滤掉就把"三列"数成四列，而且 rkThs[0] 会变成勾选列——
+  // 后面"键名列宽/可拖/菜单译文/自适应"全跟着错位（2026-11-04 复跑就是这么红的 5 条）
   window.__thList = () => JSON.stringify(
-    [...window.__sessionRoot().querySelectorAll('th')].filter(window.__vis).map(window.__thInfo)
+    [...window.__sessionRoot().querySelectorAll('th')]
+      .filter(window.__vis)
+      .filter(t => !/ant-table-selection-column/.test(String(t.className)))
+      .map(window.__thInfo)
   )
   // 把某一列横向滚进视口：拖到 1200 宽时这一列的手柄会跑到窗口右边外面，
   // 不先滚进来下一次按下的坐标就落在视口外，"拖不动"其实是点不到 —— 必须先滚再量
