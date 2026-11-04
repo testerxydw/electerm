@@ -3,10 +3,46 @@ const { ipcMain, webContents } = require('electron')
 // Store credentials per webContents ID
 const credentialsMap = new Map() // webContentsId -> { username, password }
 const authRequestMap = new Map() // requestId -> { webContentsId }
+// S2-5：自定义头按 webContentsId 存。所有 webview 共用一个 session，
+// 只能靠 details.webContentsId 区分；session 只注册一次监听。
+const headersMap = new Map() // webContentsId -> { headers, cookie }
 const initializedSessions = new Set()
 
 let authRequestId = 0
 let windowCount = 0
+
+// 头名只收 HTTP token 字符；Host/Content-Length 这类由网络栈决定的头不能改，
+// 改了会让请求直接被拒，宁可忽略
+const HEADER_NAME = /^[A-Za-z0-9-]+$/
+const IMPOSSIBLE_HEADERS = new Set(['host', 'content-length', 'connection', 'transfer-encoding'])
+
+const onWebviewHeaders = (event, data) => {
+  const rec = data || {}
+  const wcId = Number(rec.id)
+  if (!Number.isInteger(wcId) || wcId <= 0) {
+    return
+  }
+  const headers = {}
+  if (rec.headers && typeof rec.headers === 'object') {
+    for (const [name, value] of Object.entries(rec.headers)) {
+      if (!HEADER_NAME.test(name) ||
+        IMPOSSIBLE_HEADERS.has(name.toLowerCase()) ||
+        typeof value !== 'string' ||
+        /[\r\n]/.test(value)) {
+        continue
+      }
+      headers[name] = value
+    }
+  }
+  const cookie = typeof rec.cookie === 'string'
+    ? rec.cookie.replace(/[\r\n]/g, '')
+    : ''
+  if (!Object.keys(headers).length && !cookie) {
+    headersMap.delete(wcId)
+    return
+  }
+  headersMap.set(wcId, { headers, cookie })
+}
 
 const onAuthResponse = (event, data) => {
   const { id, username, password } = data
@@ -39,6 +75,9 @@ function init (mainWindow) {
   if (ipcMain.listenerCount('webview-auth-response') === 0) {
     ipcMain.on('webview-auth-response', onAuthResponse)
   }
+  if (ipcMain.listenerCount('webview-headers') === 0) {
+    ipcMain.on('webview-headers', onWebviewHeaders)
+  }
 
   // Handle new webviews
   mainWindow.webContents.on('did-attach-webview', (event, viewWebContents) => {
@@ -47,6 +86,7 @@ function init (mainWindow) {
     // Clean up when webview is destroyed
     viewWebContents.once('destroyed', () => {
       credentialsMap.delete(viewWebContents.id)
+      headersMap.delete(viewWebContents.id)
       // Remove any pending requests for this webview
       for (const [reqId, entry] of authRequestMap.entries()) {
         if (entry.webContentsId === viewWebContents.id) {
@@ -62,6 +102,7 @@ function init (mainWindow) {
       ipcMain.removeListener('webview-auth-response', onAuthResponse)
       credentialsMap.clear()
       authRequestMap.clear()
+      headersMap.clear()
       initializedSessions.clear()
       windowCount = 0
     }
@@ -83,6 +124,15 @@ function setupWebview (viewWebContents, mainWindow) {
       if (creds) {
         const auth = Buffer.from(`${creds.username}:${creds.password}`).toString('base64')
         requestHeaders.Authorization = `Basic ${auth}`
+      }
+
+      // 自定义头排在 Basic Auth 之后：自己写的 Authorization 优先于弹窗填的
+      const custom = headersMap.get(wcId)
+      if (custom) {
+        Object.assign(requestHeaders, custom.headers)
+        if (custom.cookie) {
+          requestHeaders.Cookie = custom.cookie
+        }
       }
 
       // eslint-disable-next-line n/no-callback-literal

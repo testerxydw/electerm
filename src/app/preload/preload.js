@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld(
     },
     sendWebviewAuthResponse: (response) => {
       ipcRenderer.send('webview-auth-response', response)
+    },
+    // S2-5：按 webview 的 webContentsId 注入自定义请求头 / Cookie
+    setWebviewHeaders: (data) => {
+      ipcRenderer.send('webview-headers', data)
     }
   }
 )

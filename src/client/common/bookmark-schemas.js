@@ -147,7 +147,9 @@ export const webBookmarkSchema = {
   url: z.string().describe('Website URL'),
   title: z.string().optional().describe('Bookmark title'),
   description: z.string().optional().describe('Bookmark description'),
-  useragent: z.string().optional().describe('Custom user agent')
+  useragent: z.string().optional().describe('Custom user agent'),
+  webHeaders: z.string().optional().describe('Custom request headers, one "Name: value" per line'),
+  webCookies: z.string().optional().describe('Cookies, one "name=value" per line')
 }
 
 export const localBookmarkSchema = {

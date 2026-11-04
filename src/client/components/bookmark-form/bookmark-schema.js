@@ -149,7 +149,9 @@ const bookmarkSchema = {
     url: 'string (required) - website URL',
     title: 'string - bookmark title',
     description: 'string - bookmark description',
-    useragent: 'string - custom user agent'
+    useragent: 'string - custom user agent',
+    webHeaders: 'string - custom request headers, one "Name: value" per line',
+    webCookies: 'string - cookies, one "name=value" per line'
   },
   local: {
     type: 'local',

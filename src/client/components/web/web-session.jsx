@@ -1,6 +1,7 @@
 import AddressBar from './address-bar'
 import WebAuthModal from './web-auth-modal'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { parseHeaderLines, buildCookieHeader, hasWebCustomHeaders } from './web-headers'
 
 export default function WebSession (props) {
   const {
@@ -78,16 +79,42 @@ export default function WebSession (props) {
     setAuthRequest(null)
   }, [authRequest])
 
-  // TODO: 支持自定义Header和Cookie
-  // useEffect(() => {
-  //   const webview = document.querySelector('webview')
-  //   if (webview) {
-  //     // 添加事件监听，输出所有的事件
-  //     webview.addEventListener('did-start-loading', (e) => {
-  //       console.log('did-start-loading', e)
-  //     })
-  //   }
-  // }, []);
+  // S2-5：自定义请求头 / Cookie 由主进程按 webContentsId 注入（同一个 session
+  // 被所有 webview 共用，只能按 id 区分）。页面首跳发生在 webview 挂载之后，
+  // 所以注入完成要 reload 一次，让这一跳也带上头；之后的导航自然带着。
+  useEffect(() => {
+    const el = webviewRef.current
+    if (!el ||
+      window.et.isWebApp ||
+      !window.api ||
+      !window.api.setWebviewHeaders ||
+      !hasWebCustomHeaders(tab)) {
+      return
+    }
+    const headers = parseHeaderLines(tab.webHeaders)
+    const cookie = buildCookieHeader(tab.webCookies)
+    let applied = false
+    const apply = () => {
+      if (applied) {
+        return
+      }
+      let id = 0
+      try {
+        id = typeof el.getWebContentsId === 'function' ? el.getWebContentsId() : 0
+      } catch (error) {
+        // 还没 attach 到 DOM 时这个方法会抛，等下一次 dom-ready
+        return
+      }
+      if (!id) {
+        return
+      }
+      applied = true
+      window.api.setWebviewHeaders({ id, headers, cookie })
+      el.reload()
+    }
+    el.addEventListener('dom-ready', apply)
+    return () => el.removeEventListener('dom-ready', apply)
+  }, [tab.id, tab.webHeaders, tab.webCookies])
 
   // 打开webview的开发者工具
   // useEffect(() => {

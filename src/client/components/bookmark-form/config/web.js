@@ -35,6 +35,8 @@ const webConfig = {
         },
         commonFields.description,
         { type: 'input', name: 'useragent', label: () => e('useragent') },
+        { type: 'textarea', name: 'webHeaders', label: () => e('webHeaders') },
+        { type: 'textarea', name: 'webCookies', label: () => e('webCookies') },
         { type: 'switch', name: 'hideAddressBar', label: 'hideAddressBar', valuePropName: 'checked' },
         commonFields.type
       ]
