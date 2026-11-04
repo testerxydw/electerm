@@ -3282,10 +3282,10 @@ body.db-col-resizing
     background var(--hover-bg)
 
 // B3-1 列聚合摘要（选中单元格后出现在网格工具条上）。
-// 数字用等宽字体：Σ/⌀ 数值跳动时不会左右抖
+// 数字走数据面字体链（与网格单元格同源，Σ/⌀ 数值跳动时不会左右抖）
 .db-cell-summary
   margin-left 8px
-  font-family var(--font-mono, monospace)
+  font-family var(--db-code-font, var(--font-mono))
   font-size 11px
   color var(--text-dark)
   white-space nowrap

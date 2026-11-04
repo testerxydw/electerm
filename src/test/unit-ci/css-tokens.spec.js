@@ -97,17 +97,18 @@ describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () =
   const dbStyl = fs.readFileSync(dbStylPath, 'utf8')
   const dbJsx = fs.readFileSync(
     path.resolve(__dirname, '../../client/components/database/db-session.jsx'), 'utf8')
-  // 数据面选择器（网格/键列表/SQL/错误信息/值预览）必须走 --db-code-font
+  // 数据面选择器（网格/键列表/SQL/错误信息/值预览/列聚合摘要）必须走 --db-code-font
   // 回落 --font-mono（tab/全局配置缺省时仍等宽）
   const dataFaceSelectors = [
     '.db-grid-table',
     '.db-redis-keys',
     '.db-sql-editor',
     '.db-conn-fail-raw',
-    '.db-value-pre'
+    '.db-value-pre',
+    '.db-cell-summary'
   ]
 
-  it('五个数据面选择器字体均为 var(--db-code-font, var(--font-mono))', () => {
+  it('六个数据面选择器字体均为 var(--db-code-font, var(--font-mono))', () => {
     const missing = dataFaceSelectors.filter(sel => {
       const i = dbStyl.indexOf(sel + '\n')
       if (i < 0) return true
@@ -121,11 +122,15 @@ describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () =
     assert.match(dbJsx, /'--db-code-font': tab\.fontFamily \|\| window\.store\._config\?\.fontFamily/,
       'DbSession 必须注入 tab 字体 → 全局字体，缺省回落 CSS 侧')
     assert.match(dbStyl, /font-variant-ligatures none/, '数据面禁连字')
-    // 反向：数据面不允许残留裸 var(--font-mono)（会绕过 tab 字体）
+    // 反向：数据面不允许残留裸 var(--font-mono)（会绕过 tab 字体）。
+    // 这条以前写成 includes('font-family var(--font-mono)')，于是带兜底的写法
+    // `var(--font-mono, monospace)` 从缝里漏了出去 —— B3-1 的列聚合摘要
+    // （.db-cell-summary）就是这么绕过 tab 字体的：数字与网格单元格不同源，
+    // 设了终端/页签字体时 Σ/⌀ 那一行的字形跟着字体走、宽度对不上。
     const bare = dbStyl.split('\n').map((l, i) => ({ l, n: i + 1 }))
-      .filter(x => x.l.includes('font-family var(--font-mono)'))
+      .filter(x => /font-family\s+var\(\s*--font-mono\b/.test(x.l))
     assert.deepEqual(bare.map(x => `db-session.styl:${x.n}`), [],
-      '数据面 font-family 不得直接用 --font-mono（须带 db-code-font 回落链）')
+      '数据面 font-family 不得直接用 --font-mono（含带兜底的 var(--font-mono, …)，须走 db-code-font 回落链）')
   })
 
   // 只钉 wrapper 那条不够：antd 在 Table 的 loading 容器 .ant-spin 与表根 .ant-table 上
