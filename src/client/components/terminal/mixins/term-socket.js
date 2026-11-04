@@ -261,9 +261,8 @@ export const socketMixin = {
     // guarantees the remote pty/ssh channel is told the true current size.
     resizeTerm(this.pid, term.cols, term.rows)
     term.displayRaw = displayRaw
-    term.loadAddon(
-      new KeywordHighlighterAddon(keywords)
-    )
+    this.highlightAddon = new KeywordHighlighterAddon(keywords)
+    term.loadAddon(this.highlightAddon)
   },
 
   handleError ({ message: errorMessage, from, srcId }) {

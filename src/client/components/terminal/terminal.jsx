@@ -283,6 +283,14 @@ class Term extends Component {
       this.registerTerminalColorQueryHandlers(this.term, this.props.themeConfig)
       this.applyTerminalTheme(true)
     }
+    // 设置面板勾/取消预设 → config.keywords 变了 → addon 热更新规则，
+    // 免去关掉重开 tab 才能看到高亮的麻烦；Term 是 react.Component 不订阅 store，
+    // 所以靠 componentDidUpdate diff 触发
+    const prevKw = prevProps.config?.keywords || []
+    const curKw = this.props.config?.keywords || []
+    if (!isEqual(prevKw, curKw) && this.highlightAddon) {
+      this.highlightAddon.update(curKw)
+    }
   }
 
   componentWillUnmount () {

@@ -1,4 +1,5 @@
 import { compileKeywords } from '../../common/keyword-compile.js'
+import { activeKeywords } from '../../common/keyword-groups.js'
 
 // 单遍扫描结构缓存：compiledPatterns 由 keyword-compile 在进程内共享（同一份
 // 配置开 N 个页签只编译一次），所以按数组身份把扫描结构也只建一次。
@@ -93,6 +94,16 @@ export class KeywordHighlighterAddon {
   containsDcsSequence = (text) => {
     const ESC = String.fromCharCode(27)
     return text.includes(ESC + 'P')
+  }
+
+  // 热更新规则：设置面板勾/取消预设后，config.keywords 变化不会触发
+  // Terminal 重新 mount（Term 是 react.Component 不是 manate，订阅不到 store），
+  // 所以调用方在 componentDidUpdate 里 diff 后调这里；重新 compile + rebuild scan，
+  // terminal.write 包装指向 this.highlightChunk → 自动读到新 patterns
+  update (keywords) {
+    const active = activeKeywords(keywords)
+    this.compiledPatterns = compileKeywords(active)
+    this._scan = buildScan(this.compiledPatterns)
   }
 
   escape = str => {
