@@ -16,8 +16,8 @@
  *      其实根本没回落。本轮把页签与全局两级同时清空，再比对 computed 是否等于
  *      tokens.styl 里那条 `--font-mono` 栈（F8），并要求这条参照栈本身非空（monoReal）。
  *   3) **改动只落在数据面**。内层页签标签、顶栏按钮这些界面文字不该跟着变等宽（F10）；
- *      数据库树节点字体属"待拍板项"（`.db-tree` 未接令牌），本轮把它钉成"保持未接入"，
- *      谁将来手滑接上或改动口径，判据会红（F11）。
+ *      数据库树自 P-1/P-2（2026-11-04 拍板接入）起，只有对象名那层（.db-tree-name）吃令牌，
+ *      图标/计数/S 标记这些 chrome 仍留界面字体 —— F11 钉的就是这条边界。
  *
  * 判据口径（全部不涉及单元格内容）：
  *   · 页内只回传**字体族名字符串**（本机字体名，与库里数据无关）、计数、颜色值；
@@ -87,7 +87,7 @@ const L = {
   F8: '第 3 级回落：页签与全局两级都清空 → 网格不是空值、不是界面字体，而是 tokens 里那条 --font-mono 栈',
   F9: '禁连字：.db-session-wrap 与数据面单元格 computed font-variant-ligatures 都是 none',
   F10: '反向护栏：界面文字（内层页签标签、顶栏按钮）不吃令牌 —— 改动只落在数据面',
-  F11: '树节点字体保持"未接入"（待拍板项）：整轮换过全局字体，树节点仍是界面字体而不是令牌',
+  F11: '树名字（.db-tree-name）吃令牌：换全局字体它跟着换；chrome（图标/计数/S 标记）不吃 —— P-1/P-2 接入后的口径',
   F12: '主题切换不影响字体：切浅色主题后数据面字体原样不动，而表头配色确实变了（证明主题真换了）',
   O1: '全程 ops 白名单：updateCell / insertRow / deleteRows / applyChanges / getObjectDdl / DDL 零命中',
   O2: '发往真库的 executeSql 只有一条、就是脚本写死的那条字面量 SELECT（语句里没有表名）',
@@ -292,15 +292,20 @@ const PROBE = `(() => {
     const tab = [...document.querySelectorAll('.db-tabs .ant-tabs-tab-btn')].filter(window.__vis)[0] || null
     const btn = [...document.querySelectorAll('.db-head-right button, .db-head-actions button')]
       .filter(window.__vis)[0] || null
-    // 树节点显示文本：antd Tree 的 .ant-tree-title 才是文字，图标字形不算
-    const tree = [...document.querySelectorAll('.db-tree .ant-tree-title')]
+    // 树：P-1/P-2（2026-11-04 拍板）已接入 —— 吃令牌的是名字那一层（.db-tree-name），
+    // 不是 .ant-tree-title 外壳；图标/计数/S 标记这些 chrome 与外壳仍留界面字体
+    const tree = [...document.querySelectorAll('.db-tree .db-tree-name')]
       .map(e => ({ e, t: window.__txt(e) }))
       .filter(x => x.t.length > 0 && window.__vis(x.e))[0] || null
+    const chrome = [...document.querySelectorAll(
+      '.db-tree .db-tree-count, .db-tree .db-tree-schema-mark, .db-tree .db-tree-obj-icon')]
+      .filter(window.__vis)[0] || null
     return JSON.stringify({
       tab: tab ? getComputedStyle(tab).fontFamily : 'no-tab-btn',
       btn: btn ? getComputedStyle(btn).fontFamily : 'no-btn',
-      tree: tree ? getComputedStyle(tree.e).fontFamily : 'no-tree-title',
-      treeLen: tree ? tree.t.length : 0
+      tree: tree ? getComputedStyle(tree.e).fontFamily : 'no-tree-name',
+      treeLen: tree ? tree.t.length : 0,
+      chrome: chrome ? getComputedStyle(chrome).fontFamily : 'no-chrome'
     })
   }
   // 值面板：点格后那块。容器 .db-value-pane 是布局壳（头部标题/字符数/按钮属界面文字，
@@ -797,8 +802,9 @@ async function main () {
     normFont(uiS.tab) !== tokLive && normFont(uiS.btn) !== tokLive,
   { tokLive, tab: String(uiS.tab).slice(0, 26), btn: String(uiS.btn).slice(0, 26) })
 
-  // 树节点：待拍板项，本轮钉住"仍然未接入"
+  // 树节点：P-1/P-2 已接入 —— 名字跟着令牌换，chrome 不跟着换
   const treeBefore = normFont(uiS.tree)
+  const chromeBefore = normFont(uiS.chrome)
   await cdp.eval('window.__setCfgFont(' + J(FONT_B) + ')')
   await sleep(800)
   const uiS2 = await cdp.jeval('window.__uiSample()')
@@ -806,11 +812,23 @@ async function main () {
   await cdp.eval('window.__setCfgFont(' + J(FONT_A) + ')')
   await sleep(800)
   const tokA2 = normFont(await cdp.eval('window.__tok()'))
-  check(L.F11, treeBefore !== '' && treeBefore.indexOf('no-tree') < 0 &&
-    tokB2 === normFont(FONT_B) && tokA2 === normFont(FONT_A) &&
-    normFont(uiS2.tree) === treeBefore &&
-    treeBefore !== tokB2 && treeBefore !== normFont(FONT_A),
-  { treeBefore: treeBefore.slice(0, 26), treeAfter: String(uiS2.tree).slice(0, 26), tokB2, tokA2, treeLen: uiS.treeLen })
+  // chrome 在场才比（真库有没有例程/触发器分组取决于权限，缺样本只记现场）
+  const chromeOk = chromeBefore === 'no-chrome' ||
+    (chromeBefore !== normFont(FONT_A) && normFont(uiS2.chrome) !== tokB2)
+  const treeTracks = uiS.treeLen > 0 && treeBefore.indexOf('no-tree') < 0 &&
+    treeBefore === normFont(FONT_A) && normFont(uiS2.tree) === tokB2
+  const uiFontNow = normFont(await cdp.eval('window.__uiFont()'))
+  check(L.F11, treeTracks && tokB2 === normFont(FONT_B) && tokA2 === normFont(FONT_A) &&
+    chromeOk && normFont(uiS2.tree) !== uiFontNow,
+  {
+    treeBefore: treeBefore.slice(0, 26),
+    treeB: String(uiS2.tree).slice(0, 26),
+    chrome: chromeBefore.slice(0, 26),
+    chromeB: String(uiS2.chrome).slice(0, 26),
+    tokB2,
+    tokA2,
+    treeLen: uiS.treeLen
+  })
 
   // ---------- 主题切换不动字体 ----------
   const themeIds = await cdp.jeval("JSON.stringify((window.store.getItems('terminalThemes') || []).map(t => t.id))")
@@ -864,7 +882,7 @@ async function main () {
     tabOverride: tabTok === normFont(FONT_TAB),
     ligature: lig.wrap === 'none' && lig.cell === 'none',
     uiGuard: normFont(uiS.tab) !== tokLive,
-    treePinned: treeBefore.indexOf('no-tree') < 0,
+    treeName: treeTracks,
     theme: themeSwitched
   }
   const missing = Object.keys(cov).filter(k => !cov[k])

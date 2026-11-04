@@ -555,11 +555,13 @@ describe('视图在树里的呈现（源码守卫）', () => {
   )
 
   // 注意不能直接抓第一个 `if (isLeafNode(node)) {`：过滤用的 filterNode 也是这个形状。
-  // treeData 里的叶子是唯一带 isLeaf: true 的那个对象，以它为锚点取窗口
+  // treeData 里的叶子是唯一带 isLeaf: true 的那个对象，以它为锚点取窗口。
+  // 回看 700：P-1/P-2 给名字包了 .db-tree-name（两条分支各一层 span）后，
+  // `DB_OBJECT_ICONS[node.type]` 到锚点实测 571 字符，原来的 500 会把它截在窗口外
   const leafWin = () => {
     const i = jsx.indexOf('isLeaf: true')
     assert.ok(i > 0, 'leaf DataNode not found')
-    return jsx.slice(Math.max(0, i - 500), i + 200)
+    return jsx.slice(Math.max(0, i - 700), i + 200)
   }
 
   test('叶子节点把 type 带成 nodeType，供按钮门控消费', () => {

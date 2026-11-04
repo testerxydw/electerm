@@ -97,18 +97,19 @@ describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () =
   const dbStyl = fs.readFileSync(dbStylPath, 'utf8')
   const dbJsx = fs.readFileSync(
     path.resolve(__dirname, '../../client/components/database/db-session.jsx'), 'utf8')
-  // 数据面选择器（网格/键列表/SQL/错误信息/值预览/列聚合摘要）必须走 --db-code-font
-  // 回落 --font-mono（tab/全局配置缺省时仍等宽）
+  // 数据面选择器（网格/键列表/SQL/错误信息/值预览/列聚合摘要/元数据树的对象名）
+  // 必须走 --db-code-font，回落 --font-mono（tab/全局配置缺省时仍等宽）
   const dataFaceSelectors = [
     '.db-grid-table',
     '.db-redis-keys',
     '.db-sql-editor',
     '.db-conn-fail-raw',
     '.db-value-pre',
-    '.db-cell-summary'
+    '.db-cell-summary',
+    '.db-tree-name'
   ]
 
-  it('六个数据面选择器字体均为 var(--db-code-font, var(--font-mono))', () => {
+  it('七个数据面选择器字体均为 var(--db-code-font, var(--font-mono))', () => {
     const missing = dataFaceSelectors.filter(sel => {
       const i = dbStyl.indexOf(sel + '\n')
       if (i < 0) return true
@@ -131,6 +132,38 @@ describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () =
       .filter(x => /font-family\s+var\(\s*--font-mono\b/.test(x.l))
     assert.deepEqual(bare.map(x => `db-session.styl:${x.n}`), [],
       '数据面 font-family 不得直接用 --font-mono（含带兜底的 var(--font-mono, …)，须走 db-code-font 回落链）')
+  })
+
+  // P-1/P-2 的边界：只有"标识符"包进 .db-tree-name。这个包装点是数据面/界面字体的
+  // 唯一分界，写漏一处那个对象就退回界面字体、多写一处（比如把本地化分组标签也包进去）
+  // 就把界面词染成等宽 —— 实机 demo 量得到结果，量不到"是谁包的"，所以源码侧钉死。
+  it('树的名字包装点：5 处标识符包 .db-tree-name，分组标签不包', () => {
+    const wrapped = (dbJsx.match(/className='db-tree-name'/g) || []).length
+    const redisName = (dbJsx.match(/className='db-tree-db-name db-tree-name'/g) || []).length
+    // 叶子（有图标/无图标两条）+ schema + 库名 = 4 处独立 span，redis 库名在既有 span 上加类
+    assert.equal(wrapped, 4, '树里包 .db-tree-name 的 span 数量变了，核对是不是漏了某一类标识符')
+    assert.equal(redisName, 1, 'redis 库名（.db-tree-db-name）必须同时吃数据面字体')
+    assert.ok(!/db-tree-name'>\{treeTitle\(e\(DB_GROUP_LABEL/.test(dbJsx),
+      '分组标签是本地化界面词，不该包进 .db-tree-name')
+  })
+
+  // 行盒：树行高度由"这一行里最高的内联盒的字体度量"决定，不是由 line-height 继承决定。
+  // 名字换成等宽后 normal 行高比界面字体高一档 → 名字行 23px→25px，与相邻的 chrome 行
+  // （分组标签/计数/S 标记）不齐，U4 的"树行行高一致"就这么破了（self-test/db-tree-font-demo.js
+  // 量到）。修复是把名字的 line-height 钉在行最小盒以下；这条把"必须显式钉住"钉成契约，
+  // 否则以后有人删这行只会让运行时 demo 变红，源码侧毫无信号。
+  it('.db-tree-name 必须显式钉住 line-height（等宽度量不再驱动树行高）', () => {
+    const i = dbStyl.indexOf('.db-tree-name\n')
+    assert.ok(i >= 0, '未找到 .db-tree-name 块')
+    const rest = dbStyl.slice(i + '.db-tree-name\n'.length)
+    const end = rest.search(/^\S/m)
+    const block = (end < 0 ? rest : rest.slice(0, end))
+    const lh = /^\s*line-height\s+(\d+)px\s*$/m.exec(block)
+    assert.ok(lh, `.db-tree-name 缺显式 line-height（px）：${block.trim()}`)
+    assert.ok(Number(lh[1]) <= 20,
+      `line-height ${lh[1]}px 会重新驱动树行高（chrome 行 23px），必须钉在 20px 及以下`)
+    assert.ok(!/display\s+inline-block/.test(block),
+      '名字保持 inline：转 inline-block 会脱离与对象图标的基线对齐')
   })
 
   // 只钉 wrapper 那条不够：antd 在 Table 的 loading 容器 .ant-spin 与表根 .ant-table 上

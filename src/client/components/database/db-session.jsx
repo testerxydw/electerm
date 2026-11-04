@@ -5628,7 +5628,9 @@ export default auto(function DbSession (props) {
     const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
       if (isLeafNode(node)) {
         // F0/U4：视图与表在树里同名同形；非表对象用形状图标标记（眼睛/代码/fx/闪电/时钟），
-        // 颜色由 .is-<type> 走 token。表本身不加图标，与对象区分开
+        // 颜色由 .is-<type> 走 token。表本身不加图标，与对象区分开。
+        // 名字一律包进 .db-tree-name：那层是"这串是标识符 → 吃数据面字体"的标记，
+        // 分组标签/计数/图标这些 chrome 不包（P-1/P-2）
         const icon = DB_OBJECT_ICONS[node.type]
         return {
           title: icon
@@ -5640,10 +5642,10 @@ export default auto(function DbSession (props) {
                 >
                   {icon}
                 </span>
-                {treeTitle(node.name)}
+                <span className='db-tree-name'>{treeTitle(node.name)}</span>
               </span>
               )
-            : treeTitle(node.name),
+            : <span className='db-tree-name'>{treeTitle(node.name)}</span>,
           key: nodeKey(dbName, schema, node.name),
           isLeaf: true,
           // 类型随节点走：后续按钮门控（视图不可插入行）要它
@@ -5667,6 +5669,7 @@ export default auto(function DbSession (props) {
               >
                 {DB_GROUP_ICONS[node.group] || <CodeOutlined />}
               </span>
+              {/* 分组标签是本地化界面词，不是标识符 → 故意不包 .db-tree-name */}
               {treeTitle(e(DB_GROUP_LABEL[node.group] || 'dbRoutines'))}
               <span className='db-tree-count'>{(node.children || []).length}</span>
             </span>
@@ -5680,7 +5683,7 @@ export default auto(function DbSession (props) {
         title: (
           <span className='db-tree-schema'>
             <span className='db-tree-schema-mark'>S</span>
-            {treeTitle(node.name)}
+            <span className='db-tree-name'>{treeTitle(node.name)}</span>
             <span className='db-tree-count'>{countTreeLeaves(node.children)}</span>
           </span>
         ),
@@ -5697,7 +5700,7 @@ export default auto(function DbSession (props) {
           // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
           title: (
             <span className='db-tree-db'>
-              <span className='db-tree-db-name'>{treeTitle(db.name)}</span>
+              <span className='db-tree-db-name db-tree-name'>{treeTitle(db.name)}</span>
               {
                 typeof db.count === 'number'
                   ? <span className='db-tree-db-count'>{db.count}</span>
@@ -5714,7 +5717,7 @@ export default auto(function DbSession (props) {
       // 不复用 .db-tree-db（space-between 供 redis 计数用），错误标记须紧邻库名
       title: (
         <span className='db-tree-db-title'>
-          {treeTitle(db.name)}
+          <span className='db-tree-name'>{treeTitle(db.name)}</span>
           {
             // per-db 元数据降级标记：单库 SHOW TABLES 失败（权限等），
             // 库名保留可重试（点顶栏刷新重拉）

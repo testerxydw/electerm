@@ -952,6 +952,22 @@
 .db-tree-view
   display inline
 
+// P-1/P-2（2026-11-04 拍板）：树里的对象名（库 / schema / 表 / 视图 / 过程…）是
+// "要照着敲"的标识符，与网格单元格、Redis 键列表、SQL 编辑器同一口径 → 数据面字体链。
+// 只有包进 .db-tree-name 的那串文字吃它：分组标签（本地化界面词）、计数徽标、S 标记、
+// 对象图标、降级感叹号这些 chrome 留在界面字体（jsx 侧的包装点就是这条边界的唯一真相）。
+// 声明落在名字那一层而不是 .db-tree-panel：antd 在 .ant-tree 根上用自己的
+// resetComponent 重新声明了界面字体，只把令牌放在 panel 上会被那一层截断，
+// 名字照样是界面字体（网格那边的 .ant-spin / .ant-table 踩过同一坑，见 .db-grid-table）。
+// line-height 必须钉死：行盒高度取的是这一行内联盒的字体度量（ascent+descent），
+// 换等宽字族后 normal 行高比界面字体高，只把名字那一串换成 mono 会让名字行 23px→25px、
+// 与相邻的 chrome 行（分组标签/计数/S 标记那些）不齐 —— U4 的"树行行高一致"就是这么破的。
+// 20px < 树行的最小行盒，所以名字不再驱动行高；display 保持 inline（不转 inline-block），
+// 基线仍与同一行的对象图标对齐，长标识符换行时每行仍是 20px、行盒正常变高不被裁。
+.db-tree-name
+  font-family var(--db-code-font, var(--font-mono))
+  line-height 20px
+
 // PG 表结构主键徽标（列定义网格）
 .db-pk-tag
   margin 0
