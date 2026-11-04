@@ -22,20 +22,88 @@
  *
  * 用法：
  *   1) npm run vite-build && rsync -a src/app/ work/app/
- *   2) DISPLAY=<xvfb> HOME=/tmp/electerm-g83-home XDG_CONFIG_HOME=/tmp/electerm-g83-config \
- *      TMPDIR=/tmp/electerm-g83-tmp ./node_modules/electron/dist/electron work/app/app.js \
+ *   2) DISPLAY=<xvfb> HOME=<临时 home> XDG_CONFIG_HOME=<临时 config> TMPDIR=<临时 tmp> \
+ *      ./node_modules/electron/dist/electron work/app/app.js \
  *      --no-sandbox --remote-debugging-port=9233
- *      （夹具：该 config 的 electerm/session_logs 下放 2 个 .log + 1 个 .cast + 1 个 .txt）
+ *      —— demo 必须带同一套 HOME/XDG_CONFIG_HOME 运行：主进程列的日志目录是它的
+ *      <config>/electerm/session_logs（ipc.js:246），夹具由脚本自己铺进去（见 seedFixtures）
  *   3) node self-test/audit-center-demo.js [debugPort] [shotDir]
  */
 const path = require('node:path')
 const fs = require('node:fs')
+const os = require('node:os')
 const { getJson, Cdp, sleep, waitFor, findPageTarget, makeChecker } = require('./db-ui-helpers')
 
 const PORT = process.argv[2] || '9233'
 const SHOT_DIR = process.argv[3] || path.join(__dirname, 'audit-center-shots')
-const LOGS = process.env.AUDIT_LOG_DIR || '/tmp/electerm-g83-config/electerm/session_logs'
+// 夹具目录：自带，不认领别人的档案目录。
+// 之前这里硬编码 /tmp/electerm-g83-config/electerm/session_logs —— 那是"写出这个脚本
+// 那一批次"的 XDG_CONFIG_HOME，目录早没了，换任何一台实例都是 ENOENT 崩在半路
+// （2026-11-04 第四轮扫掠里就是这么红的），而脚本头一直写着"临时 HOME 下自建的夹具"。
+// 主进程列的目录 = app.getPath('appData')/electerm/session_logs（ipc.js:246，
+// config.sessionLogPath 只在启动时读一次，跑中途改配置没用），Linux 上
+// appData 就是 XDG_CONFIG_HOME —— 所以按同一套环境推出来，再自己把 4 个夹具文件铺上。
+// 用法：驱动给 demo 和实例传同一个 HOME / XDG_CONFIG_HOME；要指别处就传 AUDIT_LOG_DIR。
+const LOGS = process.env.AUDIT_LOG_DIR || path.join(
+  process.env.XDG_CONFIG_HOME ||
+    path.join(process.env.HOME || os.homedir(), '.config'),
+  'electerm', 'session_logs')
 const { check, results } = makeChecker()
+
+// 文件名要走产品的命名式：`<标题>_<主机>_<7 位会话 id>.<ext>`（audit-model.js:51
+// parseSessionLogName，SESSION_ID_LEN=7），主机名才解得出来；主机用种子历史里的
+// web-1 / 10.0.0.9，免得筛选侧多出一个历史上没有的主机。
+// 标题里可以带下划线（主机取会话 id 之前的最后一段），所以长日志叫 `build_dp`：
+// 第 6 节选中它才点得到"尾部窗口"那组判据。
+const LOG_LINES = 1200
+// 每行都裹一层颜色，尾部判据才真的在验"剥了 ANSI"；行里绝不出现 uptime ——
+// 第 5 节钉的是"关键字 uptime 只命中录制那一行"
+const longLog = (() => {
+  const out = []
+  for (let i = 1; i <= LOG_LINES; i++) {
+    out.push('\u001b[32m[build_dp]\u001b[0m step ' + i + ' \u001b[33mok\u001b[0m')
+  }
+  return out.join('\n') + '\n'
+})()
+// 录制 7 个事件 = 4 个输出（written 到 4）+ 3 个输入，末事件 6.0 秒（pos 到 6000）。
+// 两条真命令 uptime / df -h 之间隔 3 秒虚拟时钟：4x 下约 0.75 秒真实时间，
+// waitFor 每 200ms 轮一次才抢得到"徽标是 uptime、画面里还没有 uptime"的中途状态。
+// 第三条输入是空行（只回车）——castCommands 不产命令，末尾徽标才停在 df -h。
+const castBody = () => [
+  JSON.stringify({
+    version: 2, width: 80, height: 24, timestamp: Math.floor(Date.now() / 1000) - 90
+  }),
+  '[0.3,"o","root@web-1:~# "]',
+  '[0.8,"i","uptime\\r\\n"]',
+  '[2.0,"o","up 3 days, 1 user, load average: 0.00, 0.00, 0.00\\r\\n"]',
+  '[3.8,"i","df -h\\r\\n"]',
+  '[4.4,"o","Filesystem      Size  Used Avail Use% Mounted on\\r' +
+    '\\n/dev/vda1        40G   12G   28G  30% /\\r\\n"]',
+  '[5.0,"i","\\r\\n"]',
+  '[6.0,"o","root@web-1:~# \\u001b[31mexit\\u001b[0m\\r\\n"]'
+].join('\n') + '\n'
+
+const FIXTURES = [
+  { name: 'build_dp_web-1_aB3dEfG.log', body: longLog },
+  { name: 'query_10.0.0.9_zZ9yXwV.log', body: 'select 1\n1\n' },
+  { name: 'play_web-1_mN4bQrT.cast', body: castBody() },
+  { name: 'note_web-1_kK7pLsP.txt', body: '不该进审计的扩展名\n' }
+]
+
+const seedFixtures = () => {
+  fs.mkdirSync(LOGS, { recursive: true })
+  for (const f of FIXTURES) {
+    const p = path.join(LOGS, f.name)
+    // 每次覆盖写：判据钉的是"目录里恰好 2 log + 1 cast + 1 txt"，
+    // 留着上一轮的改名残留就会数多
+    fs.writeFileSync(p, f.body)
+  }
+  const extra = fs.readdirSync(LOGS).filter(n => !FIXTURES.some(f => f.name === n))
+  for (const n of extra) {
+    if (/\.(log|cast|txt)$/.test(n)) fs.rmSync(path.join(LOGS, n), { force: true })
+  }
+  return LOGS
+}
 
 const zh = s => String(s == null ? '' : s).split(' ').join('')
 
@@ -363,11 +431,12 @@ const main = async () => {
   }
 
   check('夹具目录里有 2 个 .log + 1 个 .cast + 1 个 .txt', (() => {
+    seedFixtures()
     const f = fs.readdirSync(LOGS)
     return f.filter(n => n.endsWith('.log')).length === 2 &&
       f.filter(n => n.endsWith('.cast')).length === 1 &&
       f.filter(n => n.endsWith('.txt')).length === 1
-  })(), fs.readdirSync(LOGS))
+  })(), { dir: LOGS, files: fs.readdirSync(LOGS) })
 
   const seeded = await cdp.eval(SEED_STORE)
   check('历史/传输夹具灌进 store', seeded === 302, { seeded })
@@ -416,6 +485,11 @@ const main = async () => {
 
   // 2) 三来源合并
   const s1 = await snap(cdp)
+  // 主进程列的目录必须就是刚铺夹具的那一个：驱动忘了给 demo 传同一套
+  // HOME/XDG_CONFIG_HOME 时，页面列的是实例的默认目录，"行数是几"就没意义了
+  check('主进程列到的就是自铺的夹具目录（驱动与实例环境一致）',
+    s1.rows.some(r => /play_web-1_mN4bQrT\.cast/.test(String(r.artifact))),
+    { dir: s1.dir, expect: LOGS, artifacts: s1.rows.map(r => r.artifact) })
   const kindOf = label => (s1.kinds.find(k => k.label === label) || {}).count || 0
   check('类型候选四项都有行',
     kindOf('连接') + kindOf('Session') >= 3 &&
