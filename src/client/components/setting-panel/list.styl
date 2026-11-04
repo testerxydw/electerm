@@ -71,3 +71,26 @@
     right 18px
   .list-item-duplicate
     right 24px
+// P-3（2026-11-04 拍板"只做连接状态点"）：历史行的连接状态点。
+// 槽位常驻、点按需画 —— 只有"这台目标当前有开着的会话"才亮，且槽位宽度不变，
+// 否则同一列里有点/没点的行首文字会错开一格（书签树那颗点是行内前缀，
+// 那里本来就有缩进层次，历史列表是平铺的，不能照抄）。
+// 尺寸 7px 与页签条 .tab-status 同口径；颜色只吃 token（success/primary/error），
+// 不加光晕也不呼吸：这列一次能排十几行，动效太多反而看不出哪条是"开着的那条"。
+.history-status-slot
+  flex 0 0 auto
+  width 12px
+  display flex
+  align-items center
+  justify-content center
+.history-status-dot
+  width 7px
+  height 7px
+  border-radius var(--radius-pill)
+  background-color var(--text-dark)
+  &.success
+    background-color var(--success)
+  &.processing
+    background-color var(--primary)
+  &.error
+    background-color var(--error)

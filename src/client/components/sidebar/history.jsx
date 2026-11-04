@@ -7,6 +7,7 @@ import { auto } from 'manate/react'
 import { UnorderedListOutlined } from '@ant-design/icons'
 import SwitchLabel from '../common/switch'
 import HistoryItem from './history-item'
+import { historyConnStatus, openStatusByConn } from '../../common/history-conn-status'
 import { getItemJSON, setItemJSON } from '../../common/safe-local-storage.js'
 import '../setting-panel/list.styl'
 
@@ -69,6 +70,10 @@ export default auto(function HistoryPanel (props) {
     title: window.translate('clear'),
     onClick: handleClearHistory
   }
+  // P-3 连接状态点：每次渲染从当前页签现算一张「连接键 → 状态」表（纯视觉，
+  // 不往 history 条目里写字段）。在这里算而不是在 HistoryItem 里，是因为这层是
+  // `auto`（页签增删/状态变化会重渲染），HistoryItem 是普通组件，拿不到这个订阅。
+  const openStatus = openStatusByConn(store.tabs)
   return (
     <div
       className='sidebar-panel-history'
@@ -82,6 +87,7 @@ export default auto(function HistoryPanel (props) {
                 key={item.id}
                 item={item}
                 openOnDoubleClick={openOnDoubleClick}
+                connStatus={historyConnStatus(item.tab, openStatus)}
               />
             )
           })

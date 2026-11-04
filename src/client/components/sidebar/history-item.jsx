@@ -8,7 +8,8 @@ export default function HistoryItem (props) {
   const { store } = window
   const {
     item,
-    openOnDoubleClick
+    openOnDoubleClick,
+    connStatus
   } = props
   const [active, setActive] = useState(false)
   const timeoutRef = useRef(null)
@@ -75,6 +76,16 @@ export default function HistoryItem (props) {
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
     >
+      <div className='history-status-slot'>
+        {connStatus
+          ? (
+            <span
+              className={'history-status-dot ' + connStatus}
+              aria-hidden='true'
+            />
+            )
+          : null}
+      </div>
       <div className='elli pd1y pd2x'>
         {title}
       </div>
