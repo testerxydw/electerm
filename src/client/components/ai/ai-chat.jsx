@@ -13,6 +13,7 @@ import {
 } from './ai-image-capability'
 import SwitchLabel from '../common/switch'
 import { buildSessionMessages, summarizeContext, getUsageLevel } from './ai-context'
+import { latestAiSource, isAiSourceStale, formatAiSource } from './ai-source-context'
 import { resolveImage, putImage, dropImage } from './ai-image-cache'
 import { persistImage, forgetImage, hydrateImages } from './ai-image-persist'
 import { appendMandatoryGuardrails } from './ai-guardrails'
@@ -371,7 +372,10 @@ export default function AIChat (props) {
   // mount and lost the message whenever the panel won the race later. The draft
   // in the box is deliberately left alone, because it is not this request's
   // input and wiping it would cost the user their typing.
-  const handleSubmit = useCallback(function (overridePrompt) {
+  // `overrideSource` rides along on the same path: the caller knows which tab /
+  // which table the text came from, and this is the only moment that snapshot
+  // is true, so it is stored on the entry instead of looked up later.
+  const handleSubmit = useCallback(function (overridePrompt, overrideSource) {
     const isOverride = typeof overridePrompt === 'string'
     const text = isOverride ? overridePrompt : prompt
     if (window.store.aiConfigMissing()) {
@@ -443,6 +447,8 @@ export default function AIChat (props) {
         'supportsImageAI'
       ]),
       timestamp: Date.now(),
+      // 只读快照（哪个页签/哪张表递交的），手输没有；面板顶部那条来源提示就读它
+      source: isOverride && overrideSource && overrideSource.tabId ? overrideSource : undefined,
       id: chatId
     }
 
@@ -490,11 +496,42 @@ export default function AIChat (props) {
       window.store.pendingAiPrompt = null
     }
     if (p.autoSubmit) {
-      handleSubmit(p.text)
+      handleSubmit(p.text, p.source)
     } else {
       setPrompt(p.text)
     }
   }, [props.pendingAiPrompt, handleSubmit])
+
+  // P-4：会话来源提示（拍板口径：只提示、不绑定）。来源是递交那一刻写进条目的
+  // 只读快照，手输的条目没有；整个会话都是手输就没有这一行。
+  const aiSource = latestAiSource(sessionHistory, currentChatSessionId)
+  const aiSourceView = formatAiSource(aiSource, e)
+  const aiSourceStale = isAiSourceStale(aiSource, props.activeTabId)
+
+  function renderSourceBar () {
+    if (!aiSourceView || props.showChatSessions) {
+      return null
+    }
+    return (
+      <div
+        className={'ai-source-bar' + (aiSourceStale ? ' ai-source-bar-stale' : '')}
+        title={aiSourceView.where}
+      >
+        <span className='ai-source-bar-title'>{aiSourceView.title}</span>
+        <span className='ai-source-bar-where'>{aiSourceView.where}</span>
+        {
+          aiSourceView.dialect
+            ? <span className='ai-source-bar-dialect'>{aiSourceView.dialect}</span>
+            : null
+        }
+        {
+          aiSourceStale
+            ? <span className='ai-source-bar-stale-text'>{e('aiSourceStale')}</span>
+            : null
+        }
+      </div>
+    )
+  }
 
   function renderHistory () {
     if (props.showChatSessions) {
@@ -647,6 +684,8 @@ export default function AIChat (props) {
         handleFiles(evt.dataTransfer.files)
       }}
     >
+      {renderSourceBar()}
+
       <Flex className='ai-chat-history' flex='auto'>
         {renderHistory()}
       </Flex>

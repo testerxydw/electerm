@@ -542,3 +542,38 @@
 .ai-context-tip-warn
   margin-top 4px
   color var(--warn)
+
+// P-4：会话来源提示条（只提示、不绑定）。它在历史列表上方，所以必须是会话里的
+// 一条固定信息，而不是随滚动消失的浮层；配色用中性面 + 一行小字，错位才上警示色。
+.ai-source-bar
+  display flex
+  align-items center
+  gap 6px
+  padding 4px 10px
+  border-bottom 1px solid var(--border)
+  background var(--surface-2)
+  font-size 12px
+  line-height 18px
+  color var(--text-muted)
+  .ai-source-bar-title
+    color var(--text-dark)
+    font-weight bold
+  .ai-source-bar-where
+    flex 1 1 auto
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
+    color var(--text-dark)
+  .ai-source-bar-dialect
+    flex 0 0 auto
+    padding 0 4px
+    border 1px solid var(--border)
+    border-radius var(--radius-xs)
+    font-family var(--font-mono)
+  .ai-source-bar-stale-text
+    flex 0 0 auto
+    color var(--warn)
+  &.ai-source-bar-stale
+    background var(--warn-bg)
+    .ai-source-bar-where
+      color var(--warn)

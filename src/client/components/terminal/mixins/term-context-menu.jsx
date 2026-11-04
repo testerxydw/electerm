@@ -6,6 +6,7 @@ import { refsStatic } from '../../common/ref.js'
 import AIIcon from '../../icons/ai-icon.jsx'
 import { ApartmentOutlined } from '@ant-design/icons'
 import { isAIDisabled } from '../../../common/ai-feature.js'
+import { buildTermAiSource } from '../../ai/ai-source-context'
 import {
   getRightClickBehavior,
   rightClickBehaviors
@@ -283,7 +284,9 @@ export const contextMenuMixin = {
 
   explainWithAi () {
     window.store.explainWithAi(
-      this.term.getSelection()
+      this.term.getSelection(),
+      // P-4：来源就是这个终端页签（只做提示，不绑定会话）
+      buildTermAiSource(this.props.tab)
     )
   },
 

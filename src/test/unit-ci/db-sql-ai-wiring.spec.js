@@ -74,7 +74,8 @@ describe('db-sql-ai 接线：会话页登记编辑器目标', () => {
     assert.match(fn, /buildSqlAiPrompt\(\{[\s\S]*mode: 'explain'/, '提示词没走纯函数')
     assert.match(fn, /selection,/, '没把选区交给提示词（整段照旧会盖掉选区）')
     assert.match(fn, /language: resolveAiLanguage\(\(window\.store\.config \|\| \{\}\)\.languageAI, window\.store\.getLangName\(\)\)/, '回复语言没跟配置走（或未落到统一解析）')
-    assert.match(fn, /window\.store\.setPendingAiPrompt\(built\.prompt\)/, '没走待填 prompt 状态')
+    assert.match(fn, /window\.store\.setPendingAiPrompt\(\s*built\.prompt,\s*true,\s*buildDbAiSource\(tab,\s*ctx\)\s*\)/,
+      '没走待填 prompt 状态（P-4：来源快照要作为第三参递进去）')
     assert.ok(!/setTimeout/.test(fn), '解释入口还在猜面板挂载时间')
     assert.ok(!/请解释以下 SQL/.test(SESSION), '还留着硬编码中文提示词')
   })
@@ -144,7 +145,7 @@ describe('db-sql-ai 接线：AI 面板三个既有缺陷', () => {
 
   test('外部递交的 prompt 由面板消费一次；带文本直接发送，不动输入框草稿', () => {
     assert.match(CHAT, /props\.pendingAiPrompt/, '面板没接待填 prompt')
-    assert.match(CHAT, /handleSubmit\(p\.text\)/, 'autoSubmit 时没把文本直接交给提交')
+    assert.match(CHAT, /handleSubmit\(p\.text,\s*p\.source\)/, 'autoSubmit 时没把文本连同来源一起交给提交')
     assert.match(CHAT, /window\.store\.pendingAiPrompt = null/, '消费后没清空')
     assert.match(STORE, /Store\.prototype\.setPendingAiPrompt = function/, 'store 没有递交入口')
     assert.ok(!/setTimeout\(\(\) => \{\s*refsStatic\.get\('AIChat'\)/.test(STORE), 'explainWithAi 还在猜延时')

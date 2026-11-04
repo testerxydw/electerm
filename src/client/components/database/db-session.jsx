@@ -106,6 +106,7 @@ import { classifySql } from '../../common/db-sql-risk'
 // AI 第一批：提示词/落编辑器策略都是纯函数（db-sql-ai.js），回复解析在弹层里做；
 // 会话页只负责把编辑器句柄登记到目标表、把弹层的产出落到编辑器
 import { buildSqlAiPrompt, planSqlInsertion } from '../../common/db-sql-ai'
+import { buildDbAiSource } from '../ai/ai-source-context'
 import { resolveAiLanguage } from '../../common/ai-role'
 import { registerSqlTarget, unregisterSqlTarget } from '../../common/db-sql-ai-target'
 import {
@@ -3764,7 +3765,9 @@ export default auto(function DbSession (props) {
       columns: ctx.columns,
       language: resolveAiLanguage((window.store.config || {}).languageAI, window.store.getLangName())
     })
-    window.store.setPendingAiPrompt(built.prompt)
+    // 来源快照跟着这句走（P-4）：AI 面板据此提示"这条会话是在哪个页签的哪张表上问的"。
+    // 不绑定 —— 面板仍只有一个会话，快照只用于显示。
+    window.store.setPendingAiPrompt(built.prompt, true, buildDbAiSource(tab, ctx))
   }
 
   // B-3 模板插入：key 取 SQL_TEMPLATES；withTable 用当前选中表（列清单来自

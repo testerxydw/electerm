@@ -457,13 +457,13 @@ export default Store => {
     store.rightPanelTab = 'monitor'
   }
 
-  // 递交给右侧 AI 面板的一段 prompt（{ text, autoSubmit, nonce }）。
+  // 递交给右侧 AI 面板的一段 prompt（{ text, autoSubmit, source, nonce }）。
   // 为什么是状态而不是"调用方猜延时"：AI 面板是懒加载的，只有切到 AI 页签才挂载。
   // 以前 explainWithAi / askAiAboutSql 用 setTimeout(500) 填词、setTimeout(1200)
   // 提交，面板挂载慢一点这句就丢了，快一点又会拿到还没注册的 refs。现在改成
   // "放进 store，面板拿到它的这次渲染里消费一次"，谁先到都不影响结果。
   let pendingAiSeq = 0
-  Store.prototype.setPendingAiPrompt = function (text, autoSubmit = true) {
+  Store.prototype.setPendingAiPrompt = function (text, autoSubmit = true, source = null) {
     const { store } = window
     const t = String(text || '')
     if (!t) {
@@ -480,13 +480,16 @@ export default Store => {
     store.pendingAiPrompt = {
       text: t,
       autoSubmit: !!autoSubmit,
+      // 递交方那份只读快照（页签/方言/库表）：面板把它记进历史条目，用于
+      // "本会话在说哪张表"的提示。没有来源（用户在输入框里手输）就没有这条提示。
+      source: source && source.tabId ? source : null,
       // nonce 让"同一段文字连交两次"也能被面板识别成两次
       nonce: ++pendingAiSeq
     }
   }
 
-  Store.prototype.explainWithAi = function (txt) {
-    window.store.setPendingAiPrompt('explain terminal output: ' + txt)
+  Store.prototype.explainWithAi = function (txt, source) {
+    window.store.setPendingAiPrompt('explain terminal output: ' + txt, true, source)
   }
 
   Store.prototype.runCommandInTerminal = function (cmd) {
