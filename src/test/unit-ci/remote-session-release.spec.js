@@ -269,3 +269,26 @@ describe('隐藏远程 tab 挂起（M1）：切走超过宽限期就断开，回
     assert.match(src, /_resumeRemote = \(\) => \{[\s\S]{0,200}this\.props\.reloadTab\(this\.props\.tab\)/, 'spice 恢复与重连按钮一致走 reloadTab')
   })
 })
+
+describe('挂起档位选择器：三端顶栏 B 区共用 RemoteSuspendSelect', () => {
+  const SELECT = path.join(SRC, 'client/components/common/remote-suspend-select.jsx')
+
+  test('共享组件读写同一全局配置 remoteSuspendSeconds', () => {
+    const src = read(SELECT)
+    assert.match(src, /config\?\.remoteSuspendSeconds/, '必须读 config.remoteSuspendSeconds')
+    assert.match(src, /updateConfig\(\{ remoteSuspendSeconds/, '必须写回同一 config 键')
+    assert.match(src, /remote-suspend/, '默认值必须派生自 suspendGraceDefaultMs，不能双写')
+  })
+
+  test('三端 renderDisplayItems 都挂载该选择器', () => {
+    for (const [name, file] of [
+      ['vnc', 'client/components/vnc/vnc-session.jsx'],
+      ['rdp', 'client/components/rdp/rdp-session.jsx'],
+      ['spice', 'client/components/spice/spice-session.jsx']
+    ]) {
+      const src = read(path.join(SRC, file))
+      assert.match(src, /import RemoteSuspendSelect from '\.\.\/common\/remote-suspend-select'/, name + ' 必须引入共享选择器')
+      next(src, 'renderDisplayItems', '<RemoteSuspendSelect />', name + ' 的 B 区必须挂载挂起档位选择器')
+    }
+  })
+})

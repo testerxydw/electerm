@@ -12,8 +12,22 @@
  * 宽限期是权衡的结果 —— 用户来回切 tab（查终端、看文件）不该触发 1–2 秒的重连。
  */
 
-// 切走多久之后挂起。太短会让"切去看一眼就回来"变成重连，太长省不下内存。
-export const suspendGraceMs = 30000
+// 切走多久之后挂起（毫秒）的默认值。太短会让"切去看一眼就回来"变成重连，
+// 太长省不下内存。默认 5 分钟：覆盖"去查别的 tab、回个消息"这类常见离开，
+// 又不会让隐藏的 VNC/RDP/SPICE 空转太久（M6 实测：隐藏也在全速收帧）。
+export const suspendGraceDefaultMs = 5 * 60 * 1000
+
+// 读当前配置的挂起宽限期（秒）。config 没有这个键时回到默认 5 分钟。
+// 三端 remote 组件不在 manate 订阅范围内，不会随 config 版本自动重渲染，
+// 所以宽限期必须在这里"到点才读"，而不是构造时读一次写死 ——
+// 用户改完档位，下一次切走就用新值。
+export function suspendGraceMs () {
+  const sec = window.store?.config?.remoteSuspendSeconds
+  // 0/负数是异常值（setTimeout(fn, 0) 会立即挂起），与缺失同样回默认
+  return (!Number.isFinite(sec) || sec <= 0)
+    ? suspendGraceDefaultMs
+    : sec * 1000
+}
 
 /**
  * 这个 tab 现在是不是它所在批次的当前 tab。
@@ -30,10 +44,9 @@ export function isTabActive (props) {
 }
 
 export default class RemoteSuspend {
-  constructor ({ onSuspend, onResume, graceMs = suspendGraceMs }) {
+  constructor ({ onSuspend, onResume }) {
     this.onSuspend = onSuspend
     this.onResume = onResume
-    this.graceMs = graceMs
     this.timer = null
     this.suspended = false
   }
@@ -51,11 +64,12 @@ export default class RemoteSuspend {
     if (this.suspended) {
       return
     }
+    // 到点才读当前宽限期：见 suspendGraceMs 的注释
     this.timer = setTimeout(() => {
       this.timer = null
       this.suspended = true
       this.onSuspend()
-    }, this.graceMs)
+    }, suspendGraceMs())
   }
 
   stop () {

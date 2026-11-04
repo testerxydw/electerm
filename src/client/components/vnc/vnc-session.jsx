@@ -10,6 +10,7 @@ import {
   Select
 } from 'antd'
 import SwitchLabel from '../common/switch'
+import RemoteSuspendSelect from '../common/remote-suspend-select'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import Modal from '../common/modal'
@@ -790,6 +791,7 @@ export default class VncSession extends PureComponent {
           checked={this.getFit()}
           onChange={this.handleScaleViewChange}
         />
+        <RemoteSuspendSelect />
       </>
     )
   }

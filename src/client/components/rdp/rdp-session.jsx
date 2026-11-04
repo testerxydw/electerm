@@ -17,6 +17,7 @@ import {
   Tooltip
 } from 'antd'
 import SwitchLabel from '../common/switch'
+import RemoteSuspendSelect from '../common/remote-suspend-select'
 import * as ls from '../../common/safe-local-storage'
 import { isMac } from '../../common/platform'
 import { getScancode } from './code-scan'
@@ -1023,6 +1024,7 @@ export default class RdpSession extends PureComponent {
         <HelpIcon
           link='https://github.com/electerm/electerm/wiki/RDP-File-Transfer'
         />
+        <RemoteSuspendSelect />
       </>
     )
   }

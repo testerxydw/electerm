@@ -7,6 +7,7 @@ import {
   statusMap
 } from '../../common/constants'
 import SwitchLabel from '../common/switch'
+import RemoteSuspendSelect from '../common/remote-suspend-select'
 import * as ls from '../../common/safe-local-storage'
 import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
@@ -214,12 +215,15 @@ export default class SpiceSession extends PureComponent {
   // 栏内条目（N3 契约里的 displayItems）：缩放开关留在顶栏，一眼看得见
   renderDisplayItems = () => {
     return (
-      <SwitchLabel
-        size='small'
-        label={window.translate('scaleViewport')}
-        checked={this.getFit()}
-        onChange={this.handleScaleViewChange}
-      />
+      <>
+        <SwitchLabel
+          size='small'
+          label={window.translate('scaleViewport')}
+          checked={this.getFit()}
+          onChange={this.handleScaleViewChange}
+        />
+        <RemoteSuspendSelect />
+      </>
     )
   }
 
