@@ -197,26 +197,27 @@ describe('tab 关闭：统一的按 tab 资源释放', () => {
     assert.match(src, /delete store\.recState\[tab\.id\]/)
   })
 
-  test('removeTabs 与右键批量关闭、重连都复用同一释放实现', () => {
-    for (const fn of ['removeTabs', 'closeOtherTabs', 'closeTabsRight', 'reloadTab']) {
+  test('removeTabs 与重连复用同一释放实现，批量关闭经 closeTabsBatch 收口到 removeTabs', () => {
+    for (const fn of ['removeTabs', 'reloadTab']) {
       const block = src.split(`Store.prototype.${fn}`)[1] || ''
       assert.ok(block, fn + ' must exist')
       assert.match(block, /releaseTabResources\(/, fn + ' 必须复用 releaseTabResources')
     }
+    const batch = src.split('async function closeTabsBatch')[1] || ''
+    assert.ok(batch, '缺 closeTabsBatch：批量关闭的统一收尾')
+    assert.match(batch.split('export default')[0], /store\.removeTabs\(/,
+      'closeTabsBatch 必须把删除交给 removeTabs（释放/压栈/指针都在里面）')
+    for (const fn of ['closeOtherTabs', 'closeTabsRight', 'closeTabsLeft', 'closeAllTabs']) {
+      const block = (src.split(`Store.prototype.${fn}`)[1] || '').split('Store.prototype.')[0]
+      assert.match(block, /closeTabsBatch\(/, fn + ' 必须走 closeTabsBatch')
+    }
   })
 
-  test('反向：closeOtherTabs / closeTabsRight 每个 splice 之前都已释放资源', () => {
-    for (const fn of ['closeOtherTabs', 'closeTabsRight']) {
+  test('反向：批量关闭不再自己 splice（少了 splice 就少了"忘记释放"的机会）', () => {
+    for (const fn of ['closeOtherTabs', 'closeTabsRight', 'closeTabsLeft', 'closeAllTabs']) {
       const block = (src.split(`Store.prototype.${fn}`)[1] || '').split('Store.prototype.')[0]
-      let cursor = 0
-      let pos = block.indexOf('tabs.splice', cursor)
-      assert.ok(pos > -1, fn + ' must splice')
-      while (pos > -1) {
-        const released = block.lastIndexOf('releaseTabResources(', pos)
-        assert.ok(released > cursor, fn + ' splice 之前必须先 releaseTabResources')
-        cursor = pos
-        pos = block.indexOf('tabs.splice', cursor + 1)
-      }
+      assert.ok(block, fn + ' must exist')
+      assert.doesNotMatch(block, /tabs\.splice/, fn + ' 不该再自己 splice，删除统一走 removeTabs')
     }
   })
 })
