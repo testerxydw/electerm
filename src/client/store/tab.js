@@ -101,6 +101,39 @@ function releaseTabResources (tab) {
   }
 }
 
+// 批量关闭（关闭右侧 / 左侧 / 其他 / 全部）的统一收尾，和 delTab 单条关闭同一套：
+//   1) 逐条过 txCloseGuards（未提交事务要人确认），某条取消就停止后续，已确认的照关；
+//   2) 删除本身交给 removeTabs —— 它负责资源释放、压 closedTabs 栈、修正活动指针；
+//   3) 按 batch 收空窗格（autoCloseEmptyPane 开关在那里面判）；
+//   4) 广播态跟着收敛（关的是主控或目标时不能等 socket 自己断）。
+// 以前这几条路径直接 splice，守卫、空窗格、指针修正三件事都没做。
+async function closeTabsBatch (store, targets) {
+  const guards = store.txCloseGuards || {}
+  const ids = []
+  for (const tab of targets) {
+    const guard = guards[tab.id]
+    if (typeof guard === 'function') {
+      const ok = await guard()
+      if (!ok) {
+        break
+      }
+      // 守卫弹窗期间这条可能已被别的路径关掉（重复触发/批量关闭）
+      if (!store.tabs.some(t => t.id === tab.id)) {
+        continue
+      }
+    }
+    ids.push(tab.id)
+  }
+  if (!ids.length) {
+    return
+  }
+  const idSet = new Set(ids)
+  const batches = [...new Set(store.tabs.filter(t => idSet.has(t.id)).map(t => Number(t.batch)))]
+  store.removeTabs(t => idSet.has(t.id))
+  batches.forEach(batch => store.autoClosePaneIfEmpty(batch))
+  ids.forEach(id => store.onBroadcastTabClosed?.(id))
+}
+
 export default Store => {
   Store.prototype.nextTabCount = function () {
     return updateCount()
@@ -188,86 +221,37 @@ export default Store => {
   Store.prototype.closeTabsRight = function (id) {
     const { store } = window
     const { tabs } = store
-    const targetTab = tabs.find(t => t.id === id)
-    if (!targetTab) {
+    const targetIndex = tabs.findIndex(t => t.id === id)
+    if (targetIndex < 0) {
       return
     }
-    const targetBatch = targetTab.batch
-    const targetIndex = tabs.findIndex(t => t.id === id)
-
-    // Remove all tabs in the same batch that are to the right
-    for (let i = tabs.length - 1; i > targetIndex; i--) {
-      const closingTab = tabs[i]
-      if (closingTab.batch === targetBatch) {
-        // Handle current tab closure
-        if (closingTab.id === store.activeTabId) {
-          store.activeTabId = id
-        } else if (closingTab.id === store[`activeTabId${targetBatch}`]) {
-          store[`activeTabId${targetBatch}`] = id
-        }
-
-        releaseTabResources(closingTab)
-        pushClosedTab(closingTab)
-        tabs.splice(i, 1)
-      }
-    }
+    const targetBatch = tabs[targetIndex].batch
+    return closeTabsBatch(store, tabs.filter((t, i) => i > targetIndex && t.batch === targetBatch))
   }
 
   // 关闭同 batch 中当前 tab 左侧的所有页签（closeTabsRight 的对称）。
-  // 不越 batch（分屏后各 pane 自己管），activeTabId 保留当前 tab。
+  // 不越 batch（分屏后各 pane 自己管）。
   Store.prototype.closeTabsLeft = function (id) {
     const { store } = window
     const { tabs } = store
-    const targetTab = tabs.find(t => t.id === id)
-    if (!targetTab) {
+    const targetIndex = tabs.findIndex(t => t.id === id)
+    if (targetIndex < 0) {
       return
     }
-    const targetBatch = targetTab.batch
-    const targetIndex = tabs.findIndex(t => t.id === id)
-
-    // 从左往右 splice，i 每减一 tabs 长度也减一，所以直接用当前值
-    for (let i = targetIndex - 1; i >= 0; i--) {
-      const closingTab = tabs[i]
-      if (closingTab.batch === targetBatch) {
-        // activeTabId 不可能是左侧 tab（当前 index 比它们都大），
-        // 所以不用像 closeTabsRight 那样重指向；activeTabId<id 时不影响
-        if (closingTab.id === store.activeTabId) {
-          store.activeTabId = id
-        }
-        if (closingTab.id === store[`activeTabId${targetBatch}`]) {
-          store[`activeTabId${targetBatch}`] = id
-        }
-
-        releaseTabResources(closingTab)
-        pushClosedTab(closingTab)
-        tabs.splice(i, 1)
-      }
-    }
+    const targetBatch = tabs[targetIndex].batch
+    return closeTabsBatch(store, tabs.filter((t, i) => i < targetIndex && t.batch === targetBatch))
   }
 
   // 关闭同 batch 的所有页签（包括自己）——closeOtherTabs 是"除我之外的其他"，
-  // 本方法是"整个 pane 全部清掉"，activeTabId 指向 batch 里最后一条被删的
-  // （循环从右往左 splice 保证 active 在左侧不会提前移位），保留给框架处理。
+  // 本方法是"整个 pane 全部清掉"。
   Store.prototype.closeAllTabs = function (id) {
     const { store } = window
-    const { tabs } = store
-    const targetTab = tabs.find(t => t.id === id)
+    const targetTab = store.tabs.find(t => t.id === id)
     if (!targetTab) {
       return
     }
     const targetBatch = targetTab.batch
-
-    // 循环从右往左，避免 splice 影响左侧索引
-    for (let i = tabs.length - 1; i >= 0; i--) {
-      const closingTab = tabs[i]
-      if (closingTab.batch !== targetBatch) {
-        continue
-      }
-      releaseTabResources(closingTab)
-      pushClosedTab(closingTab)
-      tabs.splice(i, 1)
-    }
-    // batch 全部清空了，activeTabId 交给框架（tab 组件 mount/unmount 时会修正）
+    return closeTabsBatch(store, store.tabs.filter(t => t.batch === targetBatch))
   }
 
   Store.prototype.reloadTab = function (tabId = window.store.activeTabId) {
@@ -394,26 +378,12 @@ export default Store => {
   Store.prototype.closeOtherTabs = function (id) {
     const { store } = window
     const { tabs } = store
-    const targetTab = tabs.find(t => t.id === id)
-    if (!targetTab) {
+    const targetIndex = tabs.findIndex(t => t.id === id)
+    if (targetIndex < 0) {
       return
     }
-    const currentBatch = targetTab.batch
-
-    for (let i = tabs.length - 1; i >= 0; i--) {
-      const tab = tabs[i]
-      if (tab.batch === currentBatch && tab.id !== id) {
-        if (tab.id === store.activeTabId) {
-          store.activeTabId = id
-        }
-        if (tab.id === store[`activeTabId${currentBatch}`]) {
-          store[`activeTabId${currentBatch}`] = id
-        }
-        releaseTabResources(tab)
-        pushClosedTab(tab)
-        tabs.splice(i, 1)
-      }
-    }
+    const currentBatch = tabs[targetIndex].batch
+    return closeTabsBatch(store, tabs.filter(t => t.batch === currentBatch && t.id !== id))
   }
 
   // 重新打开最近关掉的页签：从 closedTabs 栈顶弹一条快照，addTab 会补上新的
@@ -523,6 +493,16 @@ export default Store => {
       // If the batch's current tab was removed or doesn't exist
       if (removedSet.has(currentBatchId) || !currentBatchId) {
         store[batchTabId] = batchFirstTabs[batch]
+      }
+    }
+
+    // 空窗格的指针不能留着指已关页签：layout.jsx 把 store['activeTabId' + i] 直接
+    // 喂给 currentBatchTabId，悬空指针会让会话层以为那个窗格还有一条活动页签
+    const liveBatches = new Set(remainingTabs.map(t => Number(t.batch)))
+    const paneCount = (splitConfig[store.layout] && splitConfig[store.layout].children) || 1
+    for (let batch = 0; batch < paneCount; batch++) {
+      if (!liveBatches.has(batch)) {
+        store['activeTabId' + batch] = ''
       }
     }
     store.focus()
