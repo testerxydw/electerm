@@ -1,7 +1,19 @@
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
 
-const loadAddon = () => import('../../client/components/terminal/highlight-addon.js')
+// 本文件验证「单遍扫描引擎 == 逐规则参考引擎」逐字节一致。参考引擎不含密度策略，
+// 故这里统一关掉 V2 批次 3 的行级覆盖率闸；闸的语义由 keyword-density.spec.js 验收。
+const loadAddon = async () => {
+  const mod = await import('../../client/components/terminal/highlight-addon.js')
+  return {
+    ...mod,
+    KeywordHighlighterAddon: class extends mod.KeywordHighlighterAddon {
+      constructor (keywords, opts = {}) {
+        super(keywords, { coverageGate: false, ...opts })
+      }
+    }
+  }
+}
 const loadPresets = () => import('../../client/common/keyword-presets.js')
 const loadGroups = () => import('../../client/common/keyword-groups.js')
 const loadCompile = () => import('../../client/common/keyword-compile.js')
@@ -98,22 +110,28 @@ const corpus = [
 
 const subsets = async () => {
   const { keywordPresets } = await loadPresets()
-  const { activeKeywords } = await loadGroups()
-  const names = keywordPresets.map(p => p.name)
+  const { activeKeywords, setPresetGroupOn } = await loadGroups()
+  const byName = n => keywordPresets.find(p => p.name === n)
+  // 走应用真实路径：把预设逐个点亮（展开 requires），再取生效规则。
+  // 这样既验证了单遍引擎与逐规则引擎等价，也隐含验证了 requires 展开后规则集正确。
+  const build = (label, presets) => {
+    let list = []
+    for (const p of presets) {
+      if (!p) continue
+      list = setPresetGroupOn(list, p, true)
+    }
+    return { label, rules: activeKeywords(list) }
+  }
   const out = []
   // 全量、每个单组、Shell+日志混合、以及若干两两组合
-  out.push(['全量', keywordPresets])
-  for (const name of names) out.push([name, keywordPresets.filter(p => p.name === name)])
-  const byName = n => keywordPresets.find(p => p.name === n)
-  out.push(['Shell+应用日志', [byName('Shell & command output'), byName('Application log levels')]])
-  out.push(['Networking+Docker', [byName('Networking'), byName('Docker & Kubernetes')]])
-  out.push(['HTTP+DB', [byName('HTTP & web logs'), byName('Database & SQL')]])
-  out.push(['Git+Build', [byName('Git'), byName('Build & test output')]])
-  out.push(['Auth+Kernel', [byName('Auth & security'), byName('Linux kernel & dmesg')]])
-  return out.map(([label, presets]) => {
-    const rules = activeKeywords(presets.reduce((acc, p) => acc.concat(p.keywords), []))
-    return { label, rules }
-  })
+  out.push(build('全量', keywordPresets))
+  for (const p of keywordPresets) out.push(build(p.name, [p]))
+  out.push(build('Shell+应用日志', [byName('通用 · 时间与数值'), byName('Application log levels')]))
+  out.push(build('Networking+Docker', [byName('Networking'), byName('Docker & Kubernetes')]))
+  out.push(build('HTTP+DB', [byName('HTTP & web logs'), byName('Database & SQL')]))
+  out.push(build('Git+Build', [byName('Git'), byName('Build & test output')]))
+  out.push(build('Auth+Kernel', [byName('Auth & security'), byName('Linux kernel & dmesg')]))
+  return out
 }
 
 describe('single-regex engine is equivalent to per-rule scanning', () => {

@@ -13,7 +13,7 @@ const DB_SESSION = path.join(DB_DIR, 'db-session.jsx')
 // 性能/资源消耗守护单测（配套 doc/已完成/分析-性能热点与优化总案-2026-10-21.md）：
 // 1) 算法预算：值预览高亮在大文本 × 多规则下的耗时上限（防病态回退）
 // 2) 源码契约：已落地的性能修复锁死——每渲染重算/重建与 deepCopy getter 不得回归
-const loadHighlightValue = () => {
+const loadHighlightValue = async () => {
   const src = fs.readFileSync(HIGHLIGHT, 'utf8')
   const m = src.match(/export function highlightValue \([\s\S]*?\n\}/)
   assert.ok(m, 'highlightValue definition not found')
@@ -27,9 +27,16 @@ const loadHighlightValue = () => {
     "{ key: h.start, className: 'db-kw', style: (themeConfig && themeConfig[h.color] ? { color: themeConfig[h.color] } : undefined) }, " +
     'text.slice(h.start, h.end))'
   )
+  // V2 批次 0 起 highlightValue 复用 common/keyword-scan.js 的单遍扫描；批次 3 又加了
+  // 行级覆盖率闸。三者都注入真实实现，否则沙箱里会 ReferenceError（历史遗留缺口）。
+  const { buildScan, collectMatches, applyCoverageGate } =
+    await import('../../client/common/keyword-scan.js')
   const sandbox = {
     maxHighlightLength: 4096,
     maxHits: 200,
+    buildScan,
+    collectMatches,
+    applyCoverageGate,
     React: {
       createElement: (type, props, ...children) => ({ type, props, children })
     }
@@ -40,8 +47,8 @@ const loadHighlightValue = () => {
 
 const loadSrc = p => fs.readFileSync(p, 'utf8')
 
-describe('perf guard: highlightValue budget (real source)', () => {
-  const highlightValue = loadHighlightValue()
+describe('perf guard: highlightValue budget (real source)', async () => {
+  const highlightValue = await loadHighlightValue()
   // 30 条混合规则 × 100KB 文本：逼近值预览上限的真实规模
   const rules = [
     { re: /192[.]168[.][0-9]+[.][0-9]+/gi, color: 'red' },

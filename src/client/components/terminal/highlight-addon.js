@@ -1,68 +1,92 @@
 import { compileKeywords } from '../../common/keyword-compile.js'
 import { activeKeywords } from '../../common/keyword-groups.js'
+import { buildScan, collectMatches, applyCoverageGate } from '../../common/keyword-scan.js'
 
-// 单遍扫描结构缓存：compiledPatterns 由 keyword-compile 在进程内共享（同一份
-// 配置开 N 个页签只编译一次），所以按数组身份把扫描结构也只建一次。
-// 结构 = { combined, sticky, colorCodes }：
-//   combined   每条规则源用非捕获组包一层后 | 连起来，一次 exec 从左到右找
-//              「最早命中的起点」——整段只被这条主正则扫一遍
-//   sticky     每条规则的 y(锚定) 版，用于在某个起点上精确裁决谁赢
-//   colorCodes 与 compiledPatterns 同序的颜色码
-const scanCache = new WeakMap()
+// 单遍扫描 + 同起点取最短裁决已抽到 common/keyword-scan.js，终端与网格共用同一套实现；
+// 行级覆盖率闸（V2 §7.3）也在那一层，两端同实现。
 
-// 合成单遍扫描结构
-//
-// 为什么这样做：旧实现是「每条规则各自把整段扫一遍」，成本 O(规则数 × 段长)，
-// 被其它规则包含的子集规则也会各扫一遍整段。这里改成「单遍定位 + 起点精确裁决」：
-//   1) 用合并大正则一次性找到当前最早命中的起点 s；
-//   2) 只在 s 这一点用各规则的锚定版逐条试，取「跨度最短者、等跨度取原序最先者」
-//      ——这正是旧终端的裁决口径（matches.sort((a,b)=>a.start-b.start||a.end-b.end)
-//      再跳过重叠）；
-//   3) 命中跨度 [s,e) 后从 e 继续找下一个起点。
-// 主正则把整段扫成一遍，规则数不再乘以段长；被包含的短规则不会因为「另有一条
-// 包含它的长规则」而重复扫整段——它只在真正竞争的起点上参与一次锚定比较。
-function buildScan (patterns) {
-  if (!patterns || patterns.length === 0) {
-    return null
-  }
-  if (scanCache.has(patterns)) {
-    // 可能是 null（合并失败的退化标记），也要命中缓存，避免每次重建
-    return scanCache.get(patterns)
-  }
-  const colorCodes = []
-  const sticky = []
-  const sources = []
-  let ok = true
-  for (const p of patterns) {
-    colorCodes.push(p.colorCode)
-    try {
-      // 锚定版：lastIndex=s 时只认「恰好在 s 起点」的命中，用来裁决同起点谁赢。
-      // 标志保留 i（源大小写不敏感），只把 g 换成 y
-      sticky.push(new RegExp(p.re.source, 'gyi'))
-      // 非捕获组包一层，保住原规则里的顶层 | 不被合并正则的 | 抢先拆开
-      sources.push('(?:' + p.re.source + ')')
-    } catch (e) {
-      ok = false
-      break
+const ESC_CHAR = '\u001b'
+const BEL_CHAR = '\u0007'
+
+// CSI 参数字节：'0'-'9' 与 ';'；终结字节：A-Z / a-z
+const isParamByte = (code) => (code >= 48 && code <= 57) || code === 59
+const isFinalByte = (code) => (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+
+/**
+ * 收集所有位于控制序列之外的换行下标。
+ *
+ * highlightKeywords 把 OSC（ESC ] ... BEL / ESC \）与 CSI（ESC [ ... letter）视作零宽
+ * 段；一次写入超过 maxHighlightLength 时，highlightChunk 会把它按行拆开逐段扫描。
+ * 朴素的 split('\n') 不认识控制序列：OSC 负载里带字面 \n 时，一条完整序列被切成
+ * 两个半截序列分别送进 highlightKeywords，负载字节被当纯文本染色（ANSI 码插进
+ * OSC 内部、序列被破坏），覆盖率闸也被压成「半行」窗口。
+ *
+ * 这里用轻量状态机跳过 OSC / CSI / 其它两字节 ESC 序列，只在序列之外记录 \n；
+ * 序列内部的 \n 原样留在同一段里，由 highlightKeywords 一次看到完整 OSC，并对
+ * 拼接后的整段 plain 只跑一次 applyCoverageGate（不退化成逐片段裁决）。
+ * 未闭合的 OSC（写入被截断，缺 BEL / ESC \）一路保护到文本末尾，同样不切。
+ *
+ * @param {string} text 一次写入
+ * @returns {number[]} 可安全切分的 \n 下标（升序）
+ */
+const plainNewlineIndexes = (text) => {
+  const points = []
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === ESC_CHAR) {
+      const next = text[i + 1]
+      if (next === ']') {
+        // OSC：直到 BEL 或 ESC \ 结束；未闭合则保护到末尾
+        i += 2
+        while (i < text.length) {
+          if (text[i] === BEL_CHAR) {
+            i++
+            break
+          }
+          if (text[i] === ESC_CHAR && text[i + 1] === '\\') {
+            i += 2
+            break
+          }
+          i++
+        }
+        continue
+      }
+      if (next === '[') {
+        // CSI：ESC [ 可选 '?' + 参数字节 + 一个终结字母
+        let j = i + 2
+        if (text[j] === '?') {
+          j++
+        }
+        while (j < text.length && isParamByte(text.charCodeAt(j))) {
+          j++
+        }
+        if (j < text.length && isFinalByte(text.charCodeAt(j))) {
+          j++
+        }
+        i = j
+        continue
+      }
+      // 其它两字节 ESC 序列（ESC c / ESC 7 / ESC P ...）：整体跳过。
+      // DCS 已在 activate 里由 containsDcsSequence 早退，直接调 highlightChunk
+      // 时保持与旧实现一致（负载按普通文本处理），不改变既有行为。
+      i += 2
+      continue
     }
-  }
-  let struct = null
-  if (ok) {
-    try {
-      const combined = new RegExp(sources.join('|'), 'gi')
-      struct = { combined, sticky, colorCodes }
-    } catch (e) {
-      // 用户规则里有重名命名分组等导致无法合并：退回逐规则扫描（_collectMatches 判断）
-      console.error('Invalid combined keyword regex, falling back:', e)
-      struct = null
+    if (ch === '\n') {
+      points.push(i)
     }
+    i++
   }
-  scanCache.set(patterns, struct)
-  return struct
+  return points
 }
 
 export class KeywordHighlighterAddon {
-  constructor (keywords) {
+  constructor (keywords, opts = {}) {
+    // 密度闸默认开；纯「规则形状/配色」契约探针可传 { coverageGate: false } 关掉，
+    // 断言「某正则染成某色」时不受密度策略干扰（密度策略由 keyword-density.spec.js 单独验收）。
+    this.coverageGate = opts.coverageGate !== false
+    this.coverageThreshold = opts.coverageThreshold
     // 编译走进程级共享缓存（keyword-compile.js）：同一份配置开 N 个页签、
     // 断线重连 N 次都只编译一次，不再每个终端常驻一套 RegExp。
     // 缓存按内容摘要命中，所以这里不必保留 keywords 数组。
@@ -111,96 +135,6 @@ export class KeywordHighlighterAddon {
       .replace(/\033/g, '\\033')
   }
 
-  // 在「单遍定位」给出的起点 s 上做精确裁决：在所有恰好于 s 命中的规则里，取
-  // 跨度最短者；跨度相同则取原序最先者（与旧终端 matches.sort 完全一致）。
-  // 返回 { end, colorCode } 或 null（没有规则在 s 命中非空跨度）。
-  _arbitrateAt = (content, s) => {
-    const { sticky, colorCodes } = this._scan
-    let bestEnd = -1
-    let bestColor
-    for (let i = 0; i < sticky.length; i++) {
-      const re = sticky[i]
-      re.lastIndex = s
-      const m = re.exec(content)
-      if (!m || m[0].length === 0) {
-        continue
-      }
-      const end = s + m[0].length
-      // 严格小于：更短才覆盖；等长不覆盖，从而保留原序最先的那条
-      if (bestEnd === -1 || end < bestEnd) {
-        bestEnd = end
-        bestColor = colorCodes[i]
-      }
-    }
-    if (bestEnd === -1) {
-      return null
-    }
-    return { end: bestEnd, colorCode: bestColor }
-  }
-
-  // 单遍收集一段纯文本里的全部命中（坐标基于原文）。
-  // 优先用「合并大正则定位 + 起点锚定裁决」；合并失败时退回逐规则扫描。
-  _collectMatches = (content) => {
-    const matches = []
-    const cap = this.maxMatchesPerSegment
-    if (this._scan) {
-      const { combined } = this._scan
-      let from = 0
-      const len = content.length
-      while (from < len) {
-        combined.lastIndex = from
-        const m = combined.exec(content)
-        if (!m) {
-          break
-        }
-        // 合并正则取到的是「最早命中的起点」，具体谁赢、跨度多少要锚定裁决
-        const start = m.index
-        const win = this._arbitrateAt(content, start)
-        if (!win || win.end <= start) {
-          // 理论上不会发生（合并命中说明有规则在此命中）；跳过一格防死循环
-          from = start + 1
-          continue
-        }
-        matches.push({
-          start,
-          end: win.end,
-          text: content.slice(start, win.end),
-          colorCode: win.colorCode
-        })
-        if (matches.length >= cap) {
-          break
-        }
-        // 从裁决出的跨度末尾继续（合并正则 lastIndex 可能更远，以裁决为准）
-        from = win.end
-      }
-      return matches
-    }
-    // 退化路径：逐规则扫描（保持旧行为），仅在合并失败时使用；后续仍需排序去重叠
-    for (const { re, colorCode } of this.compiledPatterns) {
-      re.lastIndex = 0
-      let m
-      while ((m = re.exec(content)) !== null) {
-        if (m[0].length === 0) {
-          re.lastIndex++
-          continue
-        }
-        matches.push({
-          start: m.index,
-          end: m.index + m[0].length,
-          text: m[0],
-          colorCode
-        })
-        if (matches.length >= cap) {
-          break
-        }
-      }
-      if (matches.length >= cap) {
-        break
-      }
-    }
-    return matches
-  }
-
   highlightKeywords = (text) => {
     // Early exit if no patterns
     if (this.compiledPatterns.length === 0) {
@@ -231,18 +165,34 @@ export class KeywordHighlighterAddon {
       segments.push({ type: 'text', content: text.slice(lastIndex) })
     }
 
-    // Highlight only plain text segments
-    const result = segments.map(seg => {
+    // V2 §7.3：覆盖率闸必须按「物理行」算，不能按写入片段算。ANSI/OSC 序列在
+    // 终端里不占可见列，却会把一条物理行切成多个 text segment —— 若逐段独立跑闸，
+    // 一段 88% + 一段 7% 的行会被当成两行，脏段被误丢或净段被误伤（QA 实证）。
+    // 做法：先把所有纯文本段按序拼成 plain（ANSI 视作零宽），记录每段在 plain 里的
+    // 偏移；逐段扫描后把命中平移到 plain 坐标系统一裁决；最后按段回写 ANSI。
+    // 这样既保持原有「逐段扫描 + 每段命中上限」的语义，又让闸看到完整物理行。
+    let plain = ''
+    const plainSegments = []
+    for (const seg of segments) {
       if (seg.type === 'ansi') {
-        return seg.content
+        continue
       }
-      const content = seg.content
-      const matches = this._collectMatches(content)
+      seg.plainOffset = plain.length
+      plain += seg.content
+      plainSegments.push(seg)
+    }
+    if (plain.length === 0) {
+      return text
+    }
+
+    const globalHits = []
+    for (const seg of plainSegments) {
+      const matches = collectMatches(seg.content, this.compiledPatterns, this._scan, this.maxMatchesPerSegment)
       if (matches.length === 0) {
-        return content
+        continue
       }
-      // 合并正则已保证命中按左到右、互不重叠；这里仍按「起点升序、同起点取更短」
-      // 排一遍并跳过重叠，兜住退化路径与任何边界情况，结论与旧实现一致
+      // collectMatches 已按「起点升序、同起点取更短」去重叠；这里再排一遍并跳过重叠，
+      // 兜住退化路径与任何边界情况，结论与旧实现一致
       matches.sort((a, b) => a.start - b.start || a.end - b.end)
       const filtered = [matches[0]]
       for (let i = 1; i < matches.length; i++) {
@@ -250,23 +200,66 @@ export class KeywordHighlighterAddon {
           filtered.push(matches[i])
         }
       }
-      // Build result with ANSI codes inserted at correct positions
+      for (const m of filtered) {
+        globalHits.push({
+          start: seg.plainOffset + m.start,
+          end: seg.plainOffset + m.end,
+          tier: m.tier,
+          colorCode: m.colorCode,
+          text: m.text,
+          seg,
+          localStart: m.start,
+          localEnd: m.end
+        })
+      }
+    }
+    if (globalHits.length === 0) {
+      return text
+    }
+    globalHits.sort((a, b) => a.start - b.start || a.end - b.end)
+    const ordered = [globalHits[0]]
+    for (let i = 1; i < globalHits.length; i++) {
+      if (globalHits[i].start >= ordered[ordered.length - 1].end) {
+        ordered.push(globalHits[i])
+      }
+    }
+    // 一次裁决：按 plain 的 \n 逐行算占比，超阈值行只保留 signal 命中
+    const kept = applyCoverageGate(plain, ordered, {
+      enabled: this.coverageGate,
+      threshold: this.coverageThreshold
+    })
+    const keptBySeg = new Map()
+    for (const h of kept) {
+      if (!keptBySeg.has(h.seg)) {
+        keptBySeg.set(h.seg, [])
+      }
+      keptBySeg.get(h.seg).push(h)
+    }
+
+    return segments.map(seg => {
+      if (seg.type === 'ansi') {
+        return seg.content
+      }
+      const hits = keptBySeg.get(seg)
+      if (!hits || hits.length === 0) {
+        return seg.content
+      }
       let highlighted = ''
       let pos = 0
-      for (const m of filtered) {
-        highlighted += content.slice(pos, m.start)
-        highlighted += m.colorCode + m.text + '\u001b[0m'
-        pos = m.end
+      for (const h of hits) {
+        highlighted += seg.content.slice(pos, h.localStart)
+        highlighted += h.colorCode + h.text + '\u001b[0m'
+        pos = h.localEnd
       }
-      highlighted += content.slice(pos)
+      highlighted += seg.content.slice(pos)
       return highlighted
     }).join('')
-
-    return result
   }
 
   // Highlight a write of any size: small writes in one pass, larger ones line
   // by line so a long line can't make the whole chunk skip highlighting.
+  // 切分只在「控制序列之外」的 \n 处进行（见 plainNewlineIndexes）：OSC 负载里的
+  // 字面 \n 不再是切点，一条跨行 OSC 完整留给同一次 highlightKeywords 处理。
   highlightChunk = (text) => {
     if (this.compiledPatterns.length === 0 || text.length > this.maxHighlightChunkLength) {
       return text
@@ -274,10 +267,22 @@ export class KeywordHighlighterAddon {
     if (text.length <= this.maxHighlightLength) {
       return this.highlightKeywords(text)
     }
-    return text.split('\n').map(line => {
-      return line.length > this.maxHighlightLength
-        ? line
-        : this.highlightKeywords(line)
+    const points = plainNewlineIndexes(text)
+    if (points.length === 0) {
+      // 没有序列外换行：整段就是一段超长行，沿用「超长单段原样跳过」
+      return text
+    }
+    const parts = []
+    let start = 0
+    for (const p of points) {
+      parts.push(text.slice(start, p))
+      start = p + 1
+    }
+    parts.push(text.slice(start))
+    return parts.map(part => {
+      return part.length > this.maxHighlightLength
+        ? part
+        : this.highlightKeywords(part)
     }).join('\n')
   }
 

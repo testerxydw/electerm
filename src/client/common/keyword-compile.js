@@ -23,7 +23,8 @@ const maxEntries = 4
 const patternSep = '\u0000'
 const fieldSep = '\u0001'
 
-// 编译产物：re 供扫描，color 给网格拼 CSS class，colorCode 给终端插 ANSI
+// 编译产物：re 供扫描，color 给网格拼 CSS（真彩色直接吃 hex，命名色走主题映射），
+// colorCode 给终端插 ANSI（命名色走 colorCodes，真彩色走 38;2;r;g;b 真彩色序列）。
 const colorCodes = {
   green: '\u001b[32m',
   yellow: '\u001b[33m',
@@ -34,16 +35,67 @@ const colorCodes = {
   red: '\u001b[31m'
 }
 
+// 合法颜色：7 个 ANSI 命名色，或 #rrggbb 真彩色（大小写均可）。
+const HEX_RE = /^#[0-9a-fA-F]{6}$/
+export const isHexColor = (c) => typeof c === 'string' && HEX_RE.test(c)
+
+// #rrggbb → 真彩色 ANSI 序列 \x1b[38;2;r;g;bm
+export const hexToTruecolor = (hex) => {
+  const h = hex.slice(1)
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `\u001b[38;2;${r};${g};${b}m`
+}
+
+// 把一条规则的 color 字段归一为「终端 ANSI 序列」：
+// 命名色 → 查表；真彩色 → 真彩色序列；其它（含脏值）→ 退回 red。
+export const colorToCode = (color) => {
+  if (isHexColor(color)) {
+    return hexToTruecolor(color)
+  }
+  return colorCodes[color] || colorCodes.red
+}
+
+// 扩充调色板：在 7 个语义 ANSI 名之外，提供一组在深色终端主题下可辨的真彩色。
+// 语义基线保留（红=错 / 黄=警 / 绿=成）；结构类（时间/数值/地址/路径）用冷色系
+// 细分，尽量让不同正则不重色（见 keyword-presets.js 的分配）。
+export const keywordPalette = [
+  // 语义基线（命名色，走主题映射）
+  { name: 'red', value: 'red', semantic: 'error' },
+  { name: 'yellow', value: 'yellow', semantic: 'warn' },
+  { name: 'green', value: 'green', semantic: 'ok' },
+  { name: 'cyan', value: 'cyan', semantic: 'info' },
+  { name: 'blue', value: 'blue', semantic: 'debug' },
+  { name: 'magenta', value: 'magenta', semantic: 'null' },
+  { name: 'white', value: 'white', semantic: 'misc' },
+  // 真彩色细分（结构类冷色系，尽量互不相同）
+  { name: 'cyan-bright', value: '#56D4FF', semantic: 'time' },
+  { name: 'teal', value: '#2DD4BF', semantic: 'duration' },
+  { name: 'sky', value: '#A5D6FF', semantic: 'size' },
+  { name: 'azure', value: '#79C0FF', semantic: 'number' },
+  { name: 'purple', value: '#D2A8FF', semantic: 'hex' },
+  { name: 'pink', value: '#FF9ECB', semantic: 'ipv4' },
+  { name: 'orchid', value: '#FF7BAC', semantic: 'addr6' },
+  { name: 'royal', value: '#9CDCFE', semantic: 'path' },
+  { name: 'mint', value: '#7EE787', semantic: 'srcloc' },
+  { name: 'gold', value: '#E3B341', semantic: 'optflag' },
+  { name: 'orange', value: '#F78C6C', semantic: 'url' },
+  { name: 'coral', value: '#FF6B6B', semantic: 'exception' }
+]
+
 const cache = new Map()
 
 export const keywordsSignature = (keywords) => {
   let sig = ''
   for (const item of keywords || []) {
-    const { keyword, color = 'red' } = item || {}
+    // tier 参与摘要：只改档位（signal ↔ structure）也必须重新编译，否则会命中
+    // 旧缓存拿到过期 tier，行级覆盖率闸据此误判去留。
+    const { keyword, color = 'red', tier = 'signal' } = item || {}
     if (!keyword) {
       continue
     }
-    sig += keyword + patternSep + color + fieldSep
+    sig += keyword + patternSep + color + patternSep + tier + fieldSep
   }
   return sig
 }
@@ -51,13 +103,14 @@ export const keywordsSignature = (keywords) => {
 function build (keywords) {
   const out = []
   for (const item of keywords || []) {
-    const { keyword, color = 'red' } = item || {}
+    const { keyword, color = 'red', tier } = item || {}
     if (!keyword) {
       continue
     }
     try {
       // 用户自定义规则可能不合法，跳过即可，不要拖垮终端或整表
-      out.push({ re: new RegExp(keyword, 'gi'), color, colorCode: colorCodes[color] || colorCodes.red })
+      // tier 透传：结构档（structure）命中在覆盖率闸里会被按需丢弃，语义档（signal）永远保留
+      out.push({ re: new RegExp(keyword, 'gi'), color, tier: tier || 'signal', colorCode: colorToCode(color) })
     } catch (e) {
       console.error('Invalid keyword regex:', keyword, e)
     }

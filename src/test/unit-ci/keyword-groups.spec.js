@@ -38,17 +38,17 @@ describe('keyword groups', () => {
     ])
   })
 
-  test('全部应用 13 个预设：面板统计 152 条，生效规则去重后 105 条', async () => {
+  test('全部应用：跨组唯一后工具栏条数 == 生效条数（无重复统计失真）', async () => {
     const { activeKeywords, setPresetGroupOn } = await load()
     const { keywordPresets } = await loadPresets()
     const applied = keywordPresets.reduce((acc, p) => setPresetGroupOn(acc, p, true), [])
     const active = activeKeywords(applied)
 
-    // 配置里按组各存一份（面板要按组统计勾选），共 152 条
-    assert.equal(applied.length, 152)
-    // 生效侧同正则同色的跨预设重复被去掉 = 105 条不同规则
-    assert.equal(active.length, 105)
-    assert.equal(new Set(active.map(r => r.keyword)).size, 105)
+    // 跨组唯一：每条规则全仓只存一份 → 配置条数 == 生效条数 == 工具栏求和
+    const toolbarTotal = keywordPresets.reduce((n, p) => n + p.keywords.length, 0)
+    assert.equal(applied.length, toolbarTotal)
+    assert.equal(active.length, toolbarTotal)
+    assert.equal(new Set(active.map(r => r.keyword)).size, active.length)
     // 去重不改变颜色：每条仍取预设里的配色
     const colorOf = new Map()
     for (const p of keywordPresets) {
@@ -160,12 +160,69 @@ describe('keyword groups', () => {
     assert.equal(idx.get(sample), keywordPresets[0].name)
   })
 
-  test('all presets view keeps 13 fixed groups even when nothing is applied', async () => {
-    const { allPresetViews } = await load()
+  test('all presets view keeps every fixed group even when nothing is applied', async () => {
+    const { allPresetViews, activeKeywords, setPresetGroupOn } = await load()
+    const { keywordPresets } = await loadPresets()
     const views = allPresetViews([])
-    assert.equal(views.length, 13)
+    assert.equal(views.length, keywordPresets.length)
     assert.equal(views.every(v => v.on === 0 && !v.checked && !v.indeterminate), true)
-    assert.equal(views.reduce((n, v) => n + v.total, 0), 152)
+    // 跨组唯一后工具栏求和 == 生效条数
+    const applied = keywordPresets.reduce((acc, p) => setPresetGroupOn(acc, p, true), [])
+    assert.equal(views.reduce((n, v) => n + v.total, 0), activeKeywords(applied).length)
+  })
+
+  test('勾选业务组自动点亮其 requires 的通用档', async () => {
+    const { setPresetGroupOn, activeKeywords } = await load()
+    const { keywordPresets } = await loadPresets()
+    const networking = keywordPresets.find(p => p.name === 'Networking')
+    const applied = setPresetGroupOn([], networking, true)
+    const addressGroup = keywordPresets.find(p => p.name === '通用 · 地址与路径')
+    const onAddress = applied.filter(r => r.group === '通用 · 地址与路径' && !r.off)
+    assert.equal(onAddress.length, addressGroup.keywords.length)
+    // 共享的 IP 规则实际生效（来自 requires 的通用档）
+    assert.ok(activeKeywords(applied).some(r => r.keyword.includes('25[0-5]')))
+  })
+
+  test('两个业务组共赖一档时，取消其一不误关', async () => {
+    const { setPresetGroupOn } = await load()
+    const { keywordPresets } = await loadPresets()
+    const sysgroup = keywordPresets.find(p => p.name === 'Syslog & systemd')
+    const netgroup = keywordPresets.find(p => p.name === 'Networking')
+    let list = setPresetGroupOn([], sysgroup, true)
+    list = setPresetGroupOn(list, netgroup, true)
+    list = setPresetGroupOn(list, sysgroup, false)
+    const onAddress = list.filter(r => r.group === '通用 · 地址与路径' && !r.off)
+    assert.ok(onAddress.length > 0, '地址与路径 仍被 Networking 依赖，不应关')
+  })
+
+  test('最后一个依赖者取消后，通用档才跟着关', async () => {
+    const { setPresetGroupOn } = await load()
+    const { keywordPresets } = await loadPresets()
+    const sysgroup = keywordPresets.find(p => p.name === 'Syslog & systemd')
+    const netgroup = keywordPresets.find(p => p.name === 'Networking')
+    const address = keywordPresets.find(p => p.name === '通用 · 地址与路径')
+    let list = setPresetGroupOn([], sysgroup, true)
+    list = setPresetGroupOn(list, netgroup, true)
+    list = setPresetGroupOn(list, sysgroup, false)
+    list = setPresetGroupOn(list, netgroup, false)
+    const onAddress = list.filter(r => r.group === address.name && !r.off)
+    assert.equal(onAddress.length, 0, '无依赖者后通用档应关')
+  })
+
+  test('regroupSharedRules 幂等且把共享规则归到通用档', async () => {
+    const { regroupSharedRules, setPresetGroupOn } = await load()
+    const { keywordPresets } = await loadPresets()
+    const legacy = setPresetGroupOn([], keywordPresets.find(p => p.name === 'Networking'), true)
+    // 模拟旧版：Networking 组下重复挂了一条 IP 规则（与通用档同正则同色）
+    const ipv4 = keywordPresets.find(p => p.name === '通用 · 地址与路径')
+      .keywords.find(k => k.keyword.includes('25[0-5]'))
+    legacy.push({ keyword: ipv4.keyword, color: ipv4.color, source: 'preset', group: 'Networking' })
+    const migrated = regroupSharedRules(legacy)
+    const again = regroupSharedRules(migrated)
+    assert.equal(again.length, migrated.length, 'migration is idempotent')
+    const ipRules = migrated.filter(r => r.keyword === ipv4.keyword)
+    assert.equal(ipRules.length, 1, 'shared rule folded to a single copy')
+    assert.equal(ipRules[0].group, '通用 · 地址与路径', 'folded into the universal group')
   })
 
   // ---- 自建分组 / 新增规则（keywords-form 新功能）----
@@ -243,5 +300,69 @@ describe('keyword groups', () => {
     const view3 = presetGroupView(muted, preset)
     assert.equal(view3.entries.find(e => e.keyword === 'bb').on, false)
     assert.equal(view3.entries.find(e => e.keyword === 'bb').index, 0)
+  })
+
+  test('同正则同色不同档：两条都在生效列表，signal 无 tier 字段且排在 structure 前', async () => {
+    const { activeKeywords } = await load()
+    const { keywordPresets } = await loadPresets()
+    const universal = keywordPresets.find(p => p.name === '通用 · 时间与数值')
+    const structureRule = universal.keywords.find(k =>
+      k.tier === 'structure' && new RegExp(k.keyword, 'gi').test('233G'))
+    assert.ok(structureRule, 'fixture 需要一条真实预设 structure 规则')
+    const list = [
+      {
+        keyword: structureRule.keyword,
+        color: structureRule.color,
+        source: 'preset',
+        group: universal.name,
+        tier: 'structure'
+      },
+      { keyword: structureRule.keyword, color: structureRule.color, source: 'user' }
+    ]
+    const active = activeKeywords(list)
+    assert.equal(active.length, 2, '档位纳入去重键后两条规则都应生效')
+    assert.deepEqual(active[0], { keyword: structureRule.keyword, color: structureRule.color },
+      'signal 规则必须保持「无 tier 字段」形状，且排在 structure 前')
+    assert.equal(active[1].tier, 'structure')
+    assert.equal(active[0].keyword, active[1].keyword)
+    assert.equal(active[0].color, active[1].color)
+  })
+
+  test('同正则不同档时 signal 赢下等长裁决，覆盖率闸不丢用户规则', async () => {
+    const { activeKeywords } = await load()
+    const { keywordPresets } = await loadPresets()
+    const { compileKeywords, clearKeywordCache, hexToTruecolor } =
+      await import('../../client/common/keyword-compile.js')
+    const { buildScan, collectMatches, applyCoverageGate } =
+      await import('../../client/common/keyword-scan.js')
+    const { KeywordHighlighterAddon } =
+      await import('../../client/components/terminal/highlight-addon.js')
+    const universal = keywordPresets.find(p => p.name === '通用 · 时间与数值')
+    const structureRule = universal.keywords.find(k =>
+      k.tier === 'structure' && new RegExp(k.keyword, 'gi').test('233G'))
+    const active = activeKeywords([
+      { keyword: structureRule.keyword, color: structureRule.color, source: 'preset', group: universal.name, tier: 'structure' },
+      { keyword: structureRule.keyword, color: structureRule.color, source: 'user' }
+    ])
+    const line = '233G '.repeat(30).trim()
+    clearKeywordCache()
+    const patterns = compileKeywords(active)
+    const scan = buildScan(patterns)
+    const hits = collectMatches(line, patterns, scan, 512)
+    assert.ok(hits.length >= 20, 'fixture sanity：规则确实扫到大量命中')
+    assert.ok(hits.every(h => h.tier === 'signal'), '等长裁决必须让 signal 赢')
+    assert.equal(applyCoverageGate(line, hits), hits, '全是 signal 命中时闸走快路径原样返回')
+
+    // 端到端：高占比行仍然看得见颜色
+    const addon = new KeywordHighlighterAddon(active)
+    assert.ok(addon.highlightKeywords(line).includes(hexToTruecolor(structureRule.color) + '233G'))
+
+    // 反证：若 structure 排在前面（即不做 signal 前置），等长裁决会让它赢并被闸丢弃
+    const reversed = compileKeywords([active[1], active[0]])
+    const reversedScan = buildScan(reversed)
+    const reversedHits = collectMatches(line, reversed, reversedScan, 512)
+    assert.ok(reversedHits.every(h => h.tier === 'structure'))
+    assert.ok(applyCoverageGate(line, reversedHits).length < reversedHits.length,
+      '反证：structure 先到会被覆盖率闸丢掉，signal 前置是必需的')
   })
 })

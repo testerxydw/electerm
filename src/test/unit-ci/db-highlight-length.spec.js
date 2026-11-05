@@ -11,8 +11,15 @@ const SRC = path.join(ROOT, 'src/client/components/database/db-highlight.jsx')
 // 抽真实函数源码，用 React.createElement 桩在 vm 里跑——测的是发布实现。
 // 背景见 doc/已完成/数据库功能设计归档-2026-10-21.md 同目录的值预览高亮修复：
 // 表格单元格默认上限（4096/200）防正则拖慢整表；值预览 <pre> 单值专用查看区，
-// 通过 opts 放宽上限（大 JSON 也要高亮）
-const loadHighlightValue = () => {
+// 通过 opts 放宽上限（大 JSON 也要高亮）。
+//
+// V2 批次 0 后，highlightValue 改用 common/keyword-scan.js 的 buildScan +
+// collectMatches（与终端同一套单遍扫描 + 同起点取最短裁决），故把这些函数注入沙箱。
+// 批次 3 又加了行级覆盖率闸 applyCoverageGate，同样注入真实实现；本文件的手写
+// patterns 全是 signal 档，闸走「无 structure 命中」快路径，不改变分段结论。
+const loadScan = () => import('../../client/common/keyword-scan.js')
+const loadHighlightValue = async () => {
+  const { buildScan, collectMatches, applyCoverageGate } = await loadScan()
   const src = fs.readFileSync(SRC, 'utf8')
   const m = src.match(/export function highlightValue \([\s\S]*?\n\}/)
   assert.ok(m, 'highlightValue definition not found in db-highlight.jsx')
@@ -31,6 +38,9 @@ const loadHighlightValue = () => {
     // createElement 桩：够断言分段结构即可；模块级上限常量一并注入
     maxHighlightLength: 4096,
     maxHits: 200,
+    buildScan,
+    collectMatches,
+    applyCoverageGate,
     React: {
       createElement: (type, props, ...children) => ({ type, props, children })
     }
@@ -45,8 +55,8 @@ const countSpans = parts => Array.isArray(parts)
   ? parts.filter(p => p && p.type === 'span').length
   : 0
 
-describe('highlightValue: long-text limits (real source)', () => {
-  const highlightValue = loadHighlightValue()
+describe('highlightValue: long-text limits (real source)', async () => {
+  const highlightValue = await loadHighlightValue()
   const theme = { red: '#ff0000' }
   // 超过默认上限 4096 的大文本（用户反馈的大 JSON 值场景）
   const bigText = 'x'.repeat(4000) + ' host=192.168.115.67 ' + 'y'.repeat(2000)

@@ -77,3 +77,41 @@ describe('keywords form: add rule / create group wiring (real source)', () => {
     assert.ok(!/named\s*\?\s*null/.test(rules[0]), 'add button must not be gated on unnamed group only')
   })
 })
+
+// V2 §7.2：全部应用 = 应用语义档（signal 全开 / structure 默认关）+ 独立结构档开关。
+// 老实现逐组 setPresetGroupOn 会因 requires 把通用结构档一起点亮，等于没治密度。
+describe('keywords form: V2 semantic-tier apply-all wiring (real source)', () => {
+  test('locale keys for semantic tier and structure toggle exist in both en and zh', () => {
+    const src = loadLocales()
+    for (const key of ['kwApplySemantic', 'kwApplySemanticTip', 'kwStructureTier', 'kwStructureTierTip']) {
+      const hits = src.match(new RegExp(key + ':', 'g')) || []
+      assert.equal(hits.length, 2, `${key} must exist in both en_US and zh_CN blocks`)
+    }
+  })
+
+  test('apply-all uses tier helpers, never the per-group requires path', () => {
+    const fn = loadJsx().match(/const setAll = \(on\) =>[^\n]+/)
+    assert.ok(fn, 'setAll helper not found')
+    assert.match(fn[0], /applySemanticTier\(list\)/, 'apply-all must open signal tier only')
+    assert.match(fn[0], /setAllOff\(list\)/, 'unapply-all must switch everything off')
+    assert.ok(!/setPresetGroupOn/.test(fn[0]), 'apply-all must not expand requires (would re-enable structure tier)')
+  })
+
+  test('toolbar shows apply-semantic label with a tooltip and a structure-tier switch', () => {
+    const src = loadJsx()
+    const toolbar = src.match(/<div className='kw-toolbar'>[\s\S]*?<\/span>\s*<\/div>/)
+    assert.ok(toolbar, 'toolbar block not found')
+    assert.match(toolbar[0], /kwApplySemanticTip/, 'apply-all needs a tooltip explaining the reduced coloring')
+    assert.match(toolbar[0], />\{e\('kwApplySemantic'\)\}</, 'button label says "apply semantic tier"')
+    assert.match(toolbar[0], /setStructure\(ev\.target\.checked\)/, 'structure toggle must be wired')
+    assert.match(toolbar[0], /checked=\{structureOn\}/, 'structure toggle reflects current state')
+    assert.match(toolbar[0], /kwStructureTierTip/, 'structure toggle needs a density warning')
+  })
+
+  test('structure toggle state comes from the shared group helper', () => {
+    const src = loadJsx()
+    assert.match(src, /const structureOn = isStructureTierOn\(list\)/)
+    assert.match(src, /setTierOn\(list, 'structure', on\)/)
+    assert.match(src, /import \{[\s\S]*?applySemanticTier,[\s\S]*?\} from '\.\.\/\.\.\/common\/keyword-groups'/)
+  })
+})

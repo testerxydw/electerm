@@ -14,17 +14,22 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import message from '../common/message'
 import { keywordPresets } from '../../common/keyword-presets'
+import { keywordPalette } from '../../common/keyword-compile'
 import {
   addUserRule,
   allPresetViews,
+  applySemanticTier,
   isRuleOn,
+  isStructureTierOn,
   presetKeywordIndex,
   removeEntry,
   removeUserGroup,
   renameUserGroup,
+  setAllOff,
   setEntryOn,
   setPresetGroupOn,
   setPresetRuleOn,
+  setTierOn,
   setUserGroupOn,
   updateEntry,
   userGroupViews
@@ -32,7 +37,8 @@ import {
 import './keywords-form.styl'
 
 const e = window.translate
-const colors = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+// 7 个语义命名色 + 真彩色扩展色板（结构类冷色系细分，尽量让不同正则不重色）
+const colors = keywordPalette.map(p => p.value)
 
 // antd 的 indeterminate 只能通过 DOM 属性设置
 function TriCheck ({ checked, indeterminate, onChange }) {
@@ -68,7 +74,7 @@ function ColorSelect ({ value, onChange, themeConfig }) {
           <Select.Option key={color} value={color}>
             <span
               className='color-picker-choose iblock'
-              style={{ backgroundColor: themeConfig[color] }}
+              style={{ backgroundColor: color.startsWith('#') ? color : (themeConfig[color] || themeConfig.red) }}
             />
           </Select.Option>
         ))
@@ -133,7 +139,7 @@ function RuleRow (props) {
           : (
             <span
               className='kw-swatch'
-              style={{ backgroundColor: themeConfig[rule.color] || themeConfig.red }}
+              style={{ backgroundColor: rule.color.startsWith('#') ? rule.color : (themeConfig[rule.color] || themeConfig.red) }}
             />
             )
       }
@@ -431,16 +437,12 @@ export default function KeywordForm (props) {
     )
   }
 
-  const setAll = (on) => {
-    let next = list
-    for (const preset of keywordPresets) {
-      next = setPresetGroupOn(next, preset, on)
-    }
-    for (const g of userGroups) {
-      next = setUserGroupOn(next, g.name, on)
-    }
-    commit(next)
-  }
+  // V2 §7.2：全部应用 = 应用语义档（signal 全开 + structure 默认关），
+  // 不再逐组 setPresetGroupOn —— 那样会因 requires 把两个通用结构档一起点亮，
+  // 又回到「105 条全上、满屏蓝」。结构档由下面的独立开关按需打开。
+  const setAll = (on) => commit(on ? applySemanticTier(list) : setAllOff(list))
+  const structureOn = isStructureTierOn(list)
+  const setStructure = (on) => commit(setTierOn(list, 'structure', on))
 
   return (
     <div className='kw-wrap'>
@@ -453,8 +455,21 @@ export default function KeywordForm (props) {
           value={q}
           onChange={ev => setQ(ev.target.value)}
         />
-        <Button size='small' onClick={() => setAll(true)}>{e('kwApplyAll')}</Button>
+        <Tooltip title={e('kwApplySemanticTip')}>
+          <Button size='small' onClick={() => setAll(true)}>{e('kwApplySemantic')}</Button>
+        </Tooltip>
         <Button size='small' onClick={() => setAll(false)}>{e('kwUnapplyAll')}</Button>
+        <Tooltip title={e('kwStructureTierTip')}>
+          <label className='kw-only-on'>
+            <input
+              type='checkbox'
+              className='kw-check'
+              checked={structureOn}
+              onChange={ev => setStructure(ev.target.checked)}
+            />
+            {e('kwStructureTier')}
+          </label>
+        </Tooltip>
         <label className='kw-only-on'>
           <input
             type='checkbox'

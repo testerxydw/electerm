@@ -12,6 +12,7 @@
 import { useMemo } from 'react'
 import { activeKeywords } from '../../common/keyword-groups.js'
 import { compileKeywords, keywordsSignature } from '../../common/keyword-compile.js'
+import { buildScan, collectMatches, applyCoverageGate } from '../../common/keyword-scan.js'
 
 // 与终端高亮插件同口径的默认上限：超长文本/超多命中跳过（表格单元格性能考量）。
 // 值预览（<pre>，单值专用查看区）通过 opts 放宽，见 highlightValue
@@ -41,31 +42,22 @@ export function highlightValue (text, patterns, themeConfig, opts = {}) {
   if (typeof text !== 'string' || !text || text.length > maxLength) {
     return text
   }
-  const hits = []
-  for (const { re, color } of patterns) {
-    re.lastIndex = 0
-    let m = re.exec(text)
-    while (m) {
-      if (m[0] === '') {
-        // 零宽匹配（如 `\b*`）会让 lastIndex 原地不动
-        re.lastIndex += 1
-      } else {
-        hits.push({ start: m.index, end: m.index + m[0].length, color })
-      }
-      if (hits.length >= hitLimit) {
-        break
-      }
-      m = re.exec(text)
-    }
-    if (hits.length >= hitLimit) {
-      break
-    }
+  // 与终端同一套单遍扫描 + 同起点取最短裁决（common/keyword-scan.js）：两端必然
+  // 给出同一个着色跨度，不再出现"终端取短、网格取长"的结论分歧。
+  const scan = buildScan(patterns)
+  const matches = collectMatches(text, patterns, scan, hitLimit)
+  if (!matches.length) {
+    return text
   }
+  // V2 §7.3：与终端同一套行级覆盖率闸。一个单元格即一行，超过阈值时只留 signal。
+  // 纯配色契约探针可传 opts.coverageGate=false 关掉。
+  const hits = applyCoverageGate(text, matches, {
+    enabled: opts.coverageGate !== false,
+    threshold: opts.coverageThreshold
+  })
   if (!hits.length) {
     return text
   }
-  // 按起点排序；重叠时保留先命中的（配置里靠前的规则优先）
-  hits.sort((a, b) => a.start - b.start || b.end - a.end)
   const parts = []
   let last = 0
   for (const h of hits) {
@@ -75,12 +67,16 @@ export function highlightValue (text, patterns, themeConfig, opts = {}) {
     if (h.start > last) {
       parts.push(text.slice(last, h.start))
     }
+    // 真彩色（#rrggbb）直接作为字体色；命名色走当前终端主题的对应色名映射，
+    // 取不到就用继承色。两端最终看到的色一致。
+    const color = (typeof h.color === 'string' && h.color.startsWith('#'))
+      ? h.color
+      : (themeConfig && themeConfig[h.color] ? themeConfig[h.color] : undefined)
     parts.push(
       <span
         key={h.start}
         className='db-kw'
-        // 颜色取自当前终端主题的对应色名（与终端里看到的一致）；取不到就用继承色
-        style={themeConfig && themeConfig[h.color] ? { color: themeConfig[h.color] } : undefined}
+        style={color ? { color } : undefined}
       >
         {text.slice(h.start, h.end)}
       </span>

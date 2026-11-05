@@ -1,38 +1,47 @@
 #!/usr/bin/env node
 /**
- * 预置关键字高亮合并 + 编译结果共享 —— CDP 实机验收
+ * 预置关键字高亮合并 + 编译结果共享 —— CDP 实机验收（V2 口径）
  *
- * 钉的是合并/优化后的落地效果（对应三个提交点）：
- *   A) 设置面板：13 个预设分组、规则总数 155（WindTerm 对齐前 136）；「全部应用」后
- *      配置里 155 条、跨预设共用的同一条正则不会出现两种颜色（合并纪律）；
- *      组级勾选/取消的统计与配置一致。
+ * ⚠️ 口径已更新为 V2，但仍需实机 CDP 验证：本环境没有 Electron + xvfb，
+ * 下列断言的期望值全部由真实数据源现算 + V2 纯函数推出，尚未在真机上复跑。
+ *
+ * V2 实测口径：14 个预设分组 / 100 条规则（signal 51 / structure 49）；
+ *「应用语义档」= signal 全开 + structure 默认关 = 生效 51 条；结构档由
+ * kwStructureTier 开关单独按需打开。本脚本的分组数、规则总数、语义档条数、
+ * 组级取消后的静音/生效数一律在运行时从 src/client/common/keyword-presets.js
+ * 与 src/client/common/keyword-groups.js 现算，不再写死旧口径数字。
+ * 工具栏 locale key 以 src/app/common/locales-extra.js 为准：kwApplySemantic、
+ * kwUnapplyAll、kwStructureTier 均存在（en / zh_cn 双语）。
+ *
+ * 钉的是合并/优化后的落地效果：
+ *   A) 设置面板：分组数、规则总数与预设表一致；「应用语义档」后配置里只启用
+ *      signal 规则，跨预设共用的同一条正则不会出现两种颜色（合并纪律）；
+ *      组级勾选/取消的统计与配置一致（期望值按该组实算）。
  *   B) 终端真实渲染（真 PTY 往返 → xterm 缓冲区单元格前景色）：
- *      Exited (137) 整段红、Exited (0) 整段绿、[core:error] 整块红、
- *      request_time=0.012 与 upstream_response_time=0.008 各自成段（不互相吃掉）、
- *      Traceback (most recent call last) 整句红、[00:12:34.567] 含方括号青，
- *      普通 prose 不着色；
- *      WindTerm 对齐档：ls -l 权限串整串蓝、08:57 整段青、属主列不着色、
- *      df -h 裸体积单位整段青、长选项连值一段黄、PCI 地址不被时钟档抢成 00:02；
- *      同起点抢位收口档：nginx.service 整段蓝（不再「紫 nginx + 蓝 .service」）、
- *      0.0.0.0:8080->80/tcp 整段紫、Up 3 hours 整段绿、does not exist 整句红、
- *      /tmp/out.json 与 /favicon.ico 整段蓝。
+ *      signal 规则（Exited / [core:error] / Traceback / FATAL / does not exist /
+ *      Up 等）按语义档正向断言；结构类形状（时间戳、时长、体积、路径、选项、
+ *      地址）在语义档下应为负例 —— structure 默认关，不着色。若要验证结构档的
+ *      正向着色，需实机打开 kwStructureTier 并按 V2 真彩色重新校准色号，本脚本
+ *      不代跑，也不把 CDP 脚本改成别的探针。
  *   C) 资源：多个页签共用同一份编译结果（compiledPatterns 是同一个数组引用，
- *      RegExp 对象不按页签翻倍）；「全部应用」后生效规则去重成 107 条而非 155 条。
+ *      RegExp 对象不按页签翻倍）；「应用语义档」后生效规则数 = 现算的 signal 条数。
  *   D) 洪泛上限：一行 600 个 error 只有前 maxMatchesPerSegment(512) 个着色。
  *   E) 全部不应用后新建页签 0 条规则、完全不着色（静音路径 + 空规则不缓存）。
  *
  * 数据库网格走同一条链路（activeKeywords → compileKeywords），由单测覆盖：
  * src/test/unit-ci/keyword-compile.spec.js、keyword-groups.spec.js、
- * db-highlight-length.spec.js。
+ * db-highlight-length.spec.js。密度验收（行级覆盖率闸、中位染色率）请以
+ * self-test/keyword-density-demo.js 与 src/test/unit-ci/keyword-density.spec.js
+ * 为准，本脚本不承担密度门槛。
  *
- * 用法：
+ * 用法（Node 侧动态 import 预设表，需 --experimental-detect-module）：
  *   1) npm run vite-build
  *   2) D=$(mktemp -d /tmp/electerm-kw-XXXX) && mkdir -p $D/home $D/config $D/data
  *      HOME=$D/home XDG_CONFIG_HOME=$D/config DATA_PATH=$D/data \
  *      xvfb-run -a -s "-screen 0 1600x1000x24" ./node_modules/electron/dist/electron \
  *        work/app/app.js --no-sandbox --disable-gpu --remote-debugging-port=9225 \
  *        --window-size=1600,1000 >/dev/null 2>&1 &
- *   3) node self-test/kw-preset-merge-demo.js 9225 [shotDir]
+ *   3) node --experimental-detect-module self-test/kw-preset-merge-demo.js 9225 [shotDir]
  */
 const http = require('node:http')
 const fs = require('node:fs')
@@ -108,6 +117,50 @@ class Cdp {
 }
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+/**
+ * V2 口径一律从真实数据源现算：预设表 + 分组纯函数。
+ * 不写死旧口径数字，预设增删时断言自动跟随；同时把组级取消勾选的期望值按
+ * 「应用语义档 → 取消该组 → 重新勾选」这条真实 UI 链路算出来。
+ */
+const loadV2Baseline = async () => {
+  const { keywordPresets } = await import('../src/client/common/keyword-presets.js')
+  const groups = await import('../src/client/common/keyword-groups.js')
+  const groupsCount = keywordPresets.length
+  const ruleTotal = keywordPresets.reduce((n, p) => n + p.keywords.length, 0)
+  const signalTotal = keywordPresets.reduce((n, p) =>
+    n + p.keywords.filter(k => (k.tier || 'signal') === 'signal').length, 0)
+  const structureTotal = ruleTotal - signalTotal
+  const semanticConfig = groups.applySemanticTier([])
+  const semanticCount = groups.activeKeywords(semanticConfig).length
+
+  // 组名必须是 V2 预设表里真实存在的组；条数按该组实算
+  const groupName = 'Networking'
+  const groupPreset = keywordPresets.find(p => p.name === groupName)
+  if (!groupPreset) {
+    throw new Error('V2 preset group not found: ' + groupName)
+  }
+  const groupRules = groupPreset.keywords.length
+  const mutedConfig = groups.setPresetGroupOn(semanticConfig, groupPreset, false)
+  const mutedOff = mutedConfig.filter(r => r.off).length
+  const mutedOn = mutedConfig.filter(r => r.keyword && !r.off).length
+  // 重新勾选会按 requires 连带点亮通用档，生效数因此可能超过语义档条数
+  const restoredActive = groups.activeKeywords(
+    groups.setPresetGroupOn(mutedConfig, groupPreset, true)
+  ).length
+  return {
+    groupsCount,
+    ruleTotal,
+    signalTotal,
+    structureTotal,
+    semanticCount,
+    groupName,
+    groupRules,
+    mutedOff,
+    mutedOn,
+    restoredActive
+  }
+}
 
 const waitFor = async (cdp, expr, label, timeout = 20000) => {
   const t0 = Date.now()
@@ -205,7 +258,8 @@ const CONFIG_STATS = `(() => {
     off: raw.filter(r => r && r.off).length,
     distinctPattern: colorOf.size,
     conflict,
-    // 生效侧「正则 + 颜色」去重后的条数 = 终端/网格真正编译的规则数
+    // 面板侧「正则 + 颜色」去重后的条数；跨组唯一后与终端/网格真正编译的规则数一致。
+    // activeKeywords 另按档位去重，只在「同正则同色不同档」的合法场景多留一条。
     activeDedup: new Set(on.map(r => r.keyword + '|' + (r.color || 'red'))).size
   })
 })()`
@@ -398,6 +452,8 @@ const floodColoredCells = id => `(() => {
 })()`
 
 const main = async () => {
+  const v2 = await loadV2Baseline()
+  console.log('V2 现算口径:', JSON.stringify(v2))
   const targets = await getJson(`http://127.0.0.1:${PORT}/json`)
   const page = targets.find(t => t.type === 'page' && String(t.url || '').includes('index.html'))
   if (!page) {
@@ -417,46 +473,61 @@ const main = async () => {
   await sleep(600)
   const groups = JSON.parse(await ev(GROUP_ROWS))
   const pillSum = groups.reduce((n, g) => n + g.total, 0)
-  check('预置分组 13 个', groups.length === 13, { groups: groups.length })
-  check('13 个分组的规则总数 155（WindTerm 对齐前 136）', pillSum === 155, {
-    pillSum, byGroup: groups.map(g => g.name + '=' + g.total)
-  })
+  check(`预置分组 ${v2.groupsCount} 个`, groups.length === v2.groupsCount, { groups: groups.length })
+  check(`${v2.groupsCount} 个分组的规则总数 ${v2.ruleTotal}（signal ${v2.signalTotal} / structure ${v2.structureTotal}）`,
+    pillSum === v2.ruleTotal, {
+      pillSum, byGroup: groups.map(g => g.name + '=' + g.total)
+    })
   const t0 = JSON.parse(await ev(STAT_TEXTS))
   const flat = s => String(s).replace(/\s+/g, '')
-  check('未应用时面板统计 0/155',
-    flat(t0.stat).includes('0/155') && flat(t0.badge).includes('0/155'), t0)
+  check(`未应用时面板统计 0/${v2.ruleTotal}`,
+    flat(t0.stat).includes(`0/${v2.ruleTotal}`) && flat(t0.badge).includes(`0/${v2.ruleTotal}`), t0)
   await cdp.shot(path.join(SHOT_DIR, '01-panel-empty.png'))
 
-  console.log(await ev(clickToolbar('kwApplyAll')))
+  console.log(await ev(clickToolbar('kwApplySemantic')))
   // 面板未填过的默认空规则也会留在配置里，所以按「带 keyword 的条数」判定
   const cfgApplied = JSON.parse(await waitFor(
     cdp,
-    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.keyword && !x.off).length === 155 ? ${CONFIG_STATS} : null })()`,
-    'apply all -> 155 active rules in config'
+    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.keyword && !x.off).length === ${v2.semanticCount} ? ${CONFIG_STATS} : null })()`,
+    `apply semantic tier -> ${v2.semanticCount} active rules in config`
   ))
-  check('「全部应用」写入配置 155 条预设规则', cfgApplied.on === 155, cfgApplied)
+  check(`「应用语义档」写入配置 ${v2.semanticCount} 条 signal 规则（structure 默认关）`,
+    cfgApplied.on === v2.semanticCount, cfgApplied)
   check('跨预设没有一条正则被配成两种颜色（合并纪律）', cfgApplied.conflict.length === 0, cfgApplied.conflict)
-  check('「全部应用」后生效规则去重为 107 条', cfgApplied.activeDedup === 107, cfgApplied)
+  check(`「应用语义档」后生效规则 ${v2.semanticCount} 条（跨组唯一，无需再去重）`,
+    cfgApplied.activeDedup === v2.semanticCount, cfgApplied)
   const t1 = JSON.parse(await ev(STAT_TEXTS))
-  check('面板统计跟随：已应用 155/155', String(t1.stat).replace(/\s+/g, ' ').includes('155/155'), t1)
+  check(`面板统计跟随：已应用 ${v2.semanticCount}/${v2.ruleTotal}`,
+    flat(t1.stat).includes(`${v2.semanticCount}/${v2.ruleTotal}`) &&
+    flat(t1.badge).includes(`${v2.semanticCount}/${v2.ruleTotal}`), t1)
   await cdp.shot(path.join(SHOT_DIR, '02-panel-applied.png'))
 
-  // 组级取消勾选：只静音，不丢规则
-  console.log(await ev(toggleGroupCheck('Networking')))
+  // 组级取消勾选：只静音，不丢规则；组名与期望条数均由 V2 预设表 / 纯函数现算
+  console.log(await ev(toggleGroupCheck(v2.groupName)))
   const cfgOff = JSON.parse(await waitFor(
     cdp,
-    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.off).length === 10 ? ${CONFIG_STATS} : null })()`,
-    'mute Networking group'
+    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.off).length === ${v2.mutedOff} ? ${CONFIG_STATS} : null })()`,
+    `mute ${v2.groupName} group`
   ))
-  check('取消 Networking 分组：10 条静音、生效 145 条（规则保留不丢）',
-    cfgOff.off === 10 && cfgOff.on === 145 && cfgOff.total === cfgApplied.total, cfgOff)
-  console.log(await ev(toggleGroupCheck('Networking')))
+  check(`取消 ${v2.groupName} 分组（共 ${v2.groupRules} 条）：${v2.mutedOff} 条静音、生效 ${v2.mutedOn} 条（规则保留不丢）`,
+    cfgOff.off === v2.mutedOff && cfgOff.on === v2.mutedOn && cfgOff.total === cfgApplied.total, cfgOff)
+  console.log(await ev(toggleGroupCheck(v2.groupName)))
   const cfgOn = JSON.parse(await waitFor(
     cdp,
     `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.off).length === 0 ? ${CONFIG_STATS} : null })()`,
-    'un-mute Networking group'
+    `un-mute ${v2.groupName} group`
   ))
-  check('重新勾选：静音清零、生效仍是 107 条', cfgOn.off === 0 && cfgOn.activeDedup === 107, cfgOn)
+  check(`重新勾选：静音清零、生效 ${v2.restoredActive} 条（requires 连带通用档）`,
+    cfgOn.off === 0 && cfgOn.activeDedup === v2.restoredActive, cfgOn)
+
+  // 组级勾选会按 requires 连带点亮通用结构档；C/B 段必须在纯语义档下验收，
+  // 所以重新点「应用语义档」把 structure 关回去（规则只静音、不删除）。
+  console.log(await ev(clickToolbar('kwApplySemantic')))
+  await waitFor(
+    cdp,
+    `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.keyword && !x.off).length === ${v2.semanticCount} ? ${CONFIG_STATS} : null })()`,
+    'restore semantic tier before terminal probes'
+  )
 
   console.log(await ev('window.store.hideSettingModal()'))
   await sleep(500)
@@ -477,8 +548,8 @@ const main = async () => {
     'three terminals compiled'
   ))
   check('三个页签 compiledPatterns 是同一引用（进程级共享）', share.sameReference === true, share)
-  check('RegExp 对象数 = 规则数 107，不按页签翻倍（旧实现 3×155）',
-    share.regExpObjects === 107 && share.perTab.every(n => n === 107), share)
+  check(`RegExp 对象数 = 语义档规则数 ${v2.semanticCount}，不按页签翻倍`,
+    share.regExpObjects === v2.semanticCount && share.perTab.every(n => n === v2.semanticCount), share)
   const limits = JSON.parse(await ev(addonLimits(ids[0])))
   check('运行期限流参数：4096 / 256K / 512',
     limits.maxHighlightLength === 4096 && limits.maxHighlightChunkLength === 262144 &&
@@ -496,29 +567,31 @@ const main = async () => {
   check('颜色校准成功（红绿黄蓝紫青白七色均可读回）',
     'RGBYMCW'.split('').every(c => typeof cal[c] === 'number' && cal[c] > 0), cal)
 
+  // V2 语义档下只有 signal 规则生效：结构类形状（时间戳 / 时长 / 体积 / 路径 /
+  // 选项 / 地址）默认关，因此这些探针必须是负例（fg=0）。结构档的正向着色需实机
+  // 打开 kwStructureTier 并按 V2 真彩色重新校准色号后再补断言（见文件头）。
   const ptyLines = [
     ['container 42 Exited (137) 2 minutes ago', 'Exited (137)', 'R', 'Exited (137) 整段红（含括号与退出码）'],
     ['container 7 Exited (0) 5 minutes ago', 'Exited (0)', 'G', 'Exited (0) 整段绿'],
-    ['request_time=0.012 upstream_response_time=0.008', 'request_time=0.012', 'C', 'request_time 成段青，单位尾巴没吃掉后面的键名'],
-    ['request_time=0.012 upstream_response_time=0.008', 'upstream_response_time=0.008', 'C', 'upstream_response_time 同样成段青'],
+    ['request_time=0.012 upstream_response_time=0.008', 'request_time=0.012', '0', '负例：时长档 structure 默认关，request_time 不着色'],
+    ['request_time=0.012 upstream_response_time=0.008', 'upstream_response_time=0.008', '0', '负例：时长档 structure 默认关，upstream_response_time 不着色'],
     ['[core:error] pid 1234 tid 5678', '[core:error]', 'R', '[core:error] 含方括号整块红'],
     ['Traceback (most recent call last):', 'Traceback (most recent call last)', 'R', 'Traceback 整句红，不被共享 severity 规则截成单词'],
-    ['[00:12:34.567] worker started', '[00:12:34.567]', 'C', '方括号时钟含括号整段青'],
+    ['[00:12:34.567] worker started', '[00:12:34.567]', '0', '负例：时间戳档 structure 默认关，方括号时钟不着色'],
     ['FATAL boom', 'FATAL', 'R', 'FATAL 红（后面收尾用于验证静音路径）'],
-    // WindTerm 对齐档（Shell & command output 组）：结构类信号
-    ['-rw-r--r-- 1 dp25 dp25 4096 Oct  9 08:57 report.pdf', '-rw-r--r--', 'B', 'ls -l 权限串整串蓝（WindTerm 逐字符四色，这里一条匹配一种配色）'],
-    ['-rw-r--r-- 1 dp25 dp25 4096 Oct  9 08:57 report.pdf', '08:57', 'C', 'ls -l 的时钟整段青，不再只有「57」是数字'],
+    // 结构类形状：语义档下全部应为负例
+    ['-rw-r--r-- 1 dp25 dp25 4096 Oct  9 08:57 report.pdf', '-rw-r--r--', '0', '负例：权限串不属 signal，语义档下不着色'],
+    ['-rw-r--r-- 1 dp25 dp25 4096 Oct  9 08:57 report.pdf', '08:57', '0', '负例：时钟档 structure 默认关'],
     ['-rw-r--r-- 1 dp25 dp25 4096 Oct  9 08:57 report.pdf', 'dp25 dp25', '0', '负例：属主/属组列不着色'],
-    ['df -h /dev/sda2  233G   98G  45%', '233G', 'C', 'df -h 的裸体积单位整段青（单位尾巴不再留白）'],
-    ['curl -sS --max-time=30 -o /dev/null', '--max-time=30', 'Y', '长选项连值一段黄（WindTerm 的 variable.language 档）'],
-    ['lspci 00:02.0 VGA compatible', '00:02.0', 'M', 'PCI 地址整段紫，不被时钟档读成「00:02 + 小数」'],
-    // 同起点抢位收口：两条规则在同一个起跑线上抢一段文字时，两端（终端/网格）跨度一致
-    ['Oct  9 08:57:36 host systemd[1]: nginx.service: Failed', 'nginx.service', 'B', '单元名整段蓝，不再「紫 nginx + 蓝 .service」'],
-    ['a1b2c3d4e5f6 web-0 Up 3 hours 0.0.0.0:8080->80/tcp', '0.0.0.0:8080->80/tcp', 'M', '端口映射整段紫（裸 IP 档把 IP:端口 让出去了）'],
-    ['a1b2c3d4e5f6 web-0 Up 3 hours 0.0.0.0:8080->80/tcp', 'Up 3 hours', 'G', '在线时长整段绿，不被裸 up 抢成前两个字符'],
-    ['ERROR 1146 (42S02): Table users does not exist', 'does not exist', 'R', '「does not exist」整句红，尾巴不再留白'],
-    ['curl -sS --max-time=30 -o /tmp/out.json', '/tmp/out.json', 'B', '多段路径整段蓝，不再只染 /tmp'],
-    ['404 /favicon.ico', '/favicon.ico', 'B', '单段路径由 absPath 一处认，整段蓝'],
+    ['df -h /dev/sda2  233G   98G  45%', '233G', '0', '负例：体积档 structure 默认关'],
+    ['curl -sS --max-time=30 -o /dev/null', '--max-time=30', '0', '负例：选项档 structure 默认关'],
+    ['lspci 00:02.0 VGA compatible', '00:02.0', '0', '负例：设备地址档 structure 默认关'],
+    ['Oct  9 08:57:36 host systemd[1]: nginx.service: Failed', 'nginx.service', '0', '负例：unit 名档 structure 默认关'],
+    ['a1b2c3d4e5f6 web-0 Up 3 hours 0.0.0.0:8080->80/tcp', '0.0.0.0:8080->80/tcp', '0', '负例：地址/端口档 structure 默认关'],
+    ['a1b2c3d4e5f6 web-0 Up 3 hours 0.0.0.0:8080->80/tcp', 'Up 3 hours', 'G', '在线时长整段绿（Docker 组 signal）'],
+    ['ERROR 1146 (42S02): Table users does not exist', 'does not exist', 'R', '「does not exist」整句红（Database 组 signal）'],
+    ['curl -sS --max-time=30 -o /tmp/out.json', '/tmp/out.json', '0', '负例：路径档 structure 默认关'],
+    ['404 /favicon.ico', '/favicon.ico', '0', '负例：单段路径档 structure 默认关'],
     ['the weather is fine today', 'weather is fine', '0', '负例：普通 prose 不着色']
   ]
   for (const [payload, needle, color, label] of ptyLines) {
@@ -547,6 +620,9 @@ const main = async () => {
   await waitFor(cdp, "(() => !!document.querySelector('.kw-wrap'))()", 'kw form again')
   console.log(await ev(EXPAND_PRESET))
   await sleep(400)
+  // 组级勾选会按 requires 补入结构档规则，配置总条数已不再是「应用语义档」时的
+  // 条数；「规则保留只静音」以取消前的配置总数为基准，而不是 cfgApplied.total。
+  const cfgBeforeCleared = JSON.parse(await ev(CONFIG_STATS))
   console.log(await ev(clickToolbar('kwUnapplyAll')))
   const cfgCleared = JSON.parse(await waitFor(
     cdp,
@@ -554,7 +630,7 @@ const main = async () => {
     'unapply all'
   ))
   check('「全部不应用」后生效规则 0 条（规则保留只静音）',
-    cfgCleared.on === 0 && cfgCleared.total === cfgApplied.total, cfgCleared)
+    cfgCleared.on === 0 && cfgCleared.total === cfgBeforeCleared.total, cfgCleared)
   console.log(await ev('window.store.hideSettingModal()'))
   await sleep(500)
 
