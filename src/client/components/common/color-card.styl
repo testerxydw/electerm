@@ -1,0 +1,21 @@
+.color-picker-unit
+  display inline-block
+  padding 5px
+  margin-right 5px
+  margin-bottom 5px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  cursor pointer
+  background var(--surface-2)
+  width 92px
+
+.color-picker-box
+  width 460px
+  // the popover is portaled to the body, a wide box simply falls off a phone
+  // screen (measured: the swatch list and the antd picker still fit at 280px)
+  max-width calc(100vw - 40px)
+
+// 24 色 + random：一列 92px 放三个，200px 宽的列要排 12 行，撑到比页签条还高，
+// 所以列宽跟着色点数走，让色点横向铺开
+.color-picker-defaults
+  width 300px

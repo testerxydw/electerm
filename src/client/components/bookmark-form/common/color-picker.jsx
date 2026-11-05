@@ -1,57 +1,19 @@
-import React, { useState } from 'react'
-import { Popover, ColorPicker as AntColorPicker } from 'antd'
-import { defaultColors, getRandomHexColor } from '../../../common/rand-hex-color.js'
-import { HexInput } from './hex-input.jsx'
+import { useState } from 'react'
+import { Popover } from 'antd'
+import { ColorCard } from '../../common/color-card.jsx'
 import './color-picker.styl'
 
 export function ColorPicker ({ value, onChange, ref, disabled, isRgba }) {
   const [visible, setVisible] = useState(false)
 
-  const handleChange = (color) => {
+  // 拖动取色器属于"选色进行中"，收起交给用户：只有点色点 / random / 提交 hex 才算选定
+  function handleLive (color) {
+    onChange(color)
+  }
+
+  function handleCommit (color) {
     onChange(color)
     setVisible(false)
-  }
-
-  const handleVisibleChange = (vis) => {
-    setVisible(vis)
-  }
-
-  function onColorChange (color) {
-    handleChange(isRgba ? color.toRgbString() : color.toHexString())
-  }
-
-  function renderContent () {
-    return (
-      <div className='color-picker-box'>
-        <div className='fix'>
-          <div className='fleft color-picker-defaults'>
-            {
-              [...defaultColors, 'random'].map((color) => {
-                const style = color === 'random' ? { color: '#000' } : { color }
-                const p = {
-                  className: 'color-picker-unit',
-                  style,
-                  onClick: () => {
-                    if (color === 'random') return handleChange(getRandomHexColor())
-                    handleChange(color)
-                  }
-                }
-                return <div {...p} key={color}>● {color}</div>
-              })
-            }
-          </div>
-          <div className='fright'>
-            <AntColorPicker
-              value={value}
-              onChange={onColorChange}
-            />
-          </div>
-        </div>
-        <div className='pd1y'>
-          <HexInput value={value} onChange={handleChange} />
-        </div>
-      </div>
-    )
   }
 
   const inner = (
@@ -62,11 +24,11 @@ export function ColorPicker ({ value, onChange, ref, disabled, isRgba }) {
 
   return (
     <Popover
-      content={renderContent()}
+      content={<ColorCard value={value} onChange={handleLive} onCommit={handleCommit} isRgba={isRgba} />}
       trigger='click'
       open={visible}
       placement='bottomLeft'
-      onOpenChange={handleVisibleChange}
+      onOpenChange={setVisible}
     >
       {inner}
     </Popover>
