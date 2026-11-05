@@ -1,5 +1,60 @@
 // VNC only styling — the session layout (control bar, viewport, fit mode)
 // lives in the shared remote session shell: common/session-shell.styl
+// 顶栏画质（草图 2026-11-05 方案 A）：档位读数与自定义滑杆面板。
+// 面板由 antd Popover 挂到 body（absolute 层），这里只管内容排版。
+// 档位 Q/C 读数与档位名同行，等宽字号才不随数字位数抖动
+.vnc-quality-select
+  .vnc-quality-qc
+    margin-left 6px
+    font-family var(--font-mono)
+    font-size 10px
+    color var(--text-muted)
+
+// 自定义面板：两条 0-9 滑杆 + 恢复默认 + 三条说明
+.vnc-quality-edit
+  color var(--text-muted)
+  transition color 120ms ease
+
+.vnc-quality-edit-on
+  color var(--primary-text)
+
+.vnc-quality-pop
+  width 288px
+
+.vnc-quality-row
+  display flex
+  align-items center
+  gap 8px
+
+.vnc-quality-name
+  flex none
+  width 60px
+  font-size var(--fs-sm)
+  color var(--text-muted)
+
+.vnc-quality-slider
+  flex 1
+  margin 0
+
+.vnc-quality-val
+  flex none
+  width 22px
+  text-align right
+  font-family var(--font-mono)
+  font-size var(--fs-sm)
+  color var(--text)
+
+.vnc-quality-acts
+  margin-top 6px
+
+.vnc-quality-hint
+  margin-top 8px
+  padding-top 7px
+  border-top 1px dashed var(--border)
+  font-size var(--fs-xs)
+  color var(--text-muted)
+  line-height 1.6
+
 .vnc-session-wrap
   .vnc-session-mount
     // noVNC mounts its own screen element in here and sizes its canvas

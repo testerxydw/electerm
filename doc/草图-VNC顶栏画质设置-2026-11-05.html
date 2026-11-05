@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>草图 · VNC 顶栏画质设置 · 2026-11-05</title>
+<style>
+  /* 与 electerm 设计 token 同名的局部近似值（tokens.styl 的派生色在 standalone 里无法
+     从主题变量推导，这里按深色主题的实际观感取近似值，只用于草图对齐视觉语言） */
+  .vq {
+    --main: #1e2124;
+    --main-dark: #17191b;
+    --main-light: #26292d;
+    --surface-1: #202327;
+    --surface-2: #2a2e33;
+    --surface-3: #30353b;
+    --text: #d8dadb;
+    --text-muted: #a7abae;
+    --text-light: #8b9095;
+    --border: rgba(216, 218, 219, .14);
+    --border-strong: rgba(216, 218, 219, .26);
+    --primary: #00a2ff;
+    --primary-text: #7fd0ff;
+    --hover-bg: rgba(216, 218, 219, .07);
+    --active-bg: rgba(0, 162, 255, .18);
+    --success: #52c41a;
+    --warn: #e3a008;
+    --error: #f4664a;
+    --radius-xs: 4px;
+    --radius-sm: 8px;
+    --radius: 10px;
+    --shadow-2: 0 4px 14px rgba(0, 0, 0, .36);
+    --shadow-3: 0 18px 48px rgba(0, 0, 0, .5);
+    --session-bar-h: 32px;
+    --session-bar-pad-x: 10px;
+    --fs-xs: 11px;
+    --fs-sm: 12px;
+    --fs: 13px;
+    --dur-1: 120ms;
+    --ease: cubic-bezier(.4, 0, .2, 1);
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Noto Sans Mono CJK SC', monospace;
+
+    color: var(--text);
+    background: var(--main-dark);
+    font: var(--fs)/1.65 -apple-system, 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+    padding: 22px 24px 60px;
+  }
+  .vq.theme-light {
+    --main: #ffffff;
+    --main-dark: #f4f5f7;
+    --main-light: #ffffff;
+    --surface-1: #fafbfc;
+    --surface-2: #ffffff;
+    --surface-3: #f0f2f4;
+    --text: #232629;
+    --text-muted: #52575c;
+    --text-light: #6b7075;
+    --border: rgba(35, 38, 41, .14);
+    --border-strong: rgba(35, 38, 41, .26);
+    --primary: #0088cc;
+    --primary-text: #0b6a9c;
+    --hover-bg: rgba(35, 38, 41, .06);
+    --active-bg: rgba(0, 136, 204, .14);
+    --shadow-2: 0 4px 12px rgba(0, 0, 0, .10);
+    --shadow-3: 0 18px 48px rgba(0, 0, 0, .14);
+  }
+  .vq h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: .2px; }
+  .vq h2 { font-size: 15px; margin: 30px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .vq h3 { font-size: 13px; margin: 18px 0 6px; color: var(--primary-text); }
+  .vq p { margin: 6px 0; color: var(--text-muted); }
+  .vq code, .vq .mono { font-family: var(--font-mono); font-size: 12px; }
+  .vq code { background: var(--surface-3); padding: 1px 5px; border-radius: var(--radius-xs); color: var(--text); }
+  .vq ul { margin: 6px 0; padding-left: 20px; color: var(--text-muted); }
+  .vq li { margin: 3px 0; }
+  .vq .sub { color: var(--text-light); font-size: var(--fs-sm); }
+
+  /* 顶部控制条 */
+  .ctrl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0 20px; }
+  .ctrl .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+  .ctrl .seg button { background: var(--surface-2); color: var(--text-muted); border: 0; padding: 5px 11px; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+  .ctrl .seg button + button { border-left: 1px solid var(--border); }
+  .ctrl .seg button.on { background: var(--active-bg); color: var(--primary-text); }
+  .ctrl .lab { font-size: var(--fs-sm); color: var(--text-light); }
+
+  /* 会话页面外壳 */
+  .page { border: 1px solid var(--border); border-radius: var(--radius); overflow: visible; background: var(--main); box-shadow: var(--shadow-2); }
+  .page.narrow { max-width: 480px; }
+
+  /* 顶栏：口径与 session-shell.styl 一致 —— 32px 行盒、8px column-gap、可换行、左右 10px pad */
+  .remote-session-control {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    min-height: var(--session-bar-h); line-height: var(--session-bar-h); row-gap: 0;
+    padding: 0 var(--session-bar-pad-x); background: var(--surface-1);
+    border-bottom: 1px solid var(--border); position: relative; z-index: 5;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .ctl-side { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 0; min-width: 0; }
+  .ctl-right { margin-left: auto; }
+  .info { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-muted); }
+  .info::after { content: ''; width: 1px; height: 16px; background: var(--border-strong); margin-left: 2px; }
+  .info .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: none; }
+  .ico { display: inline-flex; align-items: center; color: var(--text-muted); cursor: pointer; font-size: 15px; }
+  .ico:hover { color: var(--primary-text); }
+  .ico.off { color: var(--text-light); opacity: .45; cursor: not-allowed; }
+
+  /* antd size=small 控件的近似 */
+  .sel {
+    display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px 0 8px;
+    background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+    font-size: var(--fs-sm); color: var(--text); cursor: pointer; white-space: nowrap; position: relative;
+  }
+  .sel:hover { border-color: var(--primary); }
+  .sel .ar { font-size: 9px; color: var(--text-light); }
+  .sel .qc { font-family: var(--font-mono); font-size: 10px; color: var(--text-light); }
+  .sel.q-on { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(0, 162, 255, .35); }
+  .sw { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; }
+  .sw .track { width: 26px; height: 14px; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--border-strong); position: relative; transition: background var(--dur-1) var(--ease); }
+  .sw .track i { position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--text-light); transition: transform var(--dur-1) var(--ease), background var(--dur-1) var(--ease); }
+  .sw.on .track { background: var(--primary); border-color: var(--primary); }
+  .sw.on .track i { transform: translateX(12px); background: #fff; }
+  .new-tag { position: absolute; top: -7px; right: -8px; background: var(--primary); color: #fff; font-size: 9px; line-height: 12px; padding: 0 4px; border-radius: 999px; }
+
+  /* 画质下拉面板 + 自定义面板 */
+  .pop {
+    position: absolute; top: calc(var(--session-bar-h) - 2px); left: 0; min-width: 232px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-3); padding: 6px; z-index: 20; font-size: var(--fs-sm);
+  }
+  .pop .opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 8px; border-radius: var(--radius-xs); cursor: pointer; }
+  .pop .opt:hover { background: var(--hover-bg); }
+  .pop .opt.on { background: var(--active-bg); color: var(--primary-text); }
+  .pop .opt .desc { color: var(--text-light); font-size: 10px; }
+  .pop .sep { height: 1px; background: var(--border); margin: 5px 2px; }
+  .pop.cust { width: 300px; padding: 10px 12px; }
+  .pop.cust .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+  .pop.cust .row .name { width: 74px; color: var(--text-muted); }
+  .pop.cust input[type=range] { flex: 1; accent-color: var(--primary); height: 4px; }
+  .pop.cust .val { width: 26px; text-align: right; font-family: var(--font-mono); }
+  .pop.cust .hint { color: var(--text-light); font-size: var(--fs-xs); line-height: 1.5; margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 7px; }
+  .pop.cust .acts { display: flex; gap: 8px; margin-top: 8px; }
+  .btn { background: var(--surface-3); border: 1px solid var(--border-strong); color: var(--text); border-radius: var(--radius-xs); padding: 3px 9px; font-size: var(--fs-xs); cursor: pointer; }
+  .btn:hover { border-color: var(--primary); color: var(--primary-text); }
+
+  .vp { height: 168px; background: repeating-linear-gradient(135deg, var(--main) 0 12px, var(--surface-1) 12px 24px); border-radius: 0 0 var(--radius) var(--radius); position: relative; }
+  .vp .tip { position: absolute; left: 12px; bottom: 10px; font-size: var(--fs-xs); color: var(--text-light); }
+
+  /* 读数区 */
+  .readout { display: grid; grid-template-columns: 1.05fr 1fr; gap: 14px; margin-top: 16px; }
+  .card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-1); padding: 12px 14px; }
+  .card h3 { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: 118px 1fr; gap: 4px 10px; font-size: var(--fs-sm); }
+  .kv dt { color: var(--text-light); }
+  .kv dd { margin: 0; font-family: var(--font-mono); }
+  .wire { background: var(--main-dark); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 8px 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); overflow-x: auto; white-space: pre; }
+  .theme-light .wire { background: #f7f8fa; }
+  .wire .hl { color: var(--primary-text); font-weight: 600; }
+  .wire .cm { color: var(--text-light); }
+  .pill { display: inline-block; font-family: var(--font-mono); font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--active-bg); color: var(--primary-text); }
+  .pill.warn { background: rgba(227, 160, 8, .16); color: var(--warn); }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin: 8px 0 4px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+  th { color: var(--text); font-weight: 600; background: var(--surface-1); }
+  td.mono, .mono { font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+  tr.pick { cursor: pointer; }
+  tr.pick:hover td { background: var(--hover-bg); }
+  tr.pick.on td { background: var(--active-bg); color: var(--primary-text); }
+  .file { font-family: var(--font-mono); font-size: 11px; color: var(--primary-text); }
+
+  .ask { border-left: 3px solid var(--primary); background: var(--surface-1); padding: 10px 14px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin: 10px 0; }
+  .ask ol { margin: 4px 0; padding-left: 22px; color: var(--text); }
+  .ask ol li { margin: 5px 0; }
+  .risk td:first-child { white-space: nowrap; color: var(--text); }
+</style>
+</head>
+<body>
+<div class="vq" id="vq">
+
+  <h1>VNC 顶栏画质设置 · 方案与草图</h1>
+  <div class="sub">2026-11-05 · 仅设计，未动代码 · 结论先说：能做，运行中即时生效，不需要重连</div>
+
+  <div class="ask">
+    <strong>三个要你拍板的点</strong>
+    <ol>
+      <li><b>档位映射</b>：下面 5 档（流畅/平衡/清晰/精细/省带宽）的 Q/C 数值与命名接受吗？还是只留「流畅 / 平衡 / 清晰」三档 + 自定义？</li>
+      <li><b>是否要「自定义」面板</b>：不要的话顶栏只有一颗 Select，最省地方；要的话多两个 0-9 滑杆（精确控制 = 现书签表单那两个数字框的能力，搬到栏内）。</li>
+      <li><b>生效回显做到什么程度</b>：方案里给了三档（只读回值 / 报文自检 / 抓真编码名）。抓编码名需要 monkey-patch noVNC 内部，是唯一能区分"server 收了但没用"的手段。</li>
+    </ol>
+    <div class="sub">拍板后再谈要不要动代码；本页面所有控件可点，切主题/窄窗看排版。</div>
+  </div>
+
+  <div class="ctrl">
+    <span class="lab">主题</span>
+    <span class="seg"><button id="t-dark" class="on" onclick="setTheme('dark')">深色</button><button id="t-light" onclick="setTheme('light')">浅色</button></span>
+    <span class="lab">栏宽</span>
+    <span class="seg"><button id="w-wide" class="on" onclick="setWidth('wide')">常规</button><button id="w-narrow" onclick="setWidth('narrow')">窄窗（看换行）</button></span>
+    <span class="lab">对照</span>
+    <span class="seg"><button id="v-cur" onclick="setVariant('cur')">现状：栏内没有画质</button><button id="v-new" class="on" onclick="setVariant('new')">方案 A：加一颗档位 Select</button></span>
+  </div>
+
+  <div class="page" id="page">
+    <div class="remote-session-control" id="bar">
+      <div class="ctl-side">
+        <span class="info"><span class="dot"></span>u25-vnc-demo · 192.168.25.7:5900</span>
+        <span class="ico" title="重连">⟳</span>
+        <span class="sel" title="选屏">Screen 1 <span class="ar">▼</span></span>
+        <span class="sw on" title="缩放（现有条目）"><span class="track"><i></i></span>缩放</span>
+        <span class="sel" title="挂起策略（现有条目）">挂起 60s <span class="ar">▼</span></span>
+        <span class="sel" id="qSel" style="display:none">画质 平衡 <span class="qc" id="qSelVal">Q3/C1</span> <span class="ar">▼</span><span class="new-tag" id="qTag">新</span></span>
+      </div>
+      <div class="ctl-side ctl-right">
+        <span class="ico" title="全屏">⛶</span>
+        <span class="ico" title="更多">⋮</span>
+      </div>
+
+      <!-- 档位下拉 -->
+      <div class="pop" id="presetPop" style="display:none">
+        <div class="opt" data-p="smooth"><span>流畅</span><span class="desc mono">Q2/C6 · 低延迟优先</span></div>
+        <div class="opt" data-p="balanced"><span>平衡（书签默认）</span><span class="desc mono">Q3/C1</span></div>
+        <div class="opt" data-p="sharp"><span>清晰（noVNC 出厂）</span><span class="desc mono">Q6/C2</span></div>
+        <div class="opt" data-p="fine"><span>精细</span><span class="desc mono">Q8/C2</span></div>
+        <div class="opt" data-p="narrowband"><span>省带宽</span><span class="desc mono">Q5/C9 · 弱网可读</span></div>
+        <div class="sep"></div>
+        <div class="opt" data-p="custom"><span>自定义…</span><span class="desc">两个 0-9 滑杆</span></div>
+      </div>
+
+      <!-- 自定义面板 -->
+      <div class="pop cust" id="custPop" style="display:none">
+        <div class="row"><span class="name">画质 Q</span><input type="range" min="0" max="9" step="1" id="qRange"><span class="val" id="qVal">3</span></div>
+        <div class="row"><span class="name">压缩 C</span><input type="range" min="0" max="9" step="1" id="cRange"><span class="val" id="cVal">1</span></div>
+        <div class="acts">
+          <button class="btn" onclick="applyPreset('balanced')">恢复书签默认 3/1</button>
+          <button class="btn" onclick="closePops()">完成</button>
+        </div>
+        <div class="hint">
+          · 值只进 <code>SetEncodings</code> 伪编码，<b>影响后续帧</b>：画面静止时看不出变化，动一下远端鼠标就有<br>
+          · server 若选 raw / ZRLE / zlib 编码，这两项会被忽略（不是 bug）<br>
+          · 记忆按 host 存本机，<b>不回写书签</b>（与缩放开关同口径）
+        </div>
+      </div>
+    </div>
+    <div class="vp"><span class="tip">远端画面（示意）· 顶栏条高 32px、条目间距 8px、窄窗自动换行，全部沿用现有口径</span></div>
+  </div>
+
+  <div class="readout">
+    <div class="card">
+      <h3>当前设定 → 会写进 noVNC 的值</h3>
+      <dl class="kv">
+        <dt>档位</dt><dd id="rPreset">平衡（书签默认）</dd>
+        <dt>qualityLevel</dt><dd id="rQ">3</dd>
+        <dt>compressionLevel</dt><dd id="rC">1</dd>
+        <dt>setter 调用</dt><dd id="rSet">rfb.qualityLevel = 3; rfb.compressionLevel = 1;</dd>
+        <dt>本机记忆 key</dt><dd id="rLs">vnc-quality-192.168.25.7</dd>
+        <dt>状态</dt><dd><span class="pill" id="rLive">运行中生效，无需重连</span></dd>
+      </dl>
+      <p class="sub">setter 自带三道闸：<code>Number.isInteger</code> 且 0-9、与当前值判等、<code>_rfbConnectionState === 'connected'</code> 才发帧（rfb.js:379 / :399）。</p>
+    </div>
+    <div class="card">
+      <h3>线上报文自检 <span class="sub">（实机脚本要钉的就是这两行）</span></h3>
+      <div class="wire" id="wire"></div>
+      <p class="sub">msg-type 2 = SetEncodings；伪编码 <code>qualityLevel0 = -32</code>、<code>compressLevel0 = -256</code>（encodings.js:22/:35）→ Q3 落 <span class="mono">-29</span>、C1 落 <span class="mono">-255</span>。假 ws 上解出这两个数，就是"画质真的到了协议层"的硬证据。</p>
+    </div>
+  </div>
+
+  <h2>一、现状：为什么"没有画质设置"这句话只对了一半</h2>
+  <table>
+    <tr><th>入口</th><th>有没有</th><th>证据</th></tr>
+    <tr><td>书签表单两个 0-9 数字框</td><td>有，一直有</td><td class="file">src/client/components/bookmark-form/config/vnc.js:38-39（qualityLevel / compressionLevel）</td></tr>
+    <tr><td>会话顶栏</td><td class="mono" style="color:var(--error)">没有</td><td class="file">src/client/components/vnc/vnc-session.jsx:757 renderDisplayItems = 选屏 + 缩放 + 挂起策略</td></tr>
+    <tr><td>⋮ 菜单</td><td class="mono" style="color:var(--error)">没有</td><td class="file">src/client/components/vnc/vnc-session.jsx:853 只传重连 / 全屏 / Ctrl+Alt+Del</td></tr>
+    <tr><td>首连读值</td><td>有，但只读一次</td><td class="file">src/client/components/vnc/vnc-session.jsx:252（解构默认 3/1）、:450-451（<code>rfb.qualityLevel =</code>）</td></tr>
+  </table>
+  <ul>
+    <li>所以现在的路径是：<b>改书签 → 重连</b> 才见效。顶栏加一颗档位 Select 的本质，是把"必须重连"换成"当场发 SetEncodings"。</li>
+    <li>顶栏先例已经有了：RDP 左栏就是 <b>Select（分辨率）+ ✎（自定义）+ Switch（缩放）</b>（<span class="file">src/client/components/rdp/rdp-session.jsx:980-1011</span>），VNC 加画质走同一套视觉语言，不需要新控件形态。</li>
+    <li>按 host 记忆也已有先例：<span class="file">vnc-session.jsx:56</span> 的 <code>vnc-scale-view-${host}</code> + <span class="file">src/client/common/remote-adapt.js:87</span> 的 <code>resolveScaleViewport(本机记忆, 书签值)</code>。</li>
+  </ul>
+
+  <h2>二、三个方案</h2>
+  <table>
+    <tr><th>方案</th><th>形态</th><th>占宽</th><th>能力</th><th>问题</th></tr>
+    <tr><td class="mono">A（推荐）</td><td>左栏一颗档位 Select，「自定义…」弹两条 0-9 滑杆</td><td>约 +96px</td><td>预设覆盖 95% 场景，滑杆保住精确控制</td><td>多一个 Popover 锚点（这块踩过 rc/dom-align 的坑，见风险表）</td></tr>
+    <tr><td class="mono">B</td><td>左栏一个图标，点一下三档循环</td><td>约 +24px</td><td>只有 3 档</td><td>可发现性差：看不出当前是哪档，还得配 Tooltip</td></tr>
+    <tr><td class="mono">C</td><td>收进 ⋮ 菜单</td><td>0</td><td>同 A</td><td class="mono" style="color:var(--error)">与已定口径冲突：P-7 拍板"显示控件留左栏、⋮ 只放动作项"（doc/分析-远程会话顶栏差异与统一-2026-10-30.md §5）</td></tr>
+  </table>
+
+  <h2>三、档位映射（待拍板）</h2>
+  <p class="sub">点一行即切到该档，上面顶栏与读数区跟着走。两个轴的语义：Q 越高越清晰但数据量越大；C 越高越省带宽但越耗 CPU，C=0 编码最省 CPU。</p>
+  <table>
+    <tr><th>档位</th><th>Q</th><th>C</th><th>意图</th><th>对照</th></tr>
+    <tr class="pick" data-p="smooth"><td>流畅</td><td class="mono">2</td><td class="mono">6</td><td>高延迟 / 弱网：画面糊但响应快</td><td class="sub">比现默认更低质量、更高压缩</td></tr>
+    <tr class="pick on" data-p="balanced"><td>平衡</td><td class="mono">3</td><td class="mono">1</td><td>桌面日常</td><td class="sub">= 现书签默认（<span class="file">fix-bookmark-default.js:36</span>），行为零变化</td></tr>
+    <tr class="pick" data-p="sharp"><td>清晰</td><td class="mono">6</td><td class="mono">2</td><td>文字、截图、远程办公主流用法</td><td class="sub">= noVNC 出厂默认（<span class="file">rfb.js:304-305</span>）</td></tr>
+    <tr class="pick" data-p="fine"><td>精细</td><td class="mono">8</td><td class="mono">2</td><td>看图 / 设计稿，局域网</td><td class="sub">带宽明显上去</td></tr>
+    <tr class="pick" data-p="narrowband"><td>省带宽</td><td class="mono">5</td><td class="mono">9</td><td>弱网但要能读字：CPU 换带宽</td><td class="sub">压缩拉满，CPU 占用最高</td></tr>
+  </table>
+
+  <h2>四、数据口径（优先级与写入面）</h2>
+  <ul>
+    <li><b>首连</b>：本机记忆(按 host) &gt; 书签字段 &gt; 出厂默认 3/1。做法与缩放开关完全同构：在 <span class="file">remote-adapt.js</span> 加一个 <code>resolveQuality(local, tabQ, tabC)</code>，<span class="file">vnc-session.jsx:85-97</span> 的 constructor state 里决策一次。</li>
+    <li><b>首连接线必须改</b>：<span class="file">vnc-session.jsx:450-451</span> 现在喂的是 tab 解构值；记忆生效后要改成喂 <code>this.state</code> 的决策值，否则"栏内记忆只在重连后生效、首连又读书签"——缩放开关当年的注释（<span class="file">vnc-session.jsx:306-308</span>）写的就是这个坑。</li>
+    <li><b>运行中改</b>：写 <code>rfb.qualityLevel/compressionLevel</code> + 写 ls 记忆；<b>不回写 <code>tab</code> / 书签</b>（与 <code>handleScaleViewChange</code> 同口径：<span class="file">vnc-session.jsx:737-742</span> 只 setState + ls）。</li>
+    <li><b>重连 / 挂起恢复</b>：<code>handleReInit</code>（<span class="file">vnc-session.jsx:748</span>）新建 RFB 后走同一条 <code>remoteInit</code>，值来自 state，天然一致；这条要写成单测判据。</li>
+    <li><b>未连接（loading / error）</b>：Select 置灰，别让人点了没反应。</li>
+  </ul>
+
+  <h2>五、风险与边界</h2>
+  <table class="risk">
+    <tr><th>风险</th><th>事实</th><th>设计上的处理</th></tr>
+    <tr><td>点了画面没变</td><td>Q/C 是伪编码提示，只对 Tight / JPEG / H264 有意义；server 走 raw / ZRLE / zlib 直接忽略</td><td>面板底部一句常驻说明（草图里有）+ 可选"当前编码"回显（见下条）</td></tr>
+    <tr><td>没有生效证据</td><td>noVNC 1.7 <b>没有 stats / 带宽回显 API</b>：本轮 grep 过 <code>getStats</code> / <code>encNames</code> / <code>kbytesPerSec</code> 在 rfb.js 与 display.js 里全零命中</td><td>三档力度：① 只读回 <code>rfb.qualityLevel</code>；② 假 ws 解 SetEncodings 报文（实机判据，草图右卡）；③ monkey-patch 记 <code>rfb._FBU.encoding</code>（解码分派在 <span class="file">rfb.js:2977</span>，<code>_decoders</code> 表在 <span class="file">rfb.js:177-258</span>，名字现成可用 <span class="file">core/encodings.js:40 encodingName()</span>）—— 只有 ③ 能区分"收了但没用"</td></tr>
+    <tr><td>改完不动画面看不出来</td><td>SetEncodings 只影响后续帧</td><td>面板文案直说"动一下远端鼠标才有变化"，不做假动画</td></tr>
+    <tr><td>Popover 定位</td><td>rc/dom-align 沿 <code>offsetParent</code> 链量坐标；顶栏是 <code>position: relative</code>（<span class="file">session-shell.styl:22</span>），页签色卡那次改成 fixed 直接把弹层甩到 -19178,-10778</td><td>自定义面板锚在 Select 自身（保持在栏的绝对定位体系里），不新建 fixed 层；实机加一条"卡片矩形落在栏内"的判据</td></tr>
+    <tr><td>顶栏变挤 / 换行</td><td>条高单点 <code>--session-bar-h 32px</code>（<span class="file">tokens.styl:92</span>），栏 <code>flex-wrap: wrap</code>（<span class="file">session-shell.styl:25</span>）</td><td>窄窗切到 2 行 = 64px 是既有行为；草图右上「窄窗」按钮可看效果，实机补一条"换行后条目不丢"</td></tr>
+    <tr><td>词条</td><td>新 key 落 <span class="file">src/app/common/locales-extra.js</span>，中英各一条（<code>qualityLevel</code> 已有，<code>vncQualityPreset</code> 等要新加）</td><td>改 src/app 后必须 <code>cp -r src/app/. work/app/</code> 再跑 CDP，否则界面回退成首字母大写的 key（本轮 <code>clearTabColor</code> 刚踩过）；判据用 <code>window.__hasKey</code> 直查语言包表</td></tr>
+    <tr><td>不做的事</td><td>—</td><td>不动分辨率（VNC 远端尺寸由 server 决定，那条是 doc/TODO 的 P-6 / V3，另案）；不动 VNC 中继（<span class="file">src/app/server/session-vnc.js:48</span> 的 width/height 只记账，与本方案无关）</td></tr>
+  </table>
+
+  <h2>六、代码落点清单（拍板后才动）</h2>
+  <table>
+    <tr><th>文件</th><th>改什么</th><th>量级</th></tr>
+    <tr><td class="file">src/client/common/remote-adapt.js</td><td>加 <code>resolveQuality(local, tabQ, tabC)</code> + <code>qualityLsKey(host)</code>，与 resolveScaleViewport 放一起</td><td>~15 行</td></tr>
+    <tr><td class="file">src/client/components/vnc/vnc-session.jsx</td><td>state 决策初值、<code>remoteInit</code> 改喂 state、<code>renderDisplayItems</code> 加 Select + 自定义 Popover、<code>handlePresetChange</code> / <code>handleQualityCommit</code>、未连接置灰</td><td>~90 行</td></tr>
+    <tr><td class="file">src/client/components/vnc/vnc.styl</td><td><code>.vnc-quality-*</code>（面板宽、滑杆行高）</td><td>~25 行</td></tr>
+    <tr><td class="file">src/app/common/locales-extra.js</td><td><code>vncQuality</code> / <code>vncQualityPreset.*</code> 中英各一条</td><td>~10 行</td></tr>
+    <tr><td class="file">src/test/unit-ci/vnc-quality.spec.js</td><td>源码正则契约：setter 判等后才写、记忆优先级、首连读 state 不读 tab、预设映射常量化、不回写书签</td><td>新增 ~80 行</td></tr>
+    <tr><td class="file">self-test/vnc-quality-demo.js</td><td>CDP 真页面：真鼠标点 Select、真拖滑杆；假 RFB + 假 ws，<b>解 ws 上 SetEncodings 帧断言 -32+Q / -256+C</b>；重连后值不丢</td><td>新增（复用 vnc-resize-throttle-demo 的假 RFB 骨架）</td></tr>
+  </table>
+
+  <h2>七、验收判据（草案）</h2>
+  <ul>
+    <li>单测：预设映射与 Q/C 常量一致；<code>remoteInit</code> 里喂给 rfb 的必须来自 state 决策值（正则钉 <code>rfb.qualityLevel = this.state</code>）。</li>
+    <li>实机：① 未连接时 Select 不可点；② 选"清晰"后 ws 出口报文含 <span class="mono">-26 / -254</span>；③ 拖滑杆到 8/3 后连续两次改动只发<b>一</b>帧 SetEncodings（setter 判等）；④ 断开重连后读回 <code>rfb.qualityLevel === 8</code>；⑤ 全程零未捕获异常；⑥ 书签 <code>qualityLevel</code> 字段全程不变（不回写）。</li>
+  </ul>
+
+  <p class="sub" style="margin-top:26px">证据均来自本轮对码：noVNC 1.7.0（<span class="mono">node_modules/@novnc/novnc/core/rfb.js</span> / <span class="mono">encodings.js</span>）与 electerm HEAD <span class="mono">b093109a</span>。</p>
+
+</div>
+
+<script>
+(function () {
+  var presets = {
+    smooth: { q: 2, c: 6, short: '流畅', label: '流畅（低延迟优先）' },
+    balanced: { q: 3, c: 1, short: '平衡', label: '平衡（书签默认）' },
+    sharp: { q: 6, c: 2, short: '清晰', label: '清晰（noVNC 出厂默认）' },
+    fine: { q: 8, c: 2, short: '精细', label: '精细（带宽优先）' },
+    narrowband: { q: 5, c: 9, short: '省带宽', label: '省带宽（CPU 换带宽）' }
+  }
+  var st = { q: 3, c: 1, preset: 'balanced', variant: 'new', pop: null }
+
+  var $ = function (id) { return document.getElementById(id) }
+
+  window.setTheme = function (t) {
+    $('vq').classList.toggle('theme-light', t === 'light')
+    $('t-dark').classList.toggle('on', t === 'dark')
+    $('t-light').classList.toggle('on', t === 'light')
+  }
+  window.setWidth = function (w) {
+    $('page').classList.toggle('narrow', w === 'narrow')
+    $('w-wide').classList.toggle('on', w === 'wide')
+    $('w-narrow').classList.toggle('on', w === 'narrow')
+  }
+  window.setVariant = function (v) {
+    st.variant = v
+    $('v-cur').classList.toggle('on', v === 'cur')
+    $('v-new').classList.toggle('on', v === 'new')
+    $('qSel').style.display = v === 'new' ? 'inline-flex' : 'none'
+    if (v === 'cur') closePops()
+    render()
+  }
+
+  window.applyPreset = function (p) {
+    var d = presets[p]
+    st.q = d.q
+    st.c = d.c
+    st.preset = p
+    st.pop = null
+    render()
+  }
+  window.closePops = function () { st.pop = null; render() }
+
+  function intBytes (n) {
+    // int32 有符号 -> 4 字节十六进制（线上是大端）
+    var u = n < 0 ? (n >>> 0) : (n >>> 0)
+    var h = ('00000000' + u.toString(16)).slice(-8)
+    return h
+  }
+
+  function render () {
+    var q = st.q, c = st.c
+    var sel = $('qSel')
+    var presetLabel = presets[st.preset] ? presets[st.preset].short : '自定义'
+    sel.innerHTML = '画质 ' + presetLabel + ' <span class="qc">Q' + q + '/C' + c + '</span> <span class="ar">▼</span>' +
+      (st.variant === 'new' ? '<span class="new-tag">新</span>' : '')
+
+    $('presetPop').style.display = st.pop === 'preset' ? 'block' : 'none'
+    $('custPop').style.display = st.pop === 'cust' ? 'block' : 'none'
+    // 弹层锚在 Select 正下方（bar 是 position:relative，Select 的 offsetParent 就是它）
+    if (st.pop) {
+      var bar = $('bar')
+      var maxLeft = Math.max(4, bar.clientWidth - ($('presetPop').offsetWidth || 240) - 8)
+      var left = Math.min(sel.offsetLeft, maxLeft)
+      if (st.pop === 'preset') $('presetPop').style.left = left + 'px'
+      if (st.pop === 'cust') {
+        var cw = 300
+        $('custPop').style.left = Math.min(sel.offsetLeft, Math.max(4, bar.clientWidth - cw - 8)) + 'px'
+      }
+    }
+    var opts = document.querySelectorAll('#presetPop .opt')
+    for (var i = 0; i < opts.length; i++) {
+      opts[i].classList.toggle('on', opts[i].getAttribute('data-p') === st.preset)
+    }
+    var rows = document.querySelectorAll('tr.pick')
+    for (var j = 0; j < rows.length; j++) {
+      rows[j].classList.toggle('on', rows[j].getAttribute('data-p') === st.preset)
+    }
+
+    $('qRange').value = q
+    $('cRange').value = c
+    $('qVal').textContent = q
+    $('cVal').textContent = c
+    $('rPreset').textContent = presets[st.preset] ? presets[st.preset].label : '自定义（滑杆）'
+    $('rQ').textContent = q
+    $('rC').textContent = c
+    $('rSet').textContent = 'rfb.qualityLevel = ' + q + '; rfb.compressionLevel = ' + c + ';'
+    $('rLive').textContent = st.variant === 'new' ? '运行中生效，无需重连' : '现状：只能改书签 + 重连'
+
+    // SetEncodings 帧（msg-type 2）：真值取自 encodings.js（copyRect 1 / hextile 5 /
+    // h264 50 / tight 7 / tightPNG -260 / zrle 16 / jpeg 21 / raw 0），伪编码两行高亮
+    var encs = [
+      { v: 1, n: 'copyRect' },
+      { v: 50, n: 'h264' },
+      { v: 7, n: 'tight' },
+      { v: -260, n: 'tightPNG' },
+      { v: 16, n: 'ZRLE' },
+      { v: 21, n: 'JPEG' },
+      { v: 5, n: 'hextile' },
+      { v: 0, n: 'raw' },
+      { v: -32 + q, n: 'qualityLevel0(-32) + Q' + q, hl: true },
+      { v: -256 + c, n: 'compressLevel0(-256) + C' + c, hl: true }
+    ]
+    var out = 'msg-type=2 (SetEncodings)  number-of-encodings=…（节选）\n'
+    for (var k = 0; k < encs.length; k++) {
+      out += '  ' + intBytes(encs[k].v) + '  ' + (encs[k].v < 0 ? '(int32 ' + encs[k].v + ')' : '             ') +
+        '  ' + (encs[k].hl ? '<span class="hl">' + encs[k].n + '</span>' : '<span class="cm">' + encs[k].n + '</span>') + '\n'
+    }
+    out += '<span class="cm">… 其余伪编码（DesktopSize / LastRect / ExtendedDesktopSize …）照旧</span>'
+    $('wire').innerHTML = out
+  }
+
+  $('qSel').addEventListener('click', function (e) {
+    e.stopPropagation()
+    st.pop = st.pop === 'preset' ? null : 'preset'
+    render()
+  })
+  var popOpts = document.querySelectorAll('#presetPop .opt')
+  for (var i = 0; i < popOpts.length; i++) {
+    popOpts[i].addEventListener('click', function (e) {
+      e.stopPropagation()
+      var p = this.getAttribute('data-p')
+      if (p === 'custom') { st.pop = 'cust'; render() } else { applyPreset(p) }
+    })
+  }
+  $('qRange').addEventListener('input', function () { st.preset = null; st.q = Number(this.value); render() })
+  $('cRange').addEventListener('input', function () { st.preset = null; st.c = Number(this.value); render() })
+  document.addEventListener('click', function () { if (st.pop === 'preset') { st.pop = null; render() } })
+  var rows = document.querySelectorAll('tr.pick')
+  for (var j = 0; j < rows.length; j++) {
+    rows[j].addEventListener('click', function () { applyPreset(this.getAttribute('data-p')) })
+  }
+  setVariant('new')
+})()
+</script>
+</body>
+</html>

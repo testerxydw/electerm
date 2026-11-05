@@ -7,8 +7,13 @@ import {
   statusMap
 } from '../../common/constants'
 import {
-  Select
+  Select,
+  Popover,
+  Slider,
+  Button,
+  Tooltip
 } from 'antd'
+import { SettingOutlined } from '@ant-design/icons'
 import SwitchLabel from '../common/switch'
 import RemoteSuspendSelect from '../common/remote-suspend-select'
 import message from '../common/message'
@@ -20,6 +25,12 @@ import SessionShell from '../common/session-shell'
 import * as ls from '../../common/safe-local-storage'
 import {
   RESIZE_MERGE_MS,
+  QUALITY_PRESETS,
+  QUALITY_CUSTOM,
+  DEFAULT_QUALITY,
+  presetKeyFor,
+  qualityLsKey,
+  resolveQuality,
   resolveScaleViewport,
   shouldReLayout
 } from '../../common/remote-adapt'
@@ -86,6 +97,14 @@ export default class VncSession extends PureComponent {
       ls.getItemJSON(scaleViewportLsKey(props.tab?.host), null),
       window.store.applyProfile(deepCopy(props.tab || {})).scaleViewport
     )
+    // 画质同构：本机逐 host 记忆 > 书签字段 > 出厂默认 3/1。首连、原地重连、
+    // 挂起恢复都读这份 state，栏内改过就不再回头看书签
+    const qualityTab = window.store.applyProfile(deepCopy(props.tab || {}))
+    const quality = resolveQuality(
+      ls.getItemJSON(qualityLsKey(props.tab?.host), null),
+      qualityTab.qualityLevel,
+      qualityTab.compressionLevel
+    )
     super(props)
     this.state = {
       types: [],
@@ -95,6 +114,10 @@ export default class VncSession extends PureComponent {
       screens: [],
       currentScreen: '0',
       scaleViewport,
+      qualityLevel: quality.qualityLevel,
+      compressionLevel: quality.compressionLevel,
+      qualityPop: false,
+      connected: false,
       failure: ''
     }
     this._suspendGuard = new RemoteSuspend({
@@ -126,6 +149,8 @@ export default class VncSession extends PureComponent {
     this._suspending = true
     this._detachClipboardSync()
     this._releaseRfb()
+    // 实例已放下，画质控件跟着置灰；回切时 remoteInit 从 state 重建，值不丢
+    this.setState({ connected: false })
   }
 
   _resumeRemote = () => {
@@ -239,6 +264,7 @@ export default class VncSession extends PureComponent {
     this.vncFailureReason = ''
     this.setState({
       loading: true,
+      connected: false,
       failure: ''
     })
     const { config } = this.props
@@ -249,13 +275,15 @@ export default class VncSession extends PureComponent {
       term: terminalType,
       viewOnly = false,
       clipViewport = false,
-      qualityLevel = 3, // 0-9, lower = faster performance
-      compressionLevel = 1, // 0-9, lower = faster performance
       shared = true,
       showDotCursor = true, // show dot cursor when server sends no cursor image (common on Windows)
       username,
       password
     } = tab
+    // 画质喂决策值，不喂 tab 字段：tab 只是决策的其中一层（本机记忆 > 书签），
+    // 直接读 tab 会让栏内的记忆只在重连后才生效、而首连又回到书签 ——
+    // 与上面 scaleViewport 那条注释同一个坑（vnc-session 的缩放开关先踩过）
+    const { qualityLevel, compressionLevel } = this.state
     const opts = clone({
       term: terminalType || config.terminalType,
       tabId: id,
@@ -449,6 +477,9 @@ export default class VncSession extends PureComponent {
     rfb.clipViewport = clipViewport
     rfb.qualityLevel = qualityLevel
     rfb.compressionLevel = compressionLevel
+    // 记的是"真正交给这个 rfb 实例的值"，运行中改画质时用它判等，
+    // 同值重复点同一档不再多推一帧 SetEncodings
+    this.appliedQuality = { qualityLevel, compressionLevel }
     rfb.viewOnly = viewOnly
     rfb.showDotCursor = showDotCursor
     this.vncViewOnly = viewOnly
@@ -461,6 +492,7 @@ export default class VncSession extends PureComponent {
     // Capture the remote desktop size from the RFB connection
     this.setState({
       loading: false,
+      connected: true,
       failure: ''
     })
     this._attachClipboardSync()
@@ -490,6 +522,12 @@ export default class VncSession extends PureComponent {
     }
     if (this.rfb !== rfb) return
     this._detachClipboardSync()
+    // 画质控件只有连上才可点（noVNC 的 setter 在未连接时吞掉帧，见 rfb.js
+    // 的 _rfbConnectionState === 'connected' 那道闸），面板也别悬在半空
+    this.setState({
+      connected: false,
+      qualityPop: false
+    })
     this.setStatus(statusMap.error)
     // a clean disconnect is the user closing the session, not a failure
     if (event?.detail?.clean) {
@@ -741,6 +779,98 @@ export default class VncSession extends PureComponent {
     }, this.updateViewLayout)
   }
 
+  // 运行中改画质：写 noVNC 的两个 setter + 写本机逐 host 记忆。
+  // 不回写 tab / 书签（与上面 handleScaleViewChange 同口径：栏内的偏好属本机）。
+  // 判等在这层也做一次：appliedQuality 记的是上一个真正交给当前 rfb 的值，
+  // 同值再点不再多推一帧 SetEncodings（noVNC 内部还有一道判等，见 rfb.js）。
+  handleQualityCommit = (qualityLevel, compressionLevel) => {
+    this.setState({
+      qualityLevel,
+      compressionLevel
+    })
+    ls.setItemJSON(
+      qualityLsKey(this.props.tab?.host),
+      { qualityLevel, compressionLevel }
+    )
+    const rfb = this.rfb
+    if (!rfb) {
+      return
+    }
+    const prev = this.appliedQuality || {}
+    if (prev.qualityLevel !== qualityLevel) {
+      rfb.qualityLevel = qualityLevel
+    }
+    if (prev.compressionLevel !== compressionLevel) {
+      rfb.compressionLevel = compressionLevel
+    }
+    this.appliedQuality = { qualityLevel, compressionLevel }
+  }
+
+  handlePresetChange = (key) => {
+    if (key === QUALITY_CUSTOM) {
+      // "自定义"不是一个档位值：点开滑杆面板，当前 Q/C 保持不变
+      this.setState({ qualityPop: true })
+      return
+    }
+    const preset = QUALITY_PRESETS.find(p => p.key === key)
+    if (!preset) {
+      return
+    }
+    this.handleQualityCommit(preset.qualityLevel, preset.compressionLevel)
+  }
+
+  renderQualityPanel = () => {
+    const {
+      qualityLevel,
+      compressionLevel,
+      connected
+    } = this.state
+    // 拖动过程只改显示（setState），松手才落 setter 与本机记忆：一次拖动会
+    // 触发十几个中间值，每个都写 setter 就是十几帧 SetEncodings
+    const row = (label, key, value) => (
+      <div className='vnc-quality-row'>
+        <span className='vnc-quality-name'>{label}</span>
+        <Slider
+          className='vnc-quality-slider'
+          min={0}
+          max={9}
+          step={1}
+          disabled={!connected}
+          value={value}
+          onChange={(v) => this.setState({ [key]: v })}
+          onChangeComplete={(v) => this.handleQualityCommit(
+            key === 'qualityLevel' ? v : qualityLevel,
+            key === 'compressionLevel' ? v : compressionLevel
+          )}
+        />
+        <span className='vnc-quality-val'>{value}</span>
+      </div>
+    )
+    return (
+      <div className='vnc-quality-pop'>
+        {row(e('vncQualityQ'), 'qualityLevel', qualityLevel)}
+        {row(e('vncQualityC'), 'compressionLevel', compressionLevel)}
+        <div className='vnc-quality-acts'>
+          <Button
+            size='small'
+            disabled={!connected}
+            onClick={() => this.handleQualityCommit(
+              DEFAULT_QUALITY.qualityLevel,
+              DEFAULT_QUALITY.compressionLevel
+            )}
+          >
+            {e('vncQualityRestore')} {DEFAULT_QUALITY.qualityLevel}/{DEFAULT_QUALITY.compressionLevel}
+          </Button>
+        </div>
+        <div className='vnc-quality-hint'>
+          <div>{e('vncQualityHintFrame')}</div>
+          <div>{e('vncQualityHintEncoding')}</div>
+          <div>{e('vncQualityHintMemory')}</div>
+        </div>
+      </div>
+    )
+  }
+
   getDom = () => {
     return this.domRef.current
   }
@@ -752,13 +882,23 @@ export default class VncSession extends PureComponent {
     this.remoteInit()
   }
 
-  // 栏内条目（N3 契约里的 displayItems）：选屏与缩放开关都留在顶栏，用户一眼
-  // 看得见，不必先开 ⋮（2026-11-03 决定）。
+  // 栏内条目（N3 契约里的 displayItems）：选屏、缩放开关、挂起档位与画质都留在
+  // 顶栏，用户一眼看得见，不必先开 ⋮（2026-11-03 决定）。画质是一颗档位 Select
+  // + ✎ 打开的两条 0-9 滑杆，控件形态照 RDP 左栏的 Select（分辨率）+ ✎（自定义）
+  // + Switch（缩放）；未连接时置灰（noVNC 的 setter 在未连接时吞帧，不给点）。
   renderDisplayItems = () => {
     const {
       screens,
-      currentScreen
+      currentScreen,
+      qualityLevel,
+      compressionLevel,
+      qualityPop,
+      connected,
+      loading
     } = this.state
+    const qualityDisabled = !connected || loading
+    const preset = presetKeyFor(qualityLevel, compressionLevel)
+    const qc = (q, c) => `Q${q}/C${c}`
     return (
       <>
         {
@@ -792,6 +932,45 @@ export default class VncSession extends PureComponent {
           onChange={this.handleScaleViewChange}
         />
         <RemoteSuspendSelect />
+        <Tooltip title={qualityDisabled ? e('vncQualityNeedConnect') : e('vncQuality')}>
+          <Select
+            size='small'
+            className='vnc-quality-select'
+            value={preset}
+            disabled={qualityDisabled}
+            onChange={this.handlePresetChange}
+            popupMatchSelectWidth={false}
+          >
+            {
+              QUALITY_PRESETS.map(p => (
+                <Option
+                  key={p.key}
+                  value={p.key}
+                >
+                  {e(p.labelKey)}
+                  <span className='vnc-quality-qc'>{qc(p.qualityLevel, p.compressionLevel)}</span>
+                </Option>
+              ))
+            }
+            <Option value={QUALITY_CUSTOM}>
+              {e('vncQualityCustom')}
+              <span className='vnc-quality-qc'>{qc(qualityLevel, compressionLevel)}</span>
+            </Option>
+          </Select>
+        </Tooltip>
+        <Popover
+          open={qualityPop && !qualityDisabled}
+          onOpenChange={(open) => this.setState({ qualityPop: open && connected })}
+          content={this.renderQualityPanel()}
+          placement='bottomLeft'
+          trigger='click'
+        >
+          <SettingOutlined
+            className={
+              'pointer vnc-quality-edit' + (qualityPop && !qualityDisabled ? ' vnc-quality-edit-on' : '')
+            }
+          />
+        </Popover>
       </>
     )
   }

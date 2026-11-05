@@ -1,5 +1,5 @@
 /**
- * 远程会话（RDP / VNC / SPICE）窗口自适应的决策纯函数。
+ * 远程会话（RDP / VNC / SPICE）窗口自适应与画质的决策纯函数。
  *
  * 这些判断原来散在组件里，只能靠真机看效果；抽出来后可被 unit-ci 直接覆盖
  * （照 session-end.js / db-column-width.js 的既有范式）。
@@ -89,6 +89,73 @@ export const resolveScaleViewport = (localOverride, tabValue) => (
     ? tabValue !== false
     : !!localOverride
 )
+
+/**
+ * VNC 画质档位（写进 noVNC 的 qualityLevel / compressionLevel 伪编码）。
+ *
+ * 两个轴的语义：Q 越高越清晰、数据量越大；C 越高越省带宽、越耗 CPU。
+ * 数值与命名见 doc/草图-VNC顶栏画质设置-2026-11-05.html §三，balanced 特意等于
+ * 书签默认（fix-bookmark-default.js），这样"打开顶栏什么都不点"行为零变化。
+ * 常量单点：界面、单测、实机脚本都从这里取，不再各写一份 0-9。
+ */
+export const QUALITY_CUSTOM = 'custom'
+export const QUALITY_LEVEL_MIN = 0
+export const QUALITY_LEVEL_MAX = 9
+export const QUALITY_PRESETS = [
+  { key: 'smooth', qualityLevel: 2, compressionLevel: 6, labelKey: 'vncQualitySmooth' },
+  { key: 'balanced', qualityLevel: 3, compressionLevel: 1, labelKey: 'vncQualityBalanced' },
+  { key: 'sharp', qualityLevel: 6, compressionLevel: 2, labelKey: 'vncQualitySharp' },
+  { key: 'fine', qualityLevel: 8, compressionLevel: 2, labelKey: 'vncQualityFine' },
+  { key: 'narrowband', qualityLevel: 5, compressionLevel: 9, labelKey: 'vncQualityNarrowband' }
+]
+export const DEFAULT_QUALITY = { qualityLevel: 3, compressionLevel: 1 }
+
+/**
+ * 本机逐 host 的画质记忆键（与 vnc-scale-view- 同一命名与同一口径：
+ * 只进本机，不回写书签）
+ */
+export const qualityLsKey = (host) => `vnc-quality-${host}`
+
+/**
+ * 只接受 0-9 整数：noVNC 的 setter 对非整数直接 Log.Error 后丢弃，
+ * 字符串（历史书签 / ls 里的 '8'）在这里先归一，越界与脏值交给下一层兜底。
+ * 非法返回 null，由调用方决定回退到哪一档。
+ */
+export const normalizeQualityLevel = (v) => {
+  if (v === null || v === undefined || v === '') {
+    return null
+  }
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < QUALITY_LEVEL_MIN || n > QUALITY_LEVEL_MAX) {
+    return null
+  }
+  return n
+}
+
+/**
+ * 画质的取值优先级，与 resolveScaleViewport 完全同构：
+ *   本机记忆（按 host）> 书签字段（可同步/可进 profile）> 出厂默认 3/1。
+ * 本机记忆里某一轴脏了（越界）时，那一轴单独回落到书签，另一轴不受牵连。
+ */
+export const resolveQuality = (localOverride, tabQuality, tabCompression) => {
+  const local = localOverride && typeof localOverride === 'object' ? localOverride : {}
+  return {
+    qualityLevel: normalizeQualityLevel(local.qualityLevel) ??
+      normalizeQualityLevel(tabQuality) ?? DEFAULT_QUALITY.qualityLevel,
+    compressionLevel: normalizeQualityLevel(local.compressionLevel) ??
+      normalizeQualityLevel(tabCompression) ?? DEFAULT_QUALITY.compressionLevel
+  }
+}
+
+/**
+ * 档位是 (Q, C) 的派生值，不单独记忆：滑杆停到非预设组合，顶栏就读"自定义"。
+ */
+export const presetKeyFor = (qualityLevel, compressionLevel) => {
+  const hit = QUALITY_PRESETS.find(p =>
+    p.qualityLevel === qualityLevel && p.compressionLevel === compressionLevel
+  )
+  return hit ? hit.key : QUALITY_CUSTOM
+}
 
 /**
  * 视口是否真的变了：任一维度差值超过 epsilon 才算。
