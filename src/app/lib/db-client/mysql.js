@@ -463,10 +463,39 @@ async function getApproxRows (pool, database, table) {
       [String(database), String(table)]
     )
     const n = r && r[0] && r[0].c
-    return n === null || n === undefined ? undefined : Number(n)
+    return n === null || n === undefined
+      ? undefined
+      : confirmEmpty(pool, fullTableName(database, table), Number(n))
   } catch (e) {
     return undefined
   }
+}
+
+// TABLE_ROWS 是统计估算，MariaDB/InnoDB 对**空表**会回 1（2026-11-05 用户实机截图：
+// 空表状态行自相矛盾成「本页 0 行 · 总行数（约）: 1」）。估算落在 0..1 这一档时
+// 补一次 `SELECT 1 … LIMIT 1` 复核：探不到行就是确定的空表，改口 0；探到行原样保留。
+// 复核只会把数字变得更准（1 → 0，或坐实那个 1），不会把一个有数据的表说成空，
+// 所以估算大于 1 时不发消息 —— 大表不为此多一次往返。
+// 视图不在这里复核：它的 TABLE_ROWS 是 NULL，压根进不到这一档；
+// 真去 `LIMIT 1` 会执行视图定义，可能是一次全表聚合。
+// 复核失败（对该表没有 SELECT 权限，但读得到 information_schema）保留估算：
+// 宁可显示"约 1"，也不要让一次计数把取页/取结构打成错误。
+const EMPTY_RECHECK_MAX = 1
+
+async function confirmEmpty (pool, fullTable, n) {
+  if (!Number.isFinite(n) || n < 0 || n > EMPTY_RECHECK_MAX) {
+    return n
+  }
+  try {
+    const [r] = await pool.query('SELECT 1 AS x FROM ' + fullTable + ' LIMIT 1')
+    return (r && r.length) ? n : 0
+  } catch (e) {
+    return n
+  }
+}
+
+function fullTableName (database, table) {
+  return quoteIdent(database) + '.' + quoteIdent(table)
 }
 
 // 排序标识符形状：只接受 [A-Za-z0-9_$]。
@@ -666,6 +695,16 @@ async function getTableStructure (conn, { table, database }) {
   const tableRow = (tbls[0] || [])[0]
   if (!tableRow) {
     throw new Error(`table not found: ${dbName}.${tbl}`)
+  }
+  // 估算行数与取页同源同修：结构侧的读者（数据字典导出、AI 工具）拿到的也是复核过的值。
+  // 只对 BASE TABLE 复核 —— 视图的 TABLE_ROWS 本来是 NULL，一次 LIMIT 1 却会真跑视图定义。
+  // NULL 也不复核：那是"未统计"，不是"0 行"，不能被改口成 0（AI 工具契约同此）。
+  const rawRows = tableRow.TABLE_ROWS
+  if (String(tableRow.TABLE_TYPE || '').toUpperCase() === 'BASE TABLE' &&
+      rawRows !== null && rawRows !== undefined) {
+    tableRow.TABLE_ROWS = await confirmEmpty(
+      pool, fullTableName(dbName, tbl), Number(rawRows)
+    )
   }
   return structureV2.fromMysql({
     columns: cols[0] || [],

@@ -5,14 +5,18 @@
  * 现象（2026-11-05 用户实机截图，MariaDB 10.3）：空表的状态行自相矛盾成
  * 「本页 0 行 · 总行数（约）: 1」，空态提示也跟着说「该表暂无数据（总行数（约）: 1）」。
  * 根因不在产品：`information_schema.TABLES.TABLE_ROWS` 是统计估算，MariaDB/InnoDB
- * 对空表会给 1。但**取数那一次已经证明了表是空的**（无条件、第 1 页、0 行、无下一页），
- * 所以客户端该用这个确定值覆盖估算。
+ * 对空表会给 1。改口放在**主进程取数处**（mysql.js confirmEmpty：估算落在 0..1 这一档
+ * 时补一次 `SELECT 1 … LIMIT 1`，探不到行就是确定的空表 → 0）。数据页状态行、空态提示、
+ * 数据字典导出、AI 工具读的是同一个数，一处修全生效。
  *
- * 桩库能验而真库不必验的三件事（都靠"服务端回什么我们就该显示什么"这条边界）：
- *   1) 空表回估算 1 → 界面必须显示 0（状态行与空态提示两处同源，必须一起改口）；
- *   2) 有数据的表回估算 12 万 → 不能被"覆盖"成 0（改错了方向就是数据丢失级误导）；
- *   3) 末页恰好整页（50 行、hasMore=false、估算 100）→ 也不能归零，
- *      这条是 1) 的反向对照：判据必须同时带"0 行"，只看 hasMore 就会误伤。
+ * 这份脚本只验渲染层这条边界 —— 状态行与空态提示同读 grid.totalRows，而它必须
+ * 原样来自服务端回传值（界面不推断）：
+ *   1) 服务端复核过回 0 → 界面显示 0，且状态行与空态提示两处同源一起是 0；
+ *   2) 服务端没复核（复核失败/老服务端）回 1 → 界面**照抄 1**，不在渲染层再判一次
+ *      "这一页没行"去覆盖。这条是 0e0423a4 把方向踩反之后留下的墓碑；
+ *   3) 有数据的表回估算 12 万 → 原样显示，不能被任何本地逻辑归零。
+ * 复核该不该发、什么时候发，由 src/test/unit-ci/db-approx-rows-empty.spec.js
+ * 用假 pool 跑真实适配器源码钉住 —— 那在 CDP 之下，这份看不见。
  *
  * 对生产库无依赖：全程假 host + 假 runGlobalAsync，不发起真实连接。
  *
@@ -39,13 +43,12 @@ const DATA = path.join(RUN, 'data')
 const LOG_FILE = path.join(RUN, 'app.log')
 
 // 三张表 = 三个场景，切表即切场景，不需要中途改桩
-const T_EMPTY = 't_empty'
-const T_BIG = 't_big'
-const T_FULL = 't_full'
-// 服务端（桩）对空表的估算值：MariaDB/InnoDB 的真实行为，不是产品造的假数
-const EMPTY_ESTIMATE = 1
-const BIG_ESTIMATE = 120000
-const FULL_ESTIMATE = 100
+const T_ZERO = 't_zero' // 主进程复核过的空表：服务端回 0
+const T_RAW = 't_raw' // 没复核的空表（复核失败/老服务端）：服务端仍回 1
+const T_BIG = 't_big' // 有数据的表：估算原样透传
+const ZERO_TOTAL = 0
+const RAW_TOTAL = 1
+const BIG_TOTAL = 120000
 
 const STUB = `
 (() => {
@@ -61,9 +64,9 @@ const STUB = `
     return r
   }
   const RESP = {
-    '${T_EMPTY}': { rows: [], totalRows: ${EMPTY_ESTIMATE}, hasMore: false },
-    '${T_BIG}': { rows: mkRows(50), totalRows: ${BIG_ESTIMATE}, hasMore: true },
-    '${T_FULL}': { rows: mkRows(50), totalRows: ${FULL_ESTIMATE}, hasMore: false }
+    '${T_ZERO}': { rows: [], totalRows: ${ZERO_TOTAL}, hasMore: false },
+    '${T_RAW}': { rows: [], totalRows: ${RAW_TOTAL}, hasMore: false },
+    '${T_BIG}': { rows: mkRows(50), totalRows: ${BIG_TOTAL}, hasMore: true }
   }
   window.__served = []
   window.pre.runGlobalAsync = function (name, ...a) {
@@ -73,7 +76,7 @@ const STUB = `
       if (op === 'getMetadata') {
         return Promise.resolve([{
           name: 'demo_db',
-          children: ['${T_EMPTY}', '${T_BIG}', '${T_FULL}'].map(n => ({ name: n, type: 'table' }))
+          children: ['${T_ZERO}', '${T_RAW}', '${T_BIG}'].map(n => ({ name: n, type: 'table' }))
         }])
       }
       if (op === 'describeTable') {
@@ -307,46 +310,41 @@ async function main () {
       return ok
     }
 
-    // ── 1) 空表：估算 1 → 界面 0 ────────────────────────────────
-    check('打开空表', await openTable(T_EMPTY))
-    const servedEmpty = await cdp.eval('JSON.stringify(window.__served.filter(s => s.table === "' + T_EMPTY + '").slice(-1)[0])')
-    const tEmpty = await cdp.eval('window.__totalText()')
-    const tipEmpty = await cdp.eval('window.__emptyTip()')
-    const rowsEmpty = await cdp.eval('window.__rowCount()')
-    check('桩确实按 MariaDB 的空表口径回了估算 1',
-      JSON.parse(servedEmpty).totalRows === EMPTY_ESTIMATE && JSON.parse(servedEmpty).rows === 0,
-      { served: JSON.parse(servedEmpty) })
-    check('空表状态行显示「总行数（约）: 0」而不是 1',
-      approxOf(tEmpty) === 0, { tEmpty })
+    // ── 1) 服务端复核过的空表：界面 0，两处同源 ────────────────
+    check('打开复核过的空表', await openTable(T_ZERO))
+    const servedZero = JSON.parse(await cdp.eval('JSON.stringify(window.__served.filter(s => s.table === "' + T_ZERO + '").slice(-1)[0])'))
+    const tZero = await cdp.eval('window.__totalText()')
+    const tipZero = await cdp.eval('window.__emptyTip()')
+    const rowsZero = await cdp.eval('window.__rowCount()')
+    const pageRowsZero = await cdp.eval('window.__pageRowsText()')
+    const pageNoZero = await cdp.eval('window.__pageNo()')
+    check('桩按主进程复核后的口径回了 0',
+      servedZero.totalRows === ZERO_TOTAL && servedZero.rows === 0, { served: servedZero })
+    check('空表状态行显示「总行数（约）: 0」', approxOf(tZero) === ZERO_TOTAL, { tZero })
     check('空表状态行的本页行数仍是 0（两个口径不互相顶掉）',
-      rowsEmpty === 0 && await cdp.eval('window.__pageRowsText()') === L.pageRows.replace('{n}', '0'),
-      { rowsEmpty, pageRows: await cdp.eval('window.__pageRowsText()') })
-    check('空态提示与状态行同源，一起改口成 0',
-      tipEmpty.includes(totalWith(0)) && !tipEmpty.includes(totalWith(1)), { tipEmpty })
+      rowsZero === 0 && pageRowsZero === L.pageRows.replace('{n}', '0'), { rowsZero, pageRowsZero })
+    check('空态提示与状态行同源，一起是 0',
+      tipZero.includes(totalWith(ZERO_TOTAL)) && !tipZero.includes(totalWith(RAW_TOTAL)), { tipZero })
+    check('空表分页器仍显示第 1 页（总数 0 不该把分页器算成 0 页）',
+      /1/.test(pageNoZero), { pageNo: pageNoZero })
     await shot(cdp, '01-empty-is-zero.png')
 
-    // ── 2) 有数据的表：估算不能被覆盖成 0 ──────────────────────
+    // ── 2) 服务端没复核（回 1）：界面照抄，不在渲染层再判一次 ──
+    check('打开未复核的空表', await openTable(T_RAW))
+    const tRaw = await cdp.eval('window.__totalText()')
+    check('界面不推断：服务端回 1 就显示 1（改口只在主进程）',
+      approxOf(tRaw) === RAW_TOTAL, { tRaw })
+    await shot(cdp, '02-raw-estimate-passed-through.png')
+
+    // ── 3) 有数据的表：估算原样透传 ────────────────────────────
     check('打开大表', await openTable(T_BIG))
     const tBig = await cdp.eval('window.__totalText()')
     const rowsBig = Number(await cdp.eval('window.__rowCount()'))
-    check('大表仍显示服务端估算 120000（覆盖只留给"确定空"）',
-      approxOf(tBig) === BIG_ESTIMATE, { tBig })
+    check('大表仍显示服务端估算 120000（本地逻辑不归零）',
+      approxOf(tBig) === BIG_TOTAL, { tBig })
     // 只断言"有行"：网格是窗口化的，DOM 里的行数不等于桩返回的 50
     check('大表首屏有行', rowsBig > 0, { rowsBig })
-    await shot(cdp, '02-big-keeps-estimate.png')
-
-    // ── 3) 末页恰好整页：hasMore=false 但表不空 ────────────────
-    check('打开恰好整页的表', await openTable(T_FULL))
-    const tFull = await cdp.eval('window.__totalText()')
-    const servedFull = JSON.parse(await cdp.eval('JSON.stringify(window.__served.filter(s => s.table === "' + T_FULL + '").slice(-1)[0])'))
-    check('整页表（50 行 + hasMore=false）不被判成空表',
-      servedFull.hasMore === false && servedFull.rows === 50 && approxOf(tFull) === FULL_ESTIMATE,
-      { served: servedFull, tFull })
-
-    // ── 4) 空表时页码仍落在第 1 页（总数归 0 不该把分页器算成 0 页）──
-    check('打开空表（第二次，读分页器）', await openTable(T_EMPTY))
-    const pageNo = await cdp.eval('window.__pageNo()')
-    check('空表分页器仍显示第 1 页', /1/.test(pageNo), { pageNo })
+    await shot(cdp, '03-big-keeps-estimate.png')
 
     const fails = results.filter(r => !r.ok)
     console.log('\n' + results.length + ' checks, ' + fails.length + ' fail')

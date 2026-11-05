@@ -115,29 +115,27 @@ describe('U1d 批量动作分组', () => {
   })
 })
 
-// 空表总数：information_schema 的 TABLE_ROWS 是估算，MariaDB/InnoDB 对空表会报 1，
-// 于是状态行自相矛盾成「本页 0 行 · 总行数（约）: 1」。取数处必须用"这一页真的没行"
-// 覆盖掉那个估算，否则状态行与空态提示（同源读 grid.totalRows）两处一起错。
-describe('空表总行数落回 0', () => {
+// 空表总数（MariaDB/InnoDB 的 TABLE_ROWS 对空表回 1）修在主进程取数处
+// （mysql.js confirmEmpty），界面只翻译服务端回传的数。这条边界原来被踩反过一次
+// （0e0423a4 在 loadPage 里用"这一页没行"覆盖估算），所以钉住：状态行与空态提示
+// 同读的 grid.totalRows 必须原样来自 res.totalRows。
+describe('总行数由服务端定口径，界面不推断', () => {
   const loadPageBlock = () => blockOf(
     "return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', args).then(res => {",
     '\n      return rows'
   )
 
-  test('无条件首页 0 行且无下一页才判成确定空表', () => {
+  test('totalRows 直接取 res.totalRows，没有本地改写分支', () => {
     const b = loadPageBlock()
-    assert.match(
-      b,
-      /const confirmedEmpty = !q\.where && page === 1 && !rows\.length && !hasMore/,
-      '四个条件缺一不可：带条件/非首页/有下一页都不能断言表空'
-    )
-    assert.match(b, /totalRows: confirmedEmpty\n\s*\?\s*0\n/, '确定空表应把总数写成 0')
+    assert.match(b, /totalRows: q\.where\n\s*\?\s*\(typeof g\.totalRows === 'number' \? g\.totalRows : undefined\)/)
+    assert.match(b, /res && res\.totalRows !== undefined\n\s*\?\s*res\.totalRows/)
+    assert.equal(/confirmedEmpty/.test(b), false, '界面不该自己判"表是空的"再改口')
+    assert.equal(/totalRows:\s*0/.test(b), false, '写死 0 就是把服务端的口径顶掉了')
   })
 
-  test('hasMore 只算一次，判据与 setGrid 用同一个值', () => {
+  test('hasMore 仍从 res 读，取页与判页同源', () => {
     const b = loadPageBlock()
-    assert.equal((b.match(/const hasMore = !!\(res && res\.hasMore\)/g) || []).length, 1)
-    assert.match(b, /\n {8}hasMore,\n/, 'setGrid 应复用局部 hasMore，别再各读一遍 res')
+    assert.match(b, /hasMore: !!\(res && res\.hasMore\)/)
   })
 })
 
