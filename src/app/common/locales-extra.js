@@ -926,6 +926,7 @@ const en = {
   closeTabLeft: 'Close tabs to the left',
   closeAllTabs: 'Close all tabs',
   setTabColor: 'Set tab color',
+  clearTabColor: 'Clear tab color',
   // E2-3b 命令面板
   dbQuickOpenPlaceholder: 'Search actions, tables, columns and history...',
   dbQuickOpenGroupAction: 'Actions',
@@ -2075,6 +2076,7 @@ const zhCn = {
   closeTabLeft: '关闭左侧页签',
   closeAllTabs: '关闭全部页签',
   setTabColor: '设置页签颜色',
+  clearTabColor: '清除页签颜色',
   // —— E2 结果集视角条（构建器 ⇄ SQL）——
   dbViewConditions: '筛选 {n} 个条件',
   dbViewHint: '条件作用在结果集上，也会跟着导出',

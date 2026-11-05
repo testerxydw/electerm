@@ -353,6 +353,36 @@
   .db-engine-mark
     margin-right 3px
 
+// 页签右键"设置页签颜色"弹出的色卡：锚点是页签左下角一个点不到的 0×0 占位。
+// 卡片本体 portal 到 body —— 菜单一点就关，卡片必须活在菜单之外才收得住。
+// setColor 打开时把这个占位挪到菜单行尾色块的右缘（页签内的绝对坐标，见 tab.jsx），
+// 卡片就弹在行旁边。别改成 fixed：弹层定位按 offsetParent 链量，fixed 会把链量断。
+.tab-color-anchor
+  position absolute
+  left 0
+  bottom -2px
+  width 0
+  height 0
+  pointer-events none
+
+// "设置页签颜色"那一行：左边文字、行尾一颗色块（当前生效色）。
+// 这颗色块同时是色卡的弹出锚点，所以它必须真渲染在菜单里、点击那一刻量得到矩形。
+.tab-context-color-item
+  display flex
+  align-items center
+  justify-content space-between
+  width 100%
+  // 覆盖 antd 菜单项默认的 28px 行高，否则色块被 line-height 挤扁
+  line-height inherit
+
+.tab-context-color-swatch
+  flex none
+  width 14px
+  height 14px
+  margin-left 12px
+  border-radius var(--radius-xs)
+  border 1px solid var(--border)
+
 .ssh-tunnel-list-wrapper
   max-height 300px
   overflow-y auto

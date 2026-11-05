@@ -18,9 +18,10 @@ import {
 import {
   Tooltip,
   Dropdown,
-  ColorPicker
+  Popover
 } from 'antd'
 import message from '../common/message'
+import { ColorCard } from '../common/color-card.jsx'
 import classnames from 'classnames'
 import { pick } from 'lodash-es'
 import Input from '../common/input-auto-focus'
@@ -39,12 +40,16 @@ const e = window.translate
 const onDragCls = 'ondrag-tab'
 const onDragOverCls = 'dragover-tab'
 const onDragOverAfterCls = 'dragover-tab-after'
+// 没设过色时徽标用的默认色，也是色卡打开时的初始值
+const defaultTabColor = '#0088cc'
 
 class Tab extends Component {
   constructor (props) {
     super(props)
     this.state = {
-      terminalOnData: ''
+      terminalOnData: '',
+      colorCardOpen: false,
+      colorAnchor: null
     }
     this.id = 'tab-' + this.props.tab.id
     refsTabs.add(this.id, this)
@@ -334,8 +339,73 @@ class Tab extends Component {
     window.store.closeAllTabs(this.props.tab.id)
   }
 
+  // 色卡就是书签创建时用的那一张（components/common/color-card.jsx）。
+  // 菜单项只负责把卡片弹出来：点色点 / random / 提交 hex 算"选定"（顺手收起），
+  // 右上角拖动取色器算"选色中"（卡片留着，让用户连着调）。
+  // 落点是行尾那颗色块（.tab-context-color-swatch）：菜单一收它自己也被卸载，
+  // 所以点击这一刻把"色块相对页签"的偏移量下来存进 state —— 弹层定位按
+  // offsetParent 链量坐标，锚点必须留在页签的绝对定位体系里（改成 fixed 会让
+  // 卡片被甩到 -19178,-10778 那种鬼地方，实机抓到过）。
+  setColor = () => {
+    const swatch = this.colorSwatchEl
+    const tabEl = this.tabRef.current
+    const s = swatch && swatch.getBoundingClientRect()
+    const t = tabEl && tabEl.getBoundingClientRect()
+    this.setState({
+      colorCardOpen: true,
+      colorAnchor: s && t && s.width
+        ? { left: Math.round(s.right - t.left) + 6, top: Math.round(s.top - t.top) }
+        : null
+    })
+  }
+
   handleColorChange = (color) => {
-    this.props.tab.color = color.toHexString()
+    this.props.tab.color = color
+  }
+
+  handleColorCommit = (color) => {
+    this.props.tab.color = color
+    this.setState({ colorCardOpen: false })
+  }
+
+  // 撤色 = 删掉字段，徽标回到渲染时那份默认色（tab.color 的 destructure 默认值）
+  clearTabColor = () => {
+    delete this.props.tab.color
+  }
+
+  // 色卡挂在页签自己身上而不是菜单项里：菜单一点就关，卡片得活下来。
+  // 锚点平时是页签左下角一个 0×0、点不到的占位（tabs.styl 的 .tab-color-anchor）；
+  // 从菜单那一行打开时（setColor 量到了色块相对页签的偏移）把它挪到色块右缘，
+  // 卡片就弹在行旁边，而不是弹回页签底下。
+  renderColorCard = () => {
+    const { tab } = this.props
+    const { colorAnchor } = this.state
+    const anchorStyle = colorAnchor
+      ? { left: colorAnchor.left + 'px', top: colorAnchor.top + 'px', bottom: 'auto' }
+      : null
+    return (
+      <Popover
+        open={this.state.colorCardOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            this.setState({ colorCardOpen: false, colorAnchor: null })
+          }
+        }}
+        trigger='click'
+        placement={colorAnchor ? 'rightTop' : 'bottomLeft'}
+        // 每次打开都重新挂一张卡：hex 输入自己存了草稿，留着的话下次打开显示的还是上回那个色
+        destroyTooltipOnHide
+        content={
+          <ColorCard
+            value={tab.color || defaultTabColor}
+            onChange={this.handleColorChange}
+            onCommit={this.handleColorCommit}
+          />
+        }
+      >
+        <span className='tab-color-anchor' style={anchorStyle} />
+      </Popover>
+    )
   }
 
   reopenClosedTab = () => {
@@ -456,22 +526,23 @@ class Tab extends Component {
       {
         key: 'setColor',
         icon: <BgColorsOutlined />,
+        // 行尾那颗色块 = 当前生效色（没设过就是徽标那份默认色），也是色卡的弹出锚点
         label: (
-          <span
-            onClick={e => e.stopPropagation()}
-            className='tab-context-color-item'
-          >
+          <span className='tab-context-color-item'>
             {e('setTabColor')}
-            <ColorPicker
-              size='small'
-              value={tab.color || '#0088cc'}
-              onChange={this.handleColorChange}
-              styles={{
-                popupOverlayInner: { padding: 8 }
-              }}
+            <span
+              className='tab-context-color-swatch'
+              ref={el => { this.colorSwatchEl = el }}
+              style={{ background: tab.color || defaultTabColor }}
             />
           </span>
         )
+      },
+      // 设过色才有"清除"：撤掉字段，徽标回到默认色
+      tab.color && {
+        key: 'clearTabColor',
+        icon: <BgColorsOutlined />,
+        label: e('clearTabColor')
       },
       {
         key: 'handleReloadTab',
@@ -509,7 +580,13 @@ class Tab extends Component {
     if (key.startsWith('moveToPane-')) {
       return window.store.moveTabToPane(this.props.tab.id, Number(key.split('-')[1]))
     }
-    this[key]()
+    // 菜单项的 key 就是方法名。哪天加了一项只有 key、组件上没有同名方法，
+    // 这里不兜住就是一发未捕获 TypeError（实机那轮踩过）
+    const handler = this[key]
+    if (typeof handler !== 'function') {
+      return
+    }
+    handler.call(this)
   }
 
   handleContextMenu = () => {
@@ -664,7 +741,7 @@ class Tab extends Component {
       },
       trigger: ['contextMenu']
     }
-    const { tabCount, color = '#0088cc' } = tab
+    const { tabCount, color = defaultTabColor } = tab
     const runningQm = window.store.runningQuickCommands[id]
     const styleTag = color
       ? {
@@ -737,6 +814,7 @@ class Tab extends Component {
           {
             this.renderCloseIcon()
           }
+          {this.renderColorCard()}
         </div>
       </Tooltip>
     )
