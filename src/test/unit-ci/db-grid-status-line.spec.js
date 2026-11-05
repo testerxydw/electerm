@@ -115,6 +115,32 @@ describe('U1d 批量动作分组', () => {
   })
 })
 
+// 空表总数：information_schema 的 TABLE_ROWS 是估算，MariaDB/InnoDB 对空表会报 1，
+// 于是状态行自相矛盾成「本页 0 行 · 总行数（约）: 1」。取数处必须用"这一页真的没行"
+// 覆盖掉那个估算，否则状态行与空态提示（同源读 grid.totalRows）两处一起错。
+describe('空表总行数落回 0', () => {
+  const loadPageBlock = () => blockOf(
+    "return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', args).then(res => {",
+    '\n      return rows'
+  )
+
+  test('无条件首页 0 行且无下一页才判成确定空表', () => {
+    const b = loadPageBlock()
+    assert.match(
+      b,
+      /const confirmedEmpty = !q\.where && page === 1 && !rows\.length && !hasMore/,
+      '四个条件缺一不可：带条件/非首页/有下一页都不能断言表空'
+    )
+    assert.match(b, /totalRows: confirmedEmpty\n\s*\?\s*0\n/, '确定空表应把总数写成 0')
+  })
+
+  test('hasMore 只算一次，判据与 setGrid 用同一个值', () => {
+    const b = loadPageBlock()
+    assert.equal((b.match(/const hasMore = !!\(res && res\.hasMore\)/g) || []).length, 1)
+    assert.match(b, /\n {8}hasMore,\n/, 'setGrid 应复用局部 hasMore，别再各读一遍 res')
+  })
+})
+
 describe('U1d 样式与文案契约', () => {
   test('本页行数用主文本色、选中计数用达标主色、数字等宽', () => {
     const styl = read(STYL)

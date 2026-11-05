@@ -1782,19 +1782,26 @@ export default auto(function DbSession (props) {
           })
         })
       }
+      // 无条件的第 1 页拿到 0 行、且没有下一页：表确实是空的，这是确定值。
+      // information_schema 的 TABLE_ROWS 只是统计估算，MariaDB/InnoDB 对空表会报 1，
+      // 于是状态行自相矛盾成「本页 0 行 · 总行数（约）: 1」（2026-11-05 实机截图）
+      const hasMore = !!(res && res.hasMore)
+      const confirmedEmpty = !q.where && page === 1 && !rows.length && !hasMore
       setGrid(g => ({
         loading: false,
         rows,
         page,
-        hasMore: !!(res && res.hasMore),
+        hasMore,
         // 服务端只在首页返回近似行数（information_schema 估算，**不带条件**）。
         // 带条件时那个数字与屏幕上的结果集无关，必须用 count 的精确值，
         // 否则"筛出 3 行"的表会显示"约 12 万行"
-        totalRows: q.where
-          ? (typeof g.totalRows === 'number' ? g.totalRows : undefined)
-          : (res && res.totalRows !== undefined
-              ? res.totalRows
-              : (page > 1 ? g.totalRows : undefined)),
+        totalRows: confirmedEmpty
+          ? 0
+          : (q.where
+              ? (typeof g.totalRows === 'number' ? g.totalRows : undefined)
+              : (res && res.totalRows !== undefined
+                  ? res.totalRows
+                  : (page > 1 ? g.totalRows : undefined))),
         // 换表/换排序/换页大小会重置；二分回退与常规翻页保留
         lastPage: opts.keepLastPage ? g.lastPage : undefined,
         error: ''
