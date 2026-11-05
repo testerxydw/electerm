@@ -20,24 +20,26 @@ import {
   REMOTE_SUSPEND_NEVER
 } from '../../common/remote-suspend'
 
+const e = window.translate
+
 // 档位（秒）。0 = 隐藏即断联；末项 -1 为"永不挂起"哨兵（见 remote-suspend.js）。
-// desc 用于选项悬浮提示：短档省资源、长档持续渲染。所有有限档位挂起时都会
-// 冻结挂起前的最后一帧（见 frozen-frame.js），切回瞬间先显示末帧再重连刷新。
+// descKey 用于选项悬浮提示：短档省资源、长档持续渲染。词条在 locales-extra，
+// 渲染时才取，模块加载早于语言就绪也不会取到空值。
 const SUSPEND_OPTIONS = [
-  { sec: 0, desc: '隐藏即断联：最省资源，但每次切走都重连 1~2 秒' },
-  { sec: 30, desc: '30s 最快挂起：切走即断连，最省内存/CPU，回切需重连' },
-  { sec: 60, desc: '60s 较快挂起，平衡切换频率与资源占用' },
-  { sec: 5 * 60, desc: '5m 默认：兼顾"看一眼就回"与后台空转' },
-  { sec: 10 * 60, desc: '10m 适合频繁来回切换，较少触发重连' },
-  { sec: 30 * 60, desc: '30m 持续渲染，消耗内存/CPU，几乎不重连' },
-  { sec: REMOTE_SUSPEND_NEVER, desc: '永不挂起：一直渲染，最耗资源，但切走也不断连' }
+  { sec: 0, descKey: 'remoteSuspendDescNow' },
+  { sec: 30, descKey: 'remoteSuspendDesc30' },
+  { sec: 60, descKey: 'remoteSuspendDesc60' },
+  { sec: 5 * 60, descKey: 'remoteSuspendDesc5m' },
+  { sec: 10 * 60, descKey: 'remoteSuspendDesc10m' },
+  { sec: 30 * 60, descKey: 'remoteSuspendDesc30m' },
+  { sec: REMOTE_SUSPEND_NEVER, descKey: 'remoteSuspendDescNever' }
 ]
 
 const DEFAULT_SECONDS = suspendGraceDefaultMs / 1000
 
 const formatOption = (sec) => {
-  if (sec === 0) return '隐藏即断联'
-  if (sec === REMOTE_SUSPEND_NEVER) return '永不'
+  if (sec === 0) return e('remoteSuspendNow')
+  if (sec === REMOTE_SUSPEND_NEVER) return e('remoteSuspendNeverShort')
   return sec < 60 ? `${sec}s` : `${sec / 60}m`
 }
 
@@ -81,20 +83,11 @@ export default class RemoteSuspendSelect extends Component {
   }
 
   render () {
-    const introTitle = window.translate('remoteSuspendTimeout') ||
-      '隐藏远程窗口自动挂起'
     const intro = (
       <div style={{ maxWidth: 300, whiteSpace: 'normal', lineHeight: 1.5 }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>{introTitle}</div>
-        <div>
-          切走（隐藏）远程桌面超过设定时间后自动断连并停止渲染，切回时自动重连。
-          切回瞬间先显示挂起前的最后一帧，重连成功后再刷新，避免黑屏。
-          所有 RDP / VNC / SPICE 窗口共用同一档位，改一处全局生效。
-        </div>
-        <div style={{ marginTop: 6 }}>
-          「隐藏即断联」(0) 最省资源，但每次切走都会重连 1~2 秒；
-          「永不」则持续渲染、最耗资源。各档位挂起时都会冻结末帧。
-        </div>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{e('remoteSuspendTimeout')}</div>
+        <div>{e('remoteSuspendIntro')}</div>
+        <div style={{ marginTop: 6 }}>{e('remoteSuspendHint')}</div>
       </div>
     )
     return (
@@ -110,7 +103,7 @@ export default class RemoteSuspendSelect extends Component {
               <Select.Option
                 key={o.sec}
                 value={o.sec}
-                title={o.desc}
+                title={e(o.descKey)}
               >
                 {formatOption(o.sec)}
               </Select.Option>

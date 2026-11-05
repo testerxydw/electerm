@@ -11,6 +11,8 @@ const SFTP_STYL = path.join(ROOT, 'src/client/components/sftp/sftp.styl')
 const SFTP_ENTRY = path.join(ROOT, 'src/client/components/sftp/sftp-entry.jsx')
 const SFTP_LIST_TABLE = path.join(ROOT, 'src/client/components/sftp/list-table-ui.jsx')
 const RDP_JSX = path.join(ROOT, 'src/client/components/rdp/rdp-session.jsx')
+const RDP_STYL = path.join(ROOT, 'src/client/components/rdp/rdp.styl')
+const SHELL_STYL = path.join(ROOT, 'src/client/components/common/session-shell.styl')
 const VNC_JSX = path.join(ROOT, 'src/client/components/vnc/vnc-session.jsx')
 const SPICE_JSX = path.join(ROOT, 'src/client/components/spice/spice-session.jsx')
 
@@ -166,5 +168,28 @@ describe('T3b-b: remote 不再接收布局宽高', () => {
       assert.ok(m[0].includes('clientWidth') && m[0].includes('clientHeight'), '按挂载点实测')
       assert.ok(!/- 10\b|- 80\b/.test(m[0]), '旧的 -10 / -80 猜测')
     }
+  })
+})
+
+describe('T3b-c: RDP 的 fit 缩放链不经过中间包装层', () => {
+  // 2026-11-05 回归（末帧冻结 cb198c4b，已整体移除）：画布被包进一个 div 之后，
+  // shell 的 `.remote-session-viewport > *`（fit 时给 100%/100%）只作用到那层 div，
+  // 画布退回按位图固有尺寸渲染 —— object-fit 因为 CSS 盒等于固有尺寸而完全无效，
+  // 缩放开关看着失灵。所以 fit 的尺寸口径必须直达画布，中间不许再加一层。
+  test('rdp.styl 的 fit 只靠 object-fit，盒子尺寸由 shell 直接给到画布', () => {
+    const block = stylBlock(load(RDP_STYL), '.rdp-session-wrap')
+    assert.ok(block, '.rdp-session-wrap 块存在')
+    assert.match(block, /&\.fit\n {4}\.rdp-canvas\n {6}object-fit contain/, 'fit 下的画布仍声明 object-fit')
+    const shell = load(SHELL_STYL)
+    assert.match(shell, /\.remote-session-wrap\.fit\n {2}\.remote-session-viewport[\s\S]{0,80}> \*\n {6}width 100%/,
+      'shell 的 fit 尺寸规则仍只给 viewport 的直接子元素')
+  })
+
+  test('rdp-session.jsx：画布是 SessionShell 的直接子节点（反向：包装层回来）', () => {
+    const src = load(RDP_JSX)
+    const tail = src.slice(src.indexOf('overlay={this.renderCredPrompt()}'))
+    const canvasAt = tail.indexOf("<canvas\n          className='rdp-canvas'")
+    assert.ok(canvasAt > 0, '画布仍在 SessionShell 子节点位置')
+    assert.doesNotMatch(tail.slice(0, canvasAt), /<div/, 'SessionShell 与画布之间又插了包装层')
   })
 })

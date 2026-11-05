@@ -13,7 +13,6 @@ import SessionShell from '../common/session-shell'
 import { eventToRemotePos } from '../common/remote-pointer'
 import { resolveScaleViewport } from '../../common/remote-adapt'
 import RemoteSuspend, { isTabActive } from '../../common/remote-suspend'
-import { freezeFrame, unfreezeFrame, FROZEN_OVERLAY_STYLE } from '../../common/frozen-frame'
 import './spice.styl'
 
 async function loadSpiceModule () {
@@ -49,7 +48,6 @@ export default class SpiceSession extends PureComponent {
   }
 
   domRef = createRef()
-  frozenRef = createRef()
 
   componentDidMount () {
     this.remoteInit()
@@ -64,11 +62,6 @@ export default class SpiceSession extends PureComponent {
     if (!this.spiceConn) {
       return
     }
-    // 挂起瞬间快照末帧到覆盖层，切回重连期间盖住黑屏（见 frozen-frame.js）
-    freezeFrame(
-      this.domRef.current && this.domRef.current.querySelector('canvas'),
-      this.frozenRef.current
-    )
     this._releaseCanvases()
     this.cleanup()
   }
@@ -303,8 +296,6 @@ export default class SpiceSession extends PureComponent {
             loading: false,
             connected: true
           })
-          // 重连成功：撤掉挂起期间盖在上面的末帧覆盖层，露出新画面
-          unfreezeFrame(this.frozenRef.current)
           this.setStatus(statusMap.success)
         },
         onerror: (e) => {
@@ -362,14 +353,7 @@ export default class SpiceSession extends PureComponent {
           className='spice-session-mount'
           id={this.screenId}
           ref={this.domRef}
-          style={{ position: 'relative' }}
-        >
-          <canvas
-            ref={this.frozenRef}
-            className='frozen-frame-overlay'
-            style={FROZEN_OVERLAY_STYLE}
-          />
-        </div>
+        />
       </SessionShell>
     )
   }
