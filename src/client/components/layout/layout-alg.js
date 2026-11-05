@@ -4,6 +4,8 @@ import { normalizeRatios } from './split-ratios.js'
 
 const gap = 2
 
+// 输出的样式是绝对定位的四边值：left/top 从左上角量，right/bottom 从对边往里量。
+// 所以某格的 right/bottom 必须是「容器尺寸 - 该格边界 + gap」，不是边界坐标本身。
 const layoutSingle = (w, h) => ({
   wrapStyles: [
     {
@@ -24,7 +26,7 @@ const layoutTwoColumns = (w, h, r) => {
         left: 0,
         top: 0,
         bottom: 0,
-        right: (x - gap) + 'px'
+        right: (w - x + gap) + 'px'
       },
       {
         left: (x + gap) + 'px',
@@ -52,13 +54,13 @@ const layoutThreeColumns = (w, h, r) => {
         left: 0,
         top: 0,
         bottom: 0,
-        right: (x1 - gap) + 'px'
+        right: (w - x1 + gap) + 'px'
       },
       {
         left: (x1 + gap) + 'px',
         top: 0,
         bottom: 0,
-        right: (x2 - gap) + 'px'
+        right: (w - x2 + gap) + 'px'
       },
       {
         left: (x2 + gap) + 'px',
@@ -90,7 +92,7 @@ const layoutTwoRows = (w, h, r) => {
         left: 0,
         top: 0,
         right: 0,
-        bottom: (y - gap) + 'px'
+        bottom: (h - y + gap) + 'px'
       },
       {
         left: 0,
@@ -118,13 +120,13 @@ const layoutThreeRows = (w, h, r) => {
         left: 0,
         top: 0,
         right: 0,
-        bottom: (y1 - gap) + 'px'
+        bottom: (h - y1 + gap) + 'px'
       },
       {
         left: 0,
         top: (y1 + gap) + 'px',
         right: 0,
-        bottom: (y2 - gap) + 'px'
+        bottom: (h - y2 + gap) + 'px'
       },
       {
         left: 0,
@@ -156,19 +158,19 @@ const layoutGrid2x2 = (w, h, r) => {
       {
         left: 0,
         top: 0,
-        right: (x - gap) + 'px',
-        bottom: (y - gap) + 'px'
+        right: (w - x + gap) + 'px',
+        bottom: (h - y + gap) + 'px'
       },
       {
         left: (x + gap) + 'px',
         top: 0,
         right: 0,
-        bottom: (y - gap) + 'px'
+        bottom: (h - y + gap) + 'px'
       },
       {
         left: 0,
         top: (y + gap) + 'px',
-        right: (x - gap) + 'px',
+        right: (w - x + gap) + 'px',
         bottom: 0
       },
       {
@@ -202,13 +204,13 @@ const layoutTwoRowsRight = (w, h, r) => {
         left: 0,
         top: 0,
         bottom: 0,
-        right: (x - gap) + 'px'
+        right: (w - x + gap) + 'px'
       },
       {
         left: (x + gap) + 'px',
         top: 0,
         right: 0,
-        bottom: (y - gap) + 'px'
+        bottom: (h - y + gap) + 'px'
       },
       {
         left: (x + gap) + 'px',
@@ -241,12 +243,12 @@ const layoutTwoColumnsBottom = (w, h, r) => {
         left: 0,
         top: 0,
         right: 0,
-        bottom: (y - gap) + 'px'
+        bottom: (h - y + gap) + 'px'
       },
       {
         left: 0,
         top: (y + gap) + 'px',
-        right: (x - gap) + 'px',
+        right: (w - x + gap) + 'px',
         bottom: 0
       },
       {

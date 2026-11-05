@@ -13,35 +13,54 @@ before(async () => {
   split = await import('../../../src/client/components/layout/split-ratios.js')
 })
 
+// CSS 语义：left/top 从容器左上角量，right/bottom 从对边往里量。
+// 判据一律先把样式折算成"实际渲染出来的盒子"再断言：早先直接钉 right 的字面值，
+// 等于把边界当宽度写反了也照样全绿，实机一拖就露馅（左格反而变宽、中间格塌成 0 宽）。
+const px = v => Math.round((typeof v === 'string' ? parseFloat(v) : Number(v)) * 1000) / 1000
+const boxOf = (w, h, s) => {
+  const l = px(s.left)
+  const t = px(s.top)
+  return { l, t, w: px(w - l - px(s.right)), h: px(h - t - px(s.bottom)) }
+}
+const boxes = (layout, w, h, ratios) => layoutAlg(layout, w, h, ratios).wrapStyles.map(s => boxOf(w, h, s))
+
 describe('layoutAlg with ratios', () => {
   it('keeps the 50/50 divider when no ratio is stored', () => {
     const r = layoutAlg('c2', 1000, 600, undefined)
-    assert.equal(r.wrapStyles[0].right, '498px')
-    assert.equal(r.wrapStyles[1].left, '502px')
     assert.equal(r.handleStyles[0].left, '498px')
+    assert.deepEqual(boxes('c2', 1000, 600, undefined), [
+      { l: 0, t: 0, w: 498, h: 600 },
+      { l: 502, t: 0, w: 498, h: 600 }
+    ])
   })
 
   it('honors a dragged boundary', () => {
-    const r = layoutAlg('c2', 1000, 600, [0.3])
-    assert.equal(r.wrapStyles[0].right, '298px')
-    assert.equal(r.wrapStyles[1].left, '302px')
-    assert.equal(r.handleStyles[0].left, '298px')
+    assert.equal(layoutAlg('c2', 1000, 600, [0.3]).handleStyles[0].left, '298px')
+  })
+
+  it('makes the left/top pane the ratio-sized one, not the complement', () => {
+    // r=0.3 是左格占 30%：right 写成边界本身时左格会拿到 70%
+    const c2 = boxes('c2', 1000, 600, [0.3])
+    assert.deepEqual(c2, [
+      { l: 0, t: 0, w: 298, h: 600 },
+      { l: 302, t: 0, w: 698, h: 600 }
+    ])
+    const r2 = boxes('r2', 1000, 600, [0.7])
+    assert.ok(r2[0].h > r2[1].h, 'r=0.7 时上格要比下格高：' + JSON.stringify(r2))
   })
 
   it('uses both boundaries of a three column layout', () => {
-    const r = layoutAlg('c3', 900, 600, [0.2, 0.6])
-    assert.equal(r.wrapStyles[0].right, (900 * 0.2 - 2) + 'px')
-    assert.equal(r.wrapStyles[1].left, (900 * 0.2 + 2) + 'px')
-    assert.equal(r.wrapStyles[1].right, (900 * 0.6 - 2) + 'px')
-    assert.equal(r.wrapStyles[2].left, (900 * 0.6 + 2) + 'px')
+    assert.deepEqual(boxes('c3', 900, 600, [0.2, 0.6]), [
+      { l: 0, t: 0, w: 178, h: 600 },
+      { l: 182, t: 0, w: 356, h: 600 },
+      { l: 542, t: 0, w: 358, h: 600 }
+    ])
   })
 
   it('splits the grid on both axes', () => {
-    const r = layoutAlg('c2x2', 800, 500, [0.4, 0.7])
-    assert.equal(r.wrapStyles[0].right, (800 * 0.4 - 2) + 'px')
-    assert.equal(r.wrapStyles[0].bottom, (500 * 0.7 - 2) + 'px')
-    assert.equal(r.wrapStyles[3].left, (800 * 0.4 + 2) + 'px')
-    assert.equal(r.wrapStyles[3].top, (500 * 0.7 + 2) + 'px')
+    const b = boxes('c2x2', 800, 500, [0.4, 0.7])
+    assert.deepEqual(b[0], { l: 0, t: 0, w: 318, h: 348 })
+    assert.deepEqual(b[3], { l: 322, t: 352, w: 478, h: 148 })
   })
 
   it('keeps the right column divider inside its column', () => {
@@ -54,6 +73,38 @@ describe('layoutAlg with ratios', () => {
     for (const bad of [null, [0.5, 0.6, 0.7], [0, 0.5], [0.5, 0.2], ['x', 0.5]]) {
       const r = layoutAlg('c3', 900, 600, bad)
       assert.equal(r.handleStyles[0].left, (900 / 3 - 2) + 'px', String(bad))
+    }
+  })
+
+  it('tiles every layout: 每格有面积、互不重叠、并集铺满容器', () => {
+    const W = 1000
+    const H = 600
+    const cases = {
+      c1: [],
+      c2: [0.3],
+      c3: [0.2, 0.6],
+      r2: [0.75],
+      r3: [0.25, 0.7],
+      c2x2: [0.4, 0.7],
+      c1r2: [0.35, 0.5],
+      r1c2: [0.4, 0.6]
+    }
+    for (const [layout, ratios] of Object.entries(cases)) {
+      const bs = boxes(layout, W, H, ratios)
+      for (const b of bs) {
+        assert.ok(b.w > 0 && b.h > 0, layout + ' 每格都要有面积: ' + JSON.stringify(b))
+        assert.ok(b.l >= 0 && b.t >= 0 && b.l + b.w <= W && b.t + b.h <= H, layout + ' 不能越出容器: ' + JSON.stringify(b))
+      }
+      for (let i = 0; i < bs.length; i++) {
+        for (let j = i + 1; j < bs.length; j++) {
+          const a = bs[i]
+          const ow = Math.min(a.l + a.w, bs[j].l + bs[j].w) - Math.max(a.l, bs[j].l)
+          const oh = Math.min(a.t + a.h, bs[j].t + bs[j].h) - Math.max(a.t, bs[j].t)
+          assert.ok(!(ow > 0 && oh > 0), layout + ' 格子互不重叠: ' + JSON.stringify([a, bs[j]]))
+        }
+      }
+      assert.equal(Math.max(...bs.map(b => b.l + b.w)), W, layout + ' 并集要铺满宽度')
+      assert.equal(Math.max(...bs.map(b => b.t + b.h)), H, layout + ' 并集要铺满高度')
     }
   })
 })
