@@ -255,7 +255,8 @@ describe('keyword presets', () => {
     assert.ok(addon.highlightKeywords('Authentication succeeded for login dp25').includes(green + 'succeeded' + end))
     const auth = addon.highlightKeywords('access denied for user root@10.1.2.3')
     assert.equal(auth.includes(blue + 'access'), false, auth)
-    assert.ok(auth.includes(red + 'denied' + end), auth)
+    // access denied 作为整句归通用红档（批次 B 从 Networking/Auth/Database 三处上收）
+    assert.ok(auth.includes(red + 'access denied' + end), auth)
 
     assert.equal(addon.highlightKeywords('the quick brown fox jumps over the lazy dog'), 'the quick brown fox jumps over the lazy dog')
     assert.equal(addon.highlightKeywords('nginx version: nginx/1.20.1 built with OpenSSL/3.0.2'), 'nginx version: nginx/1.20.1 built with OpenSSL/3.0.2')

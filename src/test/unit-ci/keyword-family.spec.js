@@ -87,6 +87,57 @@ const familyIndex = async () => {
   return { byFamily, rules, keywordPresets }
 }
 
+// ---- KU-4 一词一族 · 整词探测 ----
+// 「一个关键字只能存在于一个配置里」的可执行化：先取出一条 signal 规则真正能
+// 整词命中的字面词（用规则自身校验——括号拆出来的碎片命中不了就不算词，
+// 所以 "reverse mapping checking" 这类需要上下文才成立的形状不会混进来），
+// 再看同一个字面词被几条规则命中。跨组复制词表、或一个词两种颜色，在这里失败。
+const signalRules = async () => {
+  const { rules } = await familyIndex()
+  return rules.filter(r => r.tier === 'signal')
+    .map(r => ({ ...r, re: new RegExp(r.keyword, 'gi') }))
+}
+const literalCandidates = (src) => {
+  const stripped = src
+    .replace(/\(\?[=!<][^()]*(?:\([^()]*\)[^()]*)*\)/g, ' ') // 环视：不参与命中文本
+    .replace(/\(\?[a-z-]+/g, '(')
+    .replace(/\\[bBdDwWsSnNpPvV]/g, ' ')
+    .replace(/\\./g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+  const out = new Set()
+  for (const frag of stripped.split(/[|()]/)) {
+    for (const m of frag.matchAll(/[A-Za-z][A-Za-z0-9_.+-]*(?:[ ][A-Za-z][A-Za-z0-9_.+-]*){0,3}/g)) {
+      const tok = m[0].replace(/[-?+*]+$/, '')
+      if (tok.length > 1) out.add(tok)
+    }
+  }
+  return [...out]
+}
+// 规则命中候选串时，匹配文本必须就是这个候选本身（整词）
+const matchesWholeWord = (re, tok) => {
+  re.lastIndex = 0
+  let m
+  while ((m = re.exec(` ${tok} `))) {
+    if (m[0].toLowerCase() === tok.toLowerCase()) return true
+    re.lastIndex = m.index + 1
+  }
+  return false
+}
+// 词表：{ 词 -> 命中它的规则 }。候选来自所有规则的字面片段（宁滥勿缺），
+// 每个候选再拿全部规则探测一遍——只有整词命中的才算这个词的归属，
+// 所以「需要上下文才成立的形状」（如 [DROP]、Accepted password）不会被当成裸词。
+const wordTable = async () => {
+  const rs = await signalRules()
+  const candidates = new Set()
+  for (const r of rs) for (const tok of literalCandidates(r.keyword)) candidates.add(tok)
+  const table = new Map()
+  for (const tok of candidates) {
+    const hits = rs.filter(r => matchesWholeWord(r.re, tok))
+    if (hits.length) table.set(tok.toLowerCase(), { tok, hits })
+  }
+  return table
+}
+
 describe('V3 信号家族契约', () => {
   test('家族登记表（§4）：每条预设规则都声明 family，且 family 已登记 rank / 归属组', async () => {
     const { keywordPresets, FAMILY_RANK, FAMILY_HOME, FAMILY_LAYERS } = await loadPresets()
@@ -109,14 +160,12 @@ describe('V3 信号家族契约', () => {
   })
 
   // 棘轮：同一个家族在多个配置组里各存一份词表/形状 —— 这正是「一个关键字散落在
-  // 多个配置里」的残留。批次 B（词表去重）收 word-* 三条，批次 C（形状边界）收
-  // duration / host-port 两条；收一条就从这里删一条，清空后改成硬断言。
+  // 多个配置里」的残留。批次 B（词表去重）已把 word-error / word-ok / word-warn
+  // 三条收口（业务组的词表要么并进通用五档、要么挂上新的领域家族 id）；
+  // 剩下 duration / host-port 是形状复用，归批次 C（形状边界）收。
   const CROSS_GROUP_FAMILIES = [
     'duration',
-    'host-port',
-    'word-error',
-    'word-ok',
-    'word-warn'
+    'host-port'
   ]
   test('KU-2 一归属 棘轮：跨组复用的家族清单不得增加（批次 B/C 逐个收口）', async () => {
     const { byFamily } = await familyIndex()
@@ -127,6 +176,21 @@ describe('V3 信号家族契约', () => {
     offenders.sort()
     assert.deepEqual(offenders, CROSS_GROUP_FAMILIES,
       `跨组复用的家族与棘轮基线不一致：${offenders.join(' ')}。新增跨组家族必须先给它一个唯一归属组。`)
+  })
+
+  test('KU-4 一词一族 整词探测：同词多配置 = 0、同词异色 = 0', async () => {
+    const table = await wordTable()
+    // 探测本身不能是空跑：词表规模掉了就说明候选抽取或整词校验坏了
+    assert.ok(table.size > 250, `整词探测只认出 ${table.size} 个词，候选抽取大概坏了`)
+    const dup = [...table.values()].filter(v => v.hits.length > 1)
+    const crossGroup = dup.filter(v => new Set(v.hits.map(h => h.group)).size > 1)
+    const crossColor = dup.filter(v => new Set(v.hits.map(h => h.color)).size > 1)
+    const show = (v) => `  "${v.tok}" -> ${v.hits.map(h => `${h.group} / ${h.family}(${h.color})`).join(' , ')}`
+    assert.deepEqual(dup, [],
+      `同词多规则 ${dup.length}（其中跨配置组 ${crossGroup.length}、同词异色 ${crossColor.length}）：\n` +
+      `${dup.map(show).join('\n')}\n` +
+      '判据：泛用状态词并进通用五档，领域独有词挂新的领域家族 id（不得复用 word-*）；' +
+      '需要上下文才成立的形状（如 nft verdict）要加语境锚，不要和裸词抢同一个词。')
   })
 
   test('KU-1 一色：一个家族一种颜色（同族多条异形规则也同色）', async () => {
