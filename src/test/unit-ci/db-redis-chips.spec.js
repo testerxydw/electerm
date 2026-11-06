@@ -8,12 +8,15 @@ const path = require('node:path')
 
 const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
+// 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
+const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
 const read = p => fs.readFileSync(p, 'utf8')
 
 describe('U4 Redis 类型芯片 / TTL 芯片', () => {
-  const jsx = read(JSX)
+  const jsx = read(JSX) + '\n' + read(DETAIL)
   const styl = read(STYL)
 
   test('类型白名单覆盖六种键类型，未知类型不着色', () => {

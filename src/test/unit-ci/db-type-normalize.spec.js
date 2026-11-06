@@ -270,7 +270,9 @@ describe('toColumns：与 fields 同长同序', () => {
 describe('接线契约（真实源码抽取）', () => {
   const mysqlSrc = () => fs.readFileSync(MYSQL_ADAPTER, 'utf8')
   const pgSrc = () => fs.readFileSync(PG_ADAPTER, 'utf8')
-  const jsx = () => fs.readFileSync(JSX, 'utf8')
+  const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
+  // N11a #15：详情列的 renderCell 调用随 renderRedisDetail 迁入 shipped 模块，组合读取。
+  const jsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
   // H1a-4（网格复用整合）：数据页 / SQL 结果页的列定义并入公共列工厂，
   // 类型 → renderCell / 右对齐的接线契约跟着挪进工厂
   const colFactory = () => fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx'), 'utf8')

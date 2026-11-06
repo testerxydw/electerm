@@ -11,6 +11,8 @@ const HIGHLIGHT = path.join(DB_DIR, 'db-highlight.jsx')
 const DB_SESSION = path.join(DB_DIR, 'db-session.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const DB_SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
+// N11a：DbGridTable 已迁出为独立组件，虚拟化开关随之迁走
+const DB_GRID_TABLE = path.join(DB_DIR, 'db-grid-table.jsx')
 
 // 性能/资源消耗守护单测（配套 doc/已完成/分析-性能热点与优化总案-2026-10-21.md）：
 // 1) 算法预算：值预览高亮在大文本 × 多规则下的耗时上限（防病态回退）
@@ -226,7 +228,8 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
   })
 
   test('DbGridTable enables row virtualization (DOM rows decoupled from pageSize)', () => {
-    const src = loadSrc(DB_SESSION)
+    // N11a：DbGridTable 已迁出 db-grid-table.jsx，虚拟化开关随之迁走
+    const src = fs.readFileSync(DB_GRID_TABLE, 'utf8')
     assert.ok(src.includes('virtual={y > 0}'), 'row virtualization must stay on')
   })
 

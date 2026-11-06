@@ -15,7 +15,7 @@ const path = require('path')
 
 const ROOT = path.join(__dirname, '../../..')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
-const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+const RESULTS = path.join(ROOT, 'src/client/components/database/db-sql-results.jsx')
 
 const read = p => fs.readFileSync(p, 'utf8')
 
@@ -82,13 +82,13 @@ describe('多结果集：flex 传高链路', () => {
 
 describe('多结果集：渲染分支', () => {
   test('单结果集不套 Tabs，多结果集才用 Tabs 分栏', () => {
-    const src = read(SESSION)
+    const src = read(RESULTS)
     assert.match(src, /if \(results\.length === 1\) \{\s*\n\s*return renderOne\(results\[0\], 0\)/)
     assert.match(src, /db-sql-results-tabs/)
   })
 
   test('下载按钮只在有行时渲染（现象判据：能看到按钮就说明数据回来了）', () => {
-    const src = read(SESSION)
+    const src = read(RESULTS)
     // 判断依据跟着派生链改名（局部 rows → 每结果集的 view），语义仍是"这次执行有没有回行"。
     // 用 view.total 而不是 view.matched：筛到 0 命中时页大小/导出/列宽工具得留着，
     // 否则"过滤把按钮筛没了"，用户只能靠清空输入框才能找回它们。

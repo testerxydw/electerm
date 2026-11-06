@@ -23,6 +23,7 @@ import {
   stageInsert,
   stageDelete,
   dropChange,
+  dropChanges,
   dropGroup,
   clearChangeSet,
   countChanges,
@@ -210,6 +211,22 @@ test('dropChange：撤单条后分组不留空壳，order 同步收干', () => {
   assert.strictEqual(countChanges(s), 0)
   assert.deepStrictEqual(s.order, [])
   assert.deepStrictEqual(listChanges(s), [])
+})
+
+test('dropChanges：部分成功后按 ids 收干，未执行的留在集里', () => {
+  let s = createChangeSet()
+  s = stageCells(s, {
+    target: sel,
+    pkColumn: 'id',
+    column: 'body',
+    updates: [{ pk: 1, value: 'a' }, { pk: 2, value: 'b' }, { pk: 3, value: 'c' }]
+  }).set
+  assert.strictEqual(countChanges(s), 3)
+  const items = listChanges(s)[0].items
+  assert.strictEqual(countChanges(dropChanges(s, [])), 3)
+  s = dropChanges(s, [items[0].id, items[2].id])
+  assert.strictEqual(countChanges(s), 1)
+  assert.deepStrictEqual(listChanges(s)[0].items.map(i => i.id), [items[1].id])
 })
 
 test('dropGroup / clearChangeSet：按表丢弃与全部丢弃', () => {

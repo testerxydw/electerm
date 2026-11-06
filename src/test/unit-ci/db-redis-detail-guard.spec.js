@@ -6,13 +6,16 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
+// 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
+const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
 
 // redis 详情空值守卫回归（239f8b9f 引入、a376c9b5 修复的线上崩溃）：
 // renderRedisDetail 尾部 return 不在 if (!d) 作用域内；redisDetail 未加载
 // （d=null）时点击 redis 键即触发渲染，裸 d.type 会 TypeError 崩掉数据库页。
 // 契约：信息栏条件必须保留 d 空值守卫，body 的 !d 早退分支不得删。
 
-const loadJsx = () => fs.readFileSync(JSX, 'utf8')
+const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
 
 // 从真实源码抽出信息栏渲染条件并执行（跑发布代码而非拷贝，同 db-grid-scroll 口径）
 const loadBarCond = () => {

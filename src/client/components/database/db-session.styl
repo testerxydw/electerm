@@ -2699,6 +2699,125 @@ body.db-col-resizing
   font-size 12px
   margin 0
 
+// N2 暂存变更条：开关 + "变更 (n)" 入口。刻意排在 .db-tx-bar 前面且不复用它的类名，
+// 两个开关同屏时靠文案（"暂存变更" vs "手动事务"）和各自的计数语义区分
+.db-stage-bar
+  display inline-flex
+  align-items center
+  gap 6px
+  white-space nowrap
+
+.db-stage-switch
+  display inline-flex
+  align-items center
+  gap 6px
+
+.db-stage-switch-label
+  color var(--text)
+  font-size 12px
+
+.db-stage-open
+  font-variant-numeric tabular-nums
+
+// N2 变更面板：头部（开关 + 计数 + 丢弃/应用）+ 按表分组的逐条预览 SQL
+.db-changes
+  display flex
+  flex-direction column
+  gap 6px
+  height 100%
+  overflow auto
+
+.db-changes-bar
+  display flex
+  align-items center
+  gap 8px
+  flex-wrap wrap
+
+.db-changes-switch
+  display inline-flex
+  align-items center
+  gap 6px
+
+.db-changes-switch-label
+  color var(--text)
+  font-size 12px
+
+.db-changes-info
+  color var(--text-dark)
+  font-size 12px
+
+.db-changes-count
+  color var(--text-dark)
+  font-size 12px
+  font-variant-numeric tabular-nums
+
+.db-changes-bar-tail
+  margin-left auto
+  display inline-flex
+  align-items center
+  gap 6px
+
+.db-changes-tx
+  color var(--text-dark)
+  font-size 12px
+  padding 4px 6px
+  background var(--surface-1)
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+
+.db-changes-group
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  overflow hidden
+
+.db-changes-group-head
+  display flex
+  align-items center
+  gap 6px
+  padding 3px 6px
+  background var(--surface-1)
+  border-bottom 1px solid var(--border)
+  font-size 12px
+
+.db-changes-table
+  color var(--text)
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.db-changes-group-count
+  color var(--text-dark)
+  font-variant-numeric tabular-nums
+
+.db-changes-group-head .ant-btn
+  margin-left auto
+
+.db-changes-row
+  display flex
+  align-items center
+  gap 6px
+  padding 3px 6px
+  font-size 12px
+  border-bottom 1px solid var(--border)
+
+  &:last-child
+    border-bottom none
+
+.db-changes-kind
+  margin 0
+  flex-shrink 0
+
+.db-changes-sql
+  flex 1
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--db-code-font, var(--font-mono))
+
+.db-changes-empty
+  padding 8px 0
+
 // 命令面板（Ctrl/Cmd+K）：fixed 居中浮层 + 半透明遮罩。
 // 遮罩色与浮层背景/阴影全走 tokens（--mask/--surface-1/--shadow-3），
 // 跟随主题；z-index 高于本文件内其他浮层（5/2），低于 antd 弹层（1000+）——

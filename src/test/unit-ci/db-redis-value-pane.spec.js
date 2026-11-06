@@ -18,10 +18,13 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
+// 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
+const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 
-const jsx = () => fs.readFileSync(SESSION, 'utf8')
+const jsx = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
 const consts = () => fs.readFileSync(SESSION_CONST, 'utf8')
 
 // 去掉行注释：契约钉的是"代码里有没有这一句"，不是"注释里提没提"

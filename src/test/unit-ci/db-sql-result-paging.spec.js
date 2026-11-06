@@ -15,7 +15,8 @@ const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
-const read = () => fs.readFileSync(JSX, 'utf8')
+const RESULTS = path.join(ROOT, 'src/client/components/database/db-sql-results.jsx')
+const read = () => fs.readFileSync(JSX, 'utf8') + fs.readFileSync(RESULTS, 'utf8')
 const readConst = () => fs.readFileSync(CONST, 'utf8')
 
 // 跑真实源码里的页码夹取函数（不是拷贝）
@@ -72,7 +73,7 @@ describe('SQL 结果分页：接线契约', () => {
       'result size options must stay in sync with the data grid'
     )
     assert.ok(src.includes('options={dbPageSizeOptions()}'), 'result tools row must use the shared options')
-    assert.ok(src.includes('onChange={changeSqlPageSize}'), 'result size change handler missing')
+    assert.ok(src.includes('onChange={onChangeSqlPageSize}'), 'result size change handler missing')
     // 数据页选择器也走同一份候选，防止两处各自演化
     assert.ok(src.includes('const pageSizeOptions = dbPageSizeOptions()'), 'data grid selector must share the options')
   })
@@ -126,7 +127,7 @@ describe('SQL 结果分页：接线契约', () => {
     assert.ok(src.includes('const pager = view.matched > sqlPageSize'), 'pager threshold missing')
     // 表尾分页会被底部命令栏遮住 → 表格不再渲染自带底部分页器
     assert.ok(src.includes('pagination={false}'), 'table must not render the footer pager')
-    const tools = src.match(/<div className='db-sql-result-tools'>[\s\S]*?\n\s{10}<\/div>/)
+    const tools = src.match(/<div className='db-sql-result-tools'>[\s\S]*?\n\s{8}<\/div>/)
     assert.ok(tools, 'tools row not found')
     assert.ok(tools[0].includes('{pager}'), 'pager must render inside the tools row')
   })

@@ -17,6 +17,11 @@ const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/client/common/db-sql-result.js')
 const WIDTH_MOD = path.join(ROOT, 'src/client/common/db-column-width.js')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a 拆分 #14：SQL 结果渲染（renderSqlResults / renderOne）迁到 db-sql-results.jsx。
+// 渲染侧的接线契约改从新文件读；派生侧（sqlResultViews / sqlResultColumns /
+// onSqlFilterInput / onSqlSort 等）仍留在 db-session.jsx，继续从 SESSION 读。
+const RESULTS = path.join(ROOT, 'src/client/components/database/db-sql-results.jsx')
+const loadResults = () => fs.readFileSync(RESULTS, 'utf8')
 
 const EXPORTS = '({ SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS, emptySqlView, sqlViewOf, patchSqlView, allRowIndexes, filterRowIndexes, nextSqlSort, sqlSortOf, looksNumericColumn, sortRowIndexes, visibleSqlKeys, toggleSqlHidden, sqlRowLimitNote })'
 
@@ -295,6 +300,7 @@ describe('db-sql-result: 列显隐（可见列 + 至少留一列）', () => {
 
 describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', () => {
   const src = fs.readFileSync(SESSION, 'utf8')
+  const results = loadResults()
   test('派生链走 filterRowIndexes，且 memo 依赖含 sqlViews', () => {
     assert.ok(/filterRowIndexes\(/.test(src), 'SQL 结果没走共用的过滤函数')
     const start = src.indexOf('const sqlResultViews = useMemo(')
@@ -307,7 +313,7 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     assert.ok(/\bsqlViews\b/.test(deps[1]), '过滤状态没进派生 memo 的依赖，改了不会重算')
   })
   test('分页器与网格都读过滤后的口径（matched / pageRows），不再读原始 rows', () => {
-    const block = src.slice(src.indexOf('const renderOne = (r, i) =>'))
+    const block = results.slice(results.indexOf('const renderOne = (r, i) =>'))
     // H1a-4：分页条换共用 DbGridPager 后，总数走 totalText（仍是 matched）
     assert.ok(/totalText=\{e\('dbResultTotal'\)\.replace\('\{n\}', view\.matched\)\}/.test(block), '分页器 total 还是原始行数')
     assert.ok(/dataSource=\{view\.pageRows\}/.test(block), '网格数据源还是整份切片')
@@ -320,8 +326,8 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     assert.ok(/setSqlFilterDraft\(\{\}\)/.test(eff[0]), '输入框留着旧词，看着像没生效')
   })
   test('输入框受控：即时值优先，防抖到点才影响结果', () => {
-    assert.ok(/sqlFilterDraft\[i\] === undefined \? filter : sqlFilterDraft\[i\]/.test(src))
-    assert.ok(/onSqlFilterInput\(i, ev\.target\.value\)/.test(src))
+    assert.ok(/sqlFilterDraft\[i\] === undefined \? filter : sqlFilterDraft\[i\]/.test(results))
+    assert.ok(/onSqlFilterInput\(i, ev\.target\.value\)/.test(results))
     assert.ok(/SQL_FILTER_DEBOUNCE\)/.test(src), '防抖时长没走共用的那个常量')
   })
   test('换词回第 1 页（页码不能只被读时夹住），且新结果清掉"上次提交的词"', () => {
@@ -335,8 +341,8 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     assert.ok(/Object\.values\(timers\)\.forEach\(clearTimeout\)/.test(src))
   })
   test('文案走词条，不硬编码中文', () => {
-    assert.ok(/e\('dbFilterResult'\)/.test(src))
-    assert.ok(/e\('dbFilterHit'\)/.test(src))
+    assert.ok(/e\('dbFilterResult'\)/.test(results))
+    assert.ok(/e\('dbFilterHit'\)/.test(results))
     const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
     for (const k of ['dbFilterResult', 'dbFilterHit']) {
       assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
@@ -346,7 +352,7 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
   test('排序接在过滤之后、切页之前（先排全量再切页，不是只排当前页）', () => {
     const block = src.slice(
       src.indexOf('const sqlResultViews = useMemo('),
-      src.indexOf('const renderSqlResults')
+      src.indexOf('const sqlCellInfo = useMemo(')
     )
     const iFilter = block.indexOf('filterRowIndexes(')
     const iSort = block.indexOf('sortRowIndexes(')
@@ -374,8 +380,8 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     assert.ok(/looksNumericColumn\(rows, k\)/.test(block), '类型缺失时没有兜底推断')
   })
   test('大结果排序提示走词条，50k 阈值来自共用常量', () => {
-    assert.ok(/SQL_SORT_BIG_ROWS/.test(src))
-    assert.ok(/e\('dbSortLocal'\)/.test(src))
+    assert.ok(/SQL_SORT_BIG_ROWS/.test(results))
+    assert.ok(/e\('dbSortLocal'\)/.test(results))
     const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
     assert.equal((locales.match(/dbSortLocal:/g) || []).length, 2, 'dbSortLocal 要 en + zh 各一条')
     assert.ok(/\{n\}/.test(locales.match(/dbSortLocal: '[^']*'/)[0]), '提示要留行数占位符')
@@ -386,14 +392,14 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     // （单列集合复用同一纯函数，大小写语义不变），数据侧是 hiddenColumnSet
     assert.ok(/isVisible: k => visibleSqlKeys\(\[k\], sqlViewOf\(sqlViews, i\)\.hidden\)\.length > 0/.test(colsBlock),
       '列定义没按 hidden 过滤')
-    const viewsBlock = src.slice(src.indexOf('const sqlResultViews = useMemo('), src.indexOf('const renderSqlResults'))
+    const viewsBlock = src.slice(src.indexOf('const sqlResultViews = useMemo('), src.indexOf('const sqlCellInfo = useMemo('))
     assert.ok(/visibleSqlKeys\(sqlColumnKeys\(r\), sqlViewOf\(sqlViews, i\)\.hidden\)/.test(viewsBlock),
       '过滤没只扫可见列（藏起来的列不该参与命中）')
     assert.ok(/toggleSqlHidden\(/.test(src), '切换没走共用函数（最后一列守卫会被绕过）')
   })
   test('列显隐菜单：勾选态只展示，切换统一走菜单 onClick（两处都接会互相抵消）', () => {
-    assert.ok(/view\.total && keys\.length > 1/.test(src), '单列结果不该出列显隐按钮')
-    const dd = src.slice(src.indexOf("overlayClassName='db-sql-cols-menu'"), src.indexOf("title={e('dbExportCsv')}"))
+    assert.ok(/view\.total && keys\.length > 1/.test(results), '单列结果不该出列显隐按钮')
+    const dd = results.slice(results.indexOf("overlayClassName='db-sql-cols-menu'"), results.indexOf("title={e('dbExportCsv')}"))
     assert.ok(/checked=\{!hidden\.includes\(k\)\}/.test(dd), '勾选态没跟 hidden 走')
     assert.ok(!/onChange=\{/.test(dd), 'Checkbox 不要再接 onChange，会跟菜单 onClick 打架')
     assert.ok(/key\.startsWith\('col::'\)/.test(dd), '列项没接切换')
@@ -406,12 +412,13 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
     for (const k of ['dbShowHideCols', 'dbShowAllCols']) {
       assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
     }
-    assert.ok(/e\('dbShowHideCols'\)/.test(src) && /e\('dbShowAllCols'\)/.test(src))
+    assert.ok(/e\('dbShowHideCols'\)/.test(results) && /e\('dbShowAllCols'\)/.test(results))
   })
 })
 
 describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
   const src = fs.readFileSync(SESSION, 'utf8')
+  const results = loadResults()
   const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
 
   test('runSql 存 elapsedMs：后端没回传时存 null（不显示 NaN），回传了必须是有限数', () => {
@@ -423,23 +430,23 @@ describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
   })
 
   test('状态行：行数用命中口径，词条 en + zh 各一条', () => {
-    assert.ok(/className='db-sql-elapsed'/.test(src), '工具行右侧没有状态行')
-    assert.ok(/replace\('\{rows\}', view\.matched\)/.test(src), '行数必须是命中口径（与网格所见一致），不是原始总数')
+    assert.ok(/className='db-sql-elapsed'/.test(results), '工具行右侧没有状态行')
+    assert.ok(/replace\('\{rows\}', view\.matched\)/.test(results), '行数必须是命中口径（与网格所见一致），不是原始总数')
     for (const k of ['dbSqlRows', 'dbSqlRowsElapsed', 'dbSqlElapsedTotal']) {
       assert.equal((locales.match(new RegExp(k + ':', 'g')) || []).length, 2, k + ' 要 en + zh 各一条')
     }
   })
 
   test('多结果页签旁标总耗时；旧后端（null）时页签标题保持原样', () => {
-    const block = src.slice(src.indexOf("className='db-sql-results-tabs'"))
+    const block = results.slice(results.indexOf("className='db-sql-results-tabs'"))
     assert.ok(/dbSqlElapsedTotal/.test(block), '页签标题没带总耗时')
     assert.ok(/sqlResult\.elapsedMs !== null/.test(block), 'null 时不能往页签标题拼 undefined')
   })
 
   test('页签标题带各自行数（原始口径），且空结果集不拼"0 行"', () => {
-    const block = src.slice(
-      src.indexOf("className='db-sql-results-tabs'"),
-      src.indexOf('db-sql-results-tabs') + 2000)
+    const block = results.slice(
+      results.indexOf("className='db-sql-results-tabs'"),
+      results.indexOf('db-sql-results-tabs') + 2000)
     assert.ok(/Array\.isArray\(r\.rows\) \? r\.rows\.length : 0/.test(block),
       '页签行数没从结果集自己的 rows 取')
     assert.ok(/if \(nRows > 0\)\s*\{\s*labelParts\.push\(e\('dbSqlRows'\)\.replace\('\{rows\}', nRows\)\)/.test(block),
@@ -607,7 +614,7 @@ describe('db-sql-result: 撞行数上限必须说出来（结果不完整不能�
 })
 
 describe('db-sql-result: 接线契约 · 行数上限提示', () => {
-  const src = fs.readFileSync(SESSION, 'utf8')
+  const src = loadResults()
   const styl = fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8')
   const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
 

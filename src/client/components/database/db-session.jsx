@@ -5,8 +5,8 @@
  */
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { Tree, Table, Button, Alert, Empty, Spin, Tabs, Input, InputNumber, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, CheckOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { Tree, Button, Alert, Empty, Spin, Tabs, Input, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Segmented, Progress } from 'antd'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -46,8 +46,11 @@ import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode } from './db-search'
 import { useDbPageSearch } from './use-db-page-search'
 import { useDbExport } from './use-db-export'
+import { useDbChanges } from './use-db-changes'
+import DbChangePanel from './db-change-panel'
 import clone from '../../common/to-simple-obj'
 import { downloadText, buildCopyStatements, toTsv } from '../../common/db-csv'
+import DbGridTable from './db-grid-table'
 import { dbConnTarget } from '../../common/db-file'
 // 引擎归属（哪个引擎按 PG 的目录结构办事）只在 db-engine-family 定点，组件里不另写一份
 import { isPgFamily } from '../../common/db-engine-family'
@@ -183,9 +186,11 @@ import { formatCellValue, readFormatLocale, isBinaryType, isNumberType, FORMAT_L
 // H1：SQL 结果工具行的派生链（过滤 → 排序 → 切页）抽成纯函数，便于单测
 import {
   filterRowIndexes, sortRowIndexes, sqlViewOf, patchSqlView, sqlSortOf, nextSqlSort,
-  looksNumericColumn, visibleSqlKeys, toggleSqlHidden, sqlRowLimitNote,
-  SQL_FILTER_DEBOUNCE, SQL_SORT_BIG_ROWS
+  looksNumericColumn, visibleSqlKeys, toggleSqlHidden,
+  SQL_FILTER_DEBOUNCE
 } from '../../common/db-sql-result'
+import DbSqlResults from './db-sql-results'
+import DbRedisDetail from './db-redis-detail'
 import './db-session.styl'
 
 // N11a 第一步（拆 db-session.jsx）：会话页的纯常量与纯函数搬到 common/db-session-const.js
@@ -205,9 +210,7 @@ import {
   REDIS_SPLIT_KEY,
   CELL_SPLIT_KEY,
   SQL_VALUE_SPLIT_KEY,
-  REDIS_VALUE_SPLIT_KEY,
   REDIS_DETAIL_PAGE,
-  dash,
   REDIS_KEY_JUMP_WARN_PAGES,
   REDIS_TREE_MAX_KEYS,
   REDIS_TREE_SCAN_COUNT,
@@ -278,89 +281,6 @@ const RedisTtlChip = ({ ttl }) => {
       <ClockCircleOutlined />
       {text}
     </span>
-  )
-}
-// 数据库网格统一包装（doc/已完成/数据库功能设计归档-2026-10-21.md）：
-// 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
-// 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
-// ResizeObserver 挂载时创建一次；数据/加载态变化时补测一次。
-// 测量未就绪时不传 y，保持原有的外层容器滚动行为（优雅降级）
-function DbGridTable (props) {
-  const { className = '', style, ...rest } = props
-  const wrapRef = useRef(null)
-  const measureRef = useRef(() => {})
-  const [wrapH, setWrapH] = useState(0)
-  const [headH, setHeadH] = useState(0)
-  const [pagerH, setPagerH] = useState(0)
-  // ResizeObserver 只在挂载时建一次：原实现每次 render 都新建/断开，
-  // 输入查找、过滤等高频状态变化会带来无谓的观察器与同步测量开销。
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) {
-      return
-    }
-    const measure = () => {
-      // scroll.y 生效后表头是独立渲染的 .ant-table-header 容器（含边框），
-      // 必须用它的高度：用 thead 会少算边框/子像素 → 表头+表体总高超出 wrap
-      // 一点 → 外层 .db-grid-table 出现竖向滚动条（双滚动条）。
-      // 用 getBoundingClientRect（小数）+ ceil：不放大可用高度
-      const head = el.querySelector('.ant-table-header') ||
-        el.querySelector('.ant-table-thead')
-      // 非激活页签里 clientHeight / rect 高度都是 0。写回 0 会把 y 置 0 →
-      // virtual=false → antd Table 退回全量渲染：3 万行页签切走后会挂出上万
-      // DOM 节点、堆上多占几十 MB（CDP 实测），所以量到 0 时保留上次实测值
-      const h = el.clientHeight
-      if (h > 0) {
-        setWrapH(h)
-      }
-      const hh = head ? Math.ceil(head.getBoundingClientRect().height) : 0
-      if (hh > 0) {
-        setHeadH(hh)
-      }
-      // 分页器占掉的纵向空间必须从 y 里扣掉，否则表体把分页器顶出可视区；
-      // 结果不足一页时是真没有分页器，要如实写回 0
-      const pager = el.querySelector('.ant-pagination')
-      if (!pager) {
-        setPagerH(0)
-      } else {
-        const ph = Math.ceil(pager.getBoundingClientRect().height)
-        if (ph > 0) {
-          setPagerH(ph)
-        }
-      }
-    }
-    measureRef.current = measure
-    measure()
-    const ob = new window.ResizeObserver(() => measureRef.current())
-    ob.observe(el)
-    // 表头单独观察：首次测量可能落在瞬时渲染态（拿到偏小的高度），数据渲染后表头才稳定
-    const head = el.querySelector('.ant-table-header') ||
-      el.querySelector('.ant-table-thead')
-    if (head) {
-      ob.observe(head)
-    }
-    return () => {
-      measureRef.current = () => {}
-      ob.disconnect()
-    }
-  }, [])
-  // 数据/加载态变化后补测一次（列宽与行数变化可能改变表头高度）
-  useEffect(() => {
-    measureRef.current()
-  }, [rest.dataSource, rest.loading])
-  const y = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0
-  return (
-    <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={style}>
-      <Table
-        {...rest}
-        className='db-grid-table'
-        // 行虚拟渲染：DOM 行数与 pageSize 解耦（只渲染可视区），行少自动退化为全渲染
-        virtual={y > 0}
-        // y 生效后表体自己滚动，外层禁掉纵向滚动（子像素取整仍可能溢出 1px → 双滚动条）
-        style={y > 0 ? { overflowY: 'hidden' } : undefined}
-        scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}
-      />
-    </div>
   )
 }
 
@@ -1884,16 +1804,67 @@ export default auto(function DbSession (props) {
     })
   }
 
+  // ---- N2 暂存变更：前端侧"还没执行"的改动 + 统一应用 ----
+  // 与上面 F2 的分工写在 use-db-changes 头注释里（一句话：这里装没执行过的，
+  // 事务那边装执行过还没提交的）。开关默认关 —— 打开之前，所有写路径行为与今天一致。
+  const refreshAfterApply = () => {
+    if (!sel) {
+      return
+    }
+    // 加行/删行会改总数：沿用"总数缓存作废再重取"的既有口径，否则状态行会停在旧值
+    countKeyRef.current = ''
+    loadWithCount(sel, grid.page)
+  }
+  const changes = useDbChanges({
+    tabId,
+    sel,
+    pkColumn,
+    isReadonly,
+    isRedis,
+    txSupported,
+    txActive,
+    refresh: refreshAfterApply,
+    // 应用前的那道闸复用 E1：它表达的是"执行前给人看"，不是 SQL 编辑器专属 UI。
+    // 包一层箭头是必需的 —— confirmRowWrite 定义在本页后面两千行，直接传标识符是 TDZ
+    confirmBatch: payload => confirmRowWrite(payload),
+    onError: onOpError
+  })
+  // 底部页签的选中项 + "手动点开变更页签"。changesVisible 在渲染段算，两处共用一个判断
+  const [detailTab, setDetailTab] = useState('value')
+  const [changesPaneOpen, setChangesPaneOpen] = useState(false)
+  const openChangesPane = () => {
+    setChangesPaneOpen(true)
+    setDetailTab('changes')
+  }
+
   // 未提交时关 tab 必须确认（主进程无论如何都会先回滚，这里只防手滑丢数据）。
   // delTab 是关闭标签的唯一入口（✕ / Ctrl+W / 会话列表），把守卫挂在那条路径上。
   // H6c：未保存的 .sql 也挂在这里；两者都在时按"先事务、后文件"串行确认，
   // 任一步取消就不关
   useEffect(() => {
-    if (!tabId || !window.store || (!txSupported && !sqlFileDirty)) {
+    if (!tabId || !window.store || (!txSupported && !sqlFileDirty && !changes.hasStaged)) {
       return undefined
     }
     const guards = window.store.txCloseGuards || (window.store.txCloseGuards = {})
     guards[tabId] = async () => {
+      // N2 暂存变更排在最前：这一道丢的只是"还没执行的意图"，数据库没被碰过，
+      // 说清这一点人才敢点丢弃；事务那道丢的是已执行未提交的语句，语义重得多
+      if (changes.hasStaged) {
+        const okStaged = await new Promise(resolve => {
+          Modal.confirm({
+            title: e('dbChangesCloseTitle'),
+            content: e('dbChangesCloseWarn').replace('{n}', String(changes.count)),
+            okText: e('dbChangesDiscard'),
+            cancelText: e('cancel'),
+            okButtonProps: { danger: true },
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false)
+          })
+        })
+        if (!okStaged) {
+          return false
+        }
+      }
       if (txSupported && txActive) {
         const ok = await new Promise(resolve => {
           Modal.confirm({
@@ -1929,7 +1900,7 @@ export default auto(function DbSession (props) {
     return () => {
       delete guards[tabId]
     }
-  }, [txSupported, tabId, txActive, txPending, sqlFile, sqlFileDirty])
+  }, [txSupported, tabId, txActive, txPending, sqlFile, sqlFileDirty, changes.hasStaged, changes.count])
 
   const startEdit = (row, col) => {
     if (!canEditCell) {
@@ -1949,6 +1920,11 @@ export default auto(function DbSession (props) {
   const runCellUpdate = async (rowKey, col, value) => {
     const row = grid.rows[rowKey]
     if (!row || !sel) {
+      return
+    }
+    // N2：暂存开着时这条改动进变更集，一个 op 都不发（数据库此刻没被改过）。
+    // 返回值就是"我消费掉了"，所以即时执行路径保持原样不动
+    if (changes.stageCellEdit({ pkValue: row[pkColumn], column: col, value })) {
       return
     }
     // E1：production 连接上改数据要二次确认（带表名/列名/主键定位与影响行数）
@@ -2045,6 +2021,12 @@ export default auto(function DbSession (props) {
       return
     }
     const values = insertPayload.values
+    // N2：暂存开着时先把整行收进变更集并关掉弹窗（弹窗关掉=这行已经交代过了，
+    // 值不会丢；E1 的确认留到应用那一刻，与改格/删行同一道闸）
+    if (changes.stageInsertRow(insertPayload)) {
+      setInsertOpen(false)
+      return
+    }
     // E1：production 连接上插行要二次确认（取消则插入弹窗保持打开，值不丢）
     const ok = await confirmRowWrite({
       level: 'write',
@@ -2085,6 +2067,10 @@ export default auto(function DbSession (props) {
       .filter((_, i) => selectedRowKeys.includes(i))
       .map(r => r[pkColumn])
     if (!pkValues.length) {
+      return
+    }
+    // N2：暂存开着时记下"要删这些行"，不发 deleteRows（行还在库里，页面上也不动）
+    if (changes.stageDeleteRows(pkValues)) {
       return
     }
     // 删行定为 dangerous：批量删除不可撤销，按钮应以危险色呈现
@@ -2204,6 +2190,12 @@ export default auto(function DbSession (props) {
       message.info(e('dbBulkNoChange'))
       return
     }
+    // N2：暂存开着时按"行主键 + 列"逐条进变更集（与逐格编辑同一粒度，
+    // 所以之后重复改同一格会合并而不是堆两条）
+    if (changes.stageUpdates({ column: bulk.col, updates: plan.updates })) {
+      setBulk(b => ({ ...b, open: false }))
+      return
+    }
     const ok = await confirmRowWrite({
       level: 'write',
       text: bulkUpdatePreview({
@@ -2265,6 +2257,12 @@ export default auto(function DbSession (props) {
 
   const submitReplace = async () => {
     if (!sel || !pkColumn || !rep.col || !repPreview.updates.length) {
+      return
+    }
+    // N2：替换结果同样落成逐格改动（不是"一条 replace() 语句"）——
+    // 预览显示的是每行替换后的最终值，与真正执行的绑定值一致
+    if (changes.stageUpdates({ column: rep.col, updates: repPreview.updates })) {
+      setRep(r => ({ ...r, open: false }))
       return
     }
     const ok = await confirmRowWrite({
@@ -2360,7 +2358,9 @@ export default auto(function DbSession (props) {
   }
 
   // 行级写（单元格保存 / 插行 / 删行）在 production 连接上再过一道确认。
-  // 复用同一个弹窗：它表达的是"执行前给人看"，不是 SQL 编辑器专属 UI
+  // 复用同一个弹窗：它表达的是"执行前给人看"，不是 SQL 编辑器专属 UI。
+  // N2 之后一段批（变更集应用）也走这里：payload.texts 给多条语句，弹窗本来就是列表式的
+  // （SQL 页一次执行多条语句用的就是它），按条数弹 N 次只会训练用户连点确认。
   const confirmRowWrite = async payload => {
     if (!isProduction) {
       return true
@@ -2378,11 +2378,12 @@ export default auto(function DbSession (props) {
     if (!verdict.need) {
       return true
     }
+    const texts = payload.texts || [payload.text]
     const ok = await askRiskConfirm({
       level: payload.level,
       requireDbName: verdict.requireDbName,
       dbName: (sel && sel.database) || tab.dbName || '',
-      statements: [{ text: payload.text, level: payload.level, firstKeyword: '' }],
+      statements: texts.map(text => ({ text, level: payload.level, firstKeyword: '' })),
       reasons: [payload.note],
       // 行级写同样要说清"为什么问你"：production 首次写 vs ddl 每次，用户的反应不一样
       reason: verdict.reason,
@@ -4833,269 +4834,6 @@ export default auto(function DbSession (props) {
     [sqlResult.results, sqlPages, sqlPageSize, sqlViews, sqlSortNumeric]
   )
 
-  const renderSqlResults = () => {
-    const results = sqlResult.results || []
-    if (!results.length) {
-      return null
-    }
-    const renderOne = (r, i) => {
-      const view = sqlResultViews[i] || { total: 0, matched: 0, pageRows: [] }
-      const filter = sqlViewOf(sqlViews, i).filter
-      const sort = sqlViewOf(sqlViews, i).sort
-      const keys = sqlColumnKeys(r)
-      const hidden = sqlViewOf(sqlViews, i).hidden || []
-      // 超过一页才出分页器（单行结果保持原样）。
-      // 分页器放表格上方 tools 行（与导出同排、靠左）：放表尾会被底部快捷命令栏遮住
-      // H1：分页按**过滤后**的行数算，筛完不足一页就不再有分页器
-      // H1a-4：从 antd Pagination 换成与数据页同一份 DbGridPager —— 功能不缩水
-      // （跳页 + 总数都在；页大小选择器本来就在旁边一行），页码展示口径也对齐
-      const page = sqlPageIndex(sqlPages[i], view.matched, sqlPageSize)
-      const sqlTotalPages = Math.max(1, Math.ceil(view.matched / sqlPageSize))
-      const jumpSqlPage = () => {
-        const p = Math.max(1, Number(sqlJumpDraft[i]) || 0)
-        if (!p) {
-          return
-        }
-        setSqlJumpDraft(prev => ({ ...prev, [i]: null }))
-        setSqlPages(prev => ({ ...prev, [i]: Math.min(p, sqlTotalPages) }))
-      }
-      const pager = view.matched > sqlPageSize
-        ? (
-          <DbGridPager
-            prevDisabled={page <= 1}
-            onPrev={() => setSqlPages(prev => ({ ...prev, [i]: page - 1 }))}
-            nextDisabled={page >= sqlTotalPages}
-            onNext={() => setSqlPages(prev => ({ ...prev, [i]: page + 1 }))}
-            pageNoText={e('dbPageLabel').replace('{n}', page)}
-            jump={{
-              numeric: true,
-              min: 1,
-              max: sqlTotalPages,
-              value: sqlJumpDraft[i] || null,
-              onChange: v => setSqlJumpDraft(prev => ({ ...prev, [i]: v })),
-              onPressEnter: jumpSqlPage,
-              placeholder: '1-' + sqlTotalPages
-            }}
-            goDisabled={!sqlJumpDraft[i]}
-            onGo={jumpSqlPage}
-            totalText={e('dbResultTotal').replace('{n}', view.matched)}
-          />
-          )
-        : null
-      return (
-        <div key={i} className='db-sql-result-one'>
-          <div className='db-sql-result-tools'>
-            {pager}
-            {
-              view.total
-                ? (
-                  <Select
-                    size='small'
-                    className='db-grid-pagesize'
-                    value={sqlPageSize}
-                    options={dbPageSizeOptions()}
-                    onChange={changeSqlPageSize}
-                    popupMatchSelectWidth={false}
-                    title={e('dbRowsPerPage')}
-                  />
-                  )
-                : null
-            }
-            {
-              // H1：本页过滤 —— 匹配的是**整份结果**（不是当前页），与数据页那个
-              // "筛选当前页"是两件事，所以文案与状态都各归各的。
-              // H1a-4：输入框外观与数据页统一走 DbGridFilter（防抖逻辑留在
-              // onSqlFilterInput —— 语义是"整份结果"扫描，与数据页的即时高亮不同）
-              view.total
-                ? (
-                  <DbGridFilter
-                    className='db-sql-filter'
-                    suffix={<SearchOutlined />}
-                    value={sqlFilterDraft[i] === undefined ? filter : sqlFilterDraft[i]}
-                    placeholder={e('dbFilterResult')}
-                    onChange={ev => onSqlFilterInput(i, ev.target.value)}
-                    count={filter
-                      ? e('dbFilterHit').replace('{m}', view.matched).replace('{t}', view.total)
-                      : null}
-                    countClass={'db-sql-filter-hit' + (view.matched ? '' : ' db-sql-filter-hit-empty')}
-                  />
-                  )
-                : null
-            }
-            {
-              sort && view.total > SQL_SORT_BIG_ROWS
-                ? (
-                  <span className='db-sql-sort-hint'>
-                    {e('dbSortLocal').replace('{n}', view.total)}
-                  </span>
-                  )
-                : null
-            }
-            {
-              // H1：列显隐。每列一个 Checkbox 项 + "显示全部"，藏在同一个下拉里
-              // （列多时弹层自己滚，见 .db-sql-cols-menu）。单列结果没有可藏的，
-              // 不出这个按钮。trigger 用 click：勾选列表配 hover 会跟着鼠标走丢
-              view.total && keys.length > 1
-                ? (
-                  <Dropdown
-                    overlayClassName='db-sql-cols-menu'
-                    trigger='click'
-                    menu={{
-                      items: [
-                        ...keys.map(k => ({
-                          key: 'col::' + k,
-                          label: (
-                            <Checkbox checked={!hidden.includes(k)}>
-                              <span className='db-sql-cols-item' title={k}>{k}</span>
-                            </Checkbox>
-                          )
-                        })),
-                        { type: 'divider' },
-                        { key: 'all', label: e('dbShowAllCols'), disabled: !hidden.length }
-                      ],
-                      // 勾选态走 Checkbox 纯展示，切换统一在菜单 onClick 里做 ——
-                      // 两处都接会互相抵消（点一下 = 勾上又勾掉）
-                      onClick: ({ key, domEvent }) => {
-                        domEvent.stopPropagation()
-                        if (key === 'all') {
-                          setSqlViews(prev => patchSqlView(prev, i, { hidden: [] }))
-                          return
-                        }
-                        if (key.startsWith('col::')) {
-                          const k = key.slice(5)
-                          onSqlToggleCol(i, keys, k, hidden.includes(k))
-                        }
-                      }
-                    }}
-                  >
-                    <Tooltip title={e('dbShowHideCols')}>
-                      <Button size='small' icon={<EyeOutlined />} />
-                    </Tooltip>
-                  </Dropdown>
-                  )
-                : null
-            }
-            {
-              view.total
-                ? (
-                  // trigger='click'：同一行里列显隐菜单是点击展开，相邻两个菜单
-                  // 一只 hover 一只点击手感打架；点击展开对键盘操作也更明确
-                  <Dropdown
-                    trigger='click'
-                    menu={{
-                      items: [
-                        { key: 'csv', label: 'CSV' },
-                        { key: 'json', label: 'JSON' },
-                        { key: 'tsv', label: 'TSV' },
-                        { key: 'jsonl', label: 'JSONL' },
-                        { key: 'markdown', label: 'Markdown' }
-                      ],
-                      // 导出始终是整份结果（不受当前页限制）；导出的是结果集
-                      // 原始行（不过滤/不排序视图态 —— 要当前筛选请去数据页）
-                      onClick: ({ key }) => {
-                        if (key === 'json') {
-                          return exportSqlJson(r, i)
-                        }
-                        if (key === 'tsv') {
-                          return exportSqlTsv(r, i)
-                        }
-                        if (key === 'jsonl') {
-                          return exportSqlJsonl(r, i)
-                        }
-                        if (key === 'markdown') {
-                          return exportSqlMarkdown(r, i)
-                        }
-                        return exportSqlCsv(r, i)
-                      }
-                    }}
-                  >
-                    <Tooltip title={e('dbExportCsv')}>
-                      <Button
-                        size='small'
-                        icon={<DownloadOutlined />}
-                      />
-                    </Tooltip>
-                  </Dropdown>
-                  )
-                : null
-            }
-            {
-              // H1a-2：结果集列宽工具（与列头右键菜单同一动作，多个结果集共用一份手动宽，
-              // 按的是"这次执行的所有列"）
-              view.total
-                ? colFitAllBtn(sqlWidths)
-                : null
-            }
-            {
-              // H1：右侧状态行。行数用命中口径 —— 筛完显示"筛出来的行数"，
-              // 与网格所见一致（总数在过滤框旁的命中/总数里）；耗时是整次执行的
-              // 总耗时，多结果集共享一份（各页签旁另标"总 {n} ms"）
-              view.total
-                ? (
-                  <span className='db-sql-elapsed'>
-                    {
-                      sqlResult.elapsedMs === null
-                        ? e('dbSqlRows').replace('{rows}', view.matched)
-                        : e('dbSqlRowsElapsed')
-                          .replace('{rows}', view.matched)
-                          .replace('{ms}', sqlResult.elapsedMs)
-                    }
-                  </span>
-                  )
-                : null
-            }
-          </div>
-          {
-            r.affected !== undefined
-              ? <div className='db-sql-affected'>{e('dbAffectedRows').replace('{n}', r.affected)}</div>
-              : null
-          }
-          {
-            // 撞行数上限 = 结果不完整，必须在这一屏说出来：过滤/排序/导出都只在这前 N 行里做
-            r.affected === undefined && sqlRowLimitNote(r, e)
-              ? <div className='db-sql-row-limit'>{sqlRowLimitNote(r, e)}</div>
-              : null
-          }
-          <DbGridTable
-            className='db-sql-result-grid is-bordered'
-            size='small'
-            columns={sqlResultColumns[i] || []}
-            dataSource={view.pageRows}
-            rowKey='__rowKey'
-            pagination={false}
-          />
-        </div>
-      )
-    }
-    if (results.length === 1) {
-      return renderOne(results[0], 0)
-    }
-    return (
-      <Tabs
-        size='small'
-        className='db-sql-results-tabs'
-        items={results.map((r, i) => {
-          // 页签在下面、正文在上面，切走后只剩标题可认；行数取该结果集原始口径
-          // （过滤后的命中数随激活页签，写进标题会在切换时来回跳）
-          const labelParts = [e('dbResultN').replace('{n}', i + 1)]
-          const nRows = Array.isArray(r.rows) ? r.rows.length : 0
-          if (nRows > 0) {
-            labelParts.push(e('dbSqlRows').replace('{rows}', nRows))
-          }
-          // 多结果集共享一份总耗时，标在每个页签旁（各结果集不单独计时）
-          if (sqlResult.elapsedMs !== null) {
-            labelParts.push(e('dbSqlElapsedTotal').replace('{ms}', sqlResult.elapsedMs))
-          }
-          return {
-            key: String(i),
-            label: labelParts.join(' · '),
-            children: renderOne(r, i)
-          }
-        })}
-      />
-    )
-  }
-
   // H1a-4：选中格的完整值面板数据。按 (rs, rowKey, col) 现取、不复制值 ——
   // 一次执行可能是 1 万行的大数组。行取不到（重新执行把结果换了、页码越界）就当
   // 没选中，工具条与面板一起消失，不留一个指向空气的标题
@@ -5958,7 +5696,6 @@ export default auto(function DbSession (props) {
   })
   // 详情列定义是渲染里就地重建的（列随键类型换），live 宽由 widthOf 直接读到，
   // 不像那 4 处 memo 化列定义要把 live 放进依赖数组
-  const { widthOf: redisDetailWidthOf } = redisDetailWidths
 
   // 选中格的完整值面板数据。行按 rowKey 现取：详情换了（重新选键、类型不支持）
   // 就当作没选中，面板跟着收起，不留一个指向空气的标题
@@ -6078,18 +5815,24 @@ export default auto(function DbSession (props) {
       </div>
       )
     : null
+  // 有选中行才有"值/行（/关联）"三页；没选行时底部要么空着，要么只挂"变更"一页
+  const hasRowPane = !!(selectedCell && grid.rows[selectedCell.rowKey])
   // 值 + 行（+ 关联）：showRefTab 为 false 时不挂关联页签
   const detailTabItems = [
-    {
-      key: 'value',
-      label: e('dbTabValue'),
-      children: valuePaneEl
-    },
-    {
-      key: 'row',
-      label: e('dbTabRow'),
-      children: rowPaneEl
-    }
+    ...(hasRowPane
+      ? [
+          {
+            key: 'value',
+            label: e('dbTabValue'),
+            children: valuePaneEl
+          },
+          {
+            key: 'row',
+            label: e('dbTabRow'),
+            children: rowPaneEl
+          }
+        ]
+      : [])
   ]
   if (showRefTab) {
     detailTabItems.push({
@@ -6107,10 +5850,43 @@ export default auto(function DbSession (props) {
       )
     })
   }
+  // N2：变更页签。开关开 / 有暂存 / 手动点开三者之一才挂出（不暂存的人不该多看见一页）。
+  // label 带条数 —— 用户瞥一眼就知道有改动没落地
+  const changesVisible = changes.stageEnabled &&
+    (changes.stageOn || changes.count > 0 || changesPaneOpen)
+  if (changesVisible) {
+    detailTabItems.push({
+      key: 'changes',
+      label: changes.count
+        ? `${e('dbChangesTab')} (${changes.count})`
+        : e('dbChangesTab'),
+      children: (
+        <DbChangePanel
+          groups={changes.groups}
+          count={changes.count}
+          stageOn={changes.stageOn}
+          applying={changes.applying}
+          inTx={txActive}
+          onToggleStage={() => changes.toggleStage()}
+          onRevert={id => changes.revert(id)}
+          onDropTable={key => changes.revertTable(key)}
+          onDiscardAll={() => changes.discardAll()}
+          onApply={() => changes.apply()}
+        />
+      )
+    })
+  }
+  // 记住的 key 不一定还在（页签集合随"有没有选中行"变），回落第一项；
+  // 集合可能为空（没选行、无关联页、变更页也不挂），这里不能裸取 [0]
+  const detailActiveKey = detailTabItems.some(i => i.key === detailTab)
+    ? detailTab
+    : (detailTabItems[0] || {}).key
   const refTabsEl = (
     <Tabs
       size='small'
       className='db-pane-tabs'
+      activeKey={detailActiveKey}
+      onChange={setDetailTab}
       items={detailTabItems}
     />
   )
@@ -6119,7 +5895,7 @@ export default auto(function DbSession (props) {
       <Empty description={e('dbSelectCell')} />
     </div>
   )
-  const bottomEl = selectedCell && grid.rows[selectedCell.rowKey]
+  const bottomEl = hasRowPane || changesVisible
     ? refTabsEl
     : emptyPaneEl
 
@@ -6386,6 +6162,34 @@ export default auto(function DbSession (props) {
                   onClick={() => setImportOpen(true)}
                 />
               </Tooltip>
+              )
+            : null
+        }
+        {
+          // N2 暂存变更开关 + 变更面板入口。和旁边"手动事务"挨着是故意的：
+          // 两个开关必须一眼分得开 —— 这里管"还没执行的改动"，那边管"执行了但没提交的语句"，
+          // 所以按钮写"变更 (n)"而不是"待提交 n"
+          changes.stageEnabled
+            ? (
+              <span className='db-stage-bar'>
+                <Tooltip title={e('dbStageHint')}>
+                  <span className='db-stage-switch'>
+                    <Switch
+                      size='small'
+                      checked={changes.stageOn}
+                      onChange={(on) => changes.toggleStage(on)}
+                    />
+                    <span className='db-stage-switch-label'>{e('dbStageSwitch')}</span>
+                  </span>
+                </Tooltip>
+                <Button
+                  size='small'
+                  className='db-stage-open'
+                  onClick={openChangesPane}
+                >
+                  {e('dbChangesTab')}{changes.count ? ` (${changes.count})` : ''}
+                </Button>
+              </span>
               )
             : null
         }
@@ -7449,6 +7253,29 @@ export default auto(function DbSession (props) {
   // 就绪态直接崩在 memo 的依赖比较里（实测过一次，错误栈只剩 minified 帧）
   const sqlCharCount = Array.from(sqlText).length
 
+  const sqlResultsProps = {
+    sqlResult,
+    sqlResultViews,
+    sqlResultColumns,
+    sqlViews,
+    sqlPages,
+    sqlPageSize,
+    sqlJumpDraft,
+    sqlWidths,
+    sqlFilterDraft,
+    setSqlJumpDraft,
+    setSqlPages,
+    setSqlViews,
+    onChangeSqlPageSize: changeSqlPageSize,
+    onSqlFilterInput,
+    onSqlToggleCol,
+    exportSqlJson,
+    exportSqlCsv,
+    exportSqlTsv,
+    exportSqlJsonl,
+    exportSqlMarkdown
+  }
+
   const sqlArea = (
     <div className='db-sql-area'>
       <Suspense fallback={<div className='db-sql-editor db-sql-editor-skeleton' />}>
@@ -7832,11 +7659,11 @@ export default auto(function DbSession (props) {
                 <DbSplitPane
                   storageKey={SQL_VALUE_SPLIT_KEY}
                   collapsed={!sqlPaneShown}
-                  top={renderSqlResults()}
+                  top={<DbSqlResults {...sqlResultsProps} />}
                   bottom={sqlValuePane}
                 />
                 )
-              : renderSqlResults()
+              : <DbSqlResults {...sqlResultsProps} />
           }
         </Spin>
       </div>
@@ -8042,783 +7869,6 @@ export default auto(function DbSession (props) {
 
   // A1/A2：redisKeyColumns / redisKeyRows 见上方集中 memo 块
 
-  // list/zset 详情「加载更多」：detailLimit 分批渲染，避免一次进 DOM
-  const renderMoreBtn = (total) => {
-    if (!total || total <= detailLimit) {
-      return null
-    }
-    return (
-      <Button
-        size='small'
-        className='db-redis-more'
-        onClick={() => setDetailLimit(l => l + 200)}
-      >
-        {e('dbLoadMore')} ({e('dbLeft').replace('{n}', total - detailLimit)})
-      </Button>
-    )
-  }
-
-  // hash/set 详情「加载更多」：走服务端 HSCAN/SSCAN 游标，只拉下一页
-  const renderScanMore = (d) => {
-    if (!d || !d.nextCursor || d.nextCursor === '0') {
-      return null
-    }
-    const loaded = d.type === 'hash' ? (d.fields || []).length : (d.rows || []).length
-    const left = typeof d.total === 'number' ? Math.max(0, d.total - loaded) : null
-    return (
-      <Button
-        size='small'
-        className='db-redis-more'
-        loading={detailLoading}
-        onClick={() => selectRedisKey(redisKey, d.nextCursor, true)}
-      >
-        {e('dbLoadMore')}
-        {left === null ? '' : ` (${e('dbLeft').replace('{n}', left)})`}
-      </Button>
-    )
-  }
-
-  // 键详情：按类型渲染（string 文本框；hash/list/set/zset 网格）
-
-  // 行尾删除按钮（Popconfirm 包裹）：hash 删 field / set/zset 删 member / list 删下标
-  const redisRowOps = (onConfirm) => (
-    <Popconfirm title={e('dbRedisDelRowConfirm')} onConfirm={onConfirm}>
-      <Button
-        size='small'
-        type='text'
-        danger
-        icon={<DeleteOutlined />}
-        disabled={isReadonly}
-        title={isReadonly ? e('dbErrReadOnly') : e('dbRedisDelRowConfirm')}
-      />
-    </Popconfirm>
-  )
-
-  // 行内可编辑单元格渲染：redisEdit 命中当前格 → Input(数字格用 InputNumber) + 确认/取消；
-  // 否则走普通高亮渲染
-  const renderRedisEditable = (record, col, value, onSave, numeric = false) => {
-    const editing = redisEdit && redisEdit.rowKey === record.__rowKey && redisEdit.col === col
-    if (!editing) {
-      return renderCell(value)
-    }
-    const editor = numeric
-      ? (
-        <InputNumber
-          size='small'
-          autoFocus
-          value={redisEdit.value === '' ? undefined : Number(redisEdit.value)}
-          onChange={v => setRedisEdit(s => ({ ...s, value: v === undefined ? '' : String(v) }))}
-        />
-        )
-      : (
-        <Input
-          size='small'
-          autoFocus
-          value={redisEdit.value}
-          onChange={ev => setRedisEdit(s => ({ ...s, value: ev.target.value }))}
-          onPressEnter={onSave}
-        />
-        )
-    return (
-      <span className='db-redis-cell-edit'>
-        {editor}
-        <Button size='small' type='text' icon={<CheckOutlined />} onClick={onSave} />
-        <Button size='small' type='text' icon={<CloseOutlined />} onClick={() => setRedisEdit(null)} />
-      </span>
-    )
-  }
-
-  // 行内编辑入口（双击触发）；readOnly 时不进编辑态
-  const editRedisCell = (record, col, value) => {
-    if (!isReadonly) {
-      setRedisEdit({ rowKey: record.__rowKey, col, value: String(value ?? '') })
-    }
-  }
-
-  // A2：redisHash/List/Set/ZsetRows 见上方集中 memo 块（提前 return 之前）
-
-  const renderRedisDetail = () => {
-    const d = redisDetail
-    let body = null
-    if (!d) {
-      body = detailLoading ? <Spin size='small' /> : null
-    } else if (d.type === 'string') {
-      // 统一值面板：键信息（type/ttl/删除）与高亮/格式化/复制/编辑全部收进 DbValuePane
-      // 单栏展示（编辑保存走 redis setKey，只读模式被主进程拦截）
-      body = (
-        <DbValuePane
-          title={redisKey}
-          meta={(
-            <span className='db-redis-meta'>
-              <RedisTypeChip type={d.type} />
-              <RedisTtlChip ttl={d.ttl} />
-              <span>{e('dbChars').replace('{n}', stringValue.length)}</span>
-              {
-                stringTruncated
-                  ? <span>{`(preview truncated, ${d.total} bytes total)`}</span>
-                  : null
-              }
-            </span>
-          )}
-          value={stringValue}
-          patterns={keywordPatterns}
-          themeConfig={themeConfig}
-          editable={!isReadonly && !stringTruncated}
-          editDisabledTitle={stringTruncated
-            ? 'value too large, preview only (truncated)'
-            : e('dbErrReadOnly')}
-          extra={(
-            <>
-              <InputNumber
-                size='small'
-                min={0}
-                placeholder={e('dbSeconds')}
-                value={ttlInput}
-                onChange={setTtlInput}
-              />
-              <Button size='small' disabled={isReadonly} onClick={applyTtl}>{e('dbSetTtl')}</Button>
-              <Popconfirm title={e('dbDeleteKey')} onConfirm={delSelectedKey}>
-                <Button size='small' danger disabled={isReadonly}>{e('dbDelete')}</Button>
-              </Popconfirm>
-            </>
-          )}
-          onSave={async v => {
-            const ok = await confirmRedisWrite({
-              level: 'write',
-              text: 'SET ' + redisKey,
-              note: e('saved')
-            })
-            if (!ok) {
-              return
-            }
-            window.pre.runGlobalAsync('dbClientOp', tabId, 'setKey', {
-              dbIndex: redisDb,
-              key: redisKey,
-              value: v
-            }).then(() => {
-              message.success(e('saved'))
-              selectRedisKey(redisKey)
-            }).catch(err => onOpError(err))
-          }}
-        />
-      )
-    } else if (d.type === 'hash') {
-      body = (
-        <>
-          <DbGridTable
-            size='small'
-            pagination={false}
-            columns={[
-              {
-                title: (
-                  <ColHead
-                    label={e('dbField')}
-                    colKey='field'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'field',
-                key: 'field',
-                width: redisDetailWidthOf('field'),
-                ellipsis: CELL_ELLIPSIS,
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'field',
-                    head: e('dbField'),
-                    wide: wideColumnWidth(redisHashRows, 'field')
-                  })
-                }),
-                onCell: redisCellProps('field', e('dbField')),
-                render: v => renderCell(v)
-              },
-              {
-                title: (
-                  <ColHead
-                    label={e('dbValue')}
-                    colKey='value'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'value',
-                key: 'value',
-                width: redisDetailWidthOf('value'),
-                ellipsis: CELL_ELLIPSIS,
-                // D 批：双击 value 行内编辑（HSET 覆盖同字段）；单击 = 展开完整值面板
-                onCell: (r, i) => ({
-                  ...redisCellProps('value', e('dbValue'))(r, i),
-                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
-                }),
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'value',
-                    head: e('dbValue'),
-                    wide: wideColumnWidth(redisHashRows, 'value')
-                  })
-                }),
-                render: (v, r) => renderRedisEditable(r, 'value', v, () => saveHashValue(r))
-              },
-              {
-                title: '',
-                key: 'ops',
-                width: 60,
-                render: (_, r) => redisRowOps(() => runRedisWrite('hashDelField', {
-                  dbIndex: redisDb, key: redisKey, fields: [r.field]
-                }, e('dbDeleted'), {
-                  level: 'dangerous',
-                  text: 'HDEL ' + redisKey + ' ' + r.field,
-                  note: e('dbDeleted')
-                }))
-              }
-            ]}
-            dataSource={redisHashRows}
-            rowKey='__rowKey'
-          />
-          {renderScanMore(d)}
-        </>
-      )
-    } else if (d.type === 'list') {
-      body = (
-        <>
-          <DbGridTable
-            size='small'
-            pagination={false}
-            columns={[
-              { title: '#', dataIndex: 'index', key: 'index', width: 80, render: v => renderCell(v) },
-              {
-                title: (
-                  <ColHead
-                    label={e('dbValue')}
-                    colKey='value'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'value',
-                key: 'value',
-                width: redisDetailWidthOf('value'),
-                ellipsis: CELL_ELLIPSIS,
-                // D 批：双击 value 行内编辑（LSET 按下标）；单击 = 展开完整值面板
-                onCell: (r, i) => ({
-                  ...redisCellProps('value', e('dbValue'))(r, i),
-                  onDoubleClick: () => editRedisCell(r, 'value', r.value)
-                }),
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'value',
-                    head: e('dbValue'),
-                    wide: wideColumnWidth(redisListRows, 'value')
-                  })
-                }),
-                render: (v, r) => renderRedisEditable(r, 'value', v, () => saveListValue(r))
-              },
-              {
-                title: '',
-                key: 'ops',
-                width: 60,
-                render: (_, r) => redisRowOps(() => runRedisWrite('listRemAt', {
-                  dbIndex: redisDb, key: redisKey, index: r.index
-                }, e('dbDeleted'), {
-                  level: 'dangerous',
-                  text: '删除 ' + redisKey + '[' + r.index + ']',
-                  note: e('dbDeleted')
-                }))
-              }
-            ]}
-            dataSource={redisListRows}
-            rowKey='__rowKey'
-          />
-          {renderMoreBtn((d.rows || []).length)}
-        </>
-      )
-    } else if (d.type === 'set') {
-      body = (
-        <>
-          <DbGridTable
-            size='small'
-            pagination={false}
-            columns={[
-              {
-                title: (
-                  <ColHead
-                    label={e('dbMember')}
-                    colKey='member'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'member',
-                key: 'member',
-                width: redisDetailWidthOf('member'),
-                ellipsis: CELL_ELLIPSIS,
-                // D 批：双击成员 = 删旧加新（成员是身份标识，不支持原地改）；
-                // 单击 = 展开完整值面板
-                onCell: (r, i) => ({
-                  ...redisCellProps('member', e('dbMember'))(r, i),
-                  onDoubleClick: () => editRedisCell(r, 'member', r.member)
-                }),
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'member',
-                    head: e('dbMember'),
-                    wide: wideColumnWidth(redisSetRows, 'member')
-                  })
-                }),
-                render: (v, r) => renderRedisEditable(r, 'member', v, () => editSetMember(r.member, redisEdit ? redisEdit.value : ''))
-              },
-              {
-                title: '',
-                key: 'ops',
-                width: 60,
-                render: (_, r) => redisRowOps(() => runRedisWrite('setRem', {
-                  dbIndex: redisDb, key: redisKey, members: [r.member]
-                }, e('dbDeleted'), {
-                  level: 'dangerous',
-                  text: 'SREM ' + redisKey + ' ' + r.member,
-                  note: e('dbDeleted')
-                }))
-              }
-            ]}
-            dataSource={redisSetRows}
-            rowKey='__rowKey'
-          />
-          {renderScanMore(d)}
-        </>
-      )
-    } else if (d.type === 'zset') {
-      // zrange WITHSCORES 返回 [member, score, ...] 扁平数组，行键数组见顶层 redisZsetRows
-      body = (
-        <>
-          <DbGridTable
-            size='small'
-            pagination={false}
-            columns={[
-              {
-                title: (
-                  <ColHead
-                    label={e('dbMember')}
-                    colKey='member'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'member',
-                key: 'member',
-                width: redisDetailWidthOf('member'),
-                ellipsis: CELL_ELLIPSIS,
-                // 成员是身份标识：双击提示不可编辑（改分值请双击 score 列）；
-                // 单击 = 展开完整值面板
-                onCell: (r, i) => ({
-                  ...redisCellProps('member', e('dbMember'))(r, i),
-                  onDoubleClick: () => message.info(e('dbRedisMemberImmutable'))
-                }),
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'member',
-                    head: e('dbMember'),
-                    wide: wideColumnWidth(redisZsetRows, 'member')
-                  })
-                }),
-                render: v => renderCell(v)
-              },
-              {
-                title: (
-                  <ColHead
-                    label={e('dbScore')}
-                    colKey='score'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'score',
-                key: 'score',
-                // 分数列原来写死 150：数字列占 150，成员列（真正会长的那一列）反而没宽
-                width: redisDetailWidthOf('score'),
-                ellipsis: CELL_ELLIPSIS,
-                // D 批：双击 score 行内编辑（ZADD 同 member 覆盖）；单击 = 展开值面板
-                onCell: (r, i) => ({
-                  ...redisCellProps('score', e('dbScore'))(r, i),
-                  onDoubleClick: () => editRedisCell(r, 'score', r.score)
-                }),
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'score',
-                    head: e('dbScore'),
-                    wide: wideColumnWidth(redisZsetRows, 'score')
-                  })
-                }),
-                render: (v, r) => renderRedisEditable(r, 'score', v, () => saveZsetScore(r), true)
-              },
-              {
-                title: '',
-                key: 'ops',
-                width: 60,
-                render: (_, r) => redisRowOps(() => runRedisWrite('zsetRem', {
-                  dbIndex: redisDb, key: redisKey, members: [r.member]
-                }, e('dbDeleted'), {
-                  level: 'dangerous',
-                  text: 'ZREM ' + redisKey + ' ' + r.member,
-                  note: e('dbDeleted')
-                }))
-              }
-            ]}
-            dataSource={redisZsetRows}
-            rowKey='__rowKey'
-          />
-          {renderMoreBtn(Math.ceil((d.rows || []).length / 2))}
-        </>
-      )
-    } else if (d.type === 'stream') {
-      // H7b-4：只读 —— XINFO 给元信息与消费组，XRANGE 给条目。
-      // 不提供 XADD/XDEL/XACK：stream 的写入语义（上游生产者、消费组 ack）
-      // 不是"双击改一格"能表达的东西，给个半吊子入口比没有更糟。
-      const info = redisStreamInfo || {}
-      const groups = redisStreamGroups
-      const groupCount = groups === null ? info.groups : groups.length
-      const entriesTotal = typeof d.total === 'number' ? d.total : null
-      body = (
-        // 值面板打开时收起消费组：上下分区只剩一半高度，元信息 + 组表就能
-        // 把条目表挤成 0 —— 组数是次要信息（元信息条里仍有"消费组 N"），
-        // 正在看的条目才是主体
-        <div className={'db-redis-stream' + (redisCellInfo ? ' db-redis-stream-compact' : '')}>
-          <div className='db-redis-stream-meta'>
-            <span className='db-redis-stream-stat'>
-              <span className='db-redis-stream-k'>{e('dbRedisStreamStatLength')}</span>
-              <span className='db-redis-stream-v'>{dash(info.length)}</span>
-            </span>
-            <span className='db-redis-stream-stat'>
-              <span className='db-redis-stream-k'>{e('dbRedisStreamStatFirst')}</span>
-              <span className='db-redis-stream-v db-redis-stream-mono'>{dash(info.firstId)}</span>
-            </span>
-            <span className='db-redis-stream-stat'>
-              <span className='db-redis-stream-k'>{e('dbRedisStreamStatLast')}</span>
-              <span className='db-redis-stream-v db-redis-stream-mono'>{dash(info.lastId)}</span>
-            </span>
-            <span className='db-redis-stream-stat'>
-              <span className='db-redis-stream-k'>{e('dbRedisStreamStatGroups')}</span>
-              <span className='db-redis-stream-v'>{dash(groupCount)}</span>
-            </span>
-            <span className='db-redis-stream-stat'>
-              <span className='db-redis-stream-k'>{e('dbRedisStreamStatAdded')}</span>
-              <span className='db-redis-stream-v'>{dash(info.entriesAdded)}</span>
-            </span>
-            <Button
-              size='small'
-              className='db-redis-stream-refresh'
-              icon={<ReloadOutlined />}
-              loading={detailLoading}
-              onClick={() => selectRedisKey(redisKey)}
-            >
-              {e('dbRedisStreamRefresh')}
-            </Button>
-          </div>
-          <div className='db-redis-stream-head db-redis-stream-groups-head'>
-            <span className='db-redis-stream-title'>{e('dbRedisStreamGroupsTitle')}</span>
-            {
-              groups === null
-                ? <span className='db-redis-stream-note'>{e('dbRedisStreamGroupsUnknown')}</span>
-                : groups.length === 0
-                  ? <span className='db-redis-stream-note'>{e('dbRedisStreamNoGroups')}</span>
-                  : null
-            }
-          </div>
-          {
-            groups && groups.length
-              ? (
-                <DbGridTable
-                  size='small'
-                  pagination={false}
-                  columns={[
-                    {
-                      title: e('dbRedisStreamGroupName'),
-                      dataIndex: 'name',
-                      key: 'name',
-                      ellipsis: CELL_ELLIPSIS,
-                      className: 'db-redis-stream-mono',
-                      render: v => renderCell(v)
-                    },
-                    {
-                      title: e('dbRedisStreamConsumers'),
-                      dataIndex: 'consumers',
-                      key: 'consumers',
-                      width: 90,
-                      render: v => dash(v)
-                    },
-                    {
-                      title: e('dbRedisStreamPending'),
-                      dataIndex: 'pending',
-                      key: 'pending',
-                      width: 90,
-                      render: v => dash(v)
-                    },
-                    {
-                      title: e('dbRedisStreamLastDelivered'),
-                      dataIndex: 'lastDeliveredId',
-                      key: 'lastDeliveredId',
-                      width: 180,
-                      className: 'db-redis-stream-mono',
-                      ellipsis: CELL_ELLIPSIS,
-                      render: v => renderCell(v)
-                    },
-                    {
-                      title: e('dbRedisStreamLag'),
-                      dataIndex: 'lag',
-                      key: 'lag',
-                      width: 80,
-                      render: v => dash(v)
-                    }
-                  ]}
-                  dataSource={groups}
-                  rowKey='name'
-                  className='db-redis-stream-groups-table'
-                />
-                )
-              : null
-          }
-          <div className='db-redis-stream-head'>
-            <span className='db-redis-stream-title'>{e('dbRedisStreamEntries')}</span>
-            <span className='db-redis-stream-note'>
-              {dash(redisStreamEntries.length) + (entriesTotal === null ? '' : ' / ' + entriesTotal)}
-            </span>
-          </div>
-          <DbGridTable
-            size='small'
-            pagination={false}
-            columns={[
-              {
-                title: (
-                  <ColHead
-                    label={e('dbRedisStreamId')}
-                    colKey='id'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'id',
-                key: 'id',
-                width: redisDetailWidthOf('id'),
-                ellipsis: CELL_ELLIPSIS,
-                className: 'db-redis-stream-mono',
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'id',
-                    head: e('dbRedisStreamId'),
-                    wide: wideColumnWidth(redisStreamEntries, 'id')
-                  })
-                }),
-                render: v => renderCell(v)
-              },
-              {
-                title: (
-                  <ColHead
-                    label={e('dbRedisStreamFields')}
-                    colKey='preview'
-                    wg={redisDetailWidths}
-                    hint={e('dbColResizeHint')}
-                  />
-                ),
-                dataIndex: 'preview',
-                key: 'preview',
-                width: redisDetailWidthOf('preview'),
-                ellipsis: CELL_ELLIPSIS,
-                // 单击 = 完整字段（多行原文），网格里只放单行摘要
-                onCell: redisCellProps('text', e('dbRedisStreamFields')),
-                onHeaderCell: () => ({
-                  onContextMenu: ev => colMenu.openColMenu(ev, {
-                    wg: redisDetailWidths,
-                    key: 'preview',
-                    head: e('dbRedisStreamFields'),
-                    wide: wideColumnWidth(redisStreamEntries, 'preview')
-                  })
-                }),
-                render: v => renderCell(v)
-              },
-              {
-                title: e('dbRedisStreamFieldCount'),
-                dataIndex: 'fieldCount',
-                key: 'fieldCount',
-                width: 90,
-                render: v => dash(v)
-              }
-            ]}
-            dataSource={redisStreamEntries}
-            rowKey='__rowKey'
-            className='db-redis-stream-entries-table'
-          />
-          {renderScanMore(d)}
-        </div>
-      )
-    } else {
-      body = <span className='db-cell-null'>{e('dbUnsupportedType').replace('{type}', d.type)}</span>
-    }
-    return (
-      <div className='db-redis-detail'>
-        {
-          // string 键的信息栏已并入 DbValuePane 头部（extra），避免出现两条重复栏
-          // d 可能为 null（详情加载中），沿用原空值守卫
-          d && d.type !== 'string'
-            ? (
-              <div className='db-redis-detail-bar'>
-                <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
-                <RedisTypeChip type={d.type} />
-                <RedisTtlChip ttl={d.ttl} />
-                {
-                  // D 批 T12：按类型显隐的添加控件（只读全部禁用）
-                  d.type === 'hash'
-                    ? (
-                      <>
-                        <Input
-                          size='small'
-                          className='db-redis-add-input'
-                          placeholder={e('dbField')}
-                          value={redisAdd.field}
-                          disabled={isReadonly}
-                          onChange={ev => setRedisAdd(s => ({ ...s, field: ev.target.value }))}
-                          onPressEnter={addHashField}
-                        />
-                        <Input
-                          size='small'
-                          className='db-redis-add-input'
-                          placeholder={e('dbValue')}
-                          value={redisAdd.value}
-                          disabled={isReadonly}
-                          onChange={ev => setRedisAdd(s => ({ ...s, value: ev.target.value }))}
-                          onPressEnter={addHashField}
-                        />
-                        <Button
-                          size='small'
-                          icon={<PlusOutlined />}
-                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisAddField')}
-                          disabled={isReadonly}
-                          onClick={addHashField}
-                        />
-                      </>
-                      )
-                    : null
-                }
-                {
-                  d.type === 'set' || d.type === 'zset'
-                    ? (
-                      <>
-                        <Input
-                          size='small'
-                          className='db-redis-add-input'
-                          placeholder={e('dbMember')}
-                          value={redisAdd.member}
-                          disabled={isReadonly}
-                          onChange={ev => setRedisAdd(s => ({ ...s, member: ev.target.value }))}
-                          onPressEnter={addMember}
-                        />
-                        {
-                          d.type === 'zset'
-                            ? (
-                              <InputNumber
-                                size='small'
-                                className='db-redis-add-input'
-                                placeholder={e('dbScore')}
-                                value={redisAdd.score === '' ? undefined : Number(redisAdd.score)}
-                                disabled={isReadonly}
-                                onChange={v => setRedisAdd(s => ({ ...s, score: v === undefined ? '' : String(v) }))}
-                              />
-                              )
-                            : null
-                        }
-                        <Button
-                          size='small'
-                          icon={<PlusOutlined />}
-                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisAddMember')}
-                          disabled={isReadonly}
-                          onClick={addMember}
-                        />
-                      </>
-                      )
-                    : null
-                }
-                {
-                  d.type === 'list'
-                    ? (
-                      <>
-                        <Input
-                          size='small'
-                          className='db-redis-add-input'
-                          placeholder={e('dbValue')}
-                          value={redisAdd.listValue}
-                          disabled={isReadonly}
-                          onChange={ev => setRedisAdd(s => ({ ...s, listValue: ev.target.value }))}
-                        />
-                        <Button
-                          size='small'
-                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisInsertHead')}
-                          disabled={isReadonly}
-                          onClick={() => pushList('left')}
-                        >
-                          {e('dbRedisInsertHead')}
-                        </Button>
-                        <Button
-                          size='small'
-                          title={isReadonly ? e('dbErrReadOnly') : e('dbRedisInsertTail')}
-                          disabled={isReadonly}
-                          onClick={() => pushList('right')}
-                        >
-                          {e('dbRedisInsertTail')}
-                        </Button>
-                      </>
-                      )
-                    : null
-                }
-                <InputNumber
-                  size='small'
-                  min={0}
-                  placeholder={e('dbSeconds')}
-                  value={ttlInput}
-                  onChange={setTtlInput}
-                />
-                <Button size='small' disabled={isReadonly} onClick={applyTtl}>{e('dbSetTtl')}</Button>
-                <Button
-                  size='small'
-                  disabled={isReadonly}
-                  title={isReadonly ? e('dbErrReadOnly') : e('dbRedisRenameKey')}
-                  onClick={() => {
-                    setRenameInput('')
-                    setRenameOpen(true)
-                  }}
-                >
-                  {e('dbRedisRenameKey')}
-                </Button>
-                <Popconfirm title={e('dbDeleteKey')} onConfirm={delSelectedKey}>
-                  <Button size='small' danger disabled={isReadonly}>{e('dbDelete')}</Button>
-                </Popconfirm>
-              </div>
-              )
-            : null
-        }
-        {
-          // 详情四张表的"单击一格 → 底部值面板"：没选中时折叠（bottom 按内容高 = 0，
-          // 不给拖拽手柄），选中才把表格压出一截 —— 与数据页/SQL 结果同一交互。
-          // string 键的 body 本身就是那只面板，不再套一层分区容器
-          d && d.type !== 'string'
-            ? (
-              <DbSplitPane
-                storageKey={REDIS_VALUE_SPLIT_KEY}
-                collapsed={!redisCellInfo}
-                top={body}
-                bottom={redisValuePane}
-              />
-              )
-            : body
-        }
-      </div>
-    )
-  }
-
   // 键列表总页数：只有无过滤（match 为 *）时才给数字 —— 带 pattern 时命中数要
   // 全库扫完才知道，宁可不显示也不给假数字；受管实例禁用 INFO 时后端不回 count，
   // 同样回落到「第 N 页」。页大小与取数同源（Redis 用全局 dbPageSize，不走视角 pageSize）。
@@ -8840,6 +7890,58 @@ export default auto(function DbSession (props) {
   const redisPageNoText = redisKeyPagesShow
     ? e('dbPageOfLabel').replace('{n}', redisKeyPageNo).replace('{m}', redisKeyPagesShow)
     : e('dbPageLabel').replace('{n}', redisKeyPageNo)
+
+  // 值面板（单击一格）在 DbSession 里就是 redisValuePane 这个 JSX 元素；
+  // DbRedisDetail 用 redisCellInfo 这个 prop 名接它并作为 DbSplitPane 的 bottom。
+  const redisDetailProps = {
+    redisDetail,
+    detailLoading,
+    redisKey,
+    stringValue,
+    stringTruncated,
+    keywordPatterns,
+    themeConfig,
+    isReadonly,
+    ttlInput,
+    setTtlInput,
+    applyTtl,
+    delSelectedKey,
+    confirmRedisWrite,
+    tabId,
+    redisDb,
+    onOpError,
+    selectRedisKey,
+    RedisTypeChip,
+    RedisTtlChip,
+    renderCell,
+    redisDetailWidths,
+    colMenu,
+    redisCellProps,
+    redisHashRows,
+    redisListRows,
+    redisSetRows,
+    redisZsetRows,
+    redisStreamInfo,
+    redisStreamGroups,
+    redisStreamEntries,
+    redisCellInfo: redisValuePane,
+    detailLimit,
+    setDetailLimit,
+    redisEdit,
+    setRedisEdit,
+    redisAdd,
+    setRedisAdd,
+    addHashField,
+    addMember,
+    pushList,
+    setRenameInput,
+    setRenameOpen,
+    runRedisWrite,
+    editSetMember,
+    saveHashValue,
+    saveListValue,
+    saveZsetScore
+  }
 
   const redisArea = (
     <div className='db-redis-area'>
@@ -9049,7 +8151,7 @@ export default auto(function DbSession (props) {
                 }
                 bottom={
                   redisKey
-                    ? renderRedisDetail()
+                    ? <DbRedisDetail {...redisDetailProps} />
                     : (
                       <div className='db-redis-detail db-redis-detail-empty'>
                         <Empty description={e('dbSelectKey')} />

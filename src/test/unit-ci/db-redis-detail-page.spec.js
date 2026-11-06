@@ -13,6 +13,9 @@ const ROOT = path.join(__dirname, '../../..')
 const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
+// 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
+const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
 
 function loadRedis (opts = {}) {
   const calls = { hscan: [], sscan: [], lrange: [], zrange: [], hlen: 0, scard: 0 }
@@ -160,7 +163,7 @@ describe('批次 D：Redis 详情分页（后端）', () => {
 })
 
 describe('批次 D：Redis 详情分页（前端接线）', () => {
-  const src = fs.readFileSync(JSX, 'utf8')
+  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
 
   test('请求带游标与页大小，加载更多按游标追加', () => {
     assert.ok(src.includes('cursor: String(cursor || \'0\')'), 'cursor must be sent')

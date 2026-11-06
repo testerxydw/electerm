@@ -20,12 +20,15 @@ const loadStyl = () => fs.readFileSync(STYL, 'utf8')
 // H1a-4：数据页 / SQL 结果页列定义并入公共列工厂，单元格级契约跟着挪过去
 const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
 const loadCols = () => fs.readFileSync(COLS, 'utf8')
+// N11a：DbGridTable 已迁出为独立组件 db-grid-table.jsx，y 推导等"真实源码"契约改从这里读
+const GRID_TABLE = path.join(ROOT, 'src/client/components/database/db-grid-table.jsx')
+const loadGridTable = () => fs.readFileSync(GRID_TABLE, 'utf8')
 
 // 从 db-session.jsx 里抽出 DbGridTable 的 y 推导表达式，跑的是发布代码而非拷贝
 const loadCalcScrollY = () => {
-  const src = loadJsx()
+  const src = loadGridTable()
   const fnMatch = src.match(/function DbGridTable \([\s\S]*?\n\}/)
-  assert.ok(fnMatch, 'DbGridTable definition not found in db-session.jsx')
+  assert.ok(fnMatch, 'DbGridTable definition not found in db-grid-table.jsx')
   const yMatch = fnMatch[0].match(/const y = (wrapH[^\n]+)$/m)
   assert.ok(yMatch, 'y derivation not found inside DbGridTable')
   // vm 而非 new Function：跑真实源码表达式，且过 standard 的 no-new-func
@@ -71,19 +74,31 @@ describe('DbGridTable: y derivation (real source)', () => {
 
 describe('DbGridTable: component wiring contract', () => {
   test('all data grids go through DbGridTable (main/SQL/struct/redis detail x4/redis keys)', () => {
-    const src = loadJsx()
-    const used = src.match(/<DbGridTable/g) || []
+    // N11a #14/#15：SQL 结果页与 Redis 详情已拆成独立 shipped 模块，
+    // <DbGridTable> 随渲染代码一起迁走；契约要统计的是"所有已接线的发布源码"，
+    // 只数主文件会把组件化误报成回归。白名单只含已接线文件；未接线的 dead 模块
+    // （db-redis-key-space.jsx / db-tree-panel.jsx 等）不计入，否则等于用死代码凑数。
+    // 阈值 >= 7 保持原语义不变。
+    const dbDir = path.join(ROOT, 'src/client/components/database')
+    const wired = [
+      'db-session.jsx',
+      'db-sql-results.jsx',
+      'db-redis-detail.jsx'
+    ].map(f => fs.readFileSync(path.join(dbDir, f), 'utf8')).join('\n')
+    const used = wired.match(/<DbGridTable/g) || []
     assert.ok(used.length >= 7, 'expected >= 7 <DbGridTable usages, got ' + used.length)
   })
 
-  test('no bare <Table left in db-session.jsx (only the one inside DbGridTable)', () => {
+  test('no bare <Table in db-session.jsx (DbGridTable 已迁出，wrapper 的 <Table 在 db-grid-table.jsx)', () => {
     const src = loadJsx()
     const bare = src.match(/<Table\b/g) || []
-    assert.equal(bare.length, 1, 'a new <Table bypasses the unified scroll wrapper')
+    assert.equal(bare.length, 0, 'a new <Table in db-session.jsx would bypass the unified scroll wrapper')
+    const gridTable = loadGridTable()
+    assert.ok(gridTable.includes('<Table'), 'DbGridTable must remain the sole <Table user (now in db-grid-table.jsx)')
   })
 
   test('scroll prop passes x and conditional y (drift guard)', () => {
-    const src = loadJsx()
+    const src = loadGridTable()
     assert.ok(
       src.includes("scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}"),
       'DbGridTable scroll prop drifted'
@@ -91,7 +106,7 @@ describe('DbGridTable: component wiring contract', () => {
   })
 
   test('measurement effect observes both wrap and thead (transient-height fix)', () => {
-    const fnMatch = loadJsx().match(/function DbGridTable \([\s\S]*?\n\}/)
+    const fnMatch = loadGridTable().match(/function DbGridTable \([\s\S]*?\n\}/)
     assert.ok(fnMatch, 'DbGridTable definition not found')
     assert.ok(fnMatch[0].includes('new window.ResizeObserver'), 'must use ResizeObserver')
     assert.ok(fnMatch[0].includes('ob.observe(head)'), 'must observe thead too (transient header height)')
@@ -143,7 +158,7 @@ describe('批次 C：数据库页渲染收口契约', () => {
   })
 
   test('DbGridTable 的 ResizeObserver 只在挂载时创建一次', () => {
-    const fn = loadJsx().match(/function DbGridTable \([\s\S]*?\n\}/)
+    const fn = loadGridTable().match(/function DbGridTable \([\s\S]*?\n\}/)
     assert.ok(fn, 'DbGridTable definition not found')
     const code = fn[0]
     assert.ok(code.includes('const measureRef = useRef'), 'measure ref missing')

@@ -206,6 +206,15 @@ export function stageCells (set, o) {
 
 /** 撤销单条变更（按 id，跨表唯一） */
 export function dropChange (set, id) {
+  return dropOne(set, id)
+}
+
+/** 批量撤销（应用成功/部分成功后按 ids 收干已执行的条目，空 ids 原样返回） */
+export function dropChanges (set, ids) {
+  return (Array.isArray(ids) ? ids : []).reduce((s, id) => dropChange(s, id), set)
+}
+
+function dropOne (set, id) {
   const groups = {}
   const order = []
   ;(set.order || []).forEach(key => {
