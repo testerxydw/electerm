@@ -15,15 +15,18 @@ export const leftSidebarIconOptions = [
   { id: 'terminalThemes', text: 'terminalThemes' },
   { id: 'setting', text: 'setting' },
   { id: 'settingSync', text: 'settingSync' },
-  { id: 'widgets', text: 'widgets' }
+  { id: 'widgets', text: 'widgets' },
+  { id: 'auditCenter', text: 'auditCenter' }
 ]
 
 // default ordered list of icon ids — mirrors the order above
 export const defaultLeftSideBarIcons = leftSidebarIconOptions.map(o => o.id)
 
-// 旧版默认列表（新增右面板页签入口前的 7 项）：
+// 旧版默认列表（新增审计中心入口前的 7 项，勿随新默认一起改）：
 // 存量用户 DB 里的 config.leftSideBarIcons 持久化的正是这份值，
-// 迁移时据此判定"从未自定义过图标"并升级到新默认，自定义过的配置不动
+// 迁移时据此判定"从未自定义过图标"并升级到新默认，自定义过的配置不动。
+// 一旦把 auditCenter 也加进这里，normalize 的旧默认判定就恒不成立，
+// 存量用户将永远看不到新图标。
 export const legacyDefaultLeftSideBarIcons = [
   'newBookmark',
   'quickConnect',

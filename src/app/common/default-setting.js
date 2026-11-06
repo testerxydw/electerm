@@ -103,12 +103,18 @@ module.exports = exports.default = {
   onlyShowTitleInTab: false,
   disableConfirmForLargeClipboardContent: false,
   doubleClickToOpenBookmark: false,
+  // getConfig() 以本文件作为 config.leftSideBarIcons 的初值，新装用户读到的是
+  // 这份列表（客户端 default-setting.js 只用于「恢复默认」和表单占位）。
+  // 所以新增可定制图标时这里必须同步补 id，否则新装/未持久化该键的用户看不到；
+  // 本文件是 CommonJS，无法直接 import 客户端的 left-sidebar-icon-defs.js。
+  // 沿用 4b260935 的口径：默认隐藏 newBookmark。
   leftSideBarIcons: [
     'bookmarks',
     'quickConnect',
     'terminalThemes',
     'setting',
     'settingSync',
-    'widgets'
+    'widgets',
+    'auditCenter'
   ]
 }

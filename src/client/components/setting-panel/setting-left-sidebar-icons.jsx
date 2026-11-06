@@ -7,7 +7,7 @@
 import { Select } from 'antd'
 import {
   leftSidebarIconOptions,
-  defaultLeftSideBarIcons
+  normalizeLeftSideBarIcons
 } from '../../common/left-sidebar-icon-defs'
 
 const { Option } = Select
@@ -15,9 +15,10 @@ const e = window.translate
 
 export default function SettingLeftSidebarIcons (props) {
   const { config, store } = props
-  const value = Array.isArray(config.leftSideBarIcons) && config.leftSideBarIcons.length
-    ? config.leftSideBarIcons
-    : [...defaultLeftSideBarIcons]
+  // 过与左栏相同的 normalize：存量旧默认配置在侧栏已升级出 auditCenter，
+  // 这里必须显示同一份列表，否则开关看起来是关的、图标却是显示的。
+  // 用户一旦改动任意项就写入显式列表，不再触发迁移。
+  const value = normalizeLeftSideBarIcons(config.leftSideBarIcons)
 
   const handleChange = (v) => {
     store.updateConfig({

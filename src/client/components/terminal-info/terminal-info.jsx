@@ -1,27 +1,64 @@
 import { auto } from 'manate/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import TerminalInfoBase from './base'
 import MonitorDetails from '../remote-monitor/monitor-details'
 import { getInfoPanelItems } from '../remote-monitor/monitor-model'
 import { useMonitorDetails } from '../remote-monitor/use-monitor-details'
-import { createEmptyMonitorSnapshot } from '../remote-monitor/session-monitor'
 import { getRemoteMonitorTab } from '../remote-monitor/visibility'
 import { statusMap } from '../../common/constants'
 import { runCmd } from '../terminal/terminal-apis'
 import resolveLocalInfo from './local-info-resolver'
 import './terminal-info.styl'
 
-function LocalSystemInfo ({ pid }) {
+/**
+ * Local pty tab: same 7 filterable sections as a remote tab, but fed by the
+ * local osInfo/fs collector instead of SSH exec-cmd. The hostname section
+ * keeps using resolveLocalInfo() (os + shell + version) by merging it into
+ * the local snapshot's sysinfo group.
+ */
+function LocalSystemInfo ({ tab, config }) {
+  const items = getInfoPanelItems(config.terminalInfos)
   const [info, setInfo] = useState(null)
   useEffect(() => {
     let active = true
-    resolveLocalInfo(pid).then(info => { if (active) setInfo(info) })
+    resolveLocalInfo(tab.id)
+      .then(res => {
+        if (active) setInfo(res)
+      })
+      .catch(() => {
+        if (active) setInfo(null)
+      })
     return () => { active = false }
-  }, [pid])
-  if (!info) return null
-  const snapshot = createEmptyMonitorSnapshot(pid)
-  snapshot.groups.sysinfo = { status: 'ready', data: info }
-  return <MonitorDetails id='hostname' snapshot={snapshot} config={{}} tab={{}} />
+  }, [tab.id])
+  const { snapshot, levels } = useMonitorDetails(tab.id, items, true, { isLocal: true })
+  const merged = useMemo(() => {
+    if (!info) {
+      return snapshot
+    }
+    return {
+      ...snapshot,
+      groups: {
+        ...snapshot.groups,
+        sysinfo: {
+          status: 'ready',
+          data: info,
+          updatedAt: Date.now(),
+          error: null
+        }
+      }
+    }
+  }, [snapshot, info])
+  return items.map(id => (
+    <MonitorDetails
+      key={id}
+      id={id}
+      snapshot={merged}
+      levels={levels}
+      tab={tab}
+      config={config}
+      includeActivity={false}
+    />
+  ))
 }
 
 function RemoteInfo ({ tab, config }) {
@@ -50,7 +87,7 @@ export default auto(function TerminalInfo ({ store, ...props }) {
       <TerminalInfoBase {...props} terminalInfos={config.terminalInfos} />
       {props.isRemote
         ? <RemoteInfo key={tab.id} tab={tab} config={config} />
-        : <LocalSystemInfo key={tab.id} pid={tab.id} />}
+        : <LocalSystemInfo key={tab.id} tab={tab} config={config} />}
     </>
   )
 })

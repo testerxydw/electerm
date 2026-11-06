@@ -940,6 +940,8 @@ export default (Store) => {
       'addTimeStampToTermLog',
       'showHiddenFilesOnSftpStart',
       'terminalInfos',
+      // 左栏图标是可定制设置项，跟着 settings 一起同步，换机后选择不丢
+      'leftSideBarIcons',
       'remoteMonitorBarEnabled',
       'remoteMonitorBarItems',
       'filePropsEnabled',

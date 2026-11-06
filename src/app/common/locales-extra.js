@@ -1229,7 +1229,9 @@ const en = {
   vaultUnsealFailed: 'Could not unseal every record — the vault was kept.',
   vaultNeedUnlockToConnect: 'Unlock the vault to open a new connection.',
   rdpDownloadNeedsCopy: 'Nothing to download yet. Copy a file on the remote desktop (Ctrl+C in its file manager), then click here.',
-  rdpDownloadCount: 'Download {n} file(s) copied on the remote'
+  rdpDownloadCount: 'Download {n} file(s) copied on the remote',
+  // 本地终端监控：Web 版没有 window.pre.osInfo() 时给一句友好提示
+  localMonitorUnavailable: 'Local system monitoring is not available in this build'
 }
 
 // 简体中文
@@ -2442,7 +2444,9 @@ const zhCn = {
   vaultUnsealFailed: '反解失败，保险库已保留。',
   vaultNeedUnlockToConnect: '保险库已锁定，解锁后才能新建连接。',
   rdpDownloadNeedsCopy: '还没有可下载的文件——先在远程桌面里复制一个文件（在它自己的文件管理器里 Ctrl+C），再点这里。',
-  rdpDownloadCount: '下载远程已复制的 {n} 个文件'
+  rdpDownloadCount: '下载远程已复制的 {n} 个文件',
+  // 本地终端监控：Web 版没有 window.pre.osInfo() 时给一句友好提示
+  localMonitorUnavailable: '当前版本不支持本地系统监控'
 }
 
 module.exports = {

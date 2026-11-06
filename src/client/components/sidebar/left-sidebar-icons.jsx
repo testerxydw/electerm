@@ -11,6 +11,7 @@ import {
   AppstoreOutlined,
   BookOutlined,
   CloudSyncOutlined,
+  HistoryOutlined,
   PictureOutlined,
   PlusCircleOutlined,
   SettingOutlined,
@@ -140,6 +141,18 @@ export default function LeftSidebarIcons (props) {
             onClick={openWidgetsModal}
           />
         </Badge>
+      </SideIcon>
+    ),
+    // 与系统菜单里的审计中心入口共用同一个 store 开关，菜单入口保留不动
+    auditCenter: (
+      <SideIcon
+        key='auditCenter'
+        title={e('auditCenter')}
+      >
+        <HistoryOutlined
+          className='iblock font20 control-icon'
+          onClick={() => window.store.openAuditCenter()}
+        />
       </SideIcon>
     )
   }

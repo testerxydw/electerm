@@ -1,8 +1,9 @@
 /**
  * 右面板「监控」页（对齐重设计草图 .card-r / .metric）
- * 复用既有远程监控采集（useMonitorDetails），渲染 CPU / 内存 / 磁盘 / 网络 四条指标。
+ * 复用 useMonitorDetails 渲染 CPU / 内存 / 磁盘 / 网络 四条指标：远程页走 SSH
+ * exec 通道，本地 pty 页走 osInfo/fs 采集器（本地会话没有 exec 通道）。
  *
- * 采集策略：**默认关闭**——只有用户在本页手动开启开关后才开始采集（避免无谓的远端命令轮询）。
+ * 采集策略：**默认关闭**——只有用户在本页手动开启开关后才开始采集（避免无谓的命令轮询）。
  * 开关状态存在 store.rightPanelMonitor（运行时状态，重启即回到默认关闭）。
  * 阈值配色：>70% 转 warn，>90% 转 error（对齐草图 .metric .bar i.warn）。
  */
@@ -10,6 +11,8 @@
 import { auto } from 'manate/react'
 import { Switch } from 'antd'
 import { useMonitorDetails } from './use-monitor-details'
+import { isLocalMonitorSupported } from './local-monitor'
+import { getRemoteMonitorTab } from './visibility'
 import { groupOf, formatBytes, formatRate, selectPrimaryNetwork } from './monitor-model'
 import './monitor-panel.styl'
 
@@ -56,7 +59,10 @@ export default auto(function MonitorPanel ({ store }) {
   const monitorOn = !!store.rightPanelMonitor
   const enabled = monitorOn && store.rightPanelTab === 'monitor'
   const sessionId = store.activeTabId
-  const { snapshot } = useMonitorDetails(sessionId, ITEMS, enabled)
+  const tab = getRemoteMonitorTab(store) || {}
+  // 本地 pty 没有 host，也就没有 SSH exec 通道：改走本地 osInfo/fs 采集器
+  const isLocal = !tab.host
+  const { snapshot } = useMonitorDetails(sessionId, ITEMS, enabled, { isLocal })
 
   const cpu = pct(groupOf(snapshot, 'cpu').data)
   const memory = groupOf(snapshot, 'memory').data
@@ -67,12 +73,15 @@ export default auto(function MonitorPanel ({ store }) {
   const firstDisk = Array.isArray(disks) ? disks[0] : null
   const diskPct = pct(firstDisk && firstDisk.percent)
   const memPct = pct(memory && memory.percent)
+  // 本地页没有主机地址，用本地采集器 sysinfo 组里的 hostname 兜底
+  const host = tab.host || (isLocal ? groupOf(snapshot, 'sysinfo').data?.hostname || '' : '')
+  const localUnsupported = isLocal && !isLocalMonitorSupported()
 
   return (
     <div className='monitor-panel'>
       <div className='monitor-panel-head'>
         <span>{e('systemLoad')}</span>
-        <span className='monitor-panel-host'>{(store.currentTab && store.currentTab.host) || ''}</span>
+        <span className='monitor-panel-host'>{host}</span>
         <Switch
           size='small'
           checked={monitorOn}
@@ -118,6 +127,11 @@ export default auto(function MonitorPanel ({ store }) {
               {
                 !snapshot
                   ? <div className='monitor-panel-hint'>{e('monitorConnecting')}</div>
+                  : null
+              }
+              {
+                localUnsupported
+                  ? <div className='monitor-panel-hint'>{e('localMonitorUnavailable')}</div>
                   : null
               }
             </>
