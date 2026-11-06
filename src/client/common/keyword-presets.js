@@ -227,20 +227,46 @@ export const FAMILY_RANK = {
 }
 
 /* ------------------------------------------------------------------ *
- * V3 KU-6 色板（批次 E · B-1「一色一语义」）
+ * V3 KU-6 色板（批次 E · B-1「一色一语义」+ B-2「间距重排」）
  *
  * 色组（color group）= 一个颜色承载的语义大类。契约：
  *   1) 一个色组恰好一个颜色，一个颜色不得跨两个色组；
  *   2) 家族恰好属于一个色组（FAMILY_GROUP），一族一色由构造保证；
  *   3) signal 色组只用六个 ANSI 语义名（随主题映射，观感跨主题稳定）；
- *   4) structure 色组一律真彩色（深色底 L* >= 74、C* >= 38，且与六个语义名不撞）。
+ *   4) structure 色组一律真彩色，且两两拉开到肉眼一眼可辨（见下面的闸）；
+ *   5) structure 色组不得长得像 signal 的主题色（否则「一色一语义」在屏幕上失效）。
  *
  * 规则的 color 字段不再手写：由 FAMILY_COLOR[family] 派生。历史包袱是 46 个结构家族
  * 里 35 个挤在 blue / magenta / cyan 上，同一个 magenta 同时表示"空值"和"端口/镜像/
- * UUID"——这就是用户看到的"颜色乱"。批次 A 的棘轮基线 35 在本批次清零。
+ * UUID"——这就是用户看到的"颜色乱"。批次 A 的棘轮基线 35 在 B-1 清零。
  *
- * 新增的 5 个结构色（port / ident / artifact / diffmark / action）与既有 17 色的最小
- * ΔE(1976) >= 21.7，由 /tmp 搜索脚本实测（LCh 网格 + sRGB 内 + 排除近邻）。
+ * B-2 治的是剩下的「组内撞色」。B-1 之后色板仍然有一片分辨不出来的淡蓝，而且有一个结构色
+ * 和主题的信号色几乎重合：size ↔ path ΔE(1976)=6.2（ΔE(2000)=4.5）、time ↔ number=18.6，
+ * mac(#FF7BAC) 离主题的 ANSI magenta(#FF75B5) 只有 7.4——空值是一个信号词的颜色。
+ * 本批把 16 个结构真彩色整体重排（一条正则、一个 rank 都没动）：
+ *
+ *   闸（keyword-family.spec.js 机检）        实测最低值             撞车对（B-2 前）
+ *   pair ΔE(1976) >= 16                     16.0                   size↔path（原 6.2）
+ *   pair ΔE(2000)  >= 8                      8.5                   time↔path（原 4.5，同为 size↔path）
+ *   结构色 ↔ 内置主题 signal 色 >= 11         11.6                  number↔blue（原 7.4，是 mac↔magenta）
+ *
+ * ΔE(2000) 一起作为闸，因为 ΔE(1976) 在蓝段虚高：同样"看得出不同"的距离，蓝段要报的
+ * 数字比绿段大得多，只按 ΔE(1976) 定闸会逼着蓝段颜色无谓地跑远。
+ *
+ * 第三条闸的锚点只取两套内置主题的 **normal** 变体（不含 bright*）：signal 档经 colorToCode
+ * 发出的是 SGR 31–37，永远不会发 bright（高亮也不加粗，boldAsBright 用不上）。
+ * 已知越界、且故意不拦的一对：number(#6EBDFE) 与深色主题 brightBlue(#6FC1FF) ΔE(1976)=2.4——
+ * 那是别的程序加粗输出的颜色，不属于关键字高亮的语义空间；要把它纳进来就得让 number 离开蓝相，
+ * 而"数值是蓝的"正是这一族的语义身份。
+ *
+ * 求解口径：每个家族的色相最多漂 16°（色的语义身份 = 色相，体积不能变成黄色），
+ * 明度锁在 70–87、彩度 26–67（深色底上仍是一批亮色字），目标是最小化位移。
+ * 结果：全板总位移 ΔE(2000)=21.7（ΔE(1976)=39.7）、单色最大 4.5（mac 为了让开主题 magenta
+ * 从 358° 走到 8°）、其余 15 个颜色平均只动 1.2 —— 肉眼几乎是一套原色板。
+ * 全局 ΔE(1976) ≥ 18 在这个口径下做不到——不计位移多轮重启的上限实测 17.5：16 个色要同时保持色相身份，
+ * 淡蓝簇（time/size/number/path）挤在 229°–263° 上，第四对只能到 16.0。要过 18 只有三条路：并组
+ * （体积并入数值，15 色）、放弃色相身份、或放宽到中色带（明度彩度不再整齐）。三者的代价都比
+ * 16→17.5 的差距更伤语义，所以本批把闸钉在实测值。复核方法见 v4 文档 §5.5。
  * ------------------------------------------------------------------ */
 export const COLOR_GROUPS = {
   // signal · ANSI 语义名
@@ -251,22 +277,22 @@ export const COLOR_GROUPS = {
   debug: { color: 'blue', label: '调试' },
   nullish: { color: 'magenta', label: '空值 / 布尔 / 杂项' },
   // structure · 真彩色
-  time: { color: '#56D4FF', label: '时间戳' },
-  duration: { color: '#2DD4BF', label: '时长' },
-  size: { color: '#A5D6FF', label: '体积' },
-  number: { color: '#79C0FF', label: '数值 / 百分比 / 类型标注' },
-  hexnum: { color: '#D2A8FF', label: '十六进制' },
-  flag: { color: '#E3B341', label: '命令行选项' },
-  ip: { color: '#FF9ECB', label: 'IPv4 / 设备地址' },
-  mac: { color: '#FF7BAC', label: 'IPv6 / MAC' },
-  url: { color: '#F78C6C', label: 'URL' },
-  port: { color: '#96E9B5', label: '端口 / 映射 / 重启计数' },
-  ident: { color: '#9FC079', label: '领域标识符（接口 / unit / 进程 / SQL…）' },
-  artifact: { color: '#E1AC70', label: '制品与可复制引用（镜像 / git / UUID / trace）' },
-  diffmark: { color: '#BEE65A', label: 'diff 边界记号' },
-  action: { color: '#20CE93', label: '构建动作 / 进度' },
-  path: { color: '#9CDCFE', label: '路径与源文件' },
-  loc: { color: '#7EE787', label: '位置（file:line / 栈帧）' }
+  time: { color: '#3ED1FF', label: '时间戳' },
+  duration: { color: '#00D5C2', label: '时长' },
+  size: { color: '#ABD3FF', label: '体积' },
+  number: { color: '#6EBDFE', label: '数值 / 百分比 / 类型标注' },
+  hexnum: { color: '#D3A9FF', label: '十六进制' },
+  flag: { color: '#E6B33F', label: '命令行选项' },
+  ip: { color: '#FD9CCA', label: 'IPv4 / 设备地址' },
+  mac: { color: '#FF7D9C', label: 'IPv6 / MAC' },
+  url: { color: '#F98F6E', label: 'URL' },
+  port: { color: '#9CECB9', label: '端口 / 映射 / 重启计数' },
+  ident: { color: '#A1C37C', label: '领域标识符（接口 / unit / 进程 / SQL…）' },
+  artifact: { color: '#E0AD71', label: '制品与可复制引用（镜像 / git / UUID / trace）' },
+  diffmark: { color: '#BFE35D', label: 'diff 边界记号' },
+  action: { color: '#27CD92', label: '构建动作 / 进度' },
+  path: { color: '#99E5FE', label: '路径与源文件' },
+  loc: { color: '#7EE685', label: '位置（file:line / 栈帧）' }
 }
 
 // 家族 → 色组。分级族（http-status.* / syslog-sev.* / bracket-level.*）按级别各归一组。

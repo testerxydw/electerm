@@ -34,6 +34,43 @@ const srgbToLab = (hex) => {
   return [116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])]
 }
 const deltaE76 = (a, b) => Math.hypot(...srgbToLab(a).map((v, i) => v - srgbToLab(b)[i]))
+// ΔE(2000)：CIEDE2000。ΔE(1976) 在蓝段把距离报大了、绿段报小了，同一把尺卡全色板
+// 会让淡蓝簇白跑一趟，所以可辨性闸用 CIEDE2000 复核一遍。
+const deltaE00 = (hex1, hex2) => {
+  const [L1, a1, b1] = srgbToLab(hex1)
+  const [L2, a2, b2] = srgbToLab(hex2)
+  const C1 = Math.hypot(a1, b1)
+  const C2 = Math.hypot(a2, b2)
+  const Cb = (C1 + C2) / 2
+  const G = 0.5 * (1 - Math.sqrt(Cb ** 7 / (Cb ** 7 + 25 ** 7)))
+  const a1p = (1 + G) * a1
+  const a2p = (1 + G) * a2
+  const C1p = Math.hypot(a1p, b1)
+  const C2p = Math.hypot(a2p, b2)
+  const h1p = (Math.atan2(b1, a1p) * 180 / Math.PI + 360) % 360
+  const h2p = (Math.atan2(b2, a2p) * 180 / Math.PI + 360) % 360
+  let dhp = 0
+  if (C1p * C2p !== 0) {
+    dhp = h2p - h1p
+    if (dhp > 180) dhp -= 360
+    else if (dhp < -180) dhp += 360
+  }
+  const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(dhp * Math.PI / 360)
+  const Lbp = (L1 + L2) / 2
+  const Cbp = (C1p + C2p) / 2
+  let hbp = h1p + h2p
+  if (C1p * C2p !== 0) hbp = Math.abs(h1p - h2p) > 180 ? (h1p + h2p + 360) / 2 : (h1p + h2p) / 2
+  const T = 1 - 0.17 * Math.cos((hbp - 30) * Math.PI / 180) + 0.24 * Math.cos(2 * hbp * Math.PI / 180) +
+    0.32 * Math.cos((3 * hbp + 6) * Math.PI / 180) - 0.2 * Math.cos((4 * hbp - 63) * Math.PI / 180)
+  const dTh = 30 * Math.exp(-Math.pow((hbp - 275) / 25, 2))
+  const Rc = 2 * Math.sqrt(Cbp ** 7 / (Cbp ** 7 + 25 ** 7))
+  const Sl = 1 + (0.015 * Math.pow(Lbp - 50, 2)) / Math.sqrt(20 + Math.pow(Lbp - 50, 2))
+  const Sc = 1 + 0.045 * Cbp
+  const Sh = 1 + 0.015 * Cbp * T
+  const Rt = -Math.sin(2 * dTh * Math.PI / 180) * Rc
+  return Math.sqrt(Math.pow((L2 - L1) / Sl, 2) + Math.pow((C2p - C1p) / Sc, 2) +
+    Math.pow(dHp / Sh, 2) + Rt * ((C2p - C1p) / Sc) * (dHp / Sh))
+}
 
 // 家族 → 规则列表（全量预设展开，按 family 归组）
 const familyIndex = async () => {
@@ -192,27 +229,121 @@ describe('V3 信号家族契约', () => {
       '预设条拿家族色、用户条拿自选色，两条都保留（这正是"同正则不同色"的合法场景）')
   })
 
-  // ΔE(1976, CIELAB) 近邻棘轮：色板能不能被肉眼分辨，取决于色与色之间的距离，
-  // 而不是色的数量。基线是当前实测最小值（size ↔ path = 6.2，同一片淡蓝），
-  // 批次 E·B-2 重排淡蓝带后把 MIN_DELTA_E_BASELINE 抬到 18，变成硬门槛。
-  const MIN_DELTA_E_BASELINE = 6.2
-  test('KU-6 色板几何：结构色两两之间的最小 ΔE 不得跌破基线', async () => {
+  // ---- KU-6 色板几何闸（批次 E·B-2 定稿）----
+  // 三条闸各自管一件事：色板内部不撞、色板内部一眼可辨、结构色长得不像信号词。
+  // 数值口径见 keyword-presets.js 的 KU-6 注释块；求解脚本是一次性的，
+  // 复算命令：node /tmp 无关，改色板后跑本文件即可（下面两条把违规对直接打出来）。
+  // ΔE76 在蓝段把距离报大了、绿段报小了，所以两把尺一起用：只卡 ΔE76 会逼淡蓝簇
+  // 无谓地跑远，只卡 ΔE00 又会放过绿段。
+  const GATES = {
+    // 实测 16.0（size↔path，B-2 前是 6.2）
+    pairDeltaE76: 16,
+    // 实测 8.5（time↔path，B-2 前是 4.5，同一对）
+    pairDeltaE00: 8,
+    // 实测 11.6（number↔主题 blue，B-2 前最低是 mac↔主题 magenta 7.4）
+    themeDeltaE76: 11
+  }
+  const structureHexes = async () => {
     const { COLOR_GROUPS } = await loadPresets()
-    const hexes = Object.entries(COLOR_GROUPS).filter(([, d]) => /^#/.test(d.color))
+    return Object.entries(COLOR_GROUPS).filter(([, d]) => /^#/.test(d.color))
+  }
+  // 内置终端主题里 signal 档会真正发出的那批颜色（theme-defaults.js，不抄第二份表）。
+  // 只取 normal 变体：colorToCode 发的是 SGR 31–37，bright* 需要加粗，高亮从不加粗。
+  // ANSI 由主题控制，用户换主题就是换一组锚点，所以这条是"别把结构色配成我们自带主题的
+  // 信号色"的参照闸，不是跨主题承诺。已知越界且不拦：number 与深色主题 brightBlue 只差 2.4
+  // ——那是别的程序加粗的颜色，不在关键字高亮的语义空间里（详见 keyword-presets.js KU-6 注释）。
+  const SIGNAL_ANSI_NAMES = ['red', 'yellow', 'green', 'blue', 'magenta', 'cyan']
+  const themeSignalColors = async () => {
+    const mod = await import('../../client/common/theme-defaults.js')
+    return [mod.defaultTheme(), mod.defaultThemeLight()]
+      .flatMap(t => SIGNAL_ANSI_NAMES.map(n => t.themeConfig[n]))
+  }
+  const nearestTheme = async (hex) => {
+    const anchors = await themeSignalColors()
+    return anchors
+      .map(t => [deltaE76(hex, t), t])
+      .sort((a, b) => a[0] - b[0])[0]
+  }
+
+  test('KU-6 色板几何：结构色两两 ΔE(1976) 不得低于闸', async () => {
+    const hexes = await structureHexes()
+    const offenders = []
     let min = Infinity
-    let pair = ''
     for (let i = 0; i < hexes.length; i++) {
       for (let j = i + 1; j < hexes.length; j++) {
         const d = deltaE76(hexes[i][1].color, hexes[j][1].color)
-        if (d < min) {
-          min = d
-          pair = `${hexes[i][0]}(${hexes[i][1].color}) ↔ ${hexes[j][0]}(${hexes[j][1].color})`
-        }
+        min = Math.min(min, d)
+        if (d < GATES.pairDeltaE76) offenders.push(`${hexes[i][0]} ↔ ${hexes[j][0]} = ${d.toFixed(1)}`)
       }
     }
-    assert.ok(min >= MIN_DELTA_E_BASELINE - 0.05,
-      `结构色最小 ΔE ${min.toFixed(1)}（${pair}）跌破基线 ${MIN_DELTA_E_BASELINE}：` +
-      '新加的颜色和已经分得清的那个撞车了。')
+    assert.deepEqual(offenders, [],
+      `结构色最小 ΔE(1976) ${min.toFixed(1)}，低于闸 ${GATES.pairDeltaE76}：${offenders.join('；')}。` +
+      '新加/改色的结构家族和已有色撞车了——要么拉开，要么并组（一色一语义）。')
+  })
+
+  test('KU-6 色板几何：结构色两两 ΔE(2000) 不得低于闸（观感口径）', async () => {
+    const hexes = await structureHexes()
+    const offenders = []
+    let min = Infinity
+    for (let i = 0; i < hexes.length; i++) {
+      for (let j = i + 1; j < hexes.length; j++) {
+        const d = deltaE00(hexes[i][1].color, hexes[j][1].color)
+        min = Math.min(min, d)
+        if (d < GATES.pairDeltaE00) offenders.push(`${hexes[i][0]} ↔ ${hexes[j][0]} = ${d.toFixed(1)}`)
+      }
+    }
+    assert.deepEqual(offenders, [],
+      `结构色最小 ΔE(2000) ${min.toFixed(1)}，低于闸 ${GATES.pairDeltaE00}：${offenders.join('；')}。` +
+      'ΔE(2000) 是"一眼看得出是两个颜色"的感知口径，比 ΔE(1976) 更贴近终端上的实际观感。')
+  })
+
+  test('KU-6 色板几何：结构色不得贴近内置主题的 signal ANSI 色', async () => {
+    const hexes = await structureHexes()
+    // 锚点为空时这条闸会静默通过，先把锚点本身锁住
+    const anchors = await themeSignalColors()
+    assert.equal(anchors.length, SIGNAL_ANSI_NAMES.length * 2, '主题 signal 锚点数量不对')
+    assert.deepEqual(anchors.filter(a => !/^#[0-9a-fA-F]{6}$/.test(a)), [], '主题 signal 锚点不是 #rrggbb')
+    const offenders = []
+    for (const [group, def] of hexes) {
+      const [d, theme] = await nearestTheme(def.color)
+      if (d < GATES.themeDeltaE76) offenders.push(`${group}(${def.color}) ↔ 主题色 ${theme} = ${d.toFixed(1)}`)
+    }
+    assert.deepEqual(offenders, [],
+      `结构色与主题的 signal 色太近（闸 ${GATES.themeDeltaE76}）：${offenders.join('；')}。` +
+      '用户在屏幕上看到的就是"一个数值和一个信号词同色"，KU-6 一色一语义在观感上失效。')
+  })
+
+  // 色的语义身份 = 色相。重排色板只能在色相带内调整明度/彩度，不能把 ident 从绿相
+  // 推成芥末金——那等于换了语义。这张表就是每个结构色组允许住着的色相弧。
+  const HUE_BANDS = {
+    time: [215, 250],
+    duration: [165, 200],
+    size: [245, 280],
+    number: [250, 285],
+    hexnum: [295, 330],
+    flag: [75, 100],
+    ip: [335, 360],
+    mac: [0, 25],
+    url: [30, 60],
+    port: [140, 170],
+    ident: [110, 140],
+    artifact: [60, 85],
+    diffmark: [100, 130],
+    action: [150, 175],
+    path: [215, 245],
+    loc: [130, 160]
+  }
+  test('KU-6 色相带：每个结构色组必须留在自己的色相弧内（并组前不许换色族）', async () => {
+    const hexes = await structureHexes()
+    const drift = []
+    for (const [group, def] of hexes) {
+      const band = HUE_BANDS[group]
+      assert.ok(band, `结构色组 ${group} 未登记 HUE_BANDS`)
+      const [, a, b] = srgbToLab(def.color)
+      const hue = (Math.atan2(b, a) * 180 / Math.PI + 360) % 360
+      if (hue < band[0] || hue > band[1]) drift.push(`${group} 色相 ${hue.toFixed(0)}° 越出 ${band[0]}–${band[1]}°`)
+    }
+    assert.deepEqual(drift, [], `色相带违规：${drift.join('；')}`)
   })
 
   test('KU-5 裁决：rank 由家族派生：用户规则无家族走档位默认，与预设正则逐字相同则继承家族 rank', async () => {
@@ -257,7 +388,7 @@ describe('V3 信号家族契约', () => {
   })
 
   test('KU-5 裁决（端到端）：精确地址/路径/标识层压在数值与状态词之上', async () => {
-    const { keywordPresets } = await loadPresets()
+    const { keywordPresets, COLOR_GROUPS } = await loadPresets()
     const { activeKeywords } = await loadGroups()
     const { compileKeywords } = await loadCompile()
     const { buildScan, collectMatches } = await loadScan()
@@ -269,8 +400,9 @@ describe('V3 信号家族契约', () => {
       assert.ok(hit, `未命中 ${text}：${line}`)
       return hit
     }
-    // 源文件属于路径层（20），赢过同起点的宽口径标识/数值规则
-    assert.equal(hitOf('/usr/src/app/main.c:42:5: error: ...', '/usr/src/app/main.c').color, '#9CDCFE')
+    // 源文件属于路径层（20），赢过同起点的宽口径标识/数值规则。颜色跟色板走，
+    // 所以断言取派生值，避免每次重排色板都要回来改这里。
+    assert.equal(hitOf('/usr/src/app/main.c:42:5: error: ...', '/usr/src/app/main.c').color, COLOR_GROUPS.path.color)
     // 镜像名 vs pod 名同为 30 层，但镜像名的正则更长 → 同层取更长
     assert.equal(hitOf('nginx-7d9f8c6b5-x2k4p CrashLoopBackOff', 'nginx-7d9f8c6b5-x2k4p').rank, 30)
     // unit 名（30）压过状态词（50）里的动词，两者各染各的、互不吞并

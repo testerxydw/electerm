@@ -22,24 +22,44 @@ const colors = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
 // 真彩色（#rrggbb）经 keyword-compile 编译后的 ANSI 序列，供断言比对。
 // B-1「一色一语义」之后，结构档全部离开上面七个语义名，所以这里覆盖 16 个结构色组
 // （keyword-presets.js 的 COLOR_GROUPS）；语义名只留在 signal 档上，仍按主题映射。
+// 本表是 COLOR_GROUPS 的字面快照（CJS 侧同步拿不到 ESM 导出）；色板换色后由
+// 「TC 快照与 COLOR_GROUPS 同源」那条测试点名过期键。
 const TC = {
-  ts: '\u001b[38;2;86;212;255m',
-  dur: '\u001b[38;2;45;212;191m',
-  size: '\u001b[38;2;165;214;255m',
-  num: '\u001b[38;2;121;192;255m',
-  hex: '\u001b[38;2;210;168;255m',
-  opt: '\u001b[38;2;227;179;65m',
-  ip4: '\u001b[38;2;255;158;203m',
-  addr6: '\u001b[38;2;255;123;172m',
-  path: '\u001b[38;2;156;220;254m',
-  srcloc: '\u001b[38;2;126;231;135m',
-  url: '\u001b[38;2;247;140;108m',
-  exc: '\u001b[38;2;255;107;107m',
-  port: '\u001b[38;2;150;233;181m',
-  ident: '\u001b[38;2;159;192;121m',
-  artifact: '\u001b[38;2;225;172;112m',
-  diffmark: '\u001b[38;2;190;230;90m',
-  action: '\u001b[38;2;32;206;147m'
+  ts: '\u001b[38;2;62;209;255m', // 色组 time #3ED1FF
+  dur: '\u001b[38;2;0;213;194m', // 色组 duration #00D5C2
+  size: '\u001b[38;2;171;211;255m', // 色组 size #ABD3FF
+  num: '\u001b[38;2;110;189;254m', // 色组 number #6EBDFE
+  hex: '\u001b[38;2;211;169;255m', // 色组 hexnum #D3A9FF
+  opt: '\u001b[38;2;230;179;63m', // 色组 flag #E6B33F
+  ip4: '\u001b[38;2;253;156;202m', // 色组 ip #FD9CCA
+  addr6: '\u001b[38;2;255;125;156m', // 色组 mac #FF7D9C
+  path: '\u001b[38;2;153;229;254m', // 色组 path #99E5FE
+  srcloc: '\u001b[38;2;126;230;133m', // 色组 loc #7EE685
+  url: '\u001b[38;2;249;143;110m', // 色组 url #F98F6E
+  port: '\u001b[38;2;156;236;185m', // 色组 port #9CECB9
+  ident: '\u001b[38;2;161;195;124m', // 色组 ident #A1C37C
+  artifact: '\u001b[38;2;224;173;113m', // 色组 artifact #E0AD71
+  diffmark: '\u001b[38;2;191;227;93m', // 色组 diffmark #BFE35D
+  action: '\u001b[38;2;39;205;146m' // 色组 action #27CD92
+}
+// TC 键 → COLOR_GROUPS 键（快照与唯一来源的对应关系，供同源测试逐键核对）
+const TC_GROUP = {
+  ts: 'time',
+  dur: 'duration',
+  size: 'size',
+  num: 'number',
+  hex: 'hexnum',
+  opt: 'flag',
+  ip4: 'ip',
+  addr6: 'mac',
+  path: 'path',
+  srcloc: 'loc',
+  url: 'url',
+  port: 'port',
+  ident: 'ident',
+  artifact: 'artifact',
+  diffmark: 'diffmark',
+  action: 'action'
 }
 const presetByName = (presets, name) => presets.find(p => p.name === name)
 
@@ -525,17 +545,38 @@ describe('keyword presets', () => {
   test('Batch 4 真彩色：#rrggbb 编译为真彩色序列，命名色不变，扩展调色板可达', async () => {
     const { compileKeywords, hexToTruecolor, isHexColor, keywordPalette } = await import('../../client/common/keyword-compile.js')
     const { colorToCode } = await import('../../client/common/keyword-compile.js')
-    assert.equal(hexToTruecolor('#56D4FF'), '\u001b[38;2;86;212;255m')
-    assert.equal(isHexColor('#56D4FF'), true)
+    // 用与色板无关的样例 hex，避免把某个具体色值读成"色板里的颜色"
+    assert.equal(hexToTruecolor('#123456'), '\u001b[38;2;18;52;86m')
+    assert.equal(isHexColor('#123456'), true)
     assert.equal(isHexColor('cyan'), false)
-    const c = compileKeywords([{ keyword: '\\d+', color: '#56D4FF' }])
-    assert.equal(c[0].colorCode, '\u001b[38;2;86;212;255m')
+    const c = compileKeywords([{ keyword: '\\d+', color: '#123456' }])
+    assert.equal(c[0].colorCode, '\u001b[38;2;18;52;86m')
     const named = compileKeywords([{ keyword: '\\d+', color: 'red' }])
     assert.equal(named[0].colorCode, '\u001b[31m')
-    // 命名色 + 真彩色都在调色板里，供色卡入口选择
+    // 命名色 + 结构真彩色都在取色器里；真彩色条目由 COLOR_GROUPS 派生，不是第二份表
+    const { COLOR_GROUPS } = await loadPresets()
     const values = keywordPalette.map(p => p.value)
-    assert.ok(values.includes('red') && values.includes('#56D4FF'))
-    assert.equal(colorToCode('#FF6B6B'), '\u001b[38;2;255;107;107m')
+    const structureHexes = Object.values(COLOR_GROUPS).filter(d => /^#/.test(d.color)).map(d => d.color)
+    assert.ok(values.includes('red'))
+    assert.equal(values.filter(v => /^#/.test(v)).length, structureHexes.length)
+    assert.ok(structureHexes.every(h => values.includes(h)), '取色器与色板不同源')
+    // 样例 hex 全部与色板无关，避免把某个具体色值读成"色板里的颜色"
+    assert.equal(colorToCode('#00FF88'), '\u001b[38;2;0;255;136m')
+  })
+
+  // 色板只有一个来源，本文件顶部的 TC 是它的字面快照。快照过期时会伪装成"某条正则
+  // 没染色"，所以先核对快照本身。重生成（按 TC_GROUP 把色组名对回键名）：
+  //   node --experimental-detect-module --input-type=module -e \
+  //     "Promise.all([import('./src/client/common/keyword-presets.js'),import('./src/client/common/keyword-compile.js')])" \
+  //     ".then(([p,c])=>console.log(Object.entries(p.COLOR_GROUPS).filter(([,d])=>/^#/.test(d.color))" \
+  //     ".map(([g,d])=>g+' '+c.hexToTruecolor(d.color).replace(/\u001b/,'\\\\u001b')).join('\n')))"
+  test('TC 快照与 COLOR_GROUPS 同源：色板换色后先在这里报错', async () => {
+    const { COLOR_GROUPS } = await loadPresets()
+    const { hexToTruecolor } = await import('../../client/common/keyword-compile.js')
+    const stale = Object.entries(TC_GROUP)
+      .filter(([key, group]) => TC[key] !== hexToTruecolor(COLOR_GROUPS[group].color))
+      .map(([key, group]) => `${key}（色组 ${group} 现在是 ${COLOR_GROUPS[group].color}）`)
+    assert.deepEqual(stale, [], 'TC 快照与色板不同源，按上面命令重新生成后再跑')
   })
 
   test('V1 CDP demo 口径已更新为 V2（轻量源码契约，不引入 CDP 依赖）', () => {

@@ -18,6 +18,8 @@
  * 避免"每改一次配置就永久留一套 RegExp"。
  */
 
+import { COLOR_GROUPS } from './keyword-presets.js'
+
 const maxEntries = 4
 // 摘要用不可打印分隔符拼接，规则文本里出现任何字符都不会和分隔符撞车
 const patternSep = '\u0000'
@@ -57,9 +59,9 @@ export const colorToCode = (color) => {
   return colorCodes[color] || colorCodes.red
 }
 
-// 设置面板取色器：ANSI 语义名（走主题映射，供 signal 档与用户自定义规则）+ 一组
-// 深色终端主题下可辨的真彩色。真彩色的 semantic 与 keyword-presets.js 的 COLOR_GROUPS
-// 一一对应——预置规则的颜色全部由家族派生，这里只是把同一批色值暴露给用户手选。
+// 设置面板取色器：ANSI 语义名（走主题映射，供 signal 档与用户自定义规则）+ 结构色组
+// 的那批真彩色。真彩色条目直接由 keyword-presets.js 的 COLOR_GROUPS 派生——色板换色
+// 时取色器自动跟上，不存在「预设色和可选手选色对不上」的第二种真相。
 export const keywordPalette = [
   // 语义基线（命名色，走主题映射）
   { name: 'red', value: 'red', semantic: 'error' },
@@ -69,24 +71,10 @@ export const keywordPalette = [
   { name: 'blue', value: 'blue', semantic: 'debug' },
   { name: 'magenta', value: 'magenta', semantic: 'null' },
   { name: 'white', value: 'white', semantic: 'misc' },
-  // 真彩色细分（结构类冷色系，尽量互不相同）
-  { name: 'cyan-bright', value: '#56D4FF', semantic: 'time' },
-  { name: 'teal', value: '#2DD4BF', semantic: 'duration' },
-  { name: 'sky', value: '#A5D6FF', semantic: 'size' },
-  { name: 'azure', value: '#79C0FF', semantic: 'number' },
-  { name: 'purple', value: '#D2A8FF', semantic: 'hex' },
-  { name: 'pink', value: '#FF9ECB', semantic: 'ipv4' },
-  { name: 'orchid', value: '#FF7BAC', semantic: 'addr6' },
-  { name: 'royal', value: '#9CDCFE', semantic: 'path' },
-  { name: 'mint', value: '#7EE787', semantic: 'srcloc' },
-  { name: 'gold', value: '#E3B341', semantic: 'optflag' },
-  { name: 'orange', value: '#F78C6C', semantic: 'url' },
-  { name: 'coral', value: '#FF6B6B', semantic: 'exception' },
-  { name: 'sage', value: '#9FC079', semantic: 'ident' },
-  { name: 'jade', value: '#96E9B5', semantic: 'port' },
-  { name: 'sand', value: '#E1AC70', semantic: 'artifact' },
-  { name: 'lime', value: '#BEE65A', semantic: 'diffmark' },
-  { name: 'emerald', value: '#20CE93', semantic: 'action' }
+  // 结构真彩色（B-1 之后结构档一律离开语义名，色值只有一份）
+  ...Object.entries(COLOR_GROUPS)
+    .filter(([, def]) => isHexColor(def.color))
+    .map(([group, def]) => ({ name: group, value: def.color, semantic: def.label }))
 ]
 
 const cache = new Map()

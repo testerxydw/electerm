@@ -7,6 +7,14 @@ const loadGroups = () => import('../../client/common/keyword-groups.js')
 const loadPresetsForCount = () => import('../../client/common/keyword-presets.js')
 const loadAddon = () => import('../../client/components/terminal/highlight-addon.js')
 
+// ip 色组编译出来的真彩色序列。色板是 COLOR_GROUPS 一份，测试期望值必须跟着它走，
+// 否则每次重排色板都会伪装成「覆盖率闸把 IP 丢了」。
+const ipColorCode = async () => {
+  const { COLOR_GROUPS } = await loadPresetsForCount()
+  const { hexToTruecolor } = await loadCompile()
+  return hexToTruecolor(COLOR_GROUPS.ip.color)
+}
+
 /**
  * V2 §7 / §9 密度回归验收。
  *
@@ -299,15 +307,16 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const addon = new KeywordHighlighterAddon(keywords)
     // 自检：规则确实生效（净行里的 IP 会被染色），否则「0 命中」可能是空规则集的假阳性
     const sanity = addon.highlightKeywords('host 10.1.2.3 ' + 'y'.repeat(80))
-    assert.ok(sanity.includes('\u001b[38;2;255;158;203m10.1.2.3'), 'fixture sanity: addon must be live')
+    const ip = await ipColorCode()
+    assert.ok(sanity.includes(ip + '10.1.2.3'), 'fixture sanity: addon must be live')
     // 脏行整行 44% > 35%，无 ANSI 与有 ANSI 都必须把 structure 全丢掉
-    assert.equal(addon.highlightKeywords(line).includes('\u001b[38;2;255;158;203m'), false,
+    assert.equal(addon.highlightKeywords(line).includes(ip), false,
       'plain dirty line drops all structure hits')
     const splitAt = head.length + 1
     const sgr = '\u001b[32m\u001b[0m'
     const withAnsi = line.slice(0, splitAt) + sgr + line.slice(splitAt)
     const out = addon.highlightKeywords(withAnsi)
-    const ipColor = '\u001b[38;2;255;158;203m'
+    const ipColor = await ipColorCode()
     const colored = out.split(ipColor).length - 1
     assert.equal(colored, 0, 'SGR must not shrink the physical line into two gate windows')
     assert.ok(out.includes(sgr), 'the ANSI sequence itself must be preserved verbatim')
@@ -323,7 +332,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const line = '10.1.2.3 ' + 'x'.repeat(160)
     const sgr = '\u001b[31m\u001b[0m'
     const out = addon.highlightKeywords(line.slice(0, 20) + sgr + line.slice(20))
-    assert.ok(out.includes('\u001b[38;2;255;158;203m10.1.2.3'),
+    assert.ok(out.includes((await ipColorCode()) + '10.1.2.3'),
       'clean line must keep its IP colouring despite an embedded SGR')
   })
 
