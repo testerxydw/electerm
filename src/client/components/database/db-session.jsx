@@ -50,6 +50,7 @@ import { useDbChanges } from './use-db-changes'
 import { useDbTree } from './use-db-tree'
 import { useDbView } from './use-db-view'
 import { useDbRedisKeys } from './use-db-redis-keys'
+import { useDbTransaction } from './use-db-transaction'
 import { DbTreePanel } from './db-tree-panel'
 import { DbRedisKeySpace } from './db-redis-key-space'
 import DbChangePanel from './db-change-panel'
@@ -1348,99 +1349,25 @@ export default auto(function DbSession (props) {
   const [txBusy, setTxBusy] = useState(false)
   const [txListOpen, setTxListOpen] = useState(false)
   const txNotifiedAtRef = useRef(0)
-  const txSupported = !isRedis
-  const txActive = !!(txState && txState.active)
-  const txPending = (txState && txState.pendingCount) || 0
-
-  useEffect(() => {
-    if (!txSupported || !tabId) {
-      return undefined
-    }
-    let dead = false
-    const tick = () => {
-      window.pre.runGlobalAsync('dbClientOp', tabId, 'getDbTxState')
-        .then(st => {
-          if (!dead && st) {
-            setTxState(st)
-          }
-        })
-        .catch(() => {})
-    }
-    tick()
-    const timer = setInterval(tick, txActive ? 2000 : 5000)
-    return () => {
-      dead = true
-      clearInterval(timer)
-    }
-  }, [txSupported, tabId, txActive])
-
-  // 空闲自动回滚只提示一次（lastTx 带 at 时间戳去重）
-  useEffect(() => {
-    const lt = txState && txState.lastTx
-    if (!lt || !lt.auto || txNotifiedAtRef.current === lt.at) {
-      return
-    }
-    txNotifiedAtRef.current = lt.at
-    message.warning(e('dbTxAutoRolledBack').replace('{n}', String(lt.count || 0)))
-  }, [txState])
-
-  // 提交/回滚后当前页数据可能已变（回滚=改动作废），按当前条件重取
-  const afterTxEnd = (msgKey) => {
-    message.success(e(msgKey))
-    setTxListOpen(false)
-    setTxState(s => ({ ...(s || {}), active: false, pendingCount: 0, statements: [] }))
-    if (sel) {
-      loadWithCount(sel, grid.page)
-    }
-  }
-
-  const runTxOp = (op, onOk) => {
-    setTxBusy(true)
-    window.pre.runGlobalAsync('dbClientOp', tabId, op)
-      .then(onOk)
-      .catch(err => onOpError(err))
-      .finally(() => setTxBusy(false))
-  }
-
-  const beginTx = () => {
-    runTxOp('beginDbTx', () => {
-      message.success(e('dbTxBegun'))
-      setTxState(s => ({ ...(s || {}), active: true, pendingCount: 0, statements: [] }))
-    })
-  }
-
-  const commitTx = () => runTxOp('commitDbTx', () => afterTxEnd('dbTxCommitted'))
-  const rollbackTx = () => runTxOp('rollbackDbTx', () => afterTxEnd('dbTxRolledBack'))
-
-  const setManualTx = (on) => {
-    if (on) {
-      // 上限由主进程判定并报错，这里先按轮询到的全局计数给一次更早的提示
-      if (txState && txState.pinnedTabs >= txState.maxTabs) {
-        message.warning(e('dbTxLimit').replace('{max}', String(txState.maxTabs)))
-        return
-      }
-      Modal.confirm({
-        title: e('dbTxBeginTitle'),
-        content: e('dbTxBeginContent'),
-        okText: e('dbTxBegin'),
-        cancelText: e('cancel'),
-        onOk: beginTx
-      })
-      return
-    }
-    if (!txPending) {
-      rollbackTx()
-      return
-    }
-    Modal.confirm({
-      title: e('dbTxRollbackTitle'),
-      content: e('dbTxRollbackWarn').replace('{n}', String(txPending)),
-      okText: e('dbTxRollback'),
-      cancelText: e('cancel'),
-      okButtonProps: { danger: true },
-      onOk: rollbackTx
-    })
-  }
+  const {
+    txSupported,
+    txActive,
+    txPending,
+    setManualTx,
+    commitTx
+  } = useDbTransaction({
+    tabId,
+    isRedis,
+    onOpError,
+    sel,
+    grid,
+    loadWithCount,
+    txState,
+    setTxState,
+    setTxBusy,
+    setTxListOpen,
+    txNotifiedAtRef
+  })
 
   // ---- N2 暂存变更：前端侧"还没执行"的改动 + 统一应用 ----
   // 与上面 F2 的分工写在 use-db-changes 头注释里（一句话：这里装没执行过的，

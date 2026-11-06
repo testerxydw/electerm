@@ -19,27 +19,35 @@
 | N11a-7（并行 #2） | 元数据树/结构加载：`loadTree`/`onSelectTree`/`loadStructure`/`treeFilter`/`toggleSys` | `use-db-tree.js`（213 行） | 逻辑 hook 化；`getVisibleMetadata` getter 注入避免 TDZ，两个 effect 依赖数组不变 |
 | N11a-8（并行 #3） | 视图/过滤/分页：`viewParts`/`applyView`/`findLastPage`/`loadPage`/`pageSizeOf` | `use-db-view.js`（454 行） | 导出纯函数 + hook；`pageSizeOf` clamp 契约随迁 `perf-guard.spec.js` |
 | N11a-9（并行 #11） | Redis 键空间：`loadRedisKeys`/`loadRedisKeyTree`/批量删键/键树 | `use-db-redis-keys.js`（487 行） | 返回 20 个名字；跨簇调用走 `bridge` 延迟绑定 |
+| N11a-10（接线） | 树面板 + Redis 键空间两个渲染副本真正接线 | `db-tree-panel.jsx`（79 行）+ `db-redis-key-space.jsx`（293 行） | 主文件 −236 行；`keys` 显式合成 11 个 hook 返回值 + 7 个 owner state，保留 `const redisArea =` 锚点；7 份契约改组合读取 |
+| N11a-11（#6） | F2 手动事务：轮询 tick + 自动回滚提示 + 6 个 handler | `use-db-transaction.js`（118 行） | 主文件 −53 行；state/ref 留 owner 注入，2 个 useEffect 依赖数组不变；契约零改动 |
 | N2-1 | 变更预览 + 变更集模型（纯函数，未接 UI） | `src/client/common/db-change-preview.js` + `src/client/common/db-change-set.js` | 仅改文案调用 |
 | N2-UI（并行 WIP） | 变更面板 UI | `src/client/components/database/use-db-changes.js` + `db-change-panel.jsx` | 非本方案实现；因主文件已 import，依赖链随第二点提交纳入以保证可构建 |
 
 > 注：`db-change-panel.jsx` / `use-db-changes.js` 属用户其他 WIP，本方案不改动其实现，仅随提交纳入依赖链。
 
-**进度**：三轮渲染接线（#1 / #14 / #15）后主文件 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**（相对 9970 行基线 −1828 行）。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
+**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7853 行**（相对 9970 行基线 −2117 行）。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
 
 **验证（三 hook 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **5092/5092 / fail 0**（其中 `not ok 1034 - build-time injection` 为 `node-safe-delete-shim.cjs` 对 `node_modules` 目录 trash 的 `EISDIR` 噪声）；`npm run compile` RC=0（`done build in 402.417 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-DecjfU0G.js` 344.27 kB）。另用 VM 实跑对比新版 `pageSizeOf` 与 `ccf04edb` 旧内联实现：函数体逐行一致、14 组输入输出 0 差异。实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。
 
-**提交**：分三点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ 本次提交 #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步。均未 push。
+**验证（接线批次）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **fail 0**（`not ok 1034 - build-time injection` 为 `widget-protocol.spec.js` 的 safe-delete 垫片 EISDIR 噪声，10 个子测试 cancelled）；`npm run compile` RC=0（`done build in 347.799 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-D4znyuNp.js` 345.97 kB）。产物 grep 确认含 `db-redis-sel-clear` / `dbFilterNodes`，证明两个渲染组件真进 bundle 而非 dead。接线期间修过两处真实回归：10 个 `redisApi` 解构名变孤儿（改为 `keys` 显式列出 18 个名字）、`i18n-coverage.spec.js` 把新模块注释里的 `>中文<` 误判为直写中文 JSX 文本节点（改注释措辞）。实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。
+
+**验证（#6 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **fail 0**；`npm run compile` RC=0（`done build in 310.35 s`、产物 `db-session-5.8.1-6oWehl1v.js` 346.40 kB、`db-sql-editor-5.8.1-Cv0HViK9.js` 384.07 kB 独立、主入口 CM6 特征串计数 0 → chunk 边界保持）。实机 GUI smoke 未跑。
+
+**提交**：分五点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ `7b0e291f` #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步；④ `9fefc08a` 接线树面板 / Redis 键空间两个渲染组件 + 7 份契约迁移；⑤ 本次提交 #6 事务 hook + 文档进度同步。均未 push。
 
 ### 1.1 并行拆分实验结论（2026-11-06）
 
 - **纯多 agent 并发改 `db-session.jsx` 不可行**：16 个聚类同处一文件，且当时有 N2-UI 并行任务持有该文件。采用混合模式：多 agent **并行只建新模块 + 改测试**（各写不同文件、只读主文件），由 owner **串行做主文件的删除与接线**——这是唯一无法并行的瓶颈。
 - **契约测试必须跟随代码**：源码文本契约（正则抽真实函数体 / 字符串 `includes` / 出现次数）在代码迁出后必须把读取源指向新模块，或改为**组合读取全部已接线（shipped）文件**；阈值与语义不变。**绝不能把未接线的 dead 模块计入**——那是用死代码凑数。已回退 4 份"模块未接线却先改读取源"的 spec，消除"测试验证副本"的漏洞；三 hook 收口时 14 份 spec 统一改为组合读取 shipped 文件，正则 / 阈值 / 出现次数一个未放宽。
 - **#2 / #3 / #11 三 hook 簇已接线（同日单独推进）**：跨簇循环依赖（tree 的 `loadStructure` ↔ view 的 `refreshViewParts` / `openRefTable`；redis keys 的 `loadTree` ↔ tree 的 `loadRedisKeys`）用 `const bridge = {}` + 惰性箭头 `(...a) => bridge.fn(...a)` + `Object.assign(bridge, treeApi, viewApi, redisApi)` 在调用期解析；后置依赖（`visibleMetadata`、`showObjectDdl`、`openTable`、`confirmRedisWrite`、`selectRedisKey`）一律 lazy 注入，`useDbTree` 改 `getVisibleMetadata()` getter 形态且两个 effect 依赖数组保持 `[treeFilterKw, metadata, isRedis]` / `[treeFilterKw]` 不变。契约侧 `db-page-tree-filter.spec.js` 的 VM 沙箱注入同名 getter、`perf-guard.spec.js` 的 `pageSizeOf` clamp 读取源加入 `use-db-view.js`。
-- **仍未接线（dead duplicates，勿当作已接线）**：`db-tree-panel.jsx` / `db-redis-key-space.jsx` / `db-grid-cell.jsx` 三个渲染副本；主文件内联 `<div className='db-tree-panel'>` 与 `redisArea` 渲染保留，`renderCell` 经确认为网格与新组件共享故内联实现保留。三者不纳入本次提交，留待后续 PR 单独接线。
+- **dead duplicates 已收敛到 1 个**：树面板 / Redis 键空间两个渲染副本已在 N11a-10 接线成 shipped 模块。当前仅剩 `db-grid-cell.jsx`，且经复核**不建议接线**——`renderCell` 全项目仅定义 1 次，以单实例 prop 共享给 `buildGridColumns` / `DbRedisDetail` / `DbSqlResults`，接线零 dedup 收益；若让 3 个 shipped 组件各自 `import makeRenderCell` 会造出多实例、破坏 4 个列 memo 的同一引用（非行为零变更）。该文件未提交、不计入任何契约白名单。
+- **接线后条件项必须同批落地**：6 份必改 spec 的读源追加、4 个孤儿导入清理、`i18n-coverage.spec.js` 的中文 JSX 文本节点扫描（新模块注释不得出现 `>中文<` 形态）都是「接线后才触发」的动作项，必须与接线放在同一次变更里；先改读源会让测试验证 dead 模块，违反铁律。
+- **#6 事务簇为何最安全**：1344–1443 是 100 行连续块，外部依赖（`onOpError` / `loadWithCount` / `tabId` / `sel` / `grid`）全部前置、无跨簇循环调用、无渲染期后置实参；唯一读主文件的契约 `db-sql-file.spec.js:116`（`!txSupported && !sqlFileDirty`）命中的是 1483 行关闭守卫 effect（三职责合一，不搬），且 `txSupported` 拆后仍由 owner 持有同名变量 → 契约零改动。实测独立性排序：#6 > #10（仅登记段）> #12 > #8 > #5 > #13 > #9 > #4 > #7 > #16。
 
 ## 2. 剩余拆分方案（按耦合度递增排序）
 
-> 进度注：#1 / #14 / #15 与 #2 / #3 / #11 已于 2026-11-06 实装接线（见 §1 N11a-4~9 与 §1.1）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。
+> 进度注：#1 / #14 / #15、#2 / #3 / #11、两个渲染副本接线、#6 事务簇均已于 2026-11-06 实装（见 §1 N11a-4~11 与 §1.1）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。其中 #13 实为依赖 6+ 簇的聚合消费者且持有全局 `mainTab`、#10 仅登记段独立 —— 原表「独立」标注与实测有偏差。
 
 聚类的当前位置以源码 `// ----` 分段标记 + 函数名为锚（行号会随抽取漂移，故以标记为准）：
 
