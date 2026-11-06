@@ -57,9 +57,9 @@ export const colorToCode = (color) => {
   return colorCodes[color] || colorCodes.red
 }
 
-// 扩充调色板：在 7 个语义 ANSI 名之外，提供一组在深色终端主题下可辨的真彩色。
-// 语义基线保留（红=错 / 黄=警 / 绿=成）；结构类（时间/数值/地址/路径）用冷色系
-// 细分，尽量让不同正则不重色（见 keyword-presets.js 的分配）。
+// 设置面板取色器：ANSI 语义名（走主题映射，供 signal 档与用户自定义规则）+ 一组
+// 深色终端主题下可辨的真彩色。真彩色的 semantic 与 keyword-presets.js 的 COLOR_GROUPS
+// 一一对应——预置规则的颜色全部由家族派生，这里只是把同一批色值暴露给用户手选。
 export const keywordPalette = [
   // 语义基线（命名色，走主题映射）
   { name: 'red', value: 'red', semantic: 'error' },
@@ -81,7 +81,12 @@ export const keywordPalette = [
   { name: 'mint', value: '#7EE787', semantic: 'srcloc' },
   { name: 'gold', value: '#E3B341', semantic: 'optflag' },
   { name: 'orange', value: '#F78C6C', semantic: 'url' },
-  { name: 'coral', value: '#FF6B6B', semantic: 'exception' }
+  { name: 'coral', value: '#FF6B6B', semantic: 'exception' },
+  { name: 'sage', value: '#9FC079', semantic: 'ident' },
+  { name: 'jade', value: '#96E9B5', semantic: 'port' },
+  { name: 'sand', value: '#E1AC70', semantic: 'artifact' },
+  { name: 'lime', value: '#BEE65A', semantic: 'diffmark' },
+  { name: 'emerald', value: '#20CE93', semantic: 'action' }
 ]
 
 const cache = new Map()

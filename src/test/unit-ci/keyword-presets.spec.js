@@ -19,7 +19,9 @@ const loadPresets = () => import('../../client/common/keyword-presets.js')
 const loadGroups = () => import('../../client/common/keyword-groups.js')
 
 const colors = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
-// 真彩色（#rrggbb）经 keyword-compile 编译后的 ANSI 序列，供断言比对
+// 真彩色（#rrggbb）经 keyword-compile 编译后的 ANSI 序列，供断言比对。
+// B-1「一色一语义」之后，结构档全部离开上面七个语义名，所以这里覆盖 16 个结构色组
+// （keyword-presets.js 的 COLOR_GROUPS）；语义名只留在 signal 档上，仍按主题映射。
 const TC = {
   ts: '\u001b[38;2;86;212;255m',
   dur: '\u001b[38;2;45;212;191m',
@@ -32,7 +34,12 @@ const TC = {
   path: '\u001b[38;2;156;220;254m',
   srcloc: '\u001b[38;2;126;231;135m',
   url: '\u001b[38;2;247;140;108m',
-  exc: '\u001b[38;2;255;107;107m'
+  exc: '\u001b[38;2;255;107;107m',
+  port: '\u001b[38;2;150;233;181m',
+  ident: '\u001b[38;2;159;192;121m',
+  artifact: '\u001b[38;2;225;172;112m',
+  diffmark: '\u001b[38;2;190;230;90m',
+  action: '\u001b[38;2;32;206;147m'
 }
 const presetByName = (presets, name) => presets.find(p => p.name === name)
 
@@ -56,12 +63,13 @@ const allAddon = async () => new (await loadAddon()).KeywordHighlighterAddon(awa
 
 describe('keyword presets', () => {
   test('every Networking rule compiles with the flags the addon uses', async () => {
-    const { keywordPresets } = await loadPresets()
+    const { keywordPresets, COLOR_GROUPS } = await loadPresets()
+    const groupColors = new Set(Object.values(COLOR_GROUPS).map(g => g.color))
     const preset = presetByName(keywordPresets, 'Networking')
     assert.ok(preset)
     for (const { keyword, color } of preset.keywords) {
       assert.doesNotThrow(() => new RegExp(keyword, 'gi'), keyword)
-      assert.ok(colors.includes(color))
+      assert.ok(colors.includes(color) || groupColors.has(color), `色板外的颜色 ${color}`)
     }
   })
 
@@ -70,7 +78,7 @@ describe('keyword presets', () => {
     const addon = new KeywordHighlighterAddon(await resolve('Networking'))
     const out = addon.highlightKeywords('Gi1/0/3   notconnect   600   26.132.128.13   0011.2233.4455')
 
-    assert.ok(out.includes('\u001b[34mGi1/0/3')) // interface: blue
+    assert.ok(out.includes(TC.ident + 'Gi1/0/3')) // interface: 领域标识色组（同起点语义，不再借用 ANSI blue）
     assert.ok(out.includes('\u001b[31mnotconnect')) // state: red
     assert.ok(out.includes(TC.ip4 + '26.132.128.13')) // IP: pink (from 通用·地址与路径)
     assert.ok(out.includes(TC.addr6 + '0011.2233.4455')) // MAC: orchid
@@ -79,7 +87,7 @@ describe('keyword presets', () => {
   test('Networking preset covers other vendors and leaves plain words alone', async () => {
     const { KeywordHighlighterAddon } = await loadAddon()
     const addon = new KeywordHighlighterAddon(await resolve('Networking'))
-    const blue = '\u001b[34m'
+    const ident = TC.ident
     const interfaces = [
       'ge-0/0/0', 'irb.100', 'ae0', // Juniper
       'Et1', 'Ma1', // Arista
@@ -90,7 +98,7 @@ describe('keyword presets', () => {
       'ether1', 'sfp-sfpplus1' // MikroTik
     ]
     for (const name of interfaces) {
-      assert.ok(addon.highlightKeywords(`port ${name} status`).includes(blue + name), name)
+      assert.ok(addon.highlightKeywords(`port ${name} status`).includes(ident + name), name)
     }
     assert.ok(addon.highlightKeywords('eth0 u/u').includes('\u001b[32mu/u'))
     assert.ok(addon.highlightKeywords('eth1 A/D').includes('\u001b[31mA/D'))
@@ -198,7 +206,6 @@ describe('keyword presets', () => {
     const green = '\u001b[32m'
     const yellow = '\u001b[33m'
     const blue = '\u001b[34m'
-    const magenta = '\u001b[35m'
     const cyan = '\u001b[36m'
     const end = '\u001b[0m'
 
@@ -214,9 +221,9 @@ describe('keyword presets', () => {
     assert.ok(df.includes(TC.size + '233G' + end) && df.includes(TC.size + '98G' + end), df)
     assert.ok(df.includes(TC.num + '45%' + end), df)
     const pci = addon.highlightKeywords('0000:3b:00.0 bridge usb 1-2')
-    assert.ok(pci.includes(magenta + '0000:3b:00.0' + end), pci)
+    assert.ok(pci.includes(TC.ip4 + '0000:3b:00.0' + end), pci)
     assert.equal(pci.includes(TC.num + '00.0'), false, 'the tail of a PCI address is not a bare number')
-    assert.ok(addon.highlightKeywords('lspci 00:02.0 VGA compatible').includes(magenta + '00:02.0' + end))
+    assert.ok(addon.highlightKeywords('lspci 00:02.0 VGA compatible').includes(TC.ip4 + '00:02.0' + end))
     assert.equal(addon.highlightKeywords('lspci 00:02.0').includes(TC.num), false)
     assert.ok(addon.highlightKeywords('0x4D7953514C').includes(TC.hex + '0x4D7953514C' + end))
 
@@ -262,14 +269,14 @@ describe('keyword presets', () => {
     assert.ok(req.includes('\u001b[33mstatus=404' + end), req)
     assert.ok(all.highlightKeywords('size 220 MB/s, 0.01 sec, 12 minutes').includes(TC.size + '220 MB/s' + end))
     assert.ok(all.highlightKeywords('took 1.5 s').includes(TC.dur + 'took 1.5 s' + end))
-    assert.ok(all.highlightKeywords('lspci 00:02.0 VGA').includes('\u001b[35m00:02.0' + end))
+    assert.ok(all.highlightKeywords('lspci 00:02.0 VGA').includes(TC.ip4 + '00:02.0' + end))
     assert.ok(all.highlightKeywords('Oct  9 08:57 report').includes(TC.ts + '08:57' + end))
     for (const name of ['Docker & Kubernetes', '通用 · 级别与状态']) {
       assert.ok(new KeywordHighlighterAddon(await resolve(name))
         .highlightKeywords('Job my-job Completed Succeeded').includes(green + 'Completed' + end), name)
     }
     assert.ok(new KeywordHighlighterAddon(await resolve('Linux kernel & dmesg'))
-      .highlightKeywords('pci 0000:3b:00.0').includes('\u001b[35m0000:3b:00.0' + end))
+      .highlightKeywords('pci 0000:3b:00.0').includes(TC.ip4 + '0000:3b:00.0' + end))
   })
 
   test('同一行在终端与数据库网格拿到完全一致的着色（两端共用 keyword-scan）', async () => {
@@ -354,9 +361,10 @@ describe('keyword presets', () => {
     const end = '\u001b[0m'
     const red = '\u001b[31m'
     const green = '\u001b[32m'
-    assert.ok(addon.highlightKeywords('nginx.service').includes('\u001b[34mnginx.service' + end))
-    assert.equal(addon.highlightKeywords('nginx.service').includes('\u001b[35mnginx' + end), false)
-    assert.ok(addon.highlightKeywords('10.1.2.3:443').includes('\u001b[35m10.1.2.3:443' + end))
+    assert.ok(addon.highlightKeywords('nginx.service').includes(TC.ident + 'nginx.service' + end))
+    assert.equal(addon.highlightKeywords('nginx.service').includes(TC.ident + 'nginx' + end), false,
+      'unit 名必须整段染色，不能只染 nginx')
+    assert.ok(addon.highlightKeywords('10.1.2.3:443').includes(TC.port + '10.1.2.3:443' + end))
     assert.equal(addon.highlightKeywords('10.1.2.3:443').includes(TC.ip4 + '10.1.2.3' + end), false)
     assert.ok(addon.highlightKeywords('ping 10.1.2.3 ok').includes(TC.ip4 + '10.1.2.3' + end))
     assert.ok(addon.highlightKeywords('404 /favicon.ico').includes(TC.path + '/favicon.ico' + end))
@@ -413,7 +421,8 @@ describe('keyword presets', () => {
       .highlightKeywords('request_time=0.012 upstream_response_time=0.008')
     assert.ok(both.includes(TC.dur + 'request_time=0.012\u001b[0m'), 'unit tail must not eat the next key')
     assert.ok(both.includes(TC.dur + 'upstream_response_time=0.008\u001b[0m'))
-    assert.equal((await addon('Networking')).highlightKeywords('address 10.1.2.3/24 masked').includes('\u001b[34m'), false)
+    assert.ok((await addon('Networking')).highlightKeywords('address 10.1.2.3/24 masked').includes(TC.ip4 + '10.1.2.3/24\u001b[0m'),
+      'CIDR 整段属于 ipv4 家族，不再被接口名规则分走')
   })
 
   test('Syslog preset colours severity and unit lifecycle', async () => {
@@ -422,7 +431,7 @@ describe('keyword presets', () => {
     const out = addon.highlightKeywords('Oct  9 08:57:36 host systemd[1]: nginx.service: Failed with result exit-code')
 
     assert.ok(out.includes('\u001b[31mFailed'))
-    assert.ok(out.includes('\u001b[34mnginx.service'))
+    assert.ok(out.includes(TC.ident + 'nginx.service'))
     assert.ok(addon.highlightKeywords('Started nginx.service.').includes('\u001b[32mStarted'))
   })
 
@@ -443,10 +452,10 @@ describe('keyword presets', () => {
     const addon = new KeywordHighlighterAddon(await resolve('Docker & Kubernetes'))
     const out = addon.highlightKeywords('nginx-7d9f8c6b5-x2k4p   0/1   CrashLoopBackOff   12 (30s ago)   5m')
 
-    assert.ok(out.includes('\u001b[35mnginx-7d9f8c6b5-x2k4p'))
+    assert.ok(out.includes(TC.artifact + 'nginx-7d9f8c6b5-x2k4p'))
     assert.ok(out.includes('\u001b[31mCrashLoopBackOff'))
-    assert.ok(out.includes('\u001b[35m12 (30s ago)'))
-    assert.ok(addon.highlightKeywords('0.0.0.0:8080->80/tcp').includes('\u001b[35m0.0.0.0:8080->80/tcp'))
+    assert.ok(out.includes(TC.port + '12 (30s ago)'))
+    assert.ok(addon.highlightKeywords('0.0.0.0:8080->80/tcp').includes(TC.port + '0.0.0.0:8080->80/tcp'))
   })
 
   test('Git preset colours conflicts and leaves the status letters alone', async () => {
@@ -464,13 +473,13 @@ describe('keyword presets', () => {
     const addon = new KeywordHighlighterAddon(await resolve('Database & SQL'))
 
     const sql = addon.highlightKeywords('SELECT id FROM users WHERE name IS NULL')
-    assert.ok(sql.includes('\u001b[34mSELECT'))
-    assert.ok(sql.includes('\u001b[34mFROM'))
-    assert.ok(sql.includes('\u001b[34mWHERE'))
+    assert.ok(sql.includes(TC.ident + 'SELECT'))
+    assert.ok(sql.includes(TC.ident + 'FROM'))
+    assert.ok(sql.includes(TC.ident + 'WHERE'))
     assert.ok(sql.includes('\u001b[35mNULL'))
 
-    assert.ok(addon.highlightKeywords('SELECT `db`.`t`').includes('\u001b[34m`db`'))
-    assert.ok(addon.highlightKeywords('SELECT "public"."users"').includes('\u001b[34m"public"."users"'))
+    assert.ok(addon.highlightKeywords('SELECT `db`.`t`').includes(TC.ident + '`db`'))
+    assert.ok(addon.highlightKeywords('SELECT "public"."users"').includes(TC.ident + '"public"."users"'))
 
     const err = addon.highlightKeywords('ERROR 1146 (42S02): Table users does not exist')
     assert.ok(err.includes('\u001b[31mERROR'))
@@ -482,11 +491,11 @@ describe('keyword presets', () => {
     assert.ok(status.includes('\u001b[32mrows affected'))
     // 耗时属于 duration 家族，家族色 = 真彩色 teal（V3 KU-6：结构档不再占用 ANSI cyan）
     assert.ok(status.includes(TC.dur + '(0.01 sec)'))
-    assert.ok(addon.highlightKeywords('(integer) 42').includes('\u001b[35m(integer)'))
+    assert.ok(addon.highlightKeywords('(integer) 42').includes(TC.num + '(integer)'))
     assert.ok(addon.highlightKeywords('(3 rows)').includes('\u001b[32m(3 rows)'))
 
     assert.ok(addon.highlightKeywords('2026-10-14 19:22:31').includes(TC.ts + '2026-10-14'))
-    assert.ok(addon.highlightKeywords('550e8400-e29b-41d4-a716-446655440000').includes('\u001b[35m550e8400'))
+    assert.ok(addon.highlightKeywords('550e8400-e29b-41d4-a716-446655440000').includes(TC.artifact + '550e8400'))
     assert.ok(addon.highlightKeywords('0x4D7953514C').includes(TC.hex + '0x4D7953514C'))
 
     const prose = 'the quick brown fox jumps over the lazy dog'

@@ -15,7 +15,7 @@
  */
 
 // 带扩展名：单测用 node 原生 ESM 加载本文件（vite 侧同样可用）
-import { keywordPresets, FAMILY_RANK, FAMILY_LAYERS } from './keyword-presets.js'
+import { keywordPresets, FAMILY_COLOR, FAMILY_RANK, FAMILY_LAYERS } from './keyword-presets.js'
 
 export const presetSource = 'preset'
 export const userSource = 'user'
@@ -72,7 +72,6 @@ for (const p of keywordPresets) {
     }
   }
 }
-
 /**
  * 一条规则的信号家族（只读派生，零迁移）：显式写了就用写的，preset 规则没写就按
  * 预设表补（覆盖批次 A 之前落盘的老配置），用户自定义规则没有家族。
@@ -88,6 +87,24 @@ export const ruleFamilyOf = (rule) => {
     return undefined
   }
   return presetFamilyByKeyword.get(rule.keyword)
+}
+
+/**
+ * 一条规则的生效颜色（只读派生，零迁移）：
+ *  - 预设规则的颜色永远等于家族色。配置里存的那份是老色板留下的快照（色板收紧批次
+ *    把结构档从 blue/magenta/cyan 迁到真彩色），预设行在面板里只读、用户改不到，
+ *    所以按家族重派生不会覆盖任何人的选择，还能让老配置直接拿到新色板；
+ *  - 用户自定义规则保留自选色（「同正则换颜色」这条合法诉求走的就是它）。
+ */
+export const ruleColorOf = (rule) => {
+  if (!rule) {
+    return undefined
+  }
+  if (rule.source !== presetSource) {
+    return rule.color
+  }
+  const family = ruleFamilyOf(rule)
+  return (family && FAMILY_COLOR[family]) || rule.color
 }
 
 // 用户规则（无家族）的兜底 rank：结构类落在「时间数值」层、语义类落在「状态词」层。
@@ -233,7 +250,8 @@ export const activeKeywords = list => {
     if (!isRuleOn(rule)) {
       continue
     }
-    const { keyword, color } = rule
+    const { keyword } = rule
+    const color = ruleColorOf(rule)
     // 档位必须在去重之前派生：同正则同色但不同档 = 两条语义不同的规则
     // （用户自定义 signal 撞预设 structure）。只按「正则 + 颜色」去重会让先到的
     // 那条遮蔽后一条的档位，覆盖率闸随后误丢 / 漏丢用户规则。
@@ -294,7 +312,7 @@ export const presetGroupView = (list, preset) => {
     const hit = applied.get(k.keyword)
     return {
       keyword: k.keyword,
-      color: (hit && hit.rule.color) || k.color,
+      color: (hit && ruleColorOf(hit.rule)) || k.color,
       rule: hit
         ? hit.rule
         : { keyword: k.keyword, color: k.color, source: presetSource, group: preset.name },
@@ -455,14 +473,15 @@ const ensureGroupsOn = (list, rootPreset, names) => {
     if (!p) continue
     // 这是「配置层」去重（同一组内一条规则只存一份），不是 activeKeywords 的生效
     // 去重：不能把 tier 加进来，否则同正则同色不同档会被重复插入，违反 V2
-    // 「一条正则全仓只存一份」。
+    // 「一条正则全仓只存一份」。键里同样不带 color：预设色由家族派生、面板只读，
+    // 色板收紧批次之后老配置里存的那份颜色已经过期，带上颜色会让同一条正则
+    // 被再写一遍（旧色一条 + 新色一条）。
     const mine = rules.filter(r => r.source === presetSource && r.group === name)
-    const have = new Set(mine.map(r => r.keyword + '\u0000' + (r.color || 'red')))
+    const have = new Set(mine.map(r => r.keyword))
     rules = rules.map(r => (r.source === presetSource && r.group === name ? resetOff(r, true) : r))
     for (const k of p.keywords) {
-      const key = k.keyword + '\u0000' + (k.color || 'red')
-      if (have.has(key)) continue
-      have.add(key)
+      if (have.has(k.keyword)) continue
+      have.add(k.keyword)
       rules.push({
         keyword: k.keyword,
         color: k.color,
@@ -625,12 +644,14 @@ export const regroupSharedRules = (list) => {
       out.push(r)
       continue
     }
-    const key = r.keyword + '\u0000' + (r.color || 'red')
+    const key = r.keyword
     if (seen.has(key)) continue
     seen.add(key)
-    // 若原组是业务组但规则属于某通用档（文本命中通用档定义），则改挂通用档
+    // 若原组是业务组但规则属于某通用档（文本命中通用档定义），则改挂通用档。
+    // 只按正则匹配：预设色是家族派生值，老配置里存的颜色可能还是旧色板快照，
+    // 拿颜色当条件会让这条折叠对老配置完全不生效。
     const owner = keywordPresets.find(p =>
-      (p.keywords || []).some(k => k.keyword === r.keyword && k.color === r.color))
+      (p.keywords || []).some(k => k.keyword === r.keyword))
     if (owner && universalNames.has(owner.name) && !universalNames.has(r.group)) {
       out.push({ ...r, group: owner.name })
     } else {

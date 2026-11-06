@@ -10,9 +10,30 @@ const loadGroups = () => import('../../client/common/keyword-groups.js')
 const loadCompile = () => import('../../client/common/keyword-compile.js')
 const loadScan = () => import('../../client/common/keyword-scan.js')
 
-// 七个 ANSI 语义名 = 主题映射，专门给「错误/警告/成功/信息/调试/空值/杂项」这类
-// 跨领域语义信号用。结构档占用它们就是「一个颜色两种语义」的开始。
+// ANSI 语义名 = 主题映射，专门给「错误/警告/成功/信息/调试/空值」这类跨领域语义信号
+// 用（white 留给用户自定义规则）。结构档占用它们就是「一个颜色两种语义」的开始。
 const ansiNames = new Set(['red', 'yellow', 'green', 'blue', 'magenta', 'cyan', 'white'])
+
+// sRGB → CIELAB → ΔE(1976)。终端底色是深色，配色是否"撞车"只能靠感知距离判断，
+// 肉眼在等宽字体上对色相+明度的差别远比对 RGB 差值敏感。
+const srgbToLab = (hex) => {
+  const h = hex.replace('#', '')
+  const lin = ([0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255))
+    .map(c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)))
+  const [r, g, b] = lin
+  const xyz = [
+    r * 0.4124 + g * 0.3576 + b * 0.1805,
+    r * 0.2126 + g * 0.7152 + b * 0.0722,
+    r * 0.0193 + g * 0.1192 + b * 0.9505
+  ]
+  const ref = [0.95047, 1, 1.08883]
+  const f = xyz.map((v, i) => {
+    const t = v / ref[i]
+    return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116
+  })
+  return [116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])]
+}
+const deltaE76 = (a, b) => Math.hypot(...srgbToLab(a).map((v, i) => v - srgbToLab(b)[i]))
 
 // 家族 → 规则列表（全量预设展开，按 family 归组）
 const familyIndex = async () => {
@@ -87,7 +108,7 @@ describe('V3 信号家族契约', () => {
     }
   })
 
-  test('KU-6 一色一语义：signal 档家族只用七个 ANSI 语义名（颜色即语义，跨主题稳定）', async () => {
+  test('KU-6 一色一语义：signal 档家族只用 ANSI 语义名（颜色即语义，跨主题稳定）', async () => {
     const { byFamily } = await familyIndex()
     for (const [family, list] of byFamily) {
       if (list[0].tier !== 'signal') continue
@@ -96,18 +117,102 @@ describe('V3 信号家族契约', () => {
     }
   })
 
-  // 棘轮：结构档占用 ANSI 语义名的家族数。这些家族应当逐个迁到真彩色
-  // （批次 E「色板收紧 KU-6」），只许降不许升；降到 0 后把基线改成 0 变成硬约束。
-  const STRUCTURE_ON_ANSI_BASELINE = 35
-  test('KU-6 棘轮：结构档占用 ANSI 语义名的家族数不得增加', async () => {
+  // 批次 E·B-1 之后这条从棘轮变成硬约束：结构档一律真彩色，
+  // 不再有任何结构家族住在 blue / magenta / cyan 上（原来 35 个）。
+  test('KU-6 一色一语义：结构档家族不得占用 ANSI 语义名', async () => {
     const { byFamily } = await familyIndex()
     const offenders = []
     for (const [family, list] of byFamily) {
       if (list[0].tier === 'structure' && ansiNames.has(list[0].color)) offenders.push(family)
     }
-    assert.ok(offenders.length <= STRUCTURE_ON_ANSI_BASELINE,
-      `结构档占用 ANSI 语义名的家族数 ${offenders.length} > 基线 ${STRUCTURE_ON_ANSI_BASELINE}：${offenders.join(' ')}。` +
-      '新增结构家族必须用真彩色（keywordPalette 里的 hex），不要挤进七个语义名。')
+    assert.deepEqual(offenders, [],
+      `结构档仍在占用语义名：${offenders.join(' ')}。结构家族必须用 COLOR_GROUPS 里的真彩色。`)
+  })
+
+  test('KU-6 色板构造：规则的 color 只能由 FAMILY_COLOR 派生，且一色一色组', async () => {
+    const { COLOR_GROUPS, FAMILY_GROUP, FAMILY_COLOR, FAMILY_RANK, keywordPresets } = await loadPresets()
+    // 一色一色组：同一个颜色值不得出现在两个色组上
+    const seen = new Map()
+    for (const [group, def] of Object.entries(COLOR_GROUPS)) {
+      assert.ok(def.label, `色组 ${group} 缺少说明`)
+      const prev = seen.get(def.color)
+      assert.equal(prev, undefined, `颜色 ${def.color} 同时属于色组 ${prev} 和 ${group}`)
+      seen.set(def.color, group)
+    }
+    // 家族必须登记色组，且派生色就是色组色
+    for (const family of Object.keys(FAMILY_GROUP)) {
+      assert.equal(FAMILY_COLOR[family], COLOR_GROUPS[FAMILY_GROUP[family]].color)
+      assert.ok(FAMILY_RANK[family] !== undefined, `家族 ${family} 未登记 FAMILY_RANK`)
+    }
+    // 预设规则的颜色一处不差（写死的手填色已经无法通过这里）
+    for (const p of keywordPresets) {
+      for (const k of p.keywords) {
+        assert.equal(k.color, FAMILY_COLOR[k.family],
+          `${p.name} 的规则颜色不是家族派生值：${k.color}`)
+      }
+    }
+  })
+
+  test('KU-6 取色器同步：色板里的每个色组颜色都必须在设置面板可选手色里', async () => {
+    const { COLOR_GROUPS } = await loadPresets()
+    const { keywordPalette } = await loadCompile()
+    const values = new Set(keywordPalette.map(p => p.value))
+    for (const [group, def] of Object.entries(COLOR_GROUPS)) {
+      assert.ok(values.has(def.color), `色组 ${group} 的 ${def.color} 没有出现在 keywordPalette 里`)
+    }
+  })
+
+  test('KU-6 色板无死色：每个色组至少被一个在用家族占用', async () => {
+    const { COLOR_GROUPS, FAMILY_GROUP } = await loadPresets()
+    const { byFamily } = await familyIndex()
+    const usedGroups = new Set()
+    for (const [family] of byFamily) usedGroups.add(FAMILY_GROUP[family])
+    const dead = Object.keys(COLOR_GROUPS).filter(g => !usedGroups.has(g))
+    assert.deepEqual(dead, [], `色组无人使用（死色，色板膨胀的来源）：${dead.join(' ')}`)
+  })
+
+  // 色板换了颜色，配置里存的那份是老色板的快照。预设行在面板里只读，所以读时按
+  // 家族重新派生颜色就是无损升级；用户自定义规则的自选色必须原样保留。
+  test('KU-6 零迁移：预设规则的旧色在读时被家族色覆盖，用户规则自选色不动', async () => {
+    const { keywordPresets, FAMILY_COLOR } = await loadPresets()
+    const { activeKeywords, ruleColorOf } = await loadGroups()
+    const interfaceRule = keywordPresets
+      .flatMap(p => p.keywords)
+      .find(k => k.family === 'interface-name')
+    const legacy = [
+      // 老配置：同一条预设正则，颜色还是色板收紧前的 ANSI blue
+      { keyword: interfaceRule.keyword, color: 'blue', source: 'preset', group: 'Networking' },
+      // 用户手动写的同一条正则，自选红色 —— 合法诉求，不能被派生覆盖
+      { keyword: interfaceRule.keyword, color: 'red', source: 'user' }
+    ]
+    assert.equal(ruleColorOf(legacy[0]), FAMILY_COLOR['interface-name'])
+    assert.equal(ruleColorOf(legacy[1]), 'red')
+    const active = activeKeywords(legacy)
+    assert.deepEqual(active.map(r => r.color), [FAMILY_COLOR['interface-name'], 'red'],
+      '预设条拿家族色、用户条拿自选色，两条都保留（这正是"同正则不同色"的合法场景）')
+  })
+
+  // ΔE(1976, CIELAB) 近邻棘轮：色板能不能被肉眼分辨，取决于色与色之间的距离，
+  // 而不是色的数量。基线是当前实测最小值（size ↔ path = 6.2，同一片淡蓝），
+  // 批次 E·B-2 重排淡蓝带后把 MIN_DELTA_E_BASELINE 抬到 18，变成硬门槛。
+  const MIN_DELTA_E_BASELINE = 6.2
+  test('KU-6 色板几何：结构色两两之间的最小 ΔE 不得跌破基线', async () => {
+    const { COLOR_GROUPS } = await loadPresets()
+    const hexes = Object.entries(COLOR_GROUPS).filter(([, d]) => /^#/.test(d.color))
+    let min = Infinity
+    let pair = ''
+    for (let i = 0; i < hexes.length; i++) {
+      for (let j = i + 1; j < hexes.length; j++) {
+        const d = deltaE76(hexes[i][1].color, hexes[j][1].color)
+        if (d < min) {
+          min = d
+          pair = `${hexes[i][0]}(${hexes[i][1].color}) ↔ ${hexes[j][0]}(${hexes[j][1].color})`
+        }
+      }
+    }
+    assert.ok(min >= MIN_DELTA_E_BASELINE - 0.05,
+      `结构色最小 ΔE ${min.toFixed(1)}（${pair}）跌破基线 ${MIN_DELTA_E_BASELINE}：` +
+      '新加的颜色和已经分得清的那个撞车了。')
   })
 
   test('KU-5 裁决：rank 由家族派生：用户规则无家族走档位默认，与预设正则逐字相同则继承家族 rank', async () => {

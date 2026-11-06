@@ -37,7 +37,7 @@ import {
 import './keywords-form.styl'
 
 const e = window.translate
-// 7 个语义命名色 + 真彩色扩展色板（结构类冷色系细分，尽量让不同正则不重色）
+// 取色器：ANSI 语义名（随主题）+ 与 COLOR_GROUPS 同源的 16 个结构真彩色
 const colors = keywordPalette.map(p => p.value)
 
 // antd 的 indeterminate 只能通过 DOM 属性设置
