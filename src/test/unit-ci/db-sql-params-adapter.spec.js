@@ -15,6 +15,8 @@ const POSTGRES_JS = path.join(ROOT, 'src/app/lib/db-client/postgres.js')
 const LOG_STUB = { debug () {}, info () {}, warn () {}, error () {} }
 const STRUCTURE_V2 = require(path.join(ROOT, 'src/app/lib/db-client/structure-v2.js'))
 const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
+// N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
+const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 
 const conn = { dbHost: 'h', dbPort: 3306, dbUser: 'u', dbPassword: 'p', dbName: 'd' }
 
@@ -25,6 +27,7 @@ function runInVm (src, stubs, filename) {
     exports: mod.exports,
     require: spec => {
       if (spec === '../../common/db-type-normalize') return TYPE_NORM
+      if (spec === './db-tls') return DB_TLS
       assert.ok(stubs[spec], 'unexpected require: ' + spec)
       return stubs[spec]
     },

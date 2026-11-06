@@ -4,6 +4,10 @@
  * 为什么留着手输入口：`:memory:` 与"还没建出来的新库路径"都要能填，而选择器只能
  * 挑已存在的文件；也方便从终端里拷来的路径直接粘贴。
  * 登记为字段类型 'dbFilePicker'（见 ./fields.jsx），只在 dbType=sqlite 时显示。
+ *
+ * N1 起同一组件再服务 'dbCaFilePicker'（TLS 的 CA 证书路径）：两者要的只是
+ * "路径输入框 + 原生文件选择 + 失焦归一"这套动作，差别只在对话框 filters 与文案，
+ * 所以由调用方传 dialogOptions/placeholder/chooseText，而不是抄第二份。
  */
 import { useState } from 'react'
 import { Button, Form, Input } from 'antd'
@@ -16,7 +20,20 @@ import {
 const e = window.translate
 const FormItem = Form.Item
 
-export default function DbFileField ({ form, layout, label, name, rules }) {
+export default function DbFileField ({
+  form,
+  layout,
+  label,
+  name,
+  rules,
+  // 下面三个都可省，省下的就是原来的"库文件"行为：
+  // 字段类型分开注册（dbFilePicker / dbCaFilePicker），共用同一个组件，
+  // 避免为多一个 CA 选择器再抄一份 Input + openDialog + trim 逻辑
+  dialogOptions = sqliteFileDialogOptions,
+  placeholder,
+  // 传的是 i18n key（不是已翻译的文本），组件内部统一 e()，与上面 placeholder 同口径
+  chooseText = 'dbFileChoose'
+}) {
   const [picking, setPicking] = useState(false)
 
   const pick = async () => {
@@ -24,7 +41,7 @@ export default function DbFileField ({ form, layout, label, name, rules }) {
     try {
       // window.api.openDialog 是主进程的 dialog.showOpenDialogSync
       const files = await window.api
-        .openDialog(sqliteFileDialogOptions(e('dbFileChoose')))
+        .openDialog(dialogOptions(e(chooseText)))
         .catch(() => null)
       const path = files && files.length ? files[0] : ''
       if (path) {
@@ -44,7 +61,7 @@ export default function DbFileField ({ form, layout, label, name, rules }) {
     >
       <Input
         allowClear
-        placeholder={e('dbFilePlaceholder')}
+        placeholder={placeholder === undefined ? e('dbFilePlaceholder') : e(placeholder)}
         // 失焦时归一（trim + 剥成对引号）。不用 Form.Item 的 normalize：那个每次按键都跑，
         // 路径里带空格就打不出来（"My DB/app.db" 会被 trim 成 "MyDB/app.db"）。
         // 也来不及在提交后收拾——主进程拿着带引号的路径只会报"打不开库文件"
@@ -60,7 +77,7 @@ export default function DbFileField ({ form, layout, label, name, rules }) {
             type='text'
             loading={picking}
             icon={<FolderOpenOutlined />}
-            title={e('dbFileChoose')}
+            title={e(chooseText)}
             onClick={pick}
           />
         }

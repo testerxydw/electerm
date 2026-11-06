@@ -9,6 +9,8 @@ const path = require('node:path')
 const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
+// N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
+const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 
@@ -65,6 +67,7 @@ function loadRedis (opts = {}) {
     module: mod,
     exports: mod.exports,
     require: spec => {
+      if (spec === './db-tls') return DB_TLS
       assert.equal(spec, 'ioredis')
       return Redis
     },

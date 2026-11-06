@@ -17,6 +17,8 @@ const JS = path.join(ROOT, 'src/app/lib/db-client/mysql.js')
 // 适配器顶部 require 的类型归一模块：vm 里未知 require 会转交宿主，而
 // `../../common/...` 是按**测试文件**目录解析的（会找不到），所以显式给真实模块
 const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
+// N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
+const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 
 // 假 pool：可配置每库表数据/延迟/失败；记录并发峰值
 function makePool (opts) {
@@ -65,6 +67,7 @@ function loadMysql (pool) {
   const stubs = {
     '../../common/log': { debug () {}, info () {}, warn () {}, error () {} },
     '../../common/db-type-normalize': TYPE_NORM,
+    './db-tls': DB_TLS,
     'mysql2/promise': {
       createPool () { return pool }
     }

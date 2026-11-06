@@ -8,6 +8,9 @@
 
 // sig → ioredis client
 const clients = new Map()
+
+// N1：TLS 档位（校验模式）的唯一口径，与 mysql/postgres 同一份实现
+const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
 // sig → per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
 const refs = new Map()
 // sig → 当前 SELECT 到的 db index（按连接记录，避免多连接互相干扰）
@@ -16,15 +19,29 @@ const currentDbMap = new Map()
 // 签名不含密码，避免密码出现在日志/调试信息中（与 mysql/postgres 一致）
 // B1：SSL/TLS 开关进签名 —— 同一 host:port 上切换 TLS 后必须拿到新 client，
 // 否则旧 client（明文/TLS）会被继续复用，"改了不生效"
+// N1：校验模式与 CA 内容一起进签名，档位口径在 db-tls（三引擎共用）
 function sig (conn) {
-  const sslTag = conn.dbSsl ? '|ssl=1' : '|ssl=0'
-  return `${conn.dbHost}:${conn.dbPort}${sslTag}`
+  return `${conn.dbHost}:${conn.dbPort}${tlsSigTag(conn)}`
 }
 
-// B1：连接级 TLS 选项。ioredis 的 `tls` 原样透传给 node tls.connect，
-// 内部自签证书场景用 rejectUnauthorized: false 跳过证书链校验
+// N1：连接级 TLS 选项。ioredis 的 `tls` 原样透传给 node tls.connect，
+// 档位解析与 CA 读取都在 db-tls，这里只负责 tls 键的封装形状
 function tlsOptions (conn) {
-  return conn.dbSsl ? { tls: { rejectUnauthorized: false } } : {}
+  const profile = resolveTlsProfile(conn)
+  if (!profile) {
+    return {}
+  }
+  if (profile.error) {
+    // CA 选了却读不到 → 建连失败并给出原因，不降级成"不校验"
+    throw new Error(profile.error)
+  }
+  // 证书身份校验不用另外开键：ioredis 把 tls 原样交给 node tls.connect，
+  // rejectUnauthorized 为真时 node 默认就做（mysql2 才需要 verifyIdentity）
+  const tls = { rejectUnauthorized: profile.rejectUnauthorized }
+  if (profile.ca) {
+    tls.ca = profile.ca
+  }
+  return { tls }
 }
 
 function createClient (conn) {
@@ -46,6 +63,37 @@ function createClient (conn) {
   return c
 }
 
+// ioredis 把建连失败统一包成 "Connection is closed."：真正的死因（证书校验不通过、
+// 认证失败、端口不通）只出现在 error 事件上，而 createClient 里那个吞错监听是为了
+// 不让 ioredis 因"未监听 error"抛未捕获异常。N1 的验收线要求"校验开启且证书有问题时
+// **报证书错误**"，只报"连接已关闭"用户就分不清是自己选的档位拦住了还是网络故障，
+// 所以建连这一步临时挂一个收集器，把真实原因取回来。
+function withRealCause (e, lastError) {
+  if (!lastError || lastError === e) {
+    return e
+  }
+  const msg = String((e && e.message) || '')
+  if (!/^Connection is closed\.?$/i.test(msg.trim())) {
+    return e
+  }
+  const real = new Error('redis connect failed: ' + String((lastError && lastError.message) || lastError))
+  real.code = (lastError && lastError.code) || (e && e.code)
+  real.cause = lastError
+  return real
+}
+
+async function connectClient (c) {
+  let lastError = null
+  // 不摘监听：createClient 出来的 client 只 connect 一次（失败即 disconnect 且不进
+  // clients 表），所以这条收集器和 client 同生命周期，摘不摘都不会串到下一次连接
+  c.on('error', e => { lastError = e })
+  try {
+    await c.connect()
+  } catch (e) {
+    throw withRealCause(e, lastError)
+  }
+}
+
 async function getClient (conn) {
   const key = sig(conn)
   if (clients.has(key)) {
@@ -53,7 +101,7 @@ async function getClient (conn) {
   }
   const c = createClient(conn)
   try {
-    await c.connect()
+    await connectClient(c)
   } catch (e) {
     // 建连失败的 client 不进 clients 表，但它的 socket 与状态机已经建立：
     // 不主动 disconnect 就没人再持有它、也没人会关它
@@ -128,7 +176,7 @@ async function useDb (conn, dbIndex) {
 async function testRedisConnection (conn) {
   const c = createClient(conn)
   try {
-    await c.connect()
+    await connectClient(c)
     const res = await c.ping()
     return `redis ${res}`
   } finally {

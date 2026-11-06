@@ -26,6 +26,11 @@ export function isDbFileType (dbType) {
   return dbFileTypes.has(String(dbType === null || dbType === undefined ? '' : dbType))
 }
 
+// N1：CA 证书文件的常见扩展名。node tls 只吃 PEM（`ca` 传字符串/Buffer），
+// 但用户手上的内网根证书叫 .crt/.cer/.pem/.ca-bundle 都有，一律放开由服务端解析报错兜底；
+// 另加 All files，避免"我的根证书没有扩展名就选不了"。
+export const CA_FILE_EXTS = ['pem', 'crt', 'cer', 'ca-bundle', 'bundle', 'txt']
+
 /**
  * 文件选择器参数（preload 的 window.api.openDialog 直通 Electron
  * dialog.showOpenDialogSync，所以这里给的就是 Electron 选项）。
@@ -39,6 +44,25 @@ export function sqliteFileDialogOptions (title) {
     properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
     filters: [
       { name: 'SQLite database', extensions: SQLITE_FILE_EXTS },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  }
+}
+
+/**
+ * N1：CA 证书选择器参数。与库文件选择器同构，只是 filters 换掉——
+ * 单独一个函数而不是给上面那个加参数：两者会被不同字段各自钉死，
+ * 合并成带开关的版本反而容易被后加的调用方漏传参数而静默走错分支。
+ * @param {string} title 对话框标题（已翻译的文案）
+ * @returns {Object} openDialog 选项
+ */
+export function caFileDialogOptions (title) {
+  return {
+    title,
+    message: title,
+    properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
+    filters: [
+      { name: 'CA certificate', extensions: CA_FILE_EXTS },
       { name: 'All files', extensions: ['*'] }
     ]
   }

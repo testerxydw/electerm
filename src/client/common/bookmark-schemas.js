@@ -182,6 +182,9 @@ export const databaseBookmarkSchema = {
   readOnly: z.boolean().optional().describe('Read only mode: only SELECT/SHOW/DESC/EXPLAIN statements are executed, default is true'),
   production: z.boolean().optional().describe('Production connection: every non-query statement needs a second confirmation with the database name typed in, default is false'),
   dbSsl: z.boolean().optional().describe('Use TLS/SSL for DB connection'),
+  // N1：校验档位。缺省按 'none' 解释（旧书签只有 dbSsl 布尔，升级当天不能连不上自签内网盘）
+  dbSslVerify: z.enum(['none', 'system', 'ca']).optional().describe('TLS certificate verification mode, only meaningful when dbSsl is true; defaults to none for legacy bookmarks'),
+  dbSslCa: z.string().optional().describe('Absolute path of the CA certificate file used to verify the server, only used when dbSslVerify is ca'),
   color: z.string().optional().describe('Tag color, like #000000'),
   description: z.string().optional().describe('Bookmark description')
 }

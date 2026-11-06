@@ -30,6 +30,7 @@ import SshAuthSelector from './ssh-auth-selector.jsx'
 import CategorySelect from './category-select.jsx'
 import ExternalLink from '../../common/external-link.jsx'
 import { dbDefaultPortMap, dbFileTypes } from '../../../common/constants.js'
+import { caFileDialogOptions } from '../../../common/db-file.js'
 const Fragment = React.Fragment
 const FormItem = Form.Item
 
@@ -270,6 +271,20 @@ export function renderFormItem (item, formItemLayout, form, ctxProps, index) {
           label={typeof label === 'string' ? label : label()}
           name={name}
           rules={rules}
+        />
+      )
+    case 'dbCaFilePicker':
+      // N1：TLS CA 证书路径 —— 与库文件同一个组件，只换对话框 filters 与文案
+      return (
+        <DbFileField
+          key={name}
+          form={form}
+          layout={formItemLayout}
+          label={typeof label === 'string' ? label : label()}
+          name={name}
+          rules={rules}
+          dialogOptions={caFileDialogOptions}
+          placeholder={item.placeholder}
         />
       )
     case 'sshHostSelector':

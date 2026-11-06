@@ -5,6 +5,8 @@
 
 const log = require('../../common/log')
 const { normalizeMysqlType, toColumns } = require('../../common/db-type-normalize')
+// N1：TLS 档位（校验模式）的唯一口径，三适配器共用
+const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
 
 const pools = new Map()
 // per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
@@ -12,15 +14,32 @@ const refs = new Map()
 
 function sig (conn) {
   // B1：SSL 开关进签名 —— 同一 host:port 上切换 SSL 后必须拿到新池，
-  // 否则旧池（明文/TLS）会被继续复用，"改了不生效"
-  const sslTag = conn.dbSsl ? '|ssl=1' : '|ssl=0'
-  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}${sslTag}`
+  // 否则旧池（明文/TLS）会被继续复用，"改了不生效"。
+  // N1：标记由 db-tls 统一给，校验模式与 CA 文件内容一起进签名（换 CA 也要换新池）
+  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}${tlsSigTag(conn)}`
 }
 
-// B1：连接级 TLS/SSL 选项。内部自签证书场景，
-// 采用 rejectUnauthorized: false 跳过证书链校验（与设计一致）
+// N1：连接级 TLS 选项。校验档位（none / system / ca）全部由 db-tls 解析，
+// 这里只负责 mysql2 的 ssl 键封装形状。
+// verifyIdentity 是 mysql2 独有的开关（node 系驱动默认就校验证书身份），
+// 不摊它的话 MySQL 的严格档位只验链不验名——理由见 ./db-tls.js 的函数注释。
 function sslOptions (conn) {
-  return conn.dbSsl ? { ssl: { rejectUnauthorized: false } } : {}
+  const profile = resolveTlsProfile(conn)
+  if (!profile) {
+    return {}
+  }
+  if (profile.error) {
+    // CA 选了却读不到 → 不降级成"不校验"，直接建连失败并给出可诊断原因
+    throw new Error(profile.error)
+  }
+  const ssl = { rejectUnauthorized: profile.rejectUnauthorized }
+  if (profile.verifyIdentity) {
+    ssl.verifyIdentity = true
+  }
+  if (profile.ca) {
+    ssl.ca = profile.ca
+  }
+  return { ssl }
 }
 
 // acquire 失败回滚：refs 在 acquire 入口就 +1，而 openDbTab 只在 acquire **成功**
@@ -113,7 +132,7 @@ async function getPool (conn) {
     // 支持一次执行多条语句（分号分隔）→ 多结果集；
     // 只读模式下"全句写关键词扫描"会拦住 `SELECT 1; DROP TABLE t` 这类组合，故不放大写风险
     multipleStatements: true,
-    // B1：SSL/TLS 开关（覆盖内部自签场景，采用 rejectUnauthorized: false 跳过证书校验）
+    // B1/N1：SSL/TLS 与证书校验档位（档位口径见 ./db-tls.js）
     ...sslOptions(conn)
   })
   pools.set(key, pool)

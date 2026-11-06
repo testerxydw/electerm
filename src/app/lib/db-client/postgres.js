@@ -6,6 +6,8 @@
  */
 
 const { normalizePgType, toColumns } = require('../../common/db-type-normalize')
+// N1：TLS 档位（校验模式）的唯一口径，三适配器共用
+const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
 
 const clients = new Map()
 // per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
@@ -13,15 +15,28 @@ const refs = new Map()
 
 function sig (conn) {
   // B1：SSL 开关进签名 —— 同一 host:port 上切换 SSL 后必须拿到新 client，
-  // 否则旧 client（明文/TLS）会被继续复用，"改了不生效"
-  const sslTag = conn.dbSsl ? '|ssl=1' : '|ssl=0'
-  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}${sslTag}`
+  // 否则旧 client（明文/TLS）会被继续复用，"改了不生效"。
+  // N1：标记由 db-tls 统一给，校验模式与 CA 文件内容一起进签名
+  return `${conn.dbHost}:${conn.dbPort}:${conn.dbUser}:${conn.dbName || ''}${tlsSigTag(conn)}`
 }
 
-// B1：连接级 TLS/SSL 选项。内部自签证书场景，
-// 采用 rejectUnauthorized: false 跳过证书链校验（与设计一致）
+// N1：连接级 TLS 选项，档位解析在 db-tls，这里只封装 pg 的 ssl 键形状
 function sslOptions (conn) {
-  return conn.dbSsl ? { ssl: { rejectUnauthorized: false } } : {}
+  const profile = resolveTlsProfile(conn)
+  if (!profile) {
+    return {}
+  }
+  if (profile.error) {
+    // 选了 CA 却读不到：宁可建连失败，也不静默退回"不校验"
+    throw new Error(profile.error)
+  }
+  // 证书身份校验不用另外开键：pg 把 ssl 原样交给 node tls.connect，
+  // rejectUnauthorized 为真时 node 默认就做（mysql2 才需要 verifyIdentity）
+  const ssl = { rejectUnauthorized: profile.rejectUnauthorized }
+  if (profile.ca) {
+    ssl.ca = profile.ca
+  }
+  return { ssl }
 }
 
 // F2：共享连接与事务专用连接共用一套建连参数
@@ -33,7 +48,7 @@ function clientOptions (conn) {
     password: conn.dbPassword || undefined,
     database: conn.dbName || conn.dbUser,
     connectionTimeoutMillis: 8000,
-    // B1：SSL/TLS 开关（覆盖内部自签场景，采用 rejectUnauthorized: false 跳过证书校验）
+    // B1/N1：SSL/TLS 与证书校验档位（档位口径见 ./db-tls.js）
     ...sslOptions(conn)
   }
 }

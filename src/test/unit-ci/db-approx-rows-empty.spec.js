@@ -18,6 +18,8 @@ const vm = require('node:vm')
 const ROOT = path.join(__dirname, '../../..')
 const JS = path.join(ROOT, 'src/app/lib/db-client/mysql.js')
 const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
+// N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
+const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 // getTableStructure 里惰性 require 的 './structure-v2'：vm 的未知 require 会转交宿主，
 // 而相对路径是按**测试文件**目录解析的（会找不到），所以显式给真实模块
 const STRUCTURE_V2 = require(path.join(ROOT, 'src/app/lib/db-client/structure-v2.js'))
@@ -96,6 +98,7 @@ function loadMysql (pool) {
   const stubs = {
     '../../common/log': { debug () {}, info () {}, warn () {}, error () {} },
     '../../common/db-type-normalize': TYPE_NORM,
+    './db-tls': DB_TLS,
     './structure-v2': STRUCTURE_V2,
     'mysql2/promise': { createPool () { return pool } }
   }

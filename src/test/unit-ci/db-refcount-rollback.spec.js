@@ -17,6 +17,8 @@ const ROOT = path.join(__dirname, '../../..')
 // H1a-3：适配器顶部 require 的类型归一模块（纯函数、无依赖）。vm 里的 require 是白名单式，
 // 不给这一条就是“还没跑到被测函数就先 unexpected require”
 const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js'))
+// N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
+const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 const INDEX = path.join(ROOT, 'src/app/lib/db-client/index.js')
 const REDIS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const PG = path.join(ROOT, 'src/app/lib/db-client/postgres.js')
@@ -34,6 +36,7 @@ function loadSource (file, fakeModules, extraSandbox = {}) {
         return fakeModules[name]
       }
       if (name === '../../common/db-type-normalize') return TYPE_NORM
+      if (name === './db-tls') return DB_TLS
       throw new Error('unexpected require: ' + name)
     },
     console,

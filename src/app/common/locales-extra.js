@@ -768,7 +768,15 @@ const en = {
   dbRiskBypassReadonly: 'Read-only mode: writes are blocked by the main process',
   dbRiskBypassOn: 'Protection suspended for {n} minutes, will be restored automatically',
   dbProductionFlag: 'Production connection',
-  dbUseSsl: 'Use TLS/SSL (self-signed allowed)',
+  dbUseSsl: 'Use TLS/SSL connection',
+  // —— N1 TLS 证书校验档位（连接表单）——
+  dbSslVerifyLabel: 'Certificate verification',
+  dbSslVerifySystem: 'Verify against system CA roots',
+  dbSslVerifyCa: 'Verify against a specific CA file',
+  dbSslVerifyNone: 'Encrypt only, do not verify (MITM risk)',
+  dbSslCaFile: 'CA certificate file',
+  dbSslCaPlaceholder: 'Absolute path of the CA certificate (PEM / .crt / .cer)',
+  dbSslVerifyHint: 'TLS applies only when the switch above is on. "Encrypt only" keeps the old behaviour of self-signed internal servers but does not verify the certificate chain, so a man-in-the-middle is not detected. With an SSH tunnel the peer name seen is 127.0.0.1, so verifying against system roots usually fails on name mismatch.',
   dbProductionHint: 'Production connection: every non-query statement needs a second confirmation with the database name typed in',
   // —— H8a 本地文件引擎（sqlite）连接表单 ——
   dbFile: 'Database file',
@@ -1975,7 +1983,15 @@ const zhCn = {
   dbRiskBypassReadonly: '只读模式：写操作由主进程拦截',
   dbRiskBypassOn: '保护已临时解除 {n} 分钟，到期自动恢复',
   dbProductionFlag: '生产连接',
-  dbUseSsl: '使用 TLS/SSL（允许自签名证书）',
+  dbUseSsl: '使用 TLS/SSL 连接',
+  // —— N1 TLS 证书校验档位（连接表单）——
+  dbSslVerifyLabel: '证书校验方式',
+  dbSslVerifySystem: '用系统根证书校验',
+  dbSslVerifyCa: '用指定 CA 文件校验',
+  dbSslVerifyNone: '只加密、不校验（有中间人风险）',
+  dbSslCaFile: 'CA 证书文件',
+  dbSslCaPlaceholder: 'CA 证书绝对路径（PEM / .crt / .cer）',
+  dbSslVerifyHint: 'TLS 仅在上面开关打开时生效。“只加密、不校验”沿用旧版对自签内网盘的行为，但不验证证书链，中间人攻击无法被发现。',
   dbProductionHint: '生产连接：所有非查询语句都要二次确认并输入库名',
   // —— H8a 本地文件引擎（sqlite）连接表单 ——
   dbFile: '库文件',

@@ -17,6 +17,8 @@ import path from 'path'
 import vm from 'vm'
 import { describe, test } from 'node:test'
 import TYPE_NORM from '../../app/common/db-type-normalize.js'
+// N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
+import DB_TLS from '../../app/lib/db-client/db-tls.js'
 
 const logStub = { debug () {}, warn () {}, error () {} }
 
@@ -30,6 +32,7 @@ function loadAdapter (filePath, fakeModules) {
     // H1a-3：适配器顶部 require 的类型归一模块（纯函数、无依赖）。vm 里的 require
     // 是白名单式，不给这一条就是“还没跑到被测函数就先 unexpected require”
     if (name === '../../common/db-type-normalize') return TYPE_NORM
+    if (name === './db-tls') return DB_TLS
     throw new Error('unexpected require: ' + name)
   }
   const ctx = { module: mod, exports: mod.exports, require, console, setTimeout, clearTimeout }
