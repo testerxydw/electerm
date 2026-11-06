@@ -1,184 +1,37 @@
 /**
- * batch input module
+ * 底栏广播入口（原批量输入触发器）
  *
- * Unified click-to-open behavior for mobile and desktop:
- *   - click the compact trigger -> expand the textarea + tab-select panel
- *   - click outside the panel    -> collapse it
- *   - press Enter in the textarea -> send `cmd` to all selected tabs
- *
- * On desktop the compact trigger is rendered as a read-only Input that only
- * serves as a clickable affordance — it is never a real input. On mobile it
- * is a small "B" button to save horizontal space. The open/close logic is
- * identical for both.
+ * 批量输入已并入 G1 广播：控件保留在底栏原位（桌面是输入形状的触发器、
+ * 移动端是 B 按钮），点击只打开广播目标选择弹层，与顶栏图标 / 右键 /
+ * 快捷键共用 store.openBroadcastPicker。底栏默认落在「发送一次」档，承接
+ * 原来「输入一条命令发到多台」的用法；弹层里可切回「持续广播」。
  */
-
-import { Component, createRef } from 'react'
-import {
-  Button,
-  Input
-} from 'antd'
-import { isShellSessionTab } from '../../common/constants'
-import TabSelect from './tab-select'
-import classNames from 'classnames'
-import deepCopy from 'json-deep-copy'
+import { Button, Input } from 'antd'
 
 const e = window.translate
 
-export default class BatchInput extends Component {
-  constructor (props) {
-    super(props)
-    this.state = {
-      cmd: '',
-      open: false
-    }
-    this.outerRef = createRef()
-    this.textAreaRef = createRef()
-  }
-
-  componentDidMount () {
-    document.addEventListener('mousedown', this.handleDocClick)
-  }
-
-  componentWillUnmount () {
-    document.removeEventListener('mousedown', this.handleDocClick)
-  }
-
-  // Collapse the panel when the user clicks anywhere outside of it.
-  // Clicks inside an antd Popover (e.g. the tab-select popover, which renders
-  // in a portal outside this node) are treated as "inside" so interacting with
-  // tab selection does not collapse the panel.
-  handleDocClick = (ev) => {
-    if (!this.state.open) {
-      return
-    }
-    const node = this.outerRef.current
-    if (node && node.contains(ev.target)) {
-      return
-    }
-    if (ev.target && ev.target.closest && ev.target.closest('.ant-popover')) {
-      return
-    }
-    this.setState({ open: false })
-  }
-
-  handleToggle = () => {
-    const willOpen = !this.state.open
-    if (willOpen) {
-      window.store.filterBatchInputSelectedTabIds()
-    }
-    this.setState({ open: willOpen }, () => {
-      if (willOpen && this.textAreaRef.current) {
-        this.textAreaRef.current.focus()
-      }
-    })
-  }
-
-  handleSubmit = (ev) => {
-    const { batchInputSelectedTabIds } = this.props
-    const { cmd } = this.state
-    if (!cmd.trim()) {
-      return
-    }
-    // 无 shell 会话 tab 可选时（选中集为空）不发送也不记历史
-    if (!batchInputSelectedTabIds.length) {
-      return
-    }
-    window.store.addBatchInput(cmd)
-    this.props.input(cmd, Array.from(batchInputSelectedTabIds))
-    this.setState({
-      cmd: '',
-      open: false
-    })
-    ev?.stopPropagation()
-  }
-
-  handleChange = (ev) => {
-    this.setState({
-      cmd: ev.target.value
-    })
-  }
-
-  getTabs = () => {
-    const { activeTabId } = this.props
-    // 只列有终端实例的 shell 会话 tab（白名单见 constants.js
-    // isShellSessionTab）：database/rdp/vnc 等无终端，选了也发不出去
-    return deepCopy(this.props.tabs.filter(isShellSessionTab)).sort((a, b) => {
-      // current tab goes first
-      if (a.id === activeTabId) return -1
-      if (b.id === activeTabId) return 1
-      return 0
-    })
-  }
-
-  renderTrigger () {
-    const { isMobile } = this.props
-    if (isMobile) {
-      return (
-        <Button
-          size='small'
-          type='text'
-          onClick={this.handleToggle}
-        >
-          B
-        </Button>
-      )
-    }
-    // Desktop: an input-shaped, read-only affordance. It is NOT a real input —
-    // clicking it expands the panel where the user actually types.
-    // Borderless so it blends into the footer background.
+export default function BroadcastInputTrigger (props) {
+  const open = () => window.store.openBroadcastPicker('once')
+  if (props.isMobile) {
     return (
-      <Input
+      <Button
         size='small'
-        readOnly
-        variant='borderless'
-        placeholder={e('batchInput')}
-        className='batch-input-holder'
-        style={{ cursor: 'pointer' }}
-        onClick={this.handleToggle}
-      />
-    )
-  }
-
-  render () {
-    const { open } = this.state
-    const { batchInputSelectedTabIds } = this.props
-    const cls = classNames(
-      'batch-input-outer',
-      { 'bi-show': open }
-    )
-    const textAreaProps = {
-      ref: this.textAreaRef,
-      onPressEnter: this.handleSubmit,
-      onChange: this.handleChange,
-      value: this.state.cmd,
-      size: 'small',
-      autoSize: { minRows: 2, maxRows: 6 },
-      placeholder: e('batchInput'),
-      allowClear: true
-    }
-    const tabSelectProps = {
-      activeTabId: this.props.activeTabId,
-      tabs: this.getTabs(),
-      selectedTabIds: batchInputSelectedTabIds,
-      onSelectAll: window.store.selectAllBatchInputTabs,
-      onSelectNone: window.store.selectNoneBatchInputTabs,
-      onSelect: window.store.onSelectBatchInputSelectedTabId
-    }
-    return (
-      <span
-        className={cls}
-        ref={this.outerRef}
+        type='text'
+        onClick={open}
       >
-        <span className='bi-compact'>
-          {this.renderTrigger()}
-        </span>
-        <span className='bi-full'>
-          <Input.TextArea
-            {...textAreaProps}
-          />
-          <TabSelect {...tabSelectProps} />
-        </span>
-      </span>
+        B
+      </Button>
     )
   }
+  return (
+    <Input
+      size='small'
+      readOnly
+      variant='borderless'
+      placeholder={e('batchInput')}
+      className='batch-input-holder'
+      style={{ cursor: 'pointer' }}
+      onClick={open}
+    />
+  )
 }

@@ -121,6 +121,8 @@ export default () => {
       blocked: null
     },
     broadcastPickerOpen: false,
+    // 打开广播弹层时的默认档：continuous（顶栏/右键/快捷键） / once（底栏入口）
+    broadcastPickerMode: 'continuous',
     aiChatHistory: [],
     agentRunning: false,
     // ask turns and the agent loop compact their conversation when the window

@@ -196,39 +196,14 @@
 .terminal-footer-triggers
   display flex
   align-items center
-.batch-input-outer
-  position relative
-  .bi-full
-    display none
-  &.bi-show
-    // hide the trigger while the popup is open so we don't show two
-    // "batch input" fields at once (desktop trigger is an input-shaped affordance)
-    .bi-compact
-      display none
-    .bi-full
-      display flex
-      flex-direction column
-      gap 6px
-      position absolute
-      bottom 100%
-      left 0
-      z-index 1000
-      background var(--main)
-      padding 8px 10px
-      box-shadow var(--shadow-2)
-      border-radius var(--radius) var(--radius) 0 0
-      min-width 360px
+// 底栏广播入口：只保留点击触发器，展开面板已并入广播弹层
 .batch-input-holder
   width 100px
   // antd v5 placeholder 默认黑色系(rgba(0,0,0,.25)), 暗色主题下不可见,
-  // 触发器整块看起来像空白; 换主题 token 让"批量输入"提示字可见
+  // 触发器整块看起来像空白; 换主题 token 让提示字可见
   &::placeholder
     color var(--text-disabled)
-.remote-monitor-bar-on
-  .batch-input-outer.bi-show
-    .bi-full
-      bottom calc(100% + 28px)
-// a terminal button in the batch input and "run in terminals" lists: long
+// a terminal button in the "run in terminals" lists: long
 // titles end in an ellipsis instead of running past the popup, and the
 // button's title attribute still shows the full name on hover
 .batch-tab-item

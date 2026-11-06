@@ -154,3 +154,37 @@ export function mirrorInput ({
   }
   return sent
 }
+
+/**
+ * 一次性发送：借 mirrorInput 的闸门把一段文本扇到目标，不留持续广播态。
+ * 与持续广播共用唯一扇出点，因此密码期 / OSC 应答 / 防环闸门一致生效。
+ * includeSource 时主控单独走自己的 addon —— 主控不是镜像目标，避免同一条
+ * 命令被发两次（主控输入本身就是数据来源）。
+ */
+export function sendOnceToTargets ({
+  targets = [],
+  sourceTabId,
+  data,
+  includeSource = false,
+  getAddon = getBroadcastAddon
+} = {}) {
+  const sent = mirrorInput({
+    state: { on: true, sourceTabId, targets, blocked: null },
+    sourceTabId,
+    data,
+    getAddon
+  })
+  if (includeSource && sourceTabId) {
+    const addon = getAddon(sourceTabId)
+    if (addon && !addon.disposed && !addon._passwordPromptDetected) {
+      addon._broadcastDepth = (addon._broadcastDepth || 0) + 1
+      try {
+        addon.sendToServer(data)
+        sent.push(sourceTabId)
+      } finally {
+        addon._broadcastDepth -= 1
+      }
+    }
+  }
+  return sent
+}

@@ -1,18 +1,24 @@
 /**
  * G1 广播输入目标选择弹层（设计 §14.2）
  *
+ * 两种模式共用同一份目标选择 + 生产机二次确认：
+ *   - 持续广播：主控每次按键实时镜像到目标，直到手动退出
+ *   - 发送一次：把一条（可多行）命令发到目标后立即结束，主控后续输入不参与
+ *
  * 默认勾选全部非生产 shell 会话；选中里含生产机时先在同弹层里换到确认步骤
- * （列出主机名），确认后才真正开启广播。目标断连由 store 自动移出。
+ * （列出主机名），确认后才真正发送。目标断连由 store 自动移出。
  */
 import { useEffect, useState } from 'react'
 import { auto } from 'manate/react'
-import { Modal, Checkbox, Button } from 'antd'
+import { Modal, Checkbox, Button, Segmented, Input } from 'antd'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import { isShellSessionTab } from '../../common/constants'
 import './broadcast.styl'
 
 const e = window.translate
+const MODE_CONTINUOUS = 'continuous'
+const MODE_ONCE = 'once'
 
 function titleOf (tab) {
   return tab.title || tab.host || tab.id
@@ -23,6 +29,9 @@ export default auto(function BroadcastModal () {
   const open = !!store.broadcastPickerOpen
   const [selected, setSelected] = useState([])
   const [step, setStep] = useState('pick')
+  const [mode, setMode] = useState(MODE_CONTINUOUS)
+  const [cmd, setCmd] = useState('')
+  const [includeSource, setIncludeSource] = useState(false)
 
   const sourceTab = store.currentTab
   const candidates = store.tabs.filter(
@@ -36,18 +45,22 @@ export default auto(function BroadcastModal () {
       return
     }
     setStep('pick')
+    setMode(store.broadcastPickerMode === MODE_ONCE ? MODE_ONCE : MODE_CONTINUOUS)
+    setCmd('')
+    setIncludeSource(false)
     setSelected(
       candidates
         .filter(t => t.production !== true)
         .map(t => t.id)
     )
     // 只在打开瞬间或候选集合变化时重置，用户勾选过程不被打断
-  }, [open, signature])
+  }, [open, signature, store.broadcastPickerMode])
 
   if (!open) {
     return null
   }
 
+  const once = mode === MODE_ONCE
   const selectedTabs = candidates.filter(t => selected.includes(t.id))
   const prodTabs = selectedTabs.filter(t => t.production === true)
 
@@ -57,15 +70,41 @@ export default auto(function BroadcastModal () {
     ))
   }
 
+  function run () {
+    if (once) {
+      return store.sendBroadcastOnce(cmd, selected, includeSource)
+    }
+    return store.startBroadcast(selected)
+  }
+
   function submit () {
-    if (!selected.length) {
+    if (once) {
+      if (!cmd.trim()) {
+        return message.warning(e('broadcastOnceEmpty'))
+      }
+      if (!selected.length && !includeSource) {
+        return message.warning(e('broadcastNoTarget'))
+      }
+    } else if (!selected.length) {
       return message.warning(e('broadcastNoTarget'))
     }
     if (prodTabs.length) {
       setStep('confirm')
       return
     }
-    store.startBroadcast(selected)
+    return run()
+  }
+
+  function handleCmdKeyDown (ev) {
+    // Enter 提交，Shift+Enter 换行（多行脚本靠粘贴或 Shift+Enter）
+    // 输入法组字期间的 Enter 只用于选字，不能触发发送
+    if (ev.nativeEvent && ev.nativeEvent.isComposing) {
+      return
+    }
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault()
+      submit()
+    }
   }
 
   function renderList () {
@@ -96,10 +135,44 @@ export default auto(function BroadcastModal () {
     )
   }
 
+  function renderOnce () {
+    if (!once) {
+      return null
+    }
+    return (
+      <div className='broadcast-once'>
+        <Input.TextArea
+          value={cmd}
+          onChange={ev => setCmd(ev.target.value)}
+          onKeyDown={handleCmdKeyDown}
+          autoSize={{ minRows: 2, maxRows: 6 }}
+          placeholder={e('broadcastOnceCmd')}
+        />
+        <Checkbox
+          checked={includeSource}
+          onChange={ev => setIncludeSource(ev.target.checked)}
+        >
+          {e('broadcastIncludeSource')}
+        </Checkbox>
+      </div>
+    )
+  }
+
   function renderPick () {
     return (
       <div className='broadcast-pick'>
-        <p className='broadcast-desc'>{e('broadcastDesc')}</p>
+        <Segmented
+          block
+          value={mode}
+          onChange={setMode}
+          options={[
+            { label: e('broadcastModeContinuous'), value: MODE_CONTINUOUS },
+            { label: e('broadcastModeOnce'), value: MODE_ONCE }
+          ]}
+        />
+        <p className='broadcast-desc'>
+          {once ? e('broadcastOnceDesc') : e('broadcastDesc')}
+        </p>
         {sourceTab
           ? (
             <p className='broadcast-desc'>
@@ -107,6 +180,7 @@ export default auto(function BroadcastModal () {
             </p>
             )
           : null}
+        {renderOnce()}
         {renderList()}
         <div className='broadcast-tools'>
           <Button
@@ -130,7 +204,9 @@ export default auto(function BroadcastModal () {
     return (
       <div className='broadcast-confirm'>
         <p className='broadcast-prod-warn'>
-          <ExclamationCircleOutlined /> {e('broadcastProductionWarn')}
+          <ExclamationCircleOutlined /> {
+            once ? e('broadcastOnceProductionWarn') : e('broadcastProductionWarn')
+          }
         </p>
         <div className='broadcast-prod-hosts'>
           {prodTabs.map(t => t.host || titleOf(t)).join('\n')}
@@ -149,12 +225,15 @@ export default auto(function BroadcastModal () {
           key='ok'
           type='primary'
           danger
-          onClick={() => store.startBroadcast(selected)}
+          onClick={run}
         >
-          {e('broadcastStartAnyway')}
+          {once ? e('broadcastSendAnyway') : e('broadcastStartAnyway')}
         </Button>
       ]
     }
+    const disabled = once
+      ? (!cmd.trim() || (!selected.length && !includeSource))
+      : !selected.length
     return [
       <Button key='cancel' onClick={() => store.closeBroadcastPicker()}>
         {e('cancel')}
@@ -162,16 +241,17 @@ export default auto(function BroadcastModal () {
       <Button
         key='ok'
         type='primary'
-        disabled={!selected.length}
+        disabled={disabled}
         onClick={submit}
       >
-        {e('broadcastStart')}
+        {once ? e('broadcastSendOnce') : e('broadcastStart')}
       </Button>
     ]
   }
 
   return (
     <Modal
+      className='broadcast-modal'
       open={open}
       title={e('broadcastInput')}
       width={480}

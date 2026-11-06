@@ -11,7 +11,7 @@ const SRC = path.join(ROOT, 'src/client/common/term-broadcast.js')
 
 const EXPORTS = '({ isOscResponse, isMirrorableData, isBroadcastSource, canMirror, ' +
   'resolveBroadcastTargets, productionTargets, registerBroadcastAddon, ' +
-  'unregisterBroadcastAddon, getBroadcastAddon, resetBroadcastAddons, mirrorInput })'
+  'unregisterBroadcastAddon, getBroadcastAddon, resetBroadcastAddons, mirrorInput, sendOnceToTargets })'
 
 function load () {
   const src = fs.readFileSync(SRC, 'utf8').replace(/^export /gm, '')
@@ -125,7 +125,7 @@ describe('resolveBroadcastTargets: 只保留 shell 会话且排除主控', () =>
   })
 })
 
-describe('mirrorInput: 扇出行为', () => {
+describe('扇出行为：持续镜像 / 一次性发送', () => {
   function fakeAddon (id, extra = {}) {
     return {
       id,
@@ -207,6 +207,61 @@ describe('mirrorInput: 扇出行为', () => {
       getAddon: () => a1
     })
     assert.equal(a1._broadcastDepth, 0)
+  })
+
+  test('sendOnceToTargets：只发一段文本，不产生持续广播态', () => {
+    const a1 = fakeAddon('t1')
+    const registry = new Map([['t1', a1]])
+    const sent = m.sendOnceToTargets({
+      targets: [{ tabId: 't1' }],
+      sourceTabId: 'src',
+      data: 'ls -l\r',
+      getAddon: id => registry.get(id) || null
+    })
+    assert.deepEqual(plain(sent), ['t1'])
+    assert.deepEqual(a1._sent, ['ls -l\r'])
+    assert.equal(a1._broadcastDepth, 0)
+  })
+
+  test('sendOnceToTargets：includeSource 时主控单独发一次且不重复', () => {
+    const src = fakeAddon('src')
+    const t1 = fakeAddon('t1')
+    const registry = new Map([['src', src], ['t1', t1]])
+    const sent = m.sendOnceToTargets({
+      targets: [{ tabId: 't1' }],
+      sourceTabId: 'src',
+      data: 'uptime\r',
+      includeSource: true,
+      getAddon: id => registry.get(id) || null
+    })
+    assert.deepEqual(plain(sent), ['t1', 'src'])
+    assert.deepEqual(src._sent, ['uptime\r'])
+    assert.deepEqual(t1._sent, ['uptime\r'])
+    assert.equal(src._broadcastDepth, 0)
+  })
+
+  test('sendOnceToTargets：闸门与持续镜像一致（OSC / 密码期）', () => {
+    const t1 = fakeAddon('t1')
+    const t2 = fakeAddon('t2', { _passwordPromptDetected: true })
+    const src = fakeAddon('src', { _passwordPromptDetected: true })
+    const registry = new Map([['src', src], ['t1', t1], ['t2', t2]])
+    const getAddon = id => registry.get(id) || null
+    assert.deepEqual(plain(m.sendOnceToTargets({
+      targets: [{ tabId: 't1' }],
+      sourceTabId: 'src',
+      data: `${ESC}]52;c;eA==\x07`,
+      includeSource: true,
+      getAddon
+    })), [])
+    assert.deepEqual(plain(m.sendOnceToTargets({
+      targets: [{ tabId: 't2' }],
+      sourceTabId: 'src',
+      data: 'pwd\r',
+      includeSource: true,
+      getAddon
+    })), [])
+    assert.deepEqual(t1._sent, [])
+    assert.deepEqual(src._sent, [])
   })
 })
 

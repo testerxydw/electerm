@@ -1,6 +1,8 @@
 // 批量输入目标 tab 口径守护：只允许 shell 会话 tab（ssh/local/telnet/serial）
 // 背景（218 真机回归）：三处入口（底栏批量输入 / 命令历史多终端运行 / store
 // 选中集管理）原为黑名单式过滤（只排 web/rdp/vnc），后加的 database/ftp/spice
+// 2026-11-06：底栏批量输入并入 G1 广播，目标列表改由 broadcast-modal.jsx 承担；
+// 命令历史/快捷命令的多终端运行仍用 TabSelectList + 同一份选中集。
 // 类型漏放——列表把 [MySQL]/[Redis] tab 列出来，选中后 term?.batchInput 静默
 // 跳过（点了没反应）。修复为白名单口径（constants.js isShellSessionTab），
 // 与 store.hasShellSession 共用，禁止再回退黑名单枚举。
@@ -54,15 +56,20 @@ describe('批量输入目标 tab 白名单口径', () => {
     assert.equal(isShellSessionTab(null), false, '空 tab 须拒绝')
   })
 
-  test('batch-input.jsx：列表用白名单，禁止黑名单残留', () => {
-    const src = read('src/client/components/footer/batch-input.jsx')
-    assert.match(src, /getTabs = \(\) => \{[\s\S]*?filter\(isShellSessionTab\)/,
-      'getTabs 必须 filter(isShellSessionTab)')
+  test('底栏触发器 + 广播弹层：入口统一、目标列表用白名单', () => {
+    // 批量输入已并入广播：底栏控件只负责打开弹层，不再自带目标列表/发送逻辑
+    const trigger = read('src/client/components/footer/batch-input.jsx')
+    assert.match(trigger, /openBroadcastPicker\('once'\)/,
+      '底栏入口须打开广播弹层（发送一次档）')
+    assert.doesNotMatch(trigger, /getTabs|batchInputSelectedTabIds|\.batchInput\(/,
+      '底栏不得再自带展开面板与发送逻辑')
+    const modal = read('src/client/components/session/broadcast-modal.jsx')
+    assert.match(modal, /candidates = store\.tabs\.filter\([\s\S]*?isShellSessionTab/,
+      '广播弹层目标列表必须按 isShellSessionTab 白名单')
     // 反向：黑名单枚举（218 版本缺陷根源）不得回潮
     for (const bad of ['terminalWebType', 'terminalRdpType', 'terminalVncType']) {
-      assert.doesNotMatch(src, new RegExp(bad), `batch-input.jsx 不得再引用 ${bad}`)
+      assert.doesNotMatch(modal, new RegExp(bad), `broadcast-modal.jsx 不得再引用 ${bad}`)
     }
-    assert.match(src, /!batchInputSelectedTabIds\.length/, '空选中集须阻断提交')
   })
 
   test('multi-tab-run-modal.jsx：列表用白名单，禁止黑名单残留', () => {

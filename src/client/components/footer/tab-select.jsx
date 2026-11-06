@@ -1,16 +1,12 @@
-import {
-  Popover
-} from 'antd'
+import { Popover } from 'antd'
+import { CodeOutlined } from '@ant-design/icons'
 import TabItem from './batch-item'
-import {
-  CodeOutlined
-} from '@ant-design/icons'
 
 /**
- * The multi terminal selection panel: select-all/none plus one toggle button
- * per terminal tab.
- * Extracted so it can be reused outside the batch input popover (e.g. run a
- * command from the history panel in several terminals at once).
+ * The multi terminal selection panel shared by the "run in terminals" dialogs
+ * (command history / quick commands) and the AI chat panel.
+ * The footer broadcast trigger no longer expands its own panel: it opens the
+ * G1 broadcast picker instead.
  */
 export function TabSelectList (props) {
   const {
@@ -65,6 +61,7 @@ export function TabSelectList (props) {
   )
 }
 
+// Popover 形态供 AI 面板使用；目标仍是同一份 batchInputSelectedTabIds 选中集
 export default function TabSelect (props) {
   const { selectedTabIds, tabs, activeTabId } = props
   const listProps = {

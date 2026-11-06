@@ -50,14 +50,6 @@ export default auto(function FooterEntry (props) {
     window.store.toggleInfoPanel()
   }
 
-  function batchInput (cmd, selectedTabIds) {
-    selectedTabIds.map(id => {
-      return refs.get('term-' + id)
-    }).forEach(term => {
-      term?.batchInput(cmd)
-    })
-  }
-
   function handleSwitchEncoding (encode) {
     const term = refs.get('term-' + props.store.activeTabId)
     if (term) {
@@ -76,20 +68,11 @@ export default auto(function FooterEntry (props) {
     return status !== statusMap.success
   }
 
-  function renderBatchInputs () {
-    const { store } = props
-    const batchProps = {
-      input: batchInput,
-      tabs: store.tabs,
-      batchInputSelectedTabIds: store.batchInputSelectedTabIds,
-      activeTabId: store.activeTabId,
-      isMobile: store.isMobile
-    }
+  // 底栏入口只负责打开广播弹层（默认「发送一次」档），扇出全部交给 G1 广播
+  function renderBroadcastTrigger () {
     return (
       <div className='terminal-footer-unit terminal-footer-center'>
-        <BatchInput
-          {...batchProps}
-        />
+        <BatchInput isMobile={props.store.isMobile} />
       </div>
     )
   }
@@ -409,7 +392,7 @@ export default auto(function FooterEntry (props) {
         />
         {inActiveTerminal && renderTunnelIcon()}
         {inActiveTerminal && renderTriggers()}
-        {inActiveTerminal && renderBatchInputs()}
+        {inActiveTerminal && renderBroadcastTrigger()}
         {inActiveTerminal && renderQuickCmdStrip()}
         {inActiveTerminal && renderEncodingInfo()}
         {/* 终端日志依赖真实终端实例：rdp/vnc/spice/database 页无终端，

@@ -11,7 +11,8 @@ import { refs } from '../components/common/ref'
 import { isShellSessionTab } from '../common/constants'
 import {
   resolveBroadcastTargets,
-  productionTargets
+  productionTargets,
+  sendOnceToTargets
 } from '../common/term-broadcast'
 
 const e = window.translate
@@ -42,17 +43,20 @@ export default Store => {
     store.openBroadcastPicker()
   }
 
-  Store.prototype.openBroadcastPicker = function () {
+  // mode: 'continuous'（顶栏/右键/快捷键）或 'once'（底栏入口，承接原批量输入）
+  Store.prototype.openBroadcastPicker = function (mode = 'continuous') {
     const { store } = window
     const tab = store.currentTab
     if (!tab || !isShellSessionTab(tab)) {
       return message.warning(e('broadcastNoSession'))
     }
+    store.broadcastPickerMode = mode === 'once' ? 'once' : 'continuous'
     store.broadcastPickerOpen = true
   }
 
   Store.prototype.closeBroadcastPicker = function () {
     window.store.broadcastPickerOpen = false
+    window.store.broadcastPickerMode = 'continuous'
   }
 
   // targetIds 来自弹层多选；生产机确认由弹层在调用前完成
@@ -74,6 +78,43 @@ export default Store => {
       e('broadcastStarted').replace('{n}', String(targets.length))
     )
     focusSource(sourceTabId)
+  }
+
+  /**
+   * 一次性发送：把一条命令（可多行）同时发到选中目标，发完立即结束。
+   * 不写 store.broadcast，因此主控后续输入不会被镜像。
+   * 复用 mirrorInput 这个唯一扇出点，密码期 / OSC 应答 / 防环闸门全部生效。
+   */
+  Store.prototype.sendBroadcastOnce = function (cmd, targetIds, includeSource = false) {
+    const { store } = window
+    if (store.broadcast.on) {
+      return message.warning(e('broadcastOnceBlocked'))
+    }
+    const text = typeof cmd === 'string' ? cmd.trim() : ''
+    if (!text) {
+      return message.warning(e('broadcastOnceEmpty'))
+    }
+    const sourceTabId = store.activeTabId
+    const targets = resolveBroadcastTargets(
+      store.tabs,
+      targetIds,
+      sourceTabId,
+      isShellSessionTab
+    )
+    if (!targets.length && !includeSource) {
+      return message.warning(e('broadcastNoTarget'))
+    }
+    const data = text + '\r'
+    // 只借闸门与扇出，不落到 store.broadcast（一次性语义）
+    const sent = sendOnceToTargets({ targets, sourceTabId, data, includeSource })
+    if (!sent.length) {
+      return message.warning(e('broadcastOnceNoTarget'))
+    }
+    // 保留命令补全的历史数据源（terminalCommandSuggestions.batch）
+    store.addBatchInput(text)
+    store.closeBroadcastPicker()
+    message.success(e('broadcastOnceSent').replace('{n}', String(sent.length)))
+    return sent
   }
 
   Store.prototype.stopBroadcast = function (silent) {
