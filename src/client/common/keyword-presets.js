@@ -43,40 +43,81 @@
  * 4. **每条规则按「全部预设同时勾选」的最坏情况计成本**，但现在结构档（时间戳/
  *    数值/地址/路径）默认不进全选，密度由 §7 覆盖率闸治理。
  *
- * 三处「让位护栏」（ipv4 的 (?!:\d)、ts 的 (?!\.\d)、lvlError 的 DOES NOT(?:…)、
- * num 的 (?<!status[=:]\s{0,2})、Docker 镜像的 (?![\w.-])）是家族不唯一时代的产物。
- * 批次 A 把裁决统一成「最左起点 → rank 小者胜 → 同 rank 取更长 → 等长取原序」
- * （见 common/keyword-scan.js 的 arbitrateAt / selectByRank）后，同起点竞争已由
- * rank 决定，护栏不再是必需；本批次按「不改正则」的纪律全部保留，删除排在批次 C
- * （连同 IPv4/端口家族边界一起做，见 doc/设计-关键字高亮色板与密度-v3-2026-11-06.md §5、§6）。
+ * 五处「让位护栏」（ipv4 的 (?!:\d)、ts 的 (?!\.\d)、lvlError 的 DOES NOT(?:…)、
+ * num 的 (?<!status[=:]\s{0,2})、Docker 镜像的 (?![\w.-])）是家族不唯一时代的产物：
+ * 同一个形状在两个组各写一份，只能靠"谁让谁"凑出颜色。批次 A 把裁决统一成
+ * 「最左起点 → rank 小者胜 → 同 rank 取更长 → 等长取原序」（见 common/keyword-scan.js
+ * 的 arbitrateAt / selectByRank），批次 C 消灭重复形状后逐条删除：ipv4 / ts / num /
+ * 镜像四处已删净，lvlError 那条退化成同族内部的可选后缀（`DOES NOT(?: (?:EXIST|MATCH))?`，
+ * 竞争双方都在 word-error 里，不再是跨家族让位）。
+ * 剩余的 `(?!)` / `(?<!)` 全部是各自家族内部的正形约束（CIDR 尾巴、JSON 键名、
+ * 秒表读数、地址语境 lookbehind…），不是护栏。**不允许为了过测试把跨家族让位护栏加回来。**
  */
 
 // ---- 共享片段（全仓只在此定义一次）----
-const ipv4 = '\\b(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(/\\d{1,2})?\\b(?!:\\d)'
+// 批次 C（KU-3）：删掉 (?!:\d) 让位护栏。IPv4 只认地址本身，`10.1.2.3:443` 由
+// ipv4（rank 10）吃下地址、游标前进到冒号后由 port（rank 40）吃下 `:443`，
+// 两段相邻、各归各族 —— 同一个 IP 在任何上下文里都是同一个颜色。
+// CIDR 前缀长度必须在同一段里吃完，否则 `10.1.2.3/24` 的 `24` 会漏给 number。
+const ipv4 = '\\b(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}(/\\d{1,2})?\\b'
+// 主机名（带点的域名形制）：registry.example.com 这类以前被 package-name 抢走
+const hostName = '\\b[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)+\\b'
+// 端口：地址/主机名之后的 `:NN`，含 `->NN/tcp` 映射尾巴。
+// KU-3 要求这个形状只在"确实跟在某个可寻址实体之后"时成立：前面的 lookbehind 就是
+// 那个实体（IPv4 / [IPv6] / 多段冒号地址 / 域名 / ≥2 字母的服务名）。没有它，
+// `/app/src/main.c:88` 的 `:88` 会被当成端口 —— 源码行号已由 file-line 家族整段认领，
+// 但扩展名不在 srcExt 里的文件（以及任何 file-line 漏掉的形状）都会漏出一个假端口。
+// (?<!") 挡住 JSON 键形状（"id":1024 不是端口），(?!\.\d) 挡住 1:25.5 这类秒表读数。
+const addrBefore = '(?:\\d{1,3}(?:\\.\\d{1,3}){3}|\\[[0-9a-f:.]+]|[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){1,7}|[a-z][a-z0-9-]*(?:\\.[a-z0-9-]{2,})+|[a-z][a-z0-9-]+)'
+const portRef = '(?<!")(?<=' + addrBefore + '):\\d{2,5}\\b(?!\\.\\d)(?:->\\d{1,5}/(?:tcp|udp))?'
 const ipv6 = '(?<![\\w:])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|:(?::[0-9a-f]{1,4}){1,7}|::)(?![\\w:])'
 const mac = '\\b([0-9a-f]{2}[:-]){5}[0-9a-f]{2}\\b|\\b[0-9a-f]{4}\\.[0-9a-f]{4}\\.[0-9a-f]{4}\\b'
 const srcExt = 'c|cc|cpp|cxx|h|hh|hpp|hxx|m|mm|go|rs|java|kt|kts|scala|ts|tsx|js|jsx|mjs|cjs|py|pyi|rb|php|cs|swift|zig|lua|pl|pm|ex|exs|erl|dart|sh|bash|zsh|ps1|sql|json|ya?ml|toml|ini|cfg|conf|properties|styl|css|scss|sass|less|html|vue|svelte|md|txt|log|csv|tsv'
 const srcFile = '\\b[\\w./~-]+\\.(' + srcExt + ')\\b'
-const srcLoc = '\\b[\\w./~-]+\\.(' + srcExt + ')\\b(:\\d+){1,2}'
+// 起点用 (?<![\w./-]) 而不是 \b：绝对路径的第一个字符是 `/`（非词字符），\b 在那里
+// 不成立，于是 `/app/src/main.c:88:5` 只能被 path 吃掉前半截、把 `:88:5` 漏给端口。
+// 第二支给无扩展名的构建文件（`Makefile:12`、`Dockerfile:8`）：它们进不了 srcExt，
+// 但 `NAME:行号` 这个形状属于源码位置族 —— 端口族的主机 lookbehind 认得出
+// `Makefile` 是个"词"，却分不出它是主机名还是文件名，所以只能由本族先把整段吃掉。
+const buildFile = 'Makefile|Dockerfile|Gemfile|Rakefile|CMakeLists\\.txt|Justfile|Taskfile'
+const srcLoc = '(?<![\\w./-])[\\w./~-]+\\.(' + srcExt + ')\\b(:\\d+){1,2}' +
+  '|(?<![\\w./-])(?:' + buildFile + ')(:\\d+){1,2}\\b'
 
 // 时间戳（ISO 8601 / BSD syslog / 时钟）+ 方括号里的时间戳（nginx/dmesg/测试框架）
+// 批次 C：删掉时钟分支尾部的 (?!\.\d) 让位护栏 —— timestamp rank 40 已经压在
+// number rank 60 之上，同起点不需要再靠长度让位。
 const ts = '(?<![":])\\b(?:\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?(?:Z|[+-]\\d{2}:?\\d{2})?' +
   '|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?' +
-  '|\\d{1,2}:\\d{2}(?::\\d{2}(?:[.,]\\d{1,6})?)?(?!\\.\\d))\\b(?![":])'
+  '|\\d{1,2}:\\d{2}(?::\\d{2}(?:[.,]\\d{1,6})?)?)\\b(?![":])'
 const tsBracket = '\\[\\d{2}/\\w{3}/\\d{4}:\\d{2}:\\d{2}:\\d{2} [+-]\\d{4}\\]|\\[\\s*\\d+\\.\\d+\\]|\\[\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d{1,6})?\\]'
 const tsAll = tsBracket + '|' + ts
 
 // 时长与体积共用的单位表（长单位排在单字母之前）
 const unitTime = 'ns|us|µs|ms|seconds?|secs?|minutes?|mins?|hours?|hrs?|[smh]'
-const unitSize = 'bytes?|[KMGTPE]i?B|[KMGTPE]'
-
-const dur = '\\b\\d+(?:\\.\\d+)?\\s?(?:' + unitTime + ')\\b'
+// 体积与吞吐
+// 裸单字母只留 [KGTPE]。规则以 gi 编译（见 keyword-compile.js），[KMGTPE] 会把
+// `5m` 同时认成"5 兆字节"和"5 分钟"（v4 §2.4 的抢色源头），而 JS 没有 (?-i:…) ——
+// node 24 直接报 Invalid group，所以大小写在正则里不可判。裁决改由**单位表本身**承担：
+// `M` 只在写成 MB/MiB 或前面带小数（`1.5M`）时算体积，整数裸 `5m/3s/1h` 唯一属于 duration；
+// `233G`（df -h）照旧是体积。
+const unitSize = 'bytes?|[KMGTPE]i?B|[KGTPE]i?|(?<=\\.\\d)M(?:i(?:B)?)?'
+// 单字母单位里只有裸 `m` 强制整数（`5m` = 5 分钟，`1.5M` = 1.5 兆字节）：其余形状
+// 与体积不冲突，小数照收（`0.5s`、`2h`、`3d` 都是时长）。
+const unitTimeLong = 'ns|us|µs|ms|seconds?|secs?|minutes?|mins?|hours?|hrs?|d(?:ays?)?|[sdh]'
+const dur = '\\b\\d+(?:\\.\\d+)?\\s?(?:' + unitTimeLong + ')\\b|\\b\\d+\\s?m\\b'
+// AGE 列的复合形制（12m30s、3d4h）：至少两个单位，单个单位的已被 dur 覆盖。
+// 批次 C 从 Docker 组上收 —— 同一个时长信号在两个组各写一份就是 KU-2 违规。
+const durAge = '\\b\\d+[dhms](?:\\d+[dhms])+\\b'
+// mysql / psql 结尾的 (0.01 sec)：同上，从 Database 组上收
+const durParen = '\\(\\d+(?:\\.\\d+)? ?(?:sec|ms|min|us|ns)\\)'
 // 时长：key=value 形式（单位必须是真实单位词，不能写成「任意 1-6 个字母」）
 const durKey = '\\b(?:request_time|upstream_response_time|request_time_ms|duration|latency|elapsed|took|wall ?time)(?:[=:]\\s*|\\s+)\\d+(?:\\.\\d+)?(?:\\s?(?:' + unitTime + ')\\b)?'
-const durAll = dur + '|' + durKey
+const durAll = dur + '|' + durAge + '|' + durParen + '|' + durKey
 
-// 体积与吞吐
 const size = '\\b\\d+(?:\\.\\d+)?\\s?(?:' + unitSize + ')(?:/s)?\\b'
+
+// 百分比：从裸数字里独立成族（rank 40 压在 number rank 60 之上，`45%` 不再两色竞争）
+const percent = '\\b\\d+(?:\\.\\d+)?%'
 
 // PCI / 设备地址（内核组独有，见 §6.2；不进通用档）
 const devAddr = '\\b(?:[0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\\.\\d\\b|\\b[0-9a-f]{4}:[0-9a-f]{4}\\b'
@@ -125,9 +166,11 @@ const wordOk = '\\b(?:OK|ALL OK|YES|SUCCESS(?:FUL(?:LY)?)?|PASSED|PASSES|VALID|V
   'RUNNING|ACTIVE|STARTED|CREATED|ESTABLISHED|MOUNTED|LINK UP)\\b' + notJsonKey
 
 // 裸数字（边界比 WindTerm 严，挡住各类抢占）
-const num = '(?<![\\w.~/-])(?<!\\d:)(?<!"\\s)(?<!status[=:]\\s{0,2})\\d+(?:\\.\\d+)?%?' +
+// 批次 C：`%?` 分支移除 —— 百分比由独立的 percent 族认领（rank 40 < 60）；
+// (?<!status[=:]\s{0,2}) 让位护栏删除 —— http-status.* rank 55 已经压在 number rank 60 之上。
+const num = '(?<![\\w.~/-])(?<!\\d:)(?<!"\\s)\\d+(?:\\.\\d+)?' +
   '(?![\\w~/:-])(?!\\.\\d)(?!\\s*\\(\\d+[dhms])' +
-  '(?!\\s?(?:' + unitSize + ')(?:/s)?\\b)(?!\\s?(?:' + unitTime + ')\\b)'
+  '(?!\\s?(?:' + unitSize + ')(?:/s)?\\b)(?!\\s?(?:' + unitTime + ')\\b)(?!%)'
 
 // 十六进制字面量（含 PostgreSQL bytea 的 \x…）
 const hex = '\\b0x[0-9a-f]{2,}\\b|\\\\x[0-9a-f]{2,}'
@@ -205,7 +248,7 @@ export const FAMILY_RANK = {
   'cli-flag': 40,
   duration: 40,
   'hex-literal': 40,
-  'host-port': 40,
+  port: 40,
   percent: 40,
   'port-map': 40,
   'port-word': 40,
@@ -259,7 +302,12 @@ export const FAMILY_RANK = {
   'syslog-sev.err': 55,
   'syslog-sev.info': 55,
   'syslog-sev.warn': 55,
-  // 60 · loose — 宽口径兜底：裸数字、包名/域名——只在没有更精确的族命中时染
+  // 57 · domain-name — 主机名（批次 C 新增层）：带点域名压在分级族之后、兜底形状之前。
+  // registry.example.com 以前被 package-name（rank 60）当包名抢走，现在由 host 家族认领；
+  // exception-class rank 50 仍在它前面，所以 `java.lang.NullPointerException`
+  // 整串仍然是红色异常类，不会被切成「包名 + 类名」两段。
+  host: 57,
+  // 60 · loose — 宽口径兜底：裸数字、包名——只在没有更精确的族命中时染
   number: 60,
   'package-name': 60
 }
@@ -398,9 +446,10 @@ export const FAMILY_GROUP = {
   'cli-flag': 'flag',
   ipv4: 'ip',
   'pci-address': 'ip',
+  host: 'ip',
   'ipv6-mac': 'mac',
   url: 'url',
-  'host-port': 'port',
+  port: 'port',
   'port-map': 'port',
   'port-word': 'port',
   'restart-count': 'port',
@@ -443,7 +492,7 @@ export const FAMILY_COLOR = Object.keys(FAMILY_GROUP).reduce((acc, f) => {
 }, {})
 
 // rank 层级表（供设置面板与测试展示"这个信号属于哪一层"）
-export const FAMILY_LAYERS = { marker: 0, 'exact-addr': 10, path: 20, 'domain-id': 30, 'num-time': 40, 'signal-word': 50, 'signal-grade': 55, loose: 60 }
+export const FAMILY_LAYERS = { marker: 0, 'exact-addr': 10, path: 20, 'domain-id': 30, 'num-time': 40, 'signal-word': 50, 'signal-grade': 55, 'domain-name': 57, loose: 60 }
 
 const keywordPresetsRaw = [
   {
@@ -468,6 +517,7 @@ const keywordPresetsRaw = [
       { keyword: tsAll, tier: 'structure', family: 'timestamp' },
       { keyword: durAll, tier: 'structure', family: 'duration' },
       { keyword: size, tier: 'structure', family: 'size' },
+      { keyword: percent, tier: 'structure', family: 'percent' },
       { keyword: num, tier: 'structure', family: 'number' },
       { keyword: hex, tier: 'structure', family: 'hex-literal' },
       { keyword: optFlag, tier: 'structure', family: 'cli-flag' }
@@ -480,6 +530,8 @@ const keywordPresetsRaw = [
     keywords: [
       { keyword: ipv4, tier: 'structure', family: 'ipv4' },
       { keyword: addr6, tier: 'structure', family: 'ipv6-mac' },
+      { keyword: hostName, tier: 'structure', family: 'host' },
+      { keyword: portRef, tier: 'structure', family: 'port' },
       { keyword: pathAll, tier: 'structure', family: 'path' },
       { keyword: srcLoc, tier: 'structure', family: 'file-line' },
       { keyword: url, tier: 'structure', family: 'url' }
@@ -552,8 +604,7 @@ const keywordPresetsRaw = [
       // 请求行 + 协议版本（host:port 与裸 URL 交给通用档）
       { keyword: '\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\\s+\\S+\\s+HTTP/|\\bHTTP/\\d(?:\\.\\d)?', tier: 'structure', family: 'http-method' },
       { keyword: '\\bupstream\\b', tier: 'signal', family: 'field-name' },
-      // host:port（非时间戳里的 08:57）
-      { keyword: '\\b(?:[a-z][a-z0-9.-]*|\\d{1,3}(?:\\.\\d{1,3}){3}):\\d{2,5}(?:->\\d{1,5}/(?:tcp|udp))?\\b', tier: 'structure', family: 'host-port' },
+      // host:port 复合形状已在批次 C 拆掉：地址段归 ipv4/host、`:NN` 归 port，都在通用档
       { keyword: '\\b(Mozilla/5\\.0|curl/\\S+|Wget/\\S+|Googlebot(?:/\\S+)?|bingbot(?:/\\S+)?|python-requests/\\S+|Go-http-client/\\S+|okhttp/\\S+|PostmanRuntime/\\S+|Apache-HttpClient/\\S+|axios/\\S+|node-fetch/\\S+|Electron/\\S+)\\b', tier: 'structure', family: 'user-agent' },
       // error-log 的级别（[module:level]）
       { keyword: '\\[[\\w.:-]*(?:EMERG|ALERT|CRIT(?:ICAL)?|ERROR|ERR)\\]', tier: 'signal', family: 'bracket-level.err' },
@@ -588,7 +639,7 @@ const keywordPresetsRaw = [
   },
   {
     name: 'Docker & Kubernetes',
-    requires: ['通用 · 级别与状态', '通用 · 地址与路径'],
+    requires: ['通用 · 级别与状态', '通用 · 时间与数值', '通用 · 地址与路径'],
     description: 'docker ps/images/compose and kubectl get/describe/logs output: container states, pod phases and events, resource references, image tags and digests, ports, ages, restart counts',
     keywords: [
       // pod/container 相位与状态（Failed|Error|Dead|Pending|Waiting|Restarting|Running|
@@ -600,15 +651,18 @@ const keywordPresetsRaw = [
       { keyword: '\\b(pods?|deploy(ment)?s?|svc|services?|ingress(es)?|configmaps?|secrets?|statefulsets?|daemonsets?|replicasets?|jobs?|cronjobs?|namespaces?|nodes?|pv|pvc|endpoints?|hpa|events?)/[a-z0-9][a-z0-9.-]*\\b', tier: 'structure', family: 'resource-ref' },
       // generated pod / container names: nginx-7d9f8c6b5-x2k4p
       { keyword: '\\b[a-z0-9][a-z0-9-]*-[0-9a-f]{5,10}-[a-z0-9]{4,6}\\b', tier: 'structure', family: 'pod-name' },
-      // AGE column: 12m, 45s, 3d4h
-      { keyword: '\\b\\d+[dhms](\\d+[dhms])*\\b', tier: 'structure', family: 'duration' },
+      // AGE column（12m, 45s, 3d4h）已在批次 C 上收进通用 duration 族（durAge），此处不再重述
       // restart counts: "3 (4m ago)"
       { keyword: '\\b\\d+ \\(\\d+[dhms]+ ago\\)', tier: 'structure', family: 'restart-count' },
       // 镜像：常用镜像名（带 tag）、registry 引用、sha256 摘要
-      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w.-])|\\b[a-z0-9-]+(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b|\\bsha256:[0-9a-f]{12,64}\\b', tier: 'structure', family: 'image-ref' },
+      // 批次 C：registry 主机段首字符限定为字母，纯数字段不再被认成镜像引用
+      // （`10.1.2.3/24` 归 ipv4），同时删掉 (?![\w.-]) 让位护栏 ——
+      // `nginx.conf` 由 path rank 20 在同一个起点上赢，不需要护栏让位。
+      // 结尾的 (?![\w.]) 不是护栏而是**词尾锚**（KU-3：一条规则必须吃掉整个 token）：
+      // 没有它，`python3 setup.py` 只染前六个字母、把 `3` 裸着留下，半个词一种色比不染更糟。
+      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w.])|\\b[a-z][a-z0-9-]*(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b|\\bsha256:[0-9a-f]{12,64}\\b', tier: 'structure', family: 'image-ref' },
       // ports and port mappings
       { keyword: '\\b\\d{1,5}->\\d{1,5}/(tcp|udp)\\b', tier: 'structure', family: 'port-map' },
-      { keyword: '(?<![\\w])(?:0\\.0\\.0\\.0|\\*|::):\\d{1,5}(?:->\\d{1,5}/(?:tcp|udp))?\\b', tier: 'structure', family: 'host-port' }
     ]
   },
   {
@@ -619,8 +673,7 @@ const keywordPresetsRaw = [
       { keyword: '\\b(skip|skipped|todo|xfail|xpass|ignored)\\b', tier: 'signal', family: 'word-skip' },
       // 通过/成功（通用 wordOk 已覆盖 ok/success/passed/finished 等；这里只留构建域独有的说法）
       { keyword: '\\b(PASS|build succeeded|build success(ful)?|compilation complete|compiled successfully|all tests passed)\\b|✔|✓|√', tier: 'signal', family: 'build-result.ok' },
-      { keyword: '\\b(building|compiling|linking|bundling|transpiling|minifying|installing|resolving|downloading|fetching|running|executing|starting|cleaning|caching|packaging|publishing)\\b', tier: 'structure', family: 'build-verb' },
-      { keyword: '\\b\\d+(\\.\\d+)?%', tier: 'structure', family: 'percent' }
+      { keyword: '\\b(building|compiling|linking|bundling|transpiling|minifying|installing|resolving|downloading|fetching|running|executing|starting|cleaning|caching|packaging|publishing)\\b', tier: 'structure', family: 'build-verb' }
     ]
   },
   {
@@ -688,8 +741,7 @@ const keywordPresetsRaw = [
       { keyword: '\\((integer|double|boolean|nil|empty array|empty list|empty set)\\)', tier: 'structure', family: 'redis-type' },
       // 状态行（Query OK 的 OK 归通用绿档）
       { keyword: '\\b(Empty set|Query OK|rows? affected|rows? matched|rows? returned|in set|PONG|QUEUED)\\b|\\(\\d+ rows?\\)', tier: 'signal', family: 'sql-status.ok' },
-      // 耗时（mysql / psql 结尾的 (0.01 sec)）
-      { keyword: '\\(\\d+(?:\\.\\d+)? ?(?:sec|ms|min)\\)', tier: 'structure', family: 'duration' },
+      // 耗时（mysql / psql 结尾的 (0.01 sec)）已在批次 C 上收进通用 duration 族（durParen）
       // 警告与性能提示（WARNING / DEPRECATED 已归通用黄档）
       { keyword: '\\b(NOTICE|slow query|Using filesort|Using temporary|full table scan|seq scan|connection is read-only)\\b', tier: 'signal', family: 'sql-warn' },
       // UUID
@@ -712,10 +764,10 @@ export const keywordPresets = keywordPresetsRaw.map(preset => ({
   })
 }))
 
-// family → 归属组。批次 A 按文档顺序取首次声明者（此时 word-error / word-ok /
-// word-warn / duration / host-port 仍被多组重复声明，见 keyword-family.spec.js 的
-// 棘轮基线）；批次 B/C 去重完成后，本表即"一族一归属"的权威声明，
-// 任何规则的组名与 FAMILY_HOME[family] 不一致都应被测试拦下。
+// family → 归属组。批次 A 按文档顺序取首次声明者（当时 word-error / word-ok /
+// word-warn / duration / host-port 还被多组重复声明）；批次 B 收掉词表复制、
+// 批次 C 收掉形状复制之后，跨组复用已经归零（keyword-family.spec.js 的 KU-2 硬断言），
+// 本表即"一族一归属"的权威声明：任何规则的组名与 FAMILY_HOME[family] 不一致都应被测试拦下。
 export const FAMILY_HOME = (() => {
   const home = {}
   for (const p of keywordPresets) {

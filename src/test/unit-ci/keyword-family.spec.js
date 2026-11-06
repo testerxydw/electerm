@@ -159,23 +159,97 @@ describe('V3 信号家族契约', () => {
     }
   })
 
-  // 棘轮：同一个家族在多个配置组里各存一份词表/形状 —— 这正是「一个关键字散落在
-  // 多个配置里」的残留。批次 B（词表去重）已把 word-error / word-ok / word-warn
-  // 三条收口（业务组的词表要么并进通用五档、要么挂上新的领域家族 id）；
-  // 剩下 duration / host-port 是形状复用，归批次 C（形状边界）收。
-  const CROSS_GROUP_FAMILIES = [
-    'duration',
-    'host-port'
-  ]
-  test('KU-2 一归属 棘轮：跨组复用的家族清单不得增加（批次 B/C 逐个收口）', async () => {
+  // KU-2 一归属：一个家族只在**一个配置组**里声明。批次 B 收掉 word-error / word-ok /
+  // word-warn 三条词表复制，批次 C 收掉 duration（Docker 的 AGE 复合形制、mysql 的
+  // `(0.01 sec)` 上收进通用时长）与 host-port（拆成 ipv4 + port 两段，各自单一归属）。
+  // 到这里跨组复用已经归零，棘轮降级成硬断言：任何新增的跨组家族直接失败。
+  test('KU-2 一归属：跨组复用的家族 = 0（批次 C 起为硬断言，不再走棘轮）', async () => {
     const { byFamily } = await familyIndex()
     const offenders = []
     for (const [family, list] of byFamily) {
       if (new Set(list.map(r => r.group)).size > 1) offenders.push(family)
     }
     offenders.sort()
-    assert.deepEqual(offenders, CROSS_GROUP_FAMILIES,
-      `跨组复用的家族与棘轮基线不一致：${offenders.join(' ')}。新增跨组家族必须先给它一个唯一归属组。`)
+    assert.deepEqual(offenders, [],
+      `跨组复用的家族必须为 0，实测 ${offenders.length}：${offenders.join(' ')}。` +
+      '新增跨组家族要先给它一个唯一归属组，其余组用 requires 引用那个组。')
+  })
+
+  // KU-3 形状边界 · 家族样本矩阵：每行是一段真实输出，want 给出这一行**应该**被哪些
+  // 家族、按什么顺序与跨度瓜分（一处不差）。这就是 KU-3 的可执行形式：一个形状只有
+  // 一个归属，相邻形状各归各族 —— 地址归 ipv4、紧跟其后的 `:443` 归 port、
+  // 裸 `5m` 归 duration 而 `1.5M` 归 size、`45%` 归 percent 而不是 number。
+  // 断言走 collectMatches（终端与网格共用同一套裁决），所以锁的是家族归属与跨度；
+  // 颜色由 KU-1（一族一色）+ 色组表派生，不在这里重复。
+  const FAMILY_SAMPLES = [
+    // 地址 / 主机 / 端口：同一个 IPv4 在任何上下文里都是同一个家族
+    { line: '10.1.2.3', want: [['ipv4', '10.1.2.3']] },
+    { line: '10.1.2.3/24', want: [['ipv4', '10.1.2.3/24']] },
+    { line: '10.1.2.3:443', want: [['ipv4', '10.1.2.3'], ['port', ':443']] },
+    { line: '0.0.0.0:8080->80/tcp', want: [['ipv4', '0.0.0.0'], ['port', ':8080->80/tcp']] },
+    { line: 'api.example.com:8443', want: [['host', 'api.example.com'], ['port', ':8443']] },
+    { line: 'connect ECONNREFUSED 127.0.0.1:5432', want: [['ipv4', '127.0.0.1'], ['port', ':5432']] },
+    { line: 'eth0: 10.1.2.3/24', want: [['interface-name', 'eth0'], ['ipv4', '10.1.2.3/24']] },
+    // 时长 vs 体积：`m` 是两族共用不了的字母，按形制分（整数裸字母 = 分钟，小数 = 兆字节）
+    { line: '5m', want: [['duration', '5m']] },
+    { line: '12m30s', want: [['duration', '12m30s']] },
+    { line: 'took 3.5s', want: [['duration', 'took 3.5s']] },
+    { line: '(0.01 sec)', want: [['duration', '(0.01 sec)']] },
+    { line: '1.5M', want: [['size', '1.5M']] },
+    // 大小写在 gi 标志下不可判（node 24 没有 (?-i:…)），`100M` 这种整数 + 裸 M 只能
+    // 二选一：按 KU-3 的裁决留给 duration（`5m` = 5 分钟是 docker/k8s AGE 列的形制），
+    // 体积靠 MB/MiB 与小数形制（`1.5M`）认领。这条样本就是那个取舍的存档。
+    { line: '100M', want: [['duration', '100M']] },
+    { line: '1.5m', want: [['size', '1.5m']] },
+    { line: '233G', want: [['size', '233G']] },
+    { line: '4.0K', want: [['size', '4.0K']] },
+    { line: '100MB', want: [['size', '100MB']] },
+    // 百分比独立成族，不再和裸数字抢
+    { line: '45%', want: [['percent', '45%']] },
+    { line: '4096', want: [['number', '4096']] },
+    { line: '12 (30s ago)', want: [['restart-count', '12 (30s ago)']] },
+    // 路径 / 源码位置：带行号整段归 file-line，行号不漏给端口
+    { line: '/usr/src/app/main.c:42:5: error', want: [['file-line', '/usr/src/app/main.c:42:5'], ['word-error', 'error']] },
+    { line: 'make: *** [Makefile:12] Error 2', want: [['file-line', 'Makefile:12'], ['word-error', 'Error'], ['number', '2']] },
+    { line: 'open /usr/lib/x.so', want: [['path', '/usr/lib/x.so']] },
+    { line: 'https://example.com/a?b=1', want: [['url', 'https://example.com/a?b=1']] },
+    // 标识 / 制品 / 镜像
+    { line: 'nginx.service', want: [['unit-name', 'nginx.service']] },
+    { line: 'nginx:1.27-alpine', want: [['image-ref', 'nginx:1.27-alpine']] },
+    { line: 'redis  12m30s', want: [['image-ref', 'redis'], ['duration', '12m30s']] },
+    // 词尾锚：白名单镜像名必须吃掉整个 token，`python3` 不能只染 `python`
+    { line: 'python3 setup.py install', want: [['path', 'setup.py']] },
+    // `NAME:NNNN` 在 docker/compose 里读作"镜像:tag"，白名单优先于端口（已知取舍，见 v6 §6 批次 C）
+    { line: 'redis:6379', want: [['image-ref', 'redis:6379']] },
+    { line: 'db:5432', want: [['port', ':5432']] },
+    // 精确地址层：IPv6 / MAC 整串一次吃下，不再被切成多段
+    { line: '2001:0db8:85a3:0000:0000:8a2e:0370:7334', want: [['ipv6-mac', '2001:0db8:85a3:0000:0000:8a2e:0370:7334']] },
+    { line: '00:1a:2b:3c:4d:5e', want: [['ipv6-mac', '00:1a:2b:3c:4d:5e']] },
+    { line: '0011.2233.4455', want: [['ipv6-mac', '0011.2233.4455']] },
+    // 时间与状态词
+    { line: 'Oct  9 08:57:36', want: [['timestamp', 'Oct  9 08:57:36']] },
+    { line: '2026-10-09T08:00:00Z', want: [['timestamp', '2026-10-09T08:00:00Z']] },
+    { line: 'ERROR', want: [['word-error', 'ERROR']] },
+    { line: 'WARNING', want: [['word-warn', 'WARNING']] },
+    { line: 'SUCCESS', want: [['word-ok', 'SUCCESS']] },
+    { line: 'web-0  Up 3 hours', want: [['k8s-workload.ok', 'Up 3 hours']] },
+    { line: 'port 80', want: [['port-word', 'port 80']] },
+    { line: '0x7ffe', want: [['hex-literal', '0x7ffe']] },
+    { line: '--max-time=30', want: [['cli-flag', '--max-time=30']] }
+  ]
+  test('KU-3 形状边界 · 家族样本矩阵：每个形状在全量配置下只有一个归属', async () => {
+    const { keywordPresets } = await loadPresets()
+    const { activeKeywords } = await loadGroups()
+    const { compileKeywords } = await loadCompile()
+    const { buildScan, collectMatches } = await loadScan()
+    const active = activeKeywords(keywordPresets.reduce(
+      (acc, p) => acc.concat(p.keywords.map(k => ({ ...k, source: 'preset', group: p.name }))), []))
+    const patterns = compileKeywords(active)
+    const scan = buildScan(patterns)
+    for (const { line, want } of FAMILY_SAMPLES) {
+      const got = collectMatches(line, patterns, scan).map(m => [patterns[m.index].family, m.text])
+      assert.deepEqual(got, want, `家族归属不符：${line}`)
+    }
   })
 
   test('KU-4 一词一族 整词探测：同词多配置 = 0、同词异色 = 0', async () => {
@@ -466,7 +540,11 @@ describe('V3 信号家族契约', () => {
     }
     // 源文件属于路径层（20），赢过同起点的宽口径标识/数值规则。颜色跟色板走，
     // 所以断言取派生值，避免每次重排色板都要回来改这里。
-    assert.equal(hitOf('/usr/src/app/main.c:42:5: error: ...', '/usr/src/app/main.c').color, COLOR_GROUPS.path.color)
+    // 批次 C（KU-3）：带行号的绝对路径整段归 file-line 一个家族，`(:42:5)` 不再
+    // 漏给端口 —— 路径层在这里赢的是"半截路径 + 假端口"这个旧形状。
+    assert.equal(hitOf('open /usr/src/app/main.c', '/usr/src/app/main.c').color, COLOR_GROUPS.path.color)
+    const srcHit = hitOf('/usr/src/app/main.c:42:5: error: ...', '/usr/src/app/main.c:42:5')
+    assert.equal(srcHit.rank, 20)
     // 镜像名 vs pod 名同为 30 层，但镜像名的正则更长 → 同层取更长
     assert.equal(hitOf('nginx-7d9f8c6b5-x2k4p CrashLoopBackOff', 'nginx-7d9f8c6b5-x2k4p').rank, 30)
     // unit 名（30）压过状态词（50）里的动词，两者各染各的、互不吞并

@@ -385,8 +385,12 @@ describe('keyword presets', () => {
     assert.ok(addon.highlightKeywords('nginx.service').includes(TC.ident + 'nginx.service' + end))
     assert.equal(addon.highlightKeywords('nginx.service').includes(TC.ident + 'nginx' + end), false,
       'unit 名必须整段染色，不能只染 nginx')
-    assert.ok(addon.highlightKeywords('10.1.2.3:443').includes(TC.port + '10.1.2.3:443' + end))
-    assert.equal(addon.highlightKeywords('10.1.2.3:443').includes(TC.ip4 + '10.1.2.3' + end), false)
+    // KU-3（批次 C）：一段染色只承载一个家族。地址与端口相邻两段、各色各色，
+    // 同一个 IPv4 在 `10.1.2.3` / `10.1.2.3:443` / `10.1.2.3/24` 里必须是同一个颜色。
+    const hp = addon.highlightKeywords('10.1.2.3:443')
+    assert.ok(hp.includes(TC.ip4 + '10.1.2.3' + end), hp)
+    assert.ok(hp.includes(TC.port + ':443' + end), hp)
+    assert.equal(hp.includes(TC.port + '10.1.2.3:443'), false, hp)
     assert.ok(addon.highlightKeywords('ping 10.1.2.3 ok').includes(TC.ip4 + '10.1.2.3' + end))
     assert.ok(addon.highlightKeywords('404 /favicon.ico').includes(TC.path + '/favicon.ico' + end))
     assert.ok(addon.highlightKeywords('open /tmp/out.json').includes(TC.path + '/tmp/out.json' + end))
@@ -471,12 +475,17 @@ describe('keyword presets', () => {
   test('Docker preset keeps pod names whole and colours port mappings', async () => {
     const { KeywordHighlighterAddon } = await loadAddon()
     const addon = new KeywordHighlighterAddon(await resolve('Docker & Kubernetes'))
+    const end = '\u001b[0m'
     const out = addon.highlightKeywords('nginx-7d9f8c6b5-x2k4p   0/1   CrashLoopBackOff   12 (30s ago)   5m')
 
     assert.ok(out.includes(TC.artifact + 'nginx-7d9f8c6b5-x2k4p'))
     assert.ok(out.includes('\u001b[31mCrashLoopBackOff'))
     assert.ok(out.includes(TC.port + '12 (30s ago)'))
-    assert.ok(addon.highlightKeywords('0.0.0.0:8080->80/tcp').includes(TC.port + '0.0.0.0:8080->80/tcp'))
+    // 批次 C：地址与端口分段染色；时长（AGE 列 5m / 12m30s）由通用 duration 族认领
+    const listen = addon.highlightKeywords('0.0.0.0:8080->80/tcp')
+    assert.ok(listen.includes(TC.ip4 + '0.0.0.0' + end), listen)
+    assert.ok(listen.includes(TC.port + ':8080->80/tcp' + end), listen)
+    assert.ok(addon.highlightKeywords('redis  12m30s').includes(TC.dur + '12m30s' + end))
   })
 
   test('Git preset colours conflicts and leaves the status letters alone', async () => {
