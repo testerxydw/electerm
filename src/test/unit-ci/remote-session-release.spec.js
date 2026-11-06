@@ -94,7 +94,7 @@ describe('RDP 关闭：显式释放 WASM 会话与 canvas 显存', () => {
   test('connect 期间卸载要补做关闭（不能留下已握手的会话）', () => {
     assert.match(
       src,
-      /this\.session = await builder\.connect\(\)[\s\S]{0,300}if \(this\._unmounting\) \{[\s\S]{0,160}this\.cleanup\(\)/,
+      /this\.session = await builder\.connect\(\)[\s\S]{0,900}if \(this\._unmounting\) \{[\s\S]{0,160}this\.cleanup\(\)/,
       'connect 返回后必须检查卸载标志并 cleanup'
     )
   })

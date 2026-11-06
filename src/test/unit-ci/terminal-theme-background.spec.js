@@ -62,9 +62,10 @@ describe('#4539 主题 background 成为可见底色', () => {
       '不得在注册时快照：背景图设置变化不会重新注册处理器'
     )
 
-    const renderer = mixin.match(/getRendererThemeConfig \(themeConfig = this\.props\.themeConfig\) \{[\s\S]*?\n {2}\}/)
+    const renderer = mixin.match(/getRendererThemeConfig \([\s\S]*?\n {2}\}/)
     assert.ok(renderer, '渲染层主题构造存在')
     assert.ok(renderer[0].includes('this.getVisibleTerminalBackground()'), 'webGL 清屏色同源（#4407 DOM/WebGL 对齐）')
+    assert.ok(renderer[0].includes('rendererType'), '渲染层主题带 rendererType 实判（DOM/WebGL 两套底色）')
 
     const selection = mixin.match(/fixSelectionColors \(term\) \{[\s\S]*?\n {2}\}/)
     assert.ok(selection, '选中色修正存在')

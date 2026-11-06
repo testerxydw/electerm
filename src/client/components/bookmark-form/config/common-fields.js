@@ -10,6 +10,7 @@ import {
 import defaultSettings from '../../../common/default-setting'
 import encodes from '../common/encodes'
 import { isEmpty } from 'lodash-es'
+import { hasCredentialProvider } from '../../../common/credential-provider.jsx'
 
 const e = window.translate
 
@@ -229,6 +230,17 @@ export const commonFields = {
     name: '__x11__',
     label: 'x11'
   },
+  // this bookmark asks a password manager widget for its password; shown only
+  // with one installed, off unless the user asks for it
+  usePasswordManager: {
+    type: 'switch',
+    name: 'usePasswordManager',
+    label: () => e('usePasswordManager'),
+    valuePropName: 'checked',
+    get hidden () {
+      return !hasCredentialProvider()
+    }
+  },
 
   // Dynamic sections
   quickCommands: {
@@ -365,6 +377,7 @@ export const sshAuthFields = [
     name: 'useSshAgent'
   },
   { type: 'switch', name: 'isMFA', label: () => e('MFA/OTP'), valuePropName: 'checked' },
+  commonFields.usePasswordManager,
   commonFields.runScripts,
   commonFields.description,
   commonFields.setEnv,
@@ -383,6 +396,7 @@ export const telnetAuthFields = [
   commonFields.host,
   commonFields.username,
   commonFields.password,
+  commonFields.usePasswordManager,
   commonFields.loginPrompt,
   commonFields.passwordPrompt,
   { type: 'profileItem', name: '__profile__', label: '', profileFilter: d => !isEmpty(d.telnet) },

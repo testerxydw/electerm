@@ -12,6 +12,7 @@ import { findDuplicateBookmarks } from '../../common/bookmark-dedup'
 import { runImportTask } from '../../common/import-task'
 import { parseNcx } from '../../common/navicat-ncx'
 import message from '../common/message'
+import { collectUncategorizedBookmarks } from '../../common/bookmark-uncategorized'
 
 const e = window.translate
 
@@ -80,7 +81,7 @@ export const bookmarkUpload = action(async (file) => {
   const pool = [...bookmarks0]
   let skipped = 0
 
-  await runImportTask({
+  const task = await runImportTask({
     title: e('import'),
     batch: 200,
     stopWatchers: ['bookmarks', 'bookmarkGroups'],
@@ -113,6 +114,12 @@ export const bookmarkUpload = action(async (file) => {
               const bg1 = store.bookmarkGroups.find(
                 b => b.id === bg.id
               )
+              // a category is named by `title`; an imported file that names it
+              // (and a category already in the store without one, e.g. written
+              // by a widget that used `name`) leaves a blank node in the tree
+              if (!bg1.title && bg.title) {
+                bg1.title = bg.title
+              }
               bg1.bookmarkIds = uniq(
                 [
                   ...(bg1.bookmarkIds || []),
@@ -133,7 +140,13 @@ export const bookmarkUpload = action(async (file) => {
         label: e('bookmarks'),
         weight: 1,
         run: () => {
-          store.fixBookmarkGroups()
+          // bookmarks the file left uncategorized (all of them, for a bare
+          // array) would be invisible in the sidebar: the tree is built from
+          // the category references, so they need a category of their own
+          action(() => {
+            collectUncategorizedBookmarks(store.bookmarks, store.bookmarkGroups)
+            store.fixBookmarkGroups()
+          })()
         }
       }
     ]
@@ -144,9 +157,19 @@ export const bookmarkUpload = action(async (file) => {
     message.warning(skipped + ' ' + e('bookmarkDuplicatesSkipped'))
   }
 
-  return false
+  // callers that show the outcome (a widget offering bookmarks) need to know
+  // whether anything was imported: a cancelled task and "another import is
+  // already running" both end here without an exception
+  return {
+    ok: !task.cancelled && !task.error,
+    cancelled: !!task.cancelled,
+    error: task.error || null
+  }
 })
 
 export async function beforeBookmarkUpload (file) {
-  return bookmarkUpload(file)
+  await bookmarkUpload(file)
+  // antd Upload takes `false` as "do not send the file anywhere"; the import
+  // itself already ran above
+  return false
 }

@@ -39,6 +39,8 @@ import RemoteSuspend, { isTabActive } from '../../common/remote-suspend'
 import HelpIcon from '../common/help-icon'
 import Modal from '../common/modal'
 import RdpCredForm from './rdp-cred-form'
+import { credentialsFromProvider, connectedToProvider } from '../../common/credential-provider.jsx'
+import { credentialOptions } from '../../common/credential-provider-utils.js'
 import { FileTransferManager, createFileLogger } from './file-transfer'
 import { notification } from '../common/notification'
 import message from '../common/message'
@@ -268,9 +270,16 @@ export default class RdpSession extends PureComponent {
       ...window.store.applyProfile(deepCopy(this.props.tab || {})),
       ...credOverride
     }
+    // a bookmark that asks a password manager for its password, when it has
+    // none saved (without NLA only the user name is used, see rdp-logon.js)
+    if (!credOverride) {
+      this.credentials = await credentialsFromProvider(tab)
+      Object.assign(tab, credentialOptions(this.credentials, 'rdp'))
+    }
     // keep resolved credentials for the connect-time prompt
     this.tab = tab
-    if (!tab.username) {
+    // a new entry: ask for user name and password first
+    if (!tab.username || (!credOverride && this.credentials?.newEntry)) {
       this.setState({
         loading: false,
         showCredPrompt: true
@@ -431,6 +440,14 @@ export default class RdpSession extends PureComponent {
       })
 
       this.session = await builder.connect()
+      // logged on with a password typed in the form: save or offer it; only
+      // NLA proves it, without NLA it is not even sent
+      if (credOverride?.password && mode.nla) {
+        connectedToProvider(tab, this.credentials, {
+          username: tab.username,
+          password: credOverride.password
+        })
+      }
 
       // 卸载发生在 connect 期间：cleanup() 当刻 session 还是 null，什么都关不掉。
       // 交给 cleanup() 补做 shutdown（Rust 侧内存在 run() 结束后由 finally 释放），

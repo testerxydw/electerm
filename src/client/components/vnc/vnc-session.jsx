@@ -23,6 +23,8 @@ import { copy, readClipboard } from '../../common/clipboard'
 import VncForm from './vnc-form'
 import SessionShell from '../common/session-shell'
 import * as ls from '../../common/safe-local-storage'
+import { credentialsFromProvider } from '../../common/credential-provider.jsx'
+import { credentialOptions } from '../../common/credential-provider-utils.js'
 import {
   RESIZE_MERGE_MS,
   QUALITY_PRESETS,
@@ -270,6 +272,9 @@ export default class VncSession extends PureComponent {
     const { config } = this.props
     const { id } = this.props
     const tab = window.store.applyProfile(deepCopy(this.props.tab || {}))
+    // a bookmark that asks a password manager for its password, when it has
+    // none saved: noVNC and the proxy both take it from here
+    Object.assign(tab, credentialOptions(await credentialsFromProvider(tab), 'vnc'))
     const {
       type,
       term: terminalType,
@@ -779,6 +784,22 @@ export default class VncSession extends PureComponent {
     }, this.updateViewLayout)
   }
 
+  // 改完编码后主动要一帧整屏刷新。noVNC 的 setter 只发 SetEncodings，不会请求重绘；
+  // 而它平时只在"收到一帧之后"补一次增量请求，静止画面下就一直不给新帧 —— 表现
+  // 就是切了画质没反应、要重连（重连会重发整屏请求）才看到。这里补一次非增量请求，
+  // 让服务端立刻按新编码重绘整屏。仅在已连接、且值确实变了时发，避免无意义重绘。
+  requestFullRefresh = () => {
+    const rfb = this.rfb
+    const RFB = window.novnc && window.novnc.RFB
+    if (!rfb || !RFB || !RFB.messages ||
+      rfb._rfbConnectionState !== 'connected' || !rfb._sock) {
+      return
+    }
+    RFB.messages.fbUpdateRequest(
+      rfb._sock, false, 0, 0, rfb._fbWidth, rfb._fbHeight
+    )
+  }
+
   // 运行中改画质：写 noVNC 的两个 setter + 写本机逐 host 记忆。
   // 不回写 tab / 书签（与上面 handleScaleViewChange 同口径：栏内的偏好属本机）。
   // 判等在这层也做一次：appliedQuality 记的是上一个真正交给当前 rfb 的值，
@@ -797,6 +818,9 @@ export default class VncSession extends PureComponent {
       return
     }
     const prev = this.appliedQuality || {}
+    const changed =
+      prev.qualityLevel !== qualityLevel ||
+      prev.compressionLevel !== compressionLevel
     if (prev.qualityLevel !== qualityLevel) {
       rfb.qualityLevel = qualityLevel
     }
@@ -804,6 +828,9 @@ export default class VncSession extends PureComponent {
       rfb.compressionLevel = compressionLevel
     }
     this.appliedQuality = { qualityLevel, compressionLevel }
+    if (changed) {
+      this.requestFullRefresh()
+    }
   }
 
   handlePresetChange = (key) => {
