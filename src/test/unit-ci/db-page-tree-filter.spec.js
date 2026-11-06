@@ -8,11 +8,14 @@ const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a：isLeafNode / nodeKey 这类纯判定随常量段一起搬到 common/db-session-const.js
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
+// N11a 第 2 步：顶栏查找的计数在 use-db-page-search.js 里，这条跨文件判据跟过去
+const DB_PAGE_SEARCH = path.join(ROOT, 'src/client/components/database/use-db-page-search.js')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const loadJsx = () => fs.readFileSync(JSX, 'utf8')
 const loadConst = () => fs.readFileSync(SESSION_CONST, 'utf8')
+const loadPageSearch = () => fs.readFileSync(DB_PAGE_SEARCH, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')
 const loadLocales = () => fs.readFileSync(LOCALES, 'utf8')
 
@@ -274,8 +277,10 @@ describe('T1/T2 wiring contract', () => {
     assert.ok(src.includes("'db-tree-hit'"), 'tree filter mark class missing')
     assert.ok(src.includes('treeExpandedBeforeFilter'), 'expand snapshot missing')
     assert.ok(src.includes('db-tree-filter'), 'tree filter input missing')
-    // 顶栏查找的计数仍只收 db-kw-hit
-    assert.ok(src.includes("root.querySelectorAll('.db-kw-hit')"), 'top search count must not collect tree hits')
+    // 顶栏查找的计数仍只收 db-kw-hit（N11a 第 2 步起这段在 use-db-page-search.js）
+    const search = loadPageSearch()
+    assert.ok(search.includes("root.querySelectorAll('.db-kw-hit')"), 'top search count must not collect tree hits')
+    assert.ok(!search.includes('db-tree-hit'), 'top search must never count tree-filter marks')
   })
 
   test('i18n keys exist for both en and zh_cn', () => {

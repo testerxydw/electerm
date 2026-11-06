@@ -16,6 +16,8 @@ const ACTIONS = path.join(ROOT, 'src/client/components/common/session-bar-action
 const LAYOUT = path.join(ROOT, 'src/client/components/layout/layout.jsx')
 const DB_SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const DB_SEARCH = path.join(ROOT, 'src/client/components/database/db-search.jsx')
+// N11a 第 2 步：页内查找的状态与导航整簇搬到 use-db-page-search.js
+const DB_PAGE_SEARCH = path.join(ROOT, 'src/client/components/database/use-db-page-search.js')
 const DB_SESSION_STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
 // 统一查找条（doc/已完成/草图-统一搜索条-2026-10-19.html + doc/数据库功能总览-2026-10-21.md）：
@@ -28,6 +30,7 @@ const searchBarSrc = () => load(SEARCH_BAR)
 const termSearchSrc = () => load(TERM_SEARCH)
 const sessionControlSrc = () => load(SESSION_CONTROL)
 const dbSessionSrc = () => load(DB_SESSION)
+const dbPageSearchSrc = () => load(DB_PAGE_SEARCH)
 
 // 在 styl 里取某个顶级选择器的块（到下一个顶级选择器为止；文件可能是 CRLF 行尾）
 const stylBlock = (styl, selector) => {
@@ -190,20 +193,20 @@ describe('DB search: hit-list logic (real source)', () => {
   })
 
   test('recount: textarea hits via scanTextHits + input delegation', () => {
-    const src = dbSessionSrc()
+    const src = dbPageSearchSrc()
     assert.ok(src.includes('scanTextHits(ta.value, kw)'), 'textarea scan must go through the pure helper')
     assert.ok(src.includes("root.addEventListener('input', recount, true)"), 'textarea value changes emit no DOM mutation; input delegation is required')
     assert.ok(src.includes("root.removeEventListener('input', recount, true)"), 'listener must be removed on cleanup')
   })
 
   test('goHit: cycle navigation via cycleIndex + locateHit', () => {
-    const src = dbSessionSrc()
+    const src = dbPageSearchSrc()
     assert.ok(src.includes('const next = cycleIndex(searchIndexRef.current, delta, n)'), 'goHit drifted')
     assert.match(src, /const locateHit = \(index\) => \{[\s\S]*?hit\.el\.focus\(\)[\s\S]*?hit\.el\.setSelectionRange\(hit\.start, hit\.end\)/, 'textarea hit must locate via focus + selection')
   })
 
   test('drift guard: focus/selection only in locateHit, never in the render-sync effect', () => {
-    const src = dbSessionSrc()
+    const src = dbPageSearchSrc()
     const end = src.indexOf('}, [searchIndex, searchHits, kw])')
     assert.ok(end > 0, 'render-sync effect deps drifted')
     const start = src.lastIndexOf('useEffect(', end)
@@ -213,11 +216,20 @@ describe('DB search: hit-list logic (real source)', () => {
   })
 
   test('index ref mirror kept in sync (setIdx on reset and close)', () => {
-    const src = dbSessionSrc()
+    const src = dbPageSearchSrc()
     assert.match(src, /const setIdx = \(v\) => \{\s*\n\s*searchIndexRef\.current = v\s*\n\s*setSearchIndex\(v\)/, 'ref mirror helper')
     assert.match(src, /useEffect\(\(\) => \{\s*\n\s*setIdx\(0\)\s*\n\s*\}, \[kw\]\)/, 'keyword change must reset to first hit')
     const closeMatch = src.match(/const closeSearch = \(\) => \{[\s\S]*?\n {2}\}/)
     assert.ok(closeMatch && closeMatch[0].includes('setIdx(0)'), 'close must reset via setIdx')
+  })
+
+  test('接线：查找簇由会话页挂载，两个句柄从页面注入', () => {
+    const src = dbSessionSrc()
+    assert.match(src, /\} = useDbPageSearch\(\{ bodyRef, sqlEditorRef \}\)/)
+    // 句柄必须仍归页面管：sqlEditorRef 还有一堆非查找的用法（插入 / 取值 / 回填）
+    assert.match(src, /const sqlEditorRef = useRef\(null\)/)
+    assert.match(src, /const bodyRef = useRef\(null\)/)
+    assert.ok(!src.includes('const hitsRef = useRef'), '命中清单只能有一份，不得回流到会话页')
   })
 
   test('two-color current hit css stays (weak + primary + outline)', () => {

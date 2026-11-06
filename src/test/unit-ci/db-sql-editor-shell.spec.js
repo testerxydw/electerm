@@ -12,6 +12,8 @@ const ROOT = path.join(__dirname, '../../..')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
+// N11a 第 2 步：页内查找整簇搬到 use-db-page-search.js，命中清单的断言跟过去
+const SEARCH_HOOK = path.join(ROOT, 'src/client/components/database/use-db-page-search.js')
 const EDITOR = path.join(ROOT, 'src/client/components/database/db-sql-editor.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const BUILD = path.join(ROOT, 'src/build/bin/build.js')
@@ -175,22 +177,22 @@ describe('A-1 主题跟随 token', () => {
 })
 
 describe('A-1 页内查找适配', () => {
-  const session = read(SESSION)
+  const search = read(SEARCH_HOOK)
   const editor = read(EDITOR)
 
   test('命中清单扩成三段：DOM / textarea / SQL 编辑器', () => {
-    assert.match(session, /const hitsRef = useRef\(\{ marks: \[\], taHits: \[\], sqlHits: 0 \}\)/)
+    assert.match(search, /const hitsRef = useRef\(\{ marks: \[\], taHits: \[\], sqlHits: 0 \}\)/)
   })
 
   test('recount 向编辑器要全文命中数（CM6 只渲染可视行）', () => {
-    assert.match(session, /sqlEditorRef\.current\.getSearchHits\(kw\)\.length/)
-    assert.match(session, /const total = marks\.length \+ taHits\.length \+ sqlHits/)
+    assert.match(search, /sqlEditorRef\.current\.getSearchHits\(kw\)\.length/)
+    assert.match(search, /const total = marks\.length \+ taHits\.length \+ sqlHits/)
   })
 
   test('导航能定位到编辑器内命中', () => {
-    assert.match(session, /editor\.setSearchKeyword\(kw\)/)
-    assert.match(session, /editor\.selectSearchHit\(taIndex - taHits\.length\)/)
-    assert.match(session, /const n = marks\.length \+ taHits\.length \+ sqlHits/)
+    assert.match(search, /editor\.setSearchKeyword\(kw\)/)
+    assert.match(search, /editor\.selectSearchHit\(taIndex - taHits\.length\)/)
+    assert.match(search, /const n = marks\.length \+ taHits\.length \+ sqlHits/)
   })
 
   test('编辑器侧复用 db-search 的同一套命中算法（不另写一份）', () => {
