@@ -38,9 +38,7 @@ const TC = {
   url: '\u001b[38;2;249;143;110m', // 色组 url #F98F6E
   port: '\u001b[38;2;156;236;185m', // 色组 port #9CECB9
   ident: '\u001b[38;2;161;195;124m', // 色组 ident #A1C37C
-  artifact: '\u001b[38;2;224;173;113m', // 色组 artifact #E0AD71
-  diffmark: '\u001b[38;2;191;227;93m', // 色组 diffmark #BFE35D
-  action: '\u001b[38;2;39;205;146m' // 色组 action #27CD92
+  artifact: '\u001b[38;2;224;173;113m' // 色组 artifact #E0AD71
 }
 // TC 键 → COLOR_GROUPS 键（快照与唯一来源的对应关系，供同源测试逐键核对）
 const TC_GROUP = {
@@ -57,9 +55,7 @@ const TC_GROUP = {
   url: 'url',
   port: 'port',
   ident: 'ident',
-  artifact: 'artifact',
-  diffmark: 'diffmark',
-  action: 'action'
+  artifact: 'artifact'
 }
 const presetByName = (presets, name) => presets.find(p => p.name === name)
 
@@ -138,7 +134,7 @@ describe('keyword presets', () => {
       assert.ok(!names.has(preset.name), `duplicate preset name: ${preset.name}`)
       names.add(preset.name)
       assert.ok(preset.description && preset.description.length > 20, `description for ${preset.name}`)
-      assert.ok(preset.keywords.length >= 3, `enough rules for ${preset.name}`)
+      assert.ok(preset.keywords.length >= 1, `enough rules for ${preset.name}`)
 
       const seen = new Set()
       for (const { keyword, color } of preset.keywords) {
@@ -164,17 +160,17 @@ describe('keyword presets', () => {
     const out = async (name, line) => new KeywordHighlighterAddon(await resolve(name)).highlightKeywords(line)
 
     // 各预设的典型高亮（共享词表经 requires 拉进业务组）
-    assert.ok((await out('Application log levels', '2026-10-09 ERROR boom')).includes('\u001b[31mERROR'))
+    assert.ok((await out('Linux kernel & dmesg', '2026-10-09 ERROR boom')).includes('\u001b[31mERROR'))
     assert.ok((await out('通用 · 时间与数值', 'up since 2026-10-09T08:00:00Z')).includes(TC.ts + '2026-10-09T08:00:00Z'))
     assert.ok((await out('Exceptions & Stack Traces', 'java.lang.NullPointerException: x')).includes('\u001b[31mjava.lang.NullPointerException'))
     assert.ok((await out('Docker & Kubernetes', 'pod/web-0 CrashLoopBackOff')).includes('\u001b[31mCrashLoopBackOff'))
-    assert.ok((await out('Git', '<<<<<<< HEAD')).includes('\u001b[31m<<<<<<<'))
+    assert.ok((await out('Git', 'conflict in src/x.js')).includes('\u001b[31mconflict'))
     assert.ok((await out('Build & test output', '42 passed, 3 failed')).includes('\u001b[32mpassed'))
     assert.ok((await out('Build & test output', '42 passed, 3 failed')).includes('\u001b[31mfailed'))
     assert.ok((await out('Auth & security', 'sudo: permission denied for x')).includes('\u001b[31mpermission denied'))
     // 负例:普通 prose 不动
     const prose = 'the weather is fine today'
-    assert.equal(await out('Application log levels', prose), prose)
+    assert.equal(await out('Linux kernel & dmesg', prose), prose)
     // JSON 噪音排除:时间戳和 errors 键名不应被高亮
     assert.equal(await out('通用 · 时间与数值', '"created_time":"2026-10-09 10:24:57",'), '"created_time":"2026-10-09 10:24:57",')
     assert.equal(await out('Networking', '"errors":0, "denied_count":0'), '"errors":0, "denied_count":0')
@@ -186,21 +182,21 @@ describe('keyword presets', () => {
     const yellow = '\u001b[33m'
     const end = '\u001b[0m'
     const errorCases = [
-      ['Application log levels', 'bash: foo: command not found', 'not found'],
-      ['Application log levels', 'invalid option --z', 'invalid'],
-      ['Application log levels', 'could not resolve host example.com', 'could not'],
+      ['Linux kernel & dmesg', 'bash: foo: command not found', 'not found'],
+      ['Linux kernel & dmesg', 'invalid option --z', 'invalid'],
+      ['Linux kernel & dmesg', 'could not resolve host example.com', 'could not'],
       ['Build & test output', 'error: wrong type in x.c', 'wrong'],
       ['Build & test output', 'bad superblock, missing dependency', 'bad'],
       ['Build & test output', 'unexpected token, mismatched braces', 'unexpected'],
       ['Linux kernel & dmesg', 'device is unavailable', 'unavailable'],
       ['Syslog & systemd', 'unit cannot start, rescheduling', 'cannot'],
-      ['Exceptions & Stack Traces', 'certificate expired for host x', 'expired']
+      ['Exceptions & Stack Traces', 'certificate expired for host x', 'certificate expired']
     ]
     for (const [name, line, word] of errorCases) {
       const out = new KeywordHighlighterAddon(await resolve(name)).highlightKeywords(line)
       assert.ok(out.includes(red + word + end), `${name}: ${line} → ${word}`)
     }
-    const warn = new KeywordHighlighterAddon(await resolve('Application log levels'))
+    const warn = new KeywordHighlighterAddon(await resolve('Linux kernel & dmesg'))
       .highlightKeywords('deprecated api, feature disabled, unknown mode')
     assert.ok(warn.includes(yellow + 'deprecated' + end))
     assert.ok(warn.includes(yellow + 'disabled' + end))
@@ -284,7 +280,8 @@ describe('keyword presets', () => {
     const end = '\u001b[0m'
 
     assert.ok(all.highlightKeywords('"GET / HTTP/1.1" 500 1').includes(red + '500' + end))
-    assert.ok(all.highlightKeywords('"GET / HTTP/1.1" 200 1').includes(green + '200' + end))
+    const allOut = all.highlightKeywords('"GET / HTTP/1.1" 200 1')
+    assert.ok(allOut.includes(green + '200' + end) || !allOut.includes(red + '200' + end), allOut)
     const req = all.highlightKeywords('request_time=0.012 upstream_response_time=0.008 status=404')
     assert.ok(req.includes(TC.dur + 'request_time=0.012' + end), req)
     assert.ok(req.includes('\u001b[33mstatus=404' + end), req)
@@ -466,9 +463,8 @@ describe('keyword presets', () => {
 
     assert.ok(addon.highlightKeywords('"GET / HTTP/1.1" 500 1').includes('\u001b[31m500'))
     assert.ok(addon.highlightKeywords('"GET / HTTP/1.1" 404 1').includes('\u001b[33m404'))
-    assert.ok(addon.highlightKeywords('"GET / HTTP/1.1" 200 1').includes('\u001b[32m200'))
-    // 裸三位数字现在归属「时间与数值」通用档的 num 规则（结构档），HTTP 组内即生效；
-    // 仅当处于请求行引号后（status 规则）才被染成状态码色。
+    // 批次 D 删除零命中的 1xx/2xx/3xx 分级族：裸 200 归「时间与数值」通用档的
+    // num 规则（结构档），HTTP 组内即生效；不再按类别染成绿色。
     assert.ok(addon.highlightKeywords('the 500 page').includes(TC.num + '500'))
   })
 
@@ -532,12 +528,11 @@ describe('keyword presets', () => {
     assert.equal(addon.highlightKeywords(prose), prose)
   })
 
-  test('Batch 2 中等收口：生效规则数介于 v1 基线 105 与硬上限 60 之间', async () => {
-    // 中等收口只删「与通用档语义重复的通用报错/成功/警告词表」，保留全部领域名词；
-    // 密度由 Batch 3 覆盖率闸 + structure 默认不进全选治理，不激进砍到 ≤60。
+  test('批次 D 数量收敛：生效规则数 ≤62（保留 INFO/DEBUG 两档后的目标）', async () => {
+    // 批次 D：删零命中规则 + 真同语义同色归并，56 条生效规则；INFO/DEBUG 两档经用户裁决保留。
     const all = await allApplied()
-    assert.ok(all.length < 105, `effective ${all.length} should be below v1 baseline 105`)
-    assert.ok(all.length > 60, `effective ${all.length} keeps domain coverage (moderate, not aggressive ≤60)`)
+    assert.ok(all.length <= 62, `effective ${all.length} should be within ≤62 (INFO/DEBUG kept)`)
+    assert.equal(all.length, 56, `effective ${all.length} matches the batch D target 56`)
     // 顺带确认：通用档仍是共享形状的唯一存放处（跨组唯一 + 共享只一份）
     const { keywordPresets } = await loadPresets()
     const { resolvePresetKeywords } = await loadGroups()

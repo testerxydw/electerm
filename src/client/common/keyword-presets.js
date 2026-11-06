@@ -134,6 +134,35 @@ const devAddr = '\\b(?:[0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\\.\\d\\b|\\b[0-9a-f
 // 词表搬进通用档后这层保护必须跟着搬，否则勾上 Networking 就会把 "errors":0 的键名染红）。
 // 只挡「词后紧跟引号再跟冒号」这个键形状：值侧的 "status":"failed" 照染、ERROR: 前缀照染。
 const notJsonKey = '(?!"\\s*:)'
+// 批次 D（数量收敛）：领域独有状态词按同色同档并入通用三档词表，业务组不再各写一份。
+// 每段词表保持原家族语义（内核/认证/SQL…），只是不再单独占一条规则。
+const domainErr = '(?:' +
+  // 网络：接口计数器报错（JSON 键名保护随词表上收）
+  '(?<![":])\\b(?:incomplete|crc|runts|giants|collisions?|input errors|output errors|discard(?:s|ed)?|drops?|blocking|blk|bkn|broken|alarm)\\b(?![":])|' +
+  // systemd unit 生命周期
+  '\\b(?:inactive|killed|masked)\\b|' +
+  // 内核事件短语
+  '\\b(?:kernel panic|general protection fault|unable to handle (?:kernel )?paging request|out of memory|oom[- ]kill(?:er)?|killed process|call trace|hardware error|machine check|medium error|unrecoverable (?:read|error)|i/o error|buffer i/o error|ext4-fs error|xfs .*corruption|reset .* failed|device not ready|link is not ready|firmware (?:bug|error)|stack corruption|bad rip value|blocked for more than)\\b|' +
+  // 原生信号名
+  '\\b(?:SIGSEGV|SIGABRT|SIGKILL)\\b|' +
+  // 认证失败
+  '\\b(?:failed password|authentication failure|auth(?:entication)? fail(?:ed|ure)?|invalid user|unauthorized|forbidden|break-in|blocked|banned|certificate (?:has )?expired|self[- ]signed|unable to authenticate|too many authentication failures|connection closed by authenticating user|possible break-in attempt)\\b|' +
+  // SQL / Redis 错误
+  '\\b(?:ER_[A-Z0-9_]+|SQLSTATE|DEADLOCK(?: DETECTED)?|duplicate (?:key|entry|column)|already exists|unknown (?:column|table|database|relation)|connection (?:refused|reset)|too many connections|lock wait timeout|syntax error|violates (?:check|unique|foreign key) constraint)\\b|' +
+  '\\((?:error)\\)|\\b(?:WRONGTYPE|NOSCRIPT|NOAUTH|NOPERM|EXECABORT|CROSSSLOT|MOVED|CLUSTERDOWN|MASTERDOWN|READONLY|MISCONF|BUSYGROUP|OOM command not allowed)\\b)'
+const domainWarn = '(?:' +
+  '(?<![":])\\b(?:half|learning|lrn|lis|standby|shutdown|desg|altn|alternate|backup)\\b(?![":])|' +
+  '\\b(?:stopping|stopped|reloading|reload(?:ed)?|deactivating|activating|scheduled|restart)\\b|' +
+  '\\b(?:falling back|deferred|link is down|disconnected|removed|suspended|unstable|overcurrent|throttl(?:ed|ing)|thermal|under-voltage|over-voltage)\\b|' +
+  '\\b(?:ContainerCreating|Init:\\d+/\\d+|PodInitializing|SchedulingDisabled|Paused|Preempting)\\b|' +
+  '\\b(?:modified|deleted|renamed|copied|untracked|staged|unstaged|diverged|no changes added to commit|changes not staged|changes to be committed)\\b|' +
+  '\\b(?:weak|insecure|attempt|partial|unknown key|reverse mapping|no matching host key)\\b|' +
+  '\\b(?:NOTICE|slow query|Using filesort|Using temporary|full table scan|seq scan|connection is read-only)\\b)'
+const domainOk = '(?:' +
+  '\\b(?:PASS|build succeeded|build success(?:ful)?|compilation complete|compiled successfully|all tests passed)\\b|✔|✓|√|' +
+  '\\b(?:already up to date|everything up-to-date|fast-forward|nothing to commit|working tree clean|deleted branch|merged|rebase(?:d)? successfully)\\b|' +
+  '\\bon branch \\S+|' +
+  '\\b(?:Accepted (?:password|publickey|keyboard-interactive|none|gssapi[\\w-]*)|session opened|session closed|logged in|login successful|authenticated|new session|reverse mapping checking .* successful|COMMAND=)\\b)'
 const lvlError = '\\b(?:EMERG(?:ENCY)?|ALERT|CRITICAL|CRIT|SEVERE|FATAL|PANIC(?:KED)?|DEAD|' +
   'ERRORS?|ERR|EXCEPTIONS?|CAUSED BY|' +
   'FAIL(?:ED|ING|URE|URES)?|DENIED|DENY|REFUSED|REJECT(?:ED|ING)?|TIMEOUT|TIMED OUT|UNREACHABLE|' +
@@ -146,9 +175,9 @@ const lvlError = '\\b(?:EMERG(?:ENCY)?|ALERT|CRITICAL|CRIT|SEVERE|FATAL|PANIC(?:
   'NOT (?:FOUND|ALLOWED|PERMITTED|AVAILABLE|SUPPORTED|RESPONDING|AUTHENTICATED|' +
   'INITIALIZED|ESTABLISHED|REACHABLE|VALID)|' +
   'NO SUCH \\w+|NO (?:ROUTE|PERMISSIONS?|RESPONSE|SPACE|MATCHING|ACCESS|AUTHENTICATION)|' +
-  'UNDEFINED (?:REFERENCE|SYMBOL)|PERMISSION DENIED|ACCESS DENIED|EACCES|ENOENT)\\b' + notJsonKey + '|(?:✗|✘|✖)'
+  'UNDEFINED (?:REFERENCE|SYMBOL)|PERMISSION DENIED|ACCESS DENIED|EACCES|ENOENT)\\b' + notJsonKey + '|(?:✗|✘|✖)|' + domainErr
 const lvlWarn = '\\b(?:WARN(?:ING)?S?|DEPRECATED|DEPRECATION|OUTDATED|HINT|DISABLED|UNKNOWN|' +
-  'INCOMPATIBLE|LEGACY|DISABL(?:E|ED|ING)|PENDING|WAITING|RETRY(?:ING)?|RESTARTING|RESTARTED|DEGRADED|LISTENING)\\b' + notJsonKey
+  'INCOMPATIBLE|LEGACY|DISABL(?:E|ED|ING)|PENDING|WAITING|RETRY(?:ING)?|RESTARTING|RESTARTED|DEGRADED|LISTENING)\\b' + notJsonKey + '|' + domainWarn
 const lvlInfo = '\\bINFO(?:RMATION|RMATIONAL)?\\b' + notJsonKey
 const lvlDebug = '\\b(?:DEBUG|TRACE|VERBOSE)\\b' + notJsonKey
 
@@ -163,7 +192,7 @@ const wordOk = '\\b(?:OK|ALL OK|YES|SUCCESS(?:FUL(?:LY)?)?|PASSED|PASSES|VALID|V
   'CORRECT(?:LY)?|SUPPORTED|KNOWN|VERIFIED|RESOLVED|ENABLED|AVAILABLE|REACHABLE|' +
   'COMPLETE(?:D)?|FINISHED|SUCCEEDED|WORKING|NORMAL|STABLE|CONNECTED|READY|' +
   'ACCEPT(?:ED)?|GRANTED|CLEAN|UP[ -]TO[ -]DATE|' +
-  'RUNNING|ACTIVE|STARTED|CREATED|ESTABLISHED|MOUNTED|LINK UP)\\b' + notJsonKey
+  'RUNNING|ACTIVE|STARTED|CREATED|ESTABLISHED|MOUNTED|LINK UP)\\b' + notJsonKey + '|' + domainOk
 
 // 裸数字（边界比 WindTerm 严，挡住各类抢占）
 // 批次 C：`%?` 分支移除 —— 百分比由独立的 percent 族认领（rank 40 < 60）；
@@ -199,14 +228,9 @@ const url = '\\bhttps?://[^\\s"\']+'
  * FAMILY_RANK 是发布契约：新增家族必须同时登记 rank，否则 keyword-family.spec.js 失败。
  * ------------------------------------------------------------------ */
 export const FAMILY_RANK = {
-  // 0 · marker — 边界记号：冲突标记、diff 头/块、Redis 类型标记——先于一切形状，否则被路径/数字吃掉
-  'conflict-marker': 0,
-  'diff-header': 0,
-  'diff-hunk': 0,
-  'diff-index': 0,
+  // 0 · marker — 边界记号：Redis 类型标记——先于一切形状，否则被路径/数字吃掉
   'redis-type': 0,
-  // 10 · exact-addr — 精确地址：IP / IPv6+MAC / URL / UUID / 指纹 / PCI——长度确定、误染代价最高
-  fingerprint: 10,
+  // 10 · exact-addr — 精确地址：IP / IPv6+MAC / URL / UUID / PCI——长度确定、误染代价最高
   ipv4: 10,
   'ipv6-mac': 10,
   'pci-address': 10,
@@ -215,75 +239,43 @@ export const FAMILY_RANK = {
   // 20 · path — 路径与位置：绝对路径、源文件、file:line、栈帧
   'file-line': 20,
   path: 20,
-  'py-file-line': 20,
   'stack-frame': 20,
-  // 30 · domain-id — 领域标识：接口名、unit、设备、资源引用、镜像、git ref、SQL 关键词…
-  'ahead-behind': 30,
+  // 30 · domain-id — 领域标识：接口名、unit、设备、镜像、SQL 关键词…
   'auth-daemon': 30,
-  'branch-line': 30,
-  'commit-sha': 30,
   'daemon-tag': 30,
   'device-name': 30,
-  'field-name': 30,
-  'git-ref': 30,
   'http-method': 30,
   'image-ref': 30,
   'interface-name': 30,
-  'kernel-version': 30,
-  'merge-line': 30,
-  'nft-target': 30,
   pid: 30,
   'pod-name': 30,
   'quoted-ident': 30,
-  'resource-ref': 30,
-  'signal-name': 30,
   'sql-keyword': 30,
-  'thread-name': 30,
   'tls-word': 30,
-  'trace-id': 30,
   'unit-name': 30,
   'user-agent': 30,
-  username: 30,
   // 40 · num-time — 时间与数值：时间戳、时长、体积、百分比、端口、hex、命令行选项
   'cli-flag': 40,
   duration: 40,
   'hex-literal': 40,
   port: 40,
   percent: 40,
-  'port-map': 40,
   'port-word': 40,
   'restart-count': 40,
   size: 40,
   timestamp: 40,
   // 50 · signal-word — 状态词：报错/警告/成功/跳过/异常类名/NULL——任何领域都同色，靠 rank 不被结构档抢。
   // 批次 B 之后各领域剩下的独有状态词也是一族一 rank，同层裁决仍是「最左 → 同 rank 取更长」。
-  'auth-msg.err': 50,
-  'auth-msg.ok': 50,
-  'auth-msg.warn': 50,
-  'build-verb': 50,
-  'build-result.ok': 50,
   'exception-class': 50,
   'git-cmd.err': 50,
-  'git-cmd.ok': 50,
-  'git-cmd.warn': 50,
   'k8s-workload.err': 50,
   'k8s-workload.ok': 50,
-  'k8s-workload.warn': 50,
-  'kernel-msg.err': 50,
   'kernel-msg.ok': 50,
-  'kernel-msg.warn': 50,
-  'net-counter.err': 50,
-  'net-iface-state.warn': 50,
   'net-link-state.err': 50,
   'net-link-state.ok': 50,
   'null-bool': 50,
-  'redis-error': 50,
-  'sql-error': 50,
   'sql-status.ok': 50,
-  'sql-warn': 50,
-  'systemd-unit.err': 50,
   'systemd-unit.ok': 50,
-  'systemd-unit.warn': 50,
   'traceback-head': 50,
   'word-debug': 50,
   'word-error': 50,
@@ -293,23 +285,17 @@ export const FAMILY_RANK = {
   'word-warn': 50,
   // 55 · signal-grade — 分级族：按级别分色的族（HTTP 状态码、syslog severity、nginx 方括号级别）
   'bracket-level.err': 55,
-  'bracket-level.info': 55,
   'bracket-level.warn': 55,
-  'http-status.1xx2xx': 55,
-  'http-status.3xx': 55,
   'http-status.4xx': 55,
   'http-status.5xx': 55,
   'syslog-sev.err': 55,
-  'syslog-sev.info': 55,
   'syslog-sev.warn': 55,
   // 57 · domain-name — 主机名（批次 C 新增层）：带点域名压在分级族之后、兜底形状之前。
-  // registry.example.com 以前被 package-name（rank 60）当包名抢走，现在由 host 家族认领；
   // exception-class rank 50 仍在它前面，所以 `java.lang.NullPointerException`
   // 整串仍然是红色异常类，不会被切成「包名 + 类名」两段。
   host: 57,
-  // 60 · loose — 宽口径兜底：裸数字、包名——只在没有更精确的族命中时染
-  number: 60,
-  'package-name': 60
+  // 60 · loose — 宽口径兜底：裸数字——只在没有更精确的族命中时染
+  number: 60
 }
 
 /* ------------------------------------------------------------------ *
@@ -359,7 +345,6 @@ export const COLOR_GROUPS = {
   error: { color: 'red', label: '错误 / 失败 / 冲突' },
   warning: { color: 'yellow', label: '警告 / 跳过 / 4xx' },
   success: { color: 'green', label: '成功 / 运行中 / 2xx' },
-  info: { color: 'cyan', label: '信息 / 提示 / 3xx' },
   debug: { color: 'blue', label: '调试' },
   nullish: { color: 'magenta', label: '空值 / 布尔 / 杂项' },
   // structure · 真彩色
@@ -375,8 +360,6 @@ export const COLOR_GROUPS = {
   port: { color: '#9CECB9', label: '端口 / 映射 / 重启计数' },
   ident: { color: '#A1C37C', label: '领域标识符（接口 / unit / 进程 / SQL…）' },
   artifact: { color: '#E0AD71', label: '制品与可复制引用（镜像 / git / UUID / trace）' },
-  diffmark: { color: '#BFE35D', label: 'diff 边界记号' },
-  action: { color: '#27CD92', label: '构建动作 / 进度' },
   path: { color: '#99E5FE', label: '路径与源文件' },
   loc: { color: '#7EE685', label: '位置（file:line / 栈帧）' }
 }
@@ -388,54 +371,26 @@ export const FAMILY_GROUP = {
   'word-error': 'error',
   'exception-class': 'error',
   'traceback-head': 'error',
-  'conflict-marker': 'error',
-  'signal-name': 'error',
   'syslog-sev.err': 'error',
   'http-status.5xx': 'error',
   'bracket-level.err': 'error',
   'net-link-state.err': 'error',
-  'net-counter.err': 'error',
-  'systemd-unit.err': 'error',
-  'kernel-msg.err': 'error',
   'k8s-workload.err': 'error',
   'git-cmd.err': 'error',
-  'auth-msg.err': 'error',
-  'sql-error': 'error',
-  'redis-error': 'error',
   'word-warn': 'warning',
   'word-skip': 'warning',
   'syslog-sev.warn': 'warning',
   'http-status.4xx': 'warning',
   'bracket-level.warn': 'warning',
-  'py-file-line': 'warning',
-  'net-iface-state.warn': 'warning',
-  'systemd-unit.warn': 'warning',
-  'kernel-msg.warn': 'warning',
-  'k8s-workload.warn': 'warning',
-  'git-cmd.warn': 'warning',
-  'auth-msg.warn': 'warning',
-  'sql-warn': 'warning',
   'word-ok': 'success',
-  'http-status.1xx2xx': 'success',
-  'branch-line': 'success',
   'net-link-state.ok': 'success',
   'systemd-unit.ok': 'success',
   'kernel-msg.ok': 'success',
   'k8s-workload.ok': 'success',
-  'build-result.ok': 'success',
-  'git-cmd.ok': 'success',
-  'auth-msg.ok': 'success',
   'sql-status.ok': 'success',
-  'word-info': 'info',
-  'syslog-sev.info': 'info',
-  'http-status.3xx': 'info',
-  'bracket-level.info': 'info',
-  'merge-line': 'info',
-  'ahead-behind': 'info',
+  'word-info': 'debug',
   'word-debug': 'debug',
   'null-bool': 'nullish',
-  'field-name': 'nullish',
-  'nft-target': 'nullish',
   timestamp: 'time',
   duration: 'duration',
   size: 'size',
@@ -450,7 +405,6 @@ export const FAMILY_GROUP = {
   'ipv6-mac': 'mac',
   url: 'url',
   port: 'port',
-  'port-map': 'port',
   'port-word': 'port',
   'restart-count': 'port',
   'interface-name': 'ident',
@@ -458,28 +412,15 @@ export const FAMILY_GROUP = {
   'daemon-tag': 'ident',
   'device-name': 'ident',
   pid: 'ident',
-  'thread-name': 'ident',
   'auth-daemon': 'ident',
-  username: 'ident',
-  'kernel-version': 'ident',
   'tls-word': 'ident',
   'http-method': 'ident',
   'sql-keyword': 'ident',
   'quoted-ident': 'ident',
   'image-ref': 'artifact',
   'pod-name': 'artifact',
-  'resource-ref': 'artifact',
-  'git-ref': 'artifact',
-  'commit-sha': 'artifact',
   uuid: 'artifact',
-  fingerprint: 'artifact',
-  'trace-id': 'artifact',
   'user-agent': 'artifact',
-  'package-name': 'artifact',
-  'diff-header': 'diffmark',
-  'diff-hunk': 'diffmark',
-  'diff-index': 'diffmark',
-  'build-verb': 'action',
   path: 'path',
   'file-line': 'loc',
   'stack-frame': 'loc'
@@ -547,14 +488,11 @@ const keywordPresetsRaw = [
       // syslog severity: %FACILITY-<severity>-MNEMONIC
       { keyword: '%[A-Z0-9_]+-[0-3]-[A-Z0-9_]+', tier: 'signal', family: 'syslog-sev.err' },
       { keyword: '%[A-Z0-9_]+-4-[A-Z0-9_]+', tier: 'signal', family: 'syslog-sev.warn' },
-      { keyword: '%[A-Z0-9_]+-[5-7]-[A-Z0-9_]+', tier: 'signal', family: 'syslog-sev.info' },
       // 链路形制词：只有交换机/控制器 CLI 会这么写（err-disabled / notconnect / A/D）
       { keyword: '\\b(administratively down|err-?disabled|notconnect|not connected|link down|down|adm)\\b|\\b[Au]/D\\b', tier: 'signal', family: 'net-link-state.err' },
-      // 接口计数器报错（带 JSON 边界排除，键名不染）；泛用报错词已上收通用红档
-      { keyword: '(?<![":])\\b(incomplete|crc|runts|giants|collisions?|input errors|output errors|discard(s|ed)?|drops?|blocking|blk|bkn|broken|alarm)\\b(?![":])', tier: 'signal', family: 'net-counter.err' },
+      // 接口计数器报错与链路在用（泛用报错/成功词已上收通用档 domain* 片段）
       // 链路在用：up / A-D / forwarding 这类形制（connected/established/active 已上收通用绿档）
       { keyword: '(?<![":])\\b(up|permit(ted)?|forwarding|fwd|full|online|root)\\b(?![":])(?!\\s+\\d+\\s+(?:second|minute|hour|day|week|month|year)s?)|\\bu/u\\b', tier: 'signal', family: 'net-link-state.ok' },
-      { keyword: '(?<![":])\\b(half|learning|lrn|lis|standby|shutdown|desg|altn|alternate|backup)\\b(?![":])', tier: 'signal', family: 'net-iface-state.warn' },
       // 接口名（多厂商，同蓝）
       { keyword: '\\b(GigabitEthernet|TenGigabitEthernet|TwentyFiveGigE|FortyGigabitEthernet|HundredGigE|XGigabitEthernet|FastEthernet|Ethernet|Eth-Trunk|Port-channel|Bridge-Aggregation|Route-Aggregation|Management|Loopback|Tunnel|MEth|Vlanif|Vlan|BAGG|sfp-sfpplus|sfp|ether|switch|bridge|bond|wlan|pppoe|Trk|ae|br|XGE|FGE|GE|Gi|Te|Twe|Fo|Hu|Fa|Eth|Et|Ma|Po|Lo|Tu|Vl|\\d{2,3}GE)\\s?\\d+(/\\d+){0,3}(\\.\\d+)?\\b|\\b(ge|xe|et|fe|mge|lt|gr)-\\d+/\\d+/\\d+(\\.\\d+)?\\b|\\birb(\\.\\d+)?\\b|\\b(em|fxp|me)\\d+\\b|\\b(cpu|vlan|lag|ch)\\s?/?\\d+(/\\d+)?\\b|(?<![\\w./])\\d/\\d{1,2}(/\\d{1,2})?\\b', tier: 'structure', family: 'interface-name' }
     ]
@@ -566,9 +504,7 @@ const keywordPresetsRaw = [
     keywords: [
       // unit lifecycle：dead/started/active/running/listening/mounted/pending/waiting/
       // retrying/degraded 已上收通用档，这里只留 systemd 独有的状态词
-      { keyword: '\\b(inactive|killed|masked)\\b', tier: 'signal', family: 'systemd-unit.err' },
       { keyword: '\\b(starting|reached)\\b', tier: 'signal', family: 'systemd-unit.ok' },
-      { keyword: '\\b(stopping|stopped|reloading|reload(ed)?|deactivating|activating|scheduled|restart)\\b', tier: 'signal', family: 'systemd-unit.warn' },
       // unit names
       { keyword: '\\b[a-z0-9][a-z0-9@._-]*\\.(service|socket|target|timer|mount|automount|device|path|slice|scope|swap)\\b', tier: 'structure', family: 'unit-name' },
       { keyword: '\\b(pid|PID)[= ]\\d+\\b', tier: 'structure', family: 'pid' },
@@ -581,14 +517,11 @@ const keywordPresetsRaw = [
     description: 'dmesg, the kernel ring buffer and boot messages: OOM killer, segfaults, hardware and I/O errors, device, link and driver events',
     keywords: [
       // 内核事件短语（segfault 已归通用红档，retry/degraded/mounted/started 等状态词归通用档）
-      { keyword: '\\b(kernel panic|general protection fault|unable to handle (kernel )?paging request|out of memory|oom[- ]kill(er)?|killed process|call trace|hardware error|machine check|medium error|unrecoverable (read|error)|i/o error|buffer i/o error|ext4-fs error|xfs .*corruption|reset .* failed|device not ready|link is not ready|firmware (bug|error)|stack corruption|bad rip value|blocked for more than)\\b', tier: 'signal', family: 'kernel-msg.err' },
-      { keyword: '\\b(falling back|deferred|link is down|disconnected|removed|suspended|unstable|overcurrent|throttl(ed|ing)|thermal|under-voltage|over-voltage)\\b', tier: 'signal', family: 'kernel-msg.warn' },
       { keyword: '\\b(link is up|link becomes ready|registered|initialized|attached|detected|inserted|now attached|power on|resumed)\\b', tier: 'signal', family: 'kernel-msg.ok' },
       // device names
       { keyword: '\\b(ata\\d+(\\.\\d+)?|sd[a-z]\\d*|nvme\\d+n\\d+(p\\d+)?|mmcblk\\d+(p\\d+)?|dm-\\d+|md\\d+|eth\\d+|wlan\\d+|enp\\d+s\\d+|eno\\d+|wlp\\d+s\\d+|usb \\d+-\\d+(\\.\\d+)?|tty(S|USB|ACM)\\d+|br-\\d+|veth[0-9a-f]+)\\b', tier: 'structure', family: 'device-name' },
       // devAddr 归内核组独有（PCI 地址 / WWN）
-      { keyword: devAddr, tier: 'structure', family: 'pci-address' },
-      { keyword: '\\bLinux version \\S+\\b', tier: 'structure', family: 'kernel-version' }
+      { keyword: devAddr, tier: 'structure', family: 'pci-address' }
     ]
   },
   {
@@ -599,30 +532,13 @@ const keywordPresetsRaw = [
       // 状态码按类分色（裸三位数字不误染）
       { keyword: '(?:(?<="\\s)|\\bstatus[=:]\\s*)5\\d{2}\\b', tier: 'signal', family: 'http-status.5xx' },
       { keyword: '(?:(?<="\\s)|\\bstatus[=:]\\s*)4\\d{2}\\b', tier: 'signal', family: 'http-status.4xx' },
-      { keyword: '(?<="\\s)3\\d{2}\\b', tier: 'signal', family: 'http-status.3xx' },
-      { keyword: '(?<="\\s)[12]\\d{2}\\b', tier: 'signal', family: 'http-status.1xx2xx' },
       // 请求行 + 协议版本（host:port 与裸 URL 交给通用档）
       { keyword: '\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\\s+\\S+\\s+HTTP/|\\bHTTP/\\d(?:\\.\\d)?', tier: 'structure', family: 'http-method' },
-      { keyword: '\\bupstream\\b', tier: 'signal', family: 'field-name' },
       // host:port 复合形状已在批次 C 拆掉：地址段归 ipv4/host、`:NN` 归 port，都在通用档
       { keyword: '\\b(Mozilla/5\\.0|curl/\\S+|Wget/\\S+|Googlebot(?:/\\S+)?|bingbot(?:/\\S+)?|python-requests/\\S+|Go-http-client/\\S+|okhttp/\\S+|PostmanRuntime/\\S+|Apache-HttpClient/\\S+|axios/\\S+|node-fetch/\\S+|Electron/\\S+)\\b', tier: 'structure', family: 'user-agent' },
       // error-log 的级别（[module:level]）
       { keyword: '\\[[\\w.:-]*(?:EMERG|ALERT|CRIT(?:ICAL)?|ERROR|ERR)\\]', tier: 'signal', family: 'bracket-level.err' },
-      { keyword: '\\[[\\w.:-]*(?:WARN(?:ING)?|NOTICE)\\]', tier: 'signal', family: 'bracket-level.warn' },
-      { keyword: '\\[[\\w.:-]*(?:INFO|DEBUG)\\]', tier: 'signal', family: 'bracket-level.info' }
-    ]
-  },
-  {
-    name: 'Application log levels',
-    requires: ['通用 · 级别与状态', '通用 · 时间与数值', '通用 · 地址与路径'],
-    description: 'Generic application logs (log4j/slf4j, Python logging, Go slog, Rust tracing, Node winston/pino): levels, timestamps, thread and logger names, exception types, tracing ids',
-    keywords: [
-      // tracing / correlation ids, in "k=v" and in JSON "k": "v" form
-      { keyword: '\\b(trace_?id|span_?id|request_?id|correlation_?id|session_?id|user_?id)["\']?\\s*[=:]\\s*["\']?[\\w.:-]+', tier: 'structure', family: 'trace-id' },
-      // logger / package names: com.example.Foo, my.pkg.module
-      { keyword: '\\b([A-Za-z_][A-Za-z0-9_]*\\.){2,}[A-Za-z_][A-Za-z0-9_]*\\b', tier: 'structure', family: 'package-name' },
-      // thread names: [main], [worker-3], [pool-2-thread-1]
-      { keyword: '\\[(main|worker[- ]?\\d+|pool-\\d+-thread-\\d+|Thread-\\d+|goroutine \\d+|[A-Za-z0-9_-]{1,20}-\\d+)\\]', tier: 'structure', family: 'thread-name' }
+      { keyword: '\\[[\\w.:-]*(?:WARN(?:ING)?|NOTICE)\\]', tier: 'signal', family: 'bracket-level.warn' }
     ]
   },
   {
@@ -632,9 +548,7 @@ const keywordPresetsRaw = [
     keywords: [
       { keyword: '\\bat [\\w$.]+\\([^)]*\\)', tier: 'structure', family: 'stack-frame' },
       // Python 栈头整句（含括号）
-      { keyword: 'Traceback \\(most recent call last\\)|\\bstack ?trace\\b', tier: 'signal', family: 'traceback-head' },
-      { keyword: 'File "[^"]+", line \\d+', tier: 'signal', family: 'py-file-line' },
-      { keyword: '\\b(SIGSEGV|SIGABRT|SIGKILL)\\b', tier: 'signal', family: 'signal-name' }
+      { keyword: 'Traceback \\(most recent call last\\)|\\bstack ?trace\\b', tier: 'signal', family: 'traceback-head' }
     ]
   },
   {
@@ -645,11 +559,7 @@ const keywordPresetsRaw = [
       // pod/container 相位与状态（Failed|Error|Dead|Pending|Waiting|Restarting|Running|
       // Active|Started|Created|Ready|Available|Completed|Succeeded 等泛用词已归通用档）
       { keyword: '\\b(CrashLoopBackOff|ErrImagePull|ImagePullBackOff|InvalidImageName|OOMKilled|Evicted|FailedScheduling|BackOff|Unhealthy|Removing|NotReady|Terminating|NoSchedule)\\b|\\bExited \\([1-9]\\d*\\)', tier: 'signal', family: 'k8s-workload.err' },
-      { keyword: '\\b(ContainerCreating|Init:\\d+/\\d+|PodInitializing|SchedulingDisabled|Paused|Preempting)\\b', tier: 'signal', family: 'k8s-workload.warn' },
       { keyword: '\\b(Healthy|Bound|Pulled|Deployed)\\b|\\bUp \\d+ (second|minute|hour|day|week|month|year)s?|\\bExited \\(0\\)', tier: 'signal', family: 'k8s-workload.ok' },
-      // resource references: deployment/nginx, pods/nginx-1, svc/api
-      { keyword: '\\b(pods?|deploy(ment)?s?|svc|services?|ingress(es)?|configmaps?|secrets?|statefulsets?|daemonsets?|replicasets?|jobs?|cronjobs?|namespaces?|nodes?|pv|pvc|endpoints?|hpa|events?)/[a-z0-9][a-z0-9.-]*\\b', tier: 'structure', family: 'resource-ref' },
-      // generated pod / container names: nginx-7d9f8c6b5-x2k4p
       { keyword: '\\b[a-z0-9][a-z0-9-]*-[0-9a-f]{5,10}-[a-z0-9]{4,6}\\b', tier: 'structure', family: 'pod-name' },
       // AGE column（12m, 45s, 3d4h）已在批次 C 上收进通用 duration 族（durAge），此处不再重述
       // restart counts: "3 (4m ago)"
@@ -660,9 +570,7 @@ const keywordPresetsRaw = [
       // `nginx.conf` 由 path rank 20 在同一个起点上赢，不需要护栏让位。
       // 结尾的 (?![\w.]) 不是护栏而是**词尾锚**（KU-3：一条规则必须吃掉整个 token）：
       // 没有它，`python3 setup.py` 只染前六个字母、把 `3` 裸着留下，半个词一种色比不染更糟。
-      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w.])|\\b[a-z][a-z0-9-]*(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b|\\bsha256:[0-9a-f]{12,64}\\b', tier: 'structure', family: 'image-ref' },
-      // ports and port mappings
-      { keyword: '\\b\\d{1,5}->\\d{1,5}/(tcp|udp)\\b', tier: 'structure', family: 'port-map' },
+      { keyword: '\\b(nginx|redis|postgres|mysql|mariadb|mongo|alpine|ubuntu|debian|busybox|python|golang|openjdk|eclipse-temurin|rabbitmq|kafka|elasticsearch|traefik|haproxy|caddy|vault|consul|etcd|prometheus|grafana|jenkins|gitlab-runner|fluentd|fluent-bit|metrics-server|kube-[a-z-]+)(:[a-zA-Z0-9._-]+)?(?![\\w.])|\\b[a-z][a-z0-9-]*(\\.[a-z0-9-]+)+(:\\d+)?/[a-z0-9._/-]+(:[a-zA-Z0-9._-]+)?\\b|\\bsha256:[0-9a-f]{12,64}\\b', tier: 'structure', family: 'image-ref' }
     ]
   },
   {
@@ -670,10 +578,7 @@ const keywordPresetsRaw = [
     requires: ['通用 · 级别与状态', '通用 · 时间与数值', '通用 · 地址与路径'],
     description: 'gcc/clang, tsc, eslint, make, maven/gradle, go build and pytest/jest/go test/cargo test: diagnostics, file:line:col locations, pass/fail/skip results, timings',
     keywords: [
-      { keyword: '\\b(skip|skipped|todo|xfail|xpass|ignored)\\b', tier: 'signal', family: 'word-skip' },
-      // 通过/成功（通用 wordOk 已覆盖 ok/success/passed/finished 等；这里只留构建域独有的说法）
-      { keyword: '\\b(PASS|build succeeded|build success(ful)?|compilation complete|compiled successfully|all tests passed)\\b|✔|✓|√', tier: 'signal', family: 'build-result.ok' },
-      { keyword: '\\b(building|compiling|linking|bundling|transpiling|minifying|installing|resolving|downloading|fetching|running|executing|starting|cleaning|caching|packaging|publishing)\\b', tier: 'structure', family: 'build-verb' }
+      { keyword: '\\b(skip|skipped|todo|xfail|xpass|ignored)\\b', tier: 'signal', family: 'word-skip' }
     ]
   },
   {
@@ -681,25 +586,7 @@ const keywordPresetsRaw = [
     requires: ['通用 · 级别与状态', '通用 · 地址与路径'],
     description: 'git status/log/diff/fetch/push/pull/merge output: branch and tracking state, changed and untracked files, conflicts, commit ids, diff hunks',
     keywords: [
-      // 冲突标记优先于普通 conflict 单词
-      { keyword: '<{7}|={7}|>{7}', tier: 'signal', family: 'conflict-marker' },
-      // 冲突说法（rejected/fatal/error/aborting 已归通用红档）
-      { keyword: '\\b(conflict|conflicts|both modified|both added|both deleted|deleted by (us|them)|added by (us|them)|unmerged|non-fast-forward|failed to push|detached HEAD|refusing to|would be overwritten|not possible to fast-forward)\\b', tier: 'signal', family: 'git-cmd.err' },
-      // 成功说法（up to date / created / successfully 已归通用绿档，通用档的 UP[ -]TO[ -]DATE 连字符版一并覆盖）
-      { keyword: '\\b(already up to date|everything up-to-date|fast-forward|nothing to commit|working tree clean|deleted branch|merged|rebase(d)? successfully)\\b', tier: 'signal', family: 'git-cmd.ok' },
-      // status 列的词——它们不是"警告"，是"这次改动是什么"，git 独有的说法
-      { keyword: '\\b(modified|deleted|renamed|copied|untracked|staged|unstaged|diverged|no changes added to commit|changes not staged|changes to be committed)\\b', tier: 'signal', family: 'git-cmd.warn' },
-      { keyword: '\\b(ahead of|behind) \\S+ by \\d+ commits?\\b', tier: 'signal', family: 'ahead-behind' },
-      { keyword: '\\bon branch \\S+', tier: 'signal', family: 'branch-line' },
-      { keyword: '\\b(Merge branch|Merge pull request|Merge remote-tracking branch|Merge tag)\\b', tier: 'signal', family: 'merge-line' },
-      // 分支/远端引用
-      { keyword: '\\b(HEAD|FETCH_HEAD|ORIG_HEAD|origin|upstream|main|master|develop|trunk|staging|production|release)/[\\w./-]+\\b', tier: 'structure', family: 'git-ref' },
-      // commit id + index
-      { keyword: '\\bcommit [0-9a-f]{7,40}\\b|\\b[0-9a-f]{40}\\b', tier: 'structure', family: 'commit-sha' },
-      { keyword: '\\bindex [0-9a-f]{7,}\\.\\.[0-9a-f]{7,}( \\d+)?\\b', tier: 'structure', family: 'diff-index' },
-      { keyword: '@@ -\\d+(,\\d+)? \\+\\d+(,\\d+)? @@', tier: 'structure', family: 'diff-hunk' },
-      // diff 头与 +++/--- 文件头
-      { keyword: '\\bdiff --(git|stat)\\b|(?<!\\S)(\\+\\+\\+|---) [ab]/\\S+', tier: 'structure', family: 'diff-header' }
+      { keyword: '\\b(conflict|conflicts|both modified|both added|both deleted|deleted by (us|them)|added by (us|them)|unmerged|non-fast-forward|failed to push|detached HEAD|refusing to|would be overwritten|not possible to fast-forward)\\b', tier: 'signal', family: 'git-cmd.err' }
     ]
   },
   {
@@ -709,18 +596,8 @@ const keywordPresetsRaw = [
     keywords: [
       // 认证失败说法（permission/access denied、not allowed、refused/denied/dropped、
       // revoked/expired、reject 已归通用红档）
-      { keyword: '\\b(failed password|authentication failure|auth(entication)? fail(ed|ure)?|invalid user|unauthorized|forbidden|break-in|blocked|banned|certificate (has )?expired|self[- ]signed|unable to authenticate|too many authentication failures|connection closed by authenticating user|possible break-in attempt)\\b', tier: 'signal', family: 'auth-msg.err' },
-      // 认证通过说法（established / granted / successful 已归通用绿档）
-      { keyword: '\\b(Accepted (password|publickey|keyboard-interactive|none|gssapi[\\w-]*)|session opened|session closed|logged in|login successful|authenticated|new session|reverse mapping checking .* successful|COMMAND=)\\b', tier: 'signal', family: 'auth-msg.ok' },
-      { keyword: '\\b(weak|insecure|attempt|partial|unknown key|reverse mapping|no matching host key)\\b', tier: 'signal', family: 'auth-msg.warn' },
-      // 防火墙 verdict：只在括号或 policy/action/target 语境里染，否则裸 drop/accept/reject
-      // 会和通用档的报错、成功词撞色（KU-4 同词异色）
-      { keyword: '\\[(DROP|REJECT|ACCEPT|DNAT|SNAT|MASQUERADE)\\]|\\b(?:policy|action|target|verdict|flags)\\s*[=:]?\\s*(DROP|REJECT|ACCEPT|DNAT|SNAT|MASQUERADE)\\b', tier: 'signal', family: 'nft-target' },
       { keyword: '\\b(sshd|sudo|pam_[a-z]+|fail2ban|nft|iptables|firewalld|ufw|polkit|openssl|openssh|gssapi)\\b', tier: 'structure', family: 'auth-daemon' },
-      // user names only where the surrounding words make it unambiguous
-      { keyword: '(?<=\\buser )[a-z_][a-z0-9_-]*\\b|(?<=\\bfor )[a-z_][a-z0-9_-]*(?= from )', tier: 'structure', family: 'username' },
       { keyword: '\\bport \\d{1,5}\\b', tier: 'structure', family: 'port-word' },
-      { keyword: '\\b(SHA256:[A-Za-z0-9+/]{43}=?|MD5:[0-9a-f]{2}(:[0-9a-f]{2}){15})', tier: 'structure', family: 'fingerprint' },
       { keyword: '\\b(TLSv1(\\.[0-3])?|SSLv3|TLS_AES_\\w+|ECDHE[\\w-]*|cipher|handshake|verify (returned|ok|error)|Cipher is)\\b', tier: 'structure', family: 'tls-word' }
     ]
   },
@@ -733,17 +610,13 @@ const keywordPresetsRaw = [
       { keyword: '\\b(GROUP BY|ORDER BY|PRIMARY KEY|FOREIGN KEY|IF NOT EXISTS|IF EXISTS|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|COMMIT|ROLLBACK|SAVEPOINT|EXPLAIN|ANALYZE|VACUUM|MERGE|UPSERT|RETURNING|JOIN|UNION|INTERSECT|EXCEPT|DISTINCT|VALUES|WHERE|HAVING|LIMIT|OFFSET|REFERENCES|CONSTRAINT|CASCADE|RESTRICT|LIKE|ILIKE|BETWEEN|FROM|SET|INTO|TABLE|VIEW|INDEX|SEQUENCE|TRIGGER|PROCEDURE|FUNCTION|DATABASE|SCHEMA)\\b', tier: 'structure', family: 'sql-keyword' },
       // 引用标识符
       { keyword: '`[^`\\n]{1,64}`|"[A-Za-z_][\\w$]*"(?:\\."(?:[A-Za-z_][\\w$]*|\\*)")*', tier: 'structure', family: 'quoted-ident' },
-      // 报错（ERROR/FATAL/PANIC/access denied/does not exist 已归通用红档）
-      { keyword: '\\b(ER_[A-Z0-9_]+|SQLSTATE|DEADLOCK|DEADLOCK DETECTED|duplicate (key|entry|column)|already exists|unknown (column|table|database|relation)|connection (refused|reset)|too many connections|lock wait timeout|syntax error|violates (check|unique|foreign key) constraint)\\b', tier: 'signal', family: 'sql-error' },
-      // Redis 错误回复
-      { keyword: '\\((error)\\)|\\b(WRONGTYPE|NOSCRIPT|NOAUTH|NOPERM|EXECABORT|CROSSSLOT|MOVED|CLUSTERDOWN|MASTERDOWN|READONLY|MISCONF|BUSYGROUP|OOM command not allowed)\\b', tier: 'signal', family: 'redis-error' },
+      // 报错与 Redis 错误回复（ER_/SQLSTATE/WRONGTYPE 等已并入通用红档 domainErr）
       // Redis 类型标记
       { keyword: '\\((integer|double|boolean|nil|empty array|empty list|empty set)\\)', tier: 'structure', family: 'redis-type' },
       // 状态行（Query OK 的 OK 归通用绿档）
       { keyword: '\\b(Empty set|Query OK|rows? affected|rows? matched|rows? returned|in set|PONG|QUEUED)\\b|\\(\\d+ rows?\\)', tier: 'signal', family: 'sql-status.ok' },
       // 耗时（mysql / psql 结尾的 (0.01 sec)）已在批次 C 上收进通用 duration 族（durParen）
-      // 警告与性能提示（WARNING / DEPRECATED 已归通用黄档）
-      { keyword: '\\b(NOTICE|slow query|Using filesort|Using temporary|full table scan|seq scan|connection is read-only)\\b', tier: 'signal', family: 'sql-warn' },
+      // 警告与性能提示（WARNING / DEPRECATED 已归通用黄档 domainWarn）
       // UUID
       { keyword: '\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b', tier: 'structure', family: 'uuid' }
     ]

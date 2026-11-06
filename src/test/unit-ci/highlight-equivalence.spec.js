@@ -127,7 +127,7 @@ const subsets = async () => {
   // 全量、每个单组、Shell+日志混合、以及若干两两组合
   out.push(build('全量', keywordPresets))
   for (const p of keywordPresets) out.push(build(p.name, [p]))
-  out.push(build('Shell+应用日志', [byName('通用 · 时间与数值'), byName('Application log levels')]))
+  out.push(build('Shell+内核日志', [byName('通用 · 时间与数值'), byName('Linux kernel & dmesg')]))
   out.push(build('Networking+Docker', [byName('Networking'), byName('Docker & Kubernetes')]))
   out.push(build('HTTP+DB', [byName('HTTP & web logs'), byName('Database & SQL')]))
   out.push(build('Git+Build', [byName('Git'), byName('Build & test output')]))
