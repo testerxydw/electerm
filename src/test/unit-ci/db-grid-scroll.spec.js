@@ -74,16 +74,17 @@ describe('DbGridTable: y derivation (real source)', () => {
 
 describe('DbGridTable: component wiring contract', () => {
   test('all data grids go through DbGridTable (main/SQL/struct/redis detail x4/redis keys)', () => {
-    // N11a #14/#15：SQL 结果页与 Redis 详情已拆成独立 shipped 模块，
+    // N11a #14/#15 + 接线：SQL 结果页、Redis 详情、Redis 键空间面板均为已接线 shipped 模块，
     // <DbGridTable> 随渲染代码一起迁走；契约要统计的是"所有已接线的发布源码"，
     // 只数主文件会把组件化误报成回归。白名单只含已接线文件；未接线的 dead 模块
-    // （db-redis-key-space.jsx / db-tree-panel.jsx 等）不计入，否则等于用死代码凑数。
+    // （db-grid-cell.jsx 等）不计入，否则等于用死代码凑数。
     // 阈值 >= 7 保持原语义不变。
     const dbDir = path.join(ROOT, 'src/client/components/database')
     const wired = [
       'db-session.jsx',
       'db-sql-results.jsx',
-      'db-redis-detail.jsx'
+      'db-redis-detail.jsx',
+      'db-redis-key-space.jsx'
     ].map(f => fs.readFileSync(path.join(dbDir, f), 'utf8')).join('\n')
     const used = wired.match(/<DbGridTable/g) || []
     assert.ok(used.length >= 7, 'expected >= 7 <DbGridTable usages, got ' + used.length)

@@ -12,10 +12,12 @@ const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const DB_PAGE_SEARCH = path.join(ROOT, 'src/client/components/database/use-db-page-search.js')
 // N11a 簇 C：树过滤状态 / 自动展开 effect 已迁到 use-db-tree.js（已接线）。
 const USE_DB_TREE = path.join(ROOT, 'src/client/components/database/use-db-tree.js')
+// N11a：树面板内联渲染已接线到 DbTreePanel，db-tree-filter 契约跟随 shipped 代码。
+const DB_TREE_PANEL = path.join(ROOT, 'src/client/components/database/db-tree-panel.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
-const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_TREE, 'utf8')
+const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_TREE, 'utf8') + '\n' + fs.readFileSync(DB_TREE_PANEL, 'utf8')
 const loadConst = () => fs.readFileSync(SESSION_CONST, 'utf8')
 const loadPageSearch = () => fs.readFileSync(DB_PAGE_SEARCH, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')

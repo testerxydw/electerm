@@ -10,6 +10,9 @@ const SHELL = path.join(SRC, 'client/components/common/session-shell.jsx')
 const SHELL_OLD = path.join(SRC, 'client/components/common/remote-session-shell.jsx')
 const ON_CLOSE = path.join(SRC, 'app/lib/on-close.js')
 const DB_SESSION = path.join(SRC, 'client/components/database/db-session.jsx')
+// N11a：两处空态内联渲染已接线成独立 shipped 组件，正向 i18n 契约组合读取全部发布源码。
+const DB_REDIS_KEY_SPACE = path.join(SRC, 'client/components/database/db-redis-key-space.jsx')
+const DB_TREE_PANEL = path.join(SRC, 'client/components/database/db-tree-panel.jsx')
 const SCHEMAS = path.join(SRC, 'client/common/bookmark-schemas.js')
 const SYNC = path.join(SRC, 'client/store/sync.js')
 const SHORTCUT = path.join(SRC, 'client/components/shortcuts/shortcut-control.jsx')
@@ -92,7 +95,8 @@ describe('T1 sweep: P2-15 on-close awaits db cleanup', () => {
 
 describe('T1 sweep: P2-13 empty-state copy i18n', () => {
   test('empty states go through translate', () => {
-    const src = fs.readFileSync(DB_SESSION, 'utf8')
+    const src = fs.readFileSync(DB_SESSION, 'utf8') + '\n' +
+      fs.readFileSync(DB_REDIS_KEY_SPACE, 'utf8') + '\n' + fs.readFileSync(DB_TREE_PANEL, 'utf8')
     assert.ok(src.includes("e('dbSelectDb')"), 'redis empty state i18n')
     assert.ok(src.includes("e('dbNoMetadata')"), 'tree empty state i18n')
   })

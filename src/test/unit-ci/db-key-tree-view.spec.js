@@ -21,14 +21,16 @@ const SESSION_CONST = 'src/client/common/db-session-const.js'
 const STYL = 'src/client/components/database/db-session.styl'
 const TREE = 'src/client/common/db-key-tree.js'
 // N11a 簇 C：键树抓取/视图切换在 use-db-redis-keys.js，树点击分支在 use-db-tree.js。
-// 组合读取三份已接线的发布源码；未接线的 dead 渲染面板不计入。
+// N11a：键空间面板内联渲染已接线到 DbRedisKeySpace，缩进敏感的 JSX 契约跟随 shipped 代码。
+// 组合读取四份已接线的发布源码；未接线的 dead 模块不计入。
 const USE_DB_TREE = 'src/client/components/database/use-db-tree.js'
 const USE_DB_REDIS_KEYS = 'src/client/components/database/use-db-redis-keys.js'
+const KEY_SPACE = 'src/client/components/database/db-redis-key-space.jsx'
 
 // 注释不参与匹配：契约钉的是代码，不是"某句话里提到了某个词"
 const codeOf = src => src.split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
 const wiredSrc = () => codeOf(
-  read(JSX) + '\n' + read(USE_DB_TREE) + '\n' + read(USE_DB_REDIS_KEYS)
+  read(JSX) + '\n' + read(USE_DB_TREE) + '\n' + read(USE_DB_REDIS_KEYS) + '\n' + read(KEY_SPACE)
 )
 
 const block = (src, start, endRe) => {

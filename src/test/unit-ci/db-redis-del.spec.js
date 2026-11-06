@@ -219,10 +219,12 @@ describe('H7b-3 分块与预览纯函数', () => {
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a 簇 C：键空间取数 / 批量删键 / INFO 已迁到 use-db-redis-keys.js（已接线）。
 const USE_DB_REDIS_KEYS = path.join(ROOT, 'src/client/components/database/use-db-redis-keys.js')
+// N11a：键列表渲染已接线到 DbRedisKeySpace，行键/多选/批量删键的 JSX 契约跟随 shipped 代码。
+const KEY_SPACE = path.join(ROOT, 'src/client/components/database/db-redis-key-space.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
-const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8')
+const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8') + '\n' + fs.readFileSync(KEY_SPACE, 'utf8')
 
 describe('H7b-3b 键列表多选与弹层接线', () => {
   test('键列表行键用键名 + 挂 rowSelection（下标 __rowKey 会随翻页指向别的键）', () => {

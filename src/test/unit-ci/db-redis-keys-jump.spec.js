@@ -20,6 +20,8 @@ const USE_DB_REDIS_KEYS = path.join(ROOT, 'src/client/components/database/use-db
 // N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
 // 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
 const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
+// N11a：键空间内联渲染已接线到 DbRedisKeySpace，跳页框/页码标签的 JSX 契约跟随 shipped 代码。
+const KEY_SPACE = path.join(ROOT, 'src/client/components/database/db-redis-key-space.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
@@ -207,7 +209,7 @@ describe('H7a-1：getPageData keysOnly 只取键名（键树全量遍历用）',
 
 describe('R1：键列表跳页前端接线', () => {
   const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') +
-    '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8')
+    '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8') + '\n' + fs.readFileSync(KEY_SPACE, 'utf8')
   const index = fs.readFileSync(INDEX_JS, 'utf8')
 
   test('op 已在 redis 适配器注册且给足超时', () => {
@@ -288,7 +290,9 @@ describe('R1 补充：键列表总页数（无过滤时按 INFO keyspace 键数�
     assert.ok(block.includes('!keyList.hasMore'), 'last page must fall back to measured page count')
     assert.ok(block.includes('redisKeyPagesShow'), 'display value must go through the last-page clamp')
     // H1a-4：页码文案提为常量（分页条换共用 DbGridPager），从常量定义处起截
-    const pager = src.slice(src.indexOf('const redisPageNoText'), src.indexOf('mainArea'))
+    // N11a：分页条 JSX 已迁进已接线的 DbRedisKeySpace，把 shipped 源码拼进切片继续验证。
+    const pager = src.slice(src.indexOf('const redisPageNoText'), src.indexOf('mainArea')) +
+      '\n' + fs.readFileSync(KEY_SPACE, 'utf8')
     assert.ok(pager.includes("e('dbPageOfLabel')"), 'pager label must switch to 第 N / M 页')
     assert.ok(pager.includes("e('dbPageLabel')"), 'fallback label must stay')
     assert.ok(pager.includes("'1-' + redisKeyPagesShow"), 'jump input must hint the page range')

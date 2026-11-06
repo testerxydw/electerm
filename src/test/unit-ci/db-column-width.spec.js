@@ -524,7 +524,10 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
   })
 
   test('工具行"自适应全部列"4 处齐全，列宽菜单全站只挂一份', () => {
-    const src = read() + fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-sql-results.jsx'), 'utf8')
+    // N11a：Redis 键空间面板已接线，第 4 处 colFitAllBtn( 随之迁到 shipped 模块，组合读取保持精确计数 4。
+    const src = read() +
+      fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-sql-results.jsx'), 'utf8') +
+      '\n' + fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-redis-key-space.jsx'), 'utf8')
     for (const w of ['dataWidths', 'sqlWidths', 'structWidths', 'redisKeysWidths']) {
       assert.ok(src.includes('colFitAllBtn(' + w + ')'), w + ' 的网格没有自适应全部列按钮')
     }
