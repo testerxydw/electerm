@@ -14,6 +14,8 @@ const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 // N11a 第 2 步：页内查找整簇搬到 use-db-page-search.js，命中清单的断言跟过去
 const SEARCH_HOOK = path.join(ROOT, 'src/client/components/database/use-db-page-search.js')
+// N11a 第 12 步：AI 登记段搬到 use-db-ai-register.js，只读上下文的断言跟过去
+const AI_REGISTER = path.join(ROOT, 'src/client/components/database/use-db-ai-register.js')
 const EDITOR = path.join(ROOT, 'src/client/components/database/db-sql-editor.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const BUILD = path.join(ROOT, 'src/build/bin/build.js')
@@ -398,7 +400,8 @@ describe('A-8 六项开关装配', () => {
 })
 
 describe('只读是执行闸门，不是输入闸门', () => {
-  const session = read(SESSION)
+  // AI 上下文的 readOnly 赋值已拆出；组合读取已接线 shipped 文件，两条断言语义不变
+  const session = read(SESSION) + '\n' + read(AI_REGISTER)
 
   test('db-session 任何位置都不把 isReadonly 接到编辑器上', () => {
     // CM6 迁移（552d2b7c）把 readOnly={isReadonly} 接进 EditorView.editable，

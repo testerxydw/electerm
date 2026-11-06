@@ -14,7 +14,10 @@ const path = require('node:path')
 const ROOT = path.join(__dirname, '../../..')
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
-const SESSION = read('src/client/components/database/db-session.jsx')
+// N11a-12（#10）：AI 登记段已拆到 use-db-ai-register.js，契约改读已接线 shipped 文件的组合源。
+// 正则、窗口长度与断言语义一律不变；未接线模块不计入读取源。
+const SESSION = read('src/client/components/database/db-session.jsx') + '\n' +
+  read('src/client/components/database/use-db-ai-register.js')
 const EDITOR = read('src/client/components/database/db-sql-editor.jsx')
 const OUTPUT = read('src/client/components/ai/ai-output.jsx')
 const CHAT = read('src/client/components/ai/ai-chat.jsx')

@@ -14,6 +14,7 @@ const AGENT_TOOLS = 'src/client/components/ai/agent-tools.js'
 const MCP_HANDLER = 'src/client/store/mcp-handler.js'
 const AGENT = 'src/client/components/ai/agent.js'
 const SESSION = 'src/client/components/database/db-session.jsx'
+const AI_REGISTER = 'src/client/components/database/use-db-ai-register.js'
 
 const DB_TAB = {
   id: 'db-1',
@@ -372,7 +373,8 @@ describe('db-agent-tools：接线与边界（源码契约）', () => {
   })
 
   test('会话页交出只读快照，契约里仍然没有执行入口', () => {
-    const src = read(SESSION)
+    // N11a-12（#10）：登记段已拆出，组合读取已接线 shipped 文件，断言语义不变
+    const src = read(SESSION) + '\n' + read(AI_REGISTER)
     assert.match(src, /getResultSnapshot \(\)/, '会话页没登记结果集快照')
     assert.match(src, /sqlAiLiveRef\.current = \{ sqlResult, grid, sel \}/, '快照没有跟着渲染刷新')
     const body = src.slice(src.indexOf('const sqlAiTarget = useMemo'), src.indexOf('const sqlAiTarget = useMemo') + 3000)
