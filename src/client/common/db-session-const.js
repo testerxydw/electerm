@@ -15,7 +15,7 @@
  * （见 db-page-tree-filter.spec.js），改成 `export const` 会让它们抽不到函数体。
  */
 
-import { isPgFamily } from './db-engine-family'
+import { isPgFamily } from './db-engine-family.js'
 
 // 每页行数：可经 config.dbPageSize 配置（10/20/50/100/200），默认 20；
 // 服务端上限 1000 不变（mysql.js/redis.js），渲染侧上限见 DB_PAGE_SIZE_MAX

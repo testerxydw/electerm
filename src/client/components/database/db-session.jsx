@@ -56,9 +56,20 @@ import { buildDataDictionary } from '../../common/db-dictionary'
 import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
 import {
   planSameValue,
-  planReplace,
-  previewKeyList
+  planReplace
 } from '../../common/db-grid-replace'
+// N2：写操作预览语句（确认弹窗与变更面板共用）+ 变更集模型（暂存/合并/应用计划）
+import {
+  updateCellPreview,
+  insertRowPreview,
+  deleteRowsPreview,
+  bulkUpdatePreview,
+  replacePreview
+} from '../../common/db-change-preview'
+import {
+  buildInsertPayload,
+  canSubmitInsertForm
+} from '../../common/db-change-set'
 import { copy } from '../../common/clipboard'
 import { appendSqlHistory, listSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile, SQL_HISTORY_MAX } from '../../common/db-sql-history'
 // B 批：查询收藏（B-1~B-4）与 SQL 模板（B-3，同一份定义菜单/补全共用）
@@ -213,8 +224,6 @@ import {
   HOME_TABLES_MAX,
   EMPTY_STRUCTURE_V2,
   buildInsertFormColumns,
-  previewLiteral,
-  writeTargetLabel,
   tsName
 } from '../../common/db-session-const'
 
@@ -1945,9 +1954,13 @@ export default auto(function DbSession (props) {
     // E1：production 连接上改数据要二次确认（带表名/列名/主键定位与影响行数）
     const ok = await confirmRowWrite({
       level: 'write',
-      text: 'UPDATE ' + writeTargetLabel(sel) +
-        ' SET ' + col + ' = ' + previewLiteral(value) +
-        ' WHERE ' + pkColumn + ' = ' + previewLiteral(row[pkColumn]),
+      text: updateCellPreview({
+        sel,
+        pkColumn,
+        pkValue: row[pkColumn],
+        column: col,
+        value
+      }),
       note: e('dbAffectedRows').replace('{n}', '1')
     })
     if (!ok) {
@@ -2019,43 +2032,23 @@ export default auto(function DbSession (props) {
     }))
   }
 
-  // 至少一列有值（或勾 NULL），且数值列文本均可转数字
-  const canSubmitInsert = insertCols.some(c => {
-    const st = insertValues[c.name] || {}
-    return st.isNull || st.text !== ''
-  }) && insertCols.every(c => {
-    const st = insertValues[c.name] || {}
-    if (st.isNull || st.text === '' || !c.isNumeric) {
-      return true
-    }
-    return !Number.isNaN(Number(st.text))
-  })
+  // 表单 → 传参/预览的唯一口径在 db-change-set.buildInsertPayload：
+  // 即时执行与 N2 暂存共用同一份构造，否则会出现"预览是 A、执行是 B"
+  const insertPayload = useMemo(
+    () => buildInsertPayload(insertCols, insertValues),
+    [insertCols, insertValues]
+  )
+  const canSubmitInsert = canSubmitInsertForm(insertCols, insertValues)
 
   const submitInsert = async () => {
     if (!sel || !canSubmitInsert) {
       return
     }
-    const values = {}
-    const colList = []
-    const valList = []
-    insertCols.forEach(c => {
-      const st = insertValues[c.name] || {}
-      if (st.isNull) {
-        values[c.name] = null
-        colList.push(c.name)
-        valList.push('NULL')
-      } else if (st.text !== '') {
-        // 数值列转数字传参，其余按文本；留空列不传（交给数据库默认值/自增）
-        values[c.name] = c.isNumeric ? Number(st.text) : st.text
-        colList.push(c.name)
-        valList.push(previewLiteral(values[c.name]))
-      }
-    })
+    const values = insertPayload.values
     // E1：production 连接上插行要二次确认（取消则插入弹窗保持打开，值不丢）
     const ok = await confirmRowWrite({
       level: 'write',
-      text: 'INSERT INTO ' + writeTargetLabel(sel) +
-        ' (' + colList.join(', ') + ') VALUES (' + valList.join(', ') + ')',
+      text: insertRowPreview({ sel, cols: insertPayload.cols, vals: insertPayload.vals }),
       note: e('dbAffectedRows').replace('{n}', '1')
     })
     if (!ok) {
@@ -2094,13 +2087,10 @@ export default auto(function DbSession (props) {
     if (!pkValues.length) {
       return
     }
-    const shownPk = pkValues.slice(0, 10).map(previewLiteral).join(', ') +
-      (pkValues.length > 10 ? ', …' : '')
     // 删行定为 dangerous：批量删除不可撤销，按钮应以危险色呈现
     const ok = await confirmRowWrite({
       level: 'dangerous',
-      text: 'DELETE FROM ' + writeTargetLabel(sel) +
-        ' WHERE ' + pkColumn + ' IN (' + shownPk + ')',
+      text: deleteRowsPreview({ sel, pkColumn, pkValues }),
       note: e('dbAffected').replace('{n}', String(pkValues.length))
     })
     if (!ok) {
@@ -2216,9 +2206,13 @@ export default auto(function DbSession (props) {
     }
     const ok = await confirmRowWrite({
       level: 'write',
-      text: 'UPDATE ' + writeTargetLabel(sel) +
-        ' SET ' + bulk.col + ' = ' + previewLiteral(value) +
-        ' WHERE ' + pkColumn + ' IN (' + previewKeyList(plan.updates.map(u => u.pk)) + ')',
+      text: bulkUpdatePreview({
+        sel,
+        column: bulk.col,
+        value,
+        pkColumn,
+        pks: plan.updates.map(u => u.pk)
+      }),
       note: e('dbAffectedRows').replace('{n}', String(plan.updates.length))
     })
     if (!ok) {
@@ -2275,10 +2269,14 @@ export default auto(function DbSession (props) {
     }
     const ok = await confirmRowWrite({
       level: 'write',
-      text: 'UPDATE ' + writeTargetLabel(sel) +
-        ' SET ' + rep.col + ' = replace(' + rep.col + ', ' +
-        previewLiteral(rep.find) + ', ' + previewLiteral(rep.text) + ')' +
-        ' WHERE ' + pkColumn + ' IN (' + previewKeyList(repPreview.updates.map(u => u.pk)) + ')',
+      text: replacePreview({
+        sel,
+        column: rep.col,
+        find: rep.find,
+        replace: rep.text,
+        pkColumn,
+        pks: repPreview.updates.map(u => u.pk)
+      }),
       note: e('dbAffectedRows').replace('{n}', String(repPreview.updates.length))
     })
     if (!ok) {
