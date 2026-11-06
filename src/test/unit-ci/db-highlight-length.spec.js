@@ -14,7 +14,7 @@ const SRC = path.join(ROOT, 'src/client/components/database/db-highlight.jsx')
 // 通过 opts 放宽上限（大 JSON 也要高亮）。
 //
 // V2 批次 0 后，highlightValue 改用 common/keyword-scan.js 的 buildScan +
-// collectMatches（与终端同一套单遍扫描 + 同起点取最短裁决），故把这些函数注入沙箱。
+// collectMatches（与终端同一套单遍扫描 + 家族 rank 裁决），故把这些函数注入沙箱。
 // 批次 3 又加了行级覆盖率闸 applyCoverageGate，同样注入真实实现；本文件的手写
 // patterns 全是 signal 档，闸走「无 structure 命中」快路径，不改变分段结论。
 const loadScan = () => import('../../client/common/keyword-scan.js')

@@ -18,8 +18,9 @@ const loadPresets = () => import('../../client/common/keyword-presets.js')
 const loadGroups = () => import('../../client/common/keyword-groups.js')
 const loadCompile = () => import('../../client/common/keyword-compile.js')
 
-// 旧引擎的参考实现：逐规则把整段扫一遍、收集全部命中，再按「起点升序、同起点取
-// 更短」排序并跳过重叠。新引擎（单大正则单遍扫描）必须与它逐字节一致。
+// 旧引擎的参考实现：逐规则把整段扫一遍、收集全部命中，再按 V3 家族裁决口径
+// 「起点升序 → rank 升序 → 同 rank 跨度降序，等长交给原序（sort 稳定 == index 升序）」
+// 排序并跳过重叠。新引擎（单大正则单遍扫描）必须与它逐字节一致。
 function referenceHighlight (text, patterns, maxMatches) {
   // eslint-disable-next-line no-control-regex
   const ansiPattern = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[\??[0-9;]*[A-Za-z]/g
@@ -37,18 +38,18 @@ function referenceHighlight (text, patterns, maxMatches) {
     if (seg.type === 'ansi') return seg.content
     const content = seg.content
     const matches = []
-    for (const { re, colorCode } of patterns) {
+    for (const { re, colorCode, rank } of patterns) {
       re.lastIndex = 0
       let m
       while ((m = re.exec(content)) !== null) {
         if (m[0].length === 0) { re.lastIndex++; continue }
-        matches.push({ start: m.index, end: m.index + m[0].length, text: m[0], colorCode })
+        matches.push({ start: m.index, end: m.index + m[0].length, text: m[0], colorCode, rank })
         if (matches.length >= maxMatches) break
       }
       if (matches.length >= maxMatches) break
     }
     if (matches.length === 0) return content
-    matches.sort((a, b) => a.start - b.start || a.end - b.end)
+    matches.sort((a, b) => a.start - b.start || (a.rank || 50) - (b.rank || 50) || b.end - a.end)
     const filtered = [matches[0]]
     for (let i = 1; i < matches.length; i++) {
       if (matches[i].start >= filtered[filtered.length - 1].end) filtered.push(matches[i])

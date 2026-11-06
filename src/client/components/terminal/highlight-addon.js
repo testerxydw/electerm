@@ -2,7 +2,8 @@ import { compileKeywords } from '../../common/keyword-compile.js'
 import { activeKeywords } from '../../common/keyword-groups.js'
 import { buildScan, collectMatches, applyCoverageGate } from '../../common/keyword-scan.js'
 
-// 单遍扫描 + 同起点取最短裁决已抽到 common/keyword-scan.js，终端与网格共用同一套实现；
+// 单遍扫描 + 家族 rank 裁决（V3：最左起点 → rank 小者胜 → 同 rank 取更长）已抽到
+// common/keyword-scan.js，终端与网格共用同一套实现；
 // 行级覆盖率闸（V2 §7.3）也在那一层，两端同实现。
 
 const ESC_CHAR = '\u001b'
@@ -191,16 +192,10 @@ export class KeywordHighlighterAddon {
       if (matches.length === 0) {
         continue
       }
-      // collectMatches 已按「起点升序、同起点取更短」去重叠；这里再排一遍并跳过重叠，
-      // 兜住退化路径与任何边界情况，结论与旧实现一致
-      matches.sort((a, b) => a.start - b.start || a.end - b.end)
-      const filtered = [matches[0]]
-      for (let i = 1; i < matches.length; i++) {
-        if (matches[i].start >= filtered[filtered.length - 1].end) {
-          filtered.push(matches[i])
-        }
-      }
-      for (const m of filtered) {
+      // collectMatches 已经按家族 rank 裁决过去重叠（见 common/keyword-scan.js
+      // selectByRank），这里只做坐标平移，不再重复排一遍——重复的「同起点取最短」
+      // 会把 rank 裁决的结果按长度改回去。
+      for (const m of matches) {
         globalHits.push({
           start: seg.plainOffset + m.start,
           end: seg.plainOffset + m.end,

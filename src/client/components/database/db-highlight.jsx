@@ -42,7 +42,7 @@ export function highlightValue (text, patterns, themeConfig, opts = {}) {
   if (typeof text !== 'string' || !text || text.length > maxLength) {
     return text
   }
-  // 与终端同一套单遍扫描 + 同起点取最短裁决（common/keyword-scan.js）：两端必然
+  // 与终端同一套单遍扫描 + 家族 rank 裁决（common/keyword-scan.js）：两端必然
   // 给出同一个着色跨度，不再出现"终端取短、网格取长"的结论分歧。
   const scan = buildScan(patterns)
   const matches = collectMatches(text, patterns, scan, hitLimit)

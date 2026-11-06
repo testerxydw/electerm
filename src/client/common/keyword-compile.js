@@ -91,11 +91,13 @@ export const keywordsSignature = (keywords) => {
   for (const item of keywords || []) {
     // tier 参与摘要：只改档位（signal ↔ structure）也必须重新编译，否则会命中
     // 旧缓存拿到过期 tier，行级覆盖率闸据此误判去留。
-    const { keyword, color = 'red', tier = 'signal' } = item || {}
+    // rank 同理：V3 的裁决按 rank 决胜，改了家族或 FAMILY_RANK 必须让缓存失效，
+    // 否则新配置会拿旧 RegExp 的 rank 抢色，表现成"改了没生效"。
+    const { keyword, color = 'red', tier = 'signal', rank = '' } = item || {}
     if (!keyword) {
       continue
     }
-    sig += keyword + patternSep + color + patternSep + tier + fieldSep
+    sig += keyword + patternSep + color + patternSep + tier + patternSep + rank + fieldSep
   }
   return sig
 }
@@ -103,14 +105,22 @@ export const keywordsSignature = (keywords) => {
 function build (keywords) {
   const out = []
   for (const item of keywords || []) {
-    const { keyword, color = 'red', tier } = item || {}
+    const { keyword, color = 'red', tier, family, rank } = item || {}
     if (!keyword) {
       continue
     }
     try {
       // 用户自定义规则可能不合法，跳过即可，不要拖垮终端或整表
       // tier 透传：结构档（structure）命中在覆盖率闸里会被按需丢弃，语义档（signal）永远保留
-      out.push({ re: new RegExp(keyword, 'gi'), color, tier: tier || 'signal', colorCode: colorToCode(color) })
+      // family / rank 透传：重叠裁决按 rank 决胜（见 keyword-scan.js arbitrateAt）
+      out.push({
+        re: new RegExp(keyword, 'gi'),
+        color,
+        tier: tier || 'signal',
+        family,
+        rank: Number.isFinite(rank) ? rank : 50,
+        colorCode: colorToCode(color)
+      })
     } catch (e) {
       console.error('Invalid keyword regex:', keyword, e)
     }
@@ -120,8 +130,8 @@ function build (keywords) {
 
 /**
  * 取得（必要时才编译）这份规则集合的共享 RegExp 列表。
- * @param {Array<{keyword: string, color?: string}>} keywords
- * @returns {Array<{re: RegExp, color: string, colorCode: string}>} 只读，进程内共享
+ * @param {Array<{keyword: string, color?: string, tier?: string, family?: string, rank?: number}>} keywords
+ * @returns {Array<{re: RegExp, color: string, colorCode: string, tier: string, rank: number}>} 只读，进程内共享
  */
 export function compileKeywords (keywords) {
   const sig = keywordsSignature(keywords)

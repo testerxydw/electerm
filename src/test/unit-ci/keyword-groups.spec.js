@@ -13,7 +13,8 @@ describe('keyword groups', () => {
       { keyword: 'old', color: 'red' },
       { keyword: 'muted', color: 'green', off: true }
     ]
-    assert.deepEqual(activeKeywords(list), [{ keyword: 'old', color: 'red' }])
+    // 用户规则没有家族可继承 → 落到 signal 档默认 rank 50
+    assert.deepEqual(activeKeywords(list), [{ keyword: 'old', color: 'red', rank: 50 }])
     assert.equal(normalizeRule(list[0]).source, 'user')
     const groups = userGroupViews(list)
     assert.equal(groups.length, 1)
@@ -32,9 +33,10 @@ describe('keyword groups', () => {
       { keyword: 'ipv4', color: 'red', source: 'user' },
       { keyword: 'ipv4', color: 'cyan', source: 'preset', group: 'HTTP & web logs', off: true }
     ]
+    // 'ipv4' 这里只是字面量关键词，不是任何预设规则的正则 → 无家族 → 默认 rank 50
     assert.deepEqual(activeKeywords(list), [
-      { keyword: 'ipv4', color: 'cyan' },
-      { keyword: 'ipv4', color: 'red' }
+      { keyword: 'ipv4', color: 'cyan', rank: 50 },
+      { keyword: 'ipv4', color: 'red', rank: 50 }
     ])
   })
 
@@ -287,7 +289,8 @@ describe('keyword groups', () => {
 
     // 点单条 → 加进配置并使用预设默认色
     const applied = setPresetRuleOn([], preset, 'bb', true)
-    assert.deepEqual(activeKeywords(applied), [{ keyword: 'bb', color: 'green' }])
+    // 'bb' 不是任何预设规则的正则 → 无家族 → 默认 rank 50
+    assert.deepEqual(activeKeywords(applied), [{ keyword: 'bb', color: 'green', rank: 50 }])
     const view2 = presetGroupView(applied, preset)
     assert.deepEqual(view2.entries.map(e => [e.keyword, e.index, e.on]), [['aa', -1, false], ['bb', 0, true]])
     assert.equal(view2.indeterminate, true)
@@ -304,7 +307,7 @@ describe('keyword groups', () => {
 
   test('同正则同色不同档：两条都在生效列表，signal 无 tier 字段且排在 structure 前', async () => {
     const { activeKeywords } = await load()
-    const { keywordPresets } = await loadPresets()
+    const { keywordPresets, FAMILY_RANK } = await loadPresets()
     const universal = keywordPresets.find(p => p.name === '通用 · 时间与数值')
     const structureRule = universal.keywords.find(k =>
       k.tier === 'structure' && new RegExp(k.keyword, 'gi').test('233G'))
@@ -321,8 +324,11 @@ describe('keyword groups', () => {
     ]
     const active = activeKeywords(list)
     assert.equal(active.length, 2, '档位纳入去重键后两条规则都应生效')
-    assert.deepEqual(active[0], { keyword: structureRule.keyword, color: structureRule.color },
-      'signal 规则必须保持「无 tier 字段」形状，且排在 structure 前')
+    assert.deepEqual(active[0], {
+      keyword: structureRule.keyword,
+      color: structureRule.color,
+      rank: FAMILY_RANK[structureRule.family]
+    }, 'signal 规则必须保持「无 tier 字段」形状、继承同正则的家族 rank，且排在 structure 前')
     assert.equal(active[1].tier, 'structure')
     assert.equal(active[0].keyword, active[1].keyword)
     assert.equal(active[0].color, active[1].color)

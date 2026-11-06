@@ -12,11 +12,12 @@ const colorCodes = {
   cyan: '\u001b[36m',
   white: '\u001b[37m'
 }
-const mk = (keyword, color) => ({
+const mk = (keyword, color, rank) => ({
   keyword,
   color,
   colorCode: colorCodes[color] || colorCodes.red,
-  re: new RegExp(keyword, 'gi')
+  re: new RegExp(keyword, 'gi'),
+  rank
 })
 
 describe('keyword-scan: shared single-pass scanner', () => {
@@ -32,26 +33,47 @@ describe('keyword-scan: shared single-pass scanner', () => {
     assert.deepEqual(scan.colors, ['red'])
   })
 
-  test('同起点取最短：更短的规则赢，等长取原序最先', () => {
-    const patterns = [mk('ab', 'red'), mk('abcd', 'blue')]
+  test('同 rank 取更长：同族异形规则里能吃下完整信号的那条赢', () => {
+    const patterns = [mk('ab', 'red', 50), mk('abcd', 'blue', 50)]
     const scan = buildScan(patterns)
     const m = collectMatches('abcd', patterns, scan)
     assert.equal(m.length, 1)
-    assert.equal(m[0].text, 'ab')
-    assert.equal(m[0].color, 'red')
+    assert.equal(m[0].text, 'abcd')
+    assert.equal(m[0].color, 'blue')
   })
 
-  test('同起点取最短：更长的规则在同起点抢不过更短的', () => {
-    // ipv4 形态与 port-mapping 同起点竞争：取最短时短者赢
-    const patterns = [mk('10\\.1\\.2\\.3', 'cyan'), mk('10\\.1\\.2\\.3:443', 'magenta')]
+  test('rank 小者胜：与长度无关（IP 家族 10 抢在端口映射 40 前面）', () => {
+    // V3 契约取代旧的「同起点取最短」：ipv4 不再靠 (?!:\d) 让位，
+    // 而是靠 rank —— 精确地址层 10 < 数值时间层 40，同起点短者也赢。
+    const patterns = [mk('10\\.1\\.2\\.3', 'cyan', 10), mk('10\\.1\\.2\\.3:443', 'magenta', 40)]
     const scan = buildScan(patterns)
     const m = collectMatches('10.1.2.3:443', patterns, scan)
     assert.equal(m.length, 1)
-    assert.equal(m[0].text, '10.1.2.3') // 短的赢
+    assert.equal(m[0].text, '10.1.2.3')
     assert.equal(m[0].color, 'cyan')
+    assert.equal(m[0].rank, 10)
   })
 
-  test('单遍扫描与逐规则扫描结论一致（取最短口径）', () => {
+  test('等长且同 rank 取原序最先', () => {
+    const patterns = [mk('ab|cd', 'red', 30), mk('cd|ab', 'blue', 30)]
+    const scan = buildScan(patterns)
+    const m = collectMatches('cd', patterns, scan)
+    assert.equal(m.length, 1)
+    assert.equal(m[0].color, 'red')
+  })
+
+  test('未标 rank 的规则按 50（signal-word 层）保底，两条路径口径一致', () => {
+    const patterns = [mk('ab', 'red'), mk('abcd', 'blue', 60)]
+    const viaCombined = collectMatches('abcd', patterns, buildScan(patterns))
+    const viaRules = collectMatches('abcd', patterns, null)
+    assert.equal(viaCombined[0].rank, 50)
+    assert.deepEqual(
+      viaCombined.map(s => `${s.start}-${s.end}:${s.color}`),
+      viaRules.map(s => `${s.start}-${s.end}:${s.color}`)
+    )
+  })
+
+  test('单遍扫描与逐规则扫描结论一致（rank 裁决口径）', () => {
     const patterns = [
       mk('\\b\\d+\\b', 'cyan'),
       mk('error', 'red'),

@@ -480,7 +480,8 @@ describe('keyword presets', () => {
     const status = addon.highlightKeywords('Query OK, 3 rows affected (0.01 sec)')
     assert.ok(status.includes('\u001b[32mQuery OK'))
     assert.ok(status.includes('\u001b[32mrows affected'))
-    assert.ok(status.includes('\u001b[36m(0.01 sec)'))
+    // 耗时属于 duration 家族，家族色 = 真彩色 teal（V3 KU-6：结构档不再占用 ANSI cyan）
+    assert.ok(status.includes(TC.dur + '(0.01 sec)'))
     assert.ok(addon.highlightKeywords('(integer) 42').includes('\u001b[35m(integer)'))
     assert.ok(addon.highlightKeywords('(3 rows)').includes('\u001b[32m(3 rows)'))
 
