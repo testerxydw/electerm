@@ -13,13 +13,16 @@ const vm = require('node:vm')
 const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const read = () => fs.readFileSync(JSX, 'utf8')
+const readConst = () => fs.readFileSync(CONST, 'utf8')
 
 // 跑真实源码里的页码夹取函数（不是拷贝）
 const loadPageIndex = () => {
-  const src = read()
+  const src = readConst()
   const m = src.match(/const sqlPageIndex = \(page, total, pageSize\) => \{[\s\S]*?\n\}/)
-  assert.ok(m, 'sqlPageIndex not found in db-session.jsx')
+  assert.ok(m, 'sqlPageIndex not found in db-session-const.js')
   const expr = m[0].slice(m[0].indexOf('(page, total'))
   return vm.runInNewContext('(' + expr + ')', { SQL_RESULT_PAGE_SIZE: 50 })
 }
@@ -59,13 +62,13 @@ describe('SQL 结果分页：页码夹取（真实源码）', () => {
 
 describe('SQL 结果分页：接线契约', () => {
   test('page size default is 50', () => {
-    assert.ok(read().includes('const SQL_RESULT_PAGE_SIZE = 50'), 'default page size drifted')
+    assert.ok(readConst().includes('const SQL_RESULT_PAGE_SIZE = 50'), 'default page size drifted')
   })
 
   test('result page size reuses the data grid row options', () => {
     const src = read()
     assert.ok(
-      src.includes('const DB_PAGE_OPTIONS = [10, 20, 50, 100, DB_PAGE_SIZE_MAX]'),
+      readConst().includes('const DB_PAGE_OPTIONS = [10, 20, 50, 100, DB_PAGE_SIZE_MAX]'),
       'result size options must stay in sync with the data grid'
     )
     assert.ok(src.includes('options={dbPageSizeOptions()}'), 'result tools row must use the shared options')
@@ -76,10 +79,10 @@ describe('SQL 结果分页：接线契约', () => {
 
   test('result page size is configurable and clamped', () => {
     const src = read()
-    assert.ok(src.includes('config.sqlResultPageSize'), 'config key missing')
+    assert.ok(readConst().includes('config.sqlResultPageSize'), 'config key missing')
     assert.ok(src.includes('window.store.setConfig({ sqlResultPageSize: v })'), 'config write missing')
     assert.ok(
-      /Number\.isInteger\(v\) && v >= 10 \? Math\.min\(v, DB_PAGE_SIZE_MAX\)/.test(src),
+      /Number\.isInteger\(v\) && v >= 10 \? Math\.min\(v, DB_PAGE_SIZE_MAX\)/.test(readConst()),
       'persisted page size must clamp to the ceiling'
     )
   })

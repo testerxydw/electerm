@@ -9,6 +9,8 @@ const DB_DIR = path.join(ROOT, 'src/client/components/database')
 const FOOTER = path.join(ROOT, 'src/client/components/footer/footer-entry.jsx')
 const HIGHLIGHT = path.join(DB_DIR, 'db-highlight.jsx')
 const DB_SESSION = path.join(DB_DIR, 'db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const DB_SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 
 // 性能/资源消耗守护单测（配套 doc/已完成/分析-性能热点与优化总案-2026-10-21.md）：
 // 1) 算法预算：值预览高亮在大文本 × 多规则下的耗时上限（防病态回退）
@@ -229,13 +231,13 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
   })
 
   test('dbPageSize config respected with default 20', () => {
-    const src = loadSrc(DB_SESSION)
-    assert.ok(src.includes('dbPageSize'), 'page size config key missing')
-    assert.ok(src.includes('DB_PAGE_SIZE_DEFAULT = 20'), 'default page size drifted')
+    assert.ok(loadSrc(DB_SESSION).includes('dbPageSize'), 'page size config key missing')
+    assert.ok(loadSrc(DB_SESSION_CONST).includes('DB_PAGE_SIZE_DEFAULT = 20'), 'default page size drifted')
   })
 
   test('dbPageSize capped at 200 so one page cannot explode render cost', () => {
-    const src = loadSrc(DB_SESSION)
+    // 上限常量与网格取数夹取在 db-session-const.js，视角 pageSize 夹取仍在组件里
+    const src = loadSrc(DB_SESSION) + loadSrc(DB_SESSION_CONST)
     assert.ok(src.includes('DB_PAGE_SIZE_MAX = 200'), 'page size ceiling drifted')
     assert.ok(
       /return v >= 10 \? Math\.min\(v, DB_PAGE_SIZE_MAX\)/.test(src),

@@ -19,12 +19,16 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const SPLIT = path.join(ROOT, 'src/client/components/database/db-split-pane.jsx')
 const PREVIEW = path.join(ROOT, 'src/client/components/database/db-cell-preview.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const jsx = () => fs.readFileSync(SESSION, 'utf8')
+const consts = () => fs.readFileSync(SESSION_CONST, 'utf8')
+const metaMin = () => Number((/const VALUE_META_MIN = (\d+)/.exec(consts()) || [])[1])
 const splitSrc = () => fs.readFileSync(SPLIT, 'utf8')
 const styl = () => fs.readFileSync(STYL, 'utf8')
 // H1a-4：SQL 结果列定义并入公共列工厂，单元格级契约跟着挪过去
@@ -45,7 +49,7 @@ function loadSqlCellInfo () {
     Number,
     String,
     Array,
-    VALUE_META_MIN: Number((/const VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1]),
+    VALUE_META_MIN: metaMin(),
     isBinaryType: t => /blob|bytea|binary|^varbinary$/.test(String(t || '').toLowerCase()),
     isBinEnvelope: v => !!(v && typeof v === 'object' && v.__bin),
     e: k => ({ dbResultN: 'result {n}', dbRowN: 'row {n}' })[k] || k
@@ -92,7 +96,7 @@ describe('DbSplitPane：collapsed 是"同一条 DOM 链路"的折叠', () => {
 describe('SQL 结果区：选中一格就展开下方面板', () => {
   test('有结果时永远套 DbSplitPane，且用本批自己的持久化键', () => {
     const src = codeOf(jsx())
-    assert.match(src, /const SQL_VALUE_SPLIT_KEY = 'electerm-db-sql-value-split'/)
+    assert.match(codeOf(consts()), /const SQL_VALUE_SPLIT_KEY = 'electerm-db-sql-value-split'/)
     assert.match(src, /storageKey=\{SQL_VALUE_SPLIT_KEY\}/)
     assert.match(src, /\(sqlResult\.results \|\| \[\]\)\.length/)
     // 折叠判据 = "有没有选中格"。重新执行会清掉选中，面板跟着收起；
@@ -168,7 +172,7 @@ describe('sqlCellInfo：面板数据取自结果集与类型契约（真实源�
 
   test('长字符串给字符数、二进制信封给字节数、短值与其余不硬凑', () => {
     const info = loadSqlCellInfo()
-    const min = Number((/const VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1])
+    const min = metaMin()
     assert.ok(Number.isInteger(min) && min > 0, 'VALUE_META_MIN 必须是个正整数常量')
     // 阈值两侧都要钉住：格子本来就看得全的短值不该挂计数，超出的必须挂
     assert.equal(info({ rs: 0, col: 'a', rowKey: 0 }, results([{ a: 'note-5' }]), maps({ a: 'varchar' })).meta, '')

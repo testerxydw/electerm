@@ -10,6 +10,8 @@ const path = require('path')
 
 const ROOT = path.join(__dirname, '../../..')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const EDITOR = path.join(ROOT, 'src/client/components/database/db-sql-editor.jsx')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const BUILD = path.join(ROOT, 'src/build/bin/build.js')
@@ -275,10 +277,11 @@ describe('A-3 补全接线（§4.6 六条）', () => {
 
 describe('A-7 关键字大小写配置', () => {
   const session = read(SESSION)
+  const consts = read(SESSION_CONST)
 
   test('从 config 读 dbSqlKeywordCase，非法值回落 lower', () => {
-    assert.match(session, /const getSqlKeywordCase = \(\) => \{/)
-    assert.match(session, /v === 'upper' \? 'upper' : 'lower'/)
+    assert.match(consts, /const getSqlKeywordCase = \(\) => \{/)
+    assert.match(consts, /v === 'upper' \? 'upper' : 'lower'/)
     assert.match(session, /useState\(getSqlKeywordCase\)/)
   })
 

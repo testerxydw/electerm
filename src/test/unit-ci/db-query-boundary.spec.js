@@ -246,7 +246,10 @@ describe('T3 postgres schema hierarchy', () => {
   test('渲染层传递 schema 并生成 S 标记 / schema.table 标题', async () => {
     const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
     const src = fs.readFileSync(JSX, 'utf8')
-    assert.ok(src.includes('const nodeKey = (database, schema, table)'), 'node key must carry 3 parts')
+    // N11a：nodeKey 随会话页纯常量段搬到 common/db-session-const.js
+    const constSrc = fs.readFileSync(
+      path.join(ROOT, 'src/client/common/db-session-const.js'), 'utf8')
+    assert.ok(constSrc.includes('const nodeKey = (database, schema, table)'), 'node key must carry 3 parts')
     const schemaArgs = src.match(/schema: target\.schema \|\| ''/g) || []
     assert.ok(schemaArgs.length >= 2, 'loadPage / findLastPage must pass schema')
     assert.ok(src.includes('db-tree-schema-mark'), 'schema node needs S mark')

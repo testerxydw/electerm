@@ -21,6 +21,8 @@ const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js')
 const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 const DB_CLIENT = path.join(ROOT, 'src/app/lib/db-client')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const read = p => fs.readFileSync(p, 'utf8')
@@ -210,10 +212,11 @@ describe('B2 主进程契约', () => {
 
 describe('B2 前端契约', () => {
   const jsx = read(JSX)
+  const constSrc = read(SESSION_CONST)
 
   test('isLeafNode 认四类对象（跑真实源码行）', () => {
-    const line = jsx.match(/^const isLeafNode = .+$/m)
-    assert.ok(line, 'isLeafNode not found')
+    const line = constSrc.match(/^const isLeafNode = .+$/m)
+    assert.ok(line, 'isLeafNode not found in db-session-const.js')
     const fn = vm.runInNewContext('(' + line[0].replace(/^const isLeafNode = /, '') + ')', {})
     for (const t of ['table', 'view', 'procedure', 'function', 'trigger', 'event']) {
       assert.equal(fn({ type: t }), true, `${t} 必须是叶子，否则树里点不开`)
@@ -243,12 +246,12 @@ describe('B2 前端契约', () => {
   })
 
   test('U4：分组/schema 计数徽标，计数只数叶子对象', () => {
-    assert.match(jsx, /const countTreeLeaves = nodes =>/)
+    assert.match(constSrc, /const countTreeLeaves = nodes =>/)
     // 分组节点用 children 长度；schema 用递归叶子数（分组容器自身不算）
     assert.match(jsx, /db-tree-count'>\{\(node\.children \|\| \[\]\)\.length\}/)
     assert.match(jsx, /db-tree-count'>\{countTreeLeaves\(node\.children\)\}/)
     // 递归体引用自身，必须连同 const 声明一起求值（只取箭头表达式会 ReferenceError）
-    const src = jsx.match(/^const countTreeLeaves = [\s\S]*?\n\)\n/m)[0]
+    const src = constSrc.match(/^const countTreeLeaves = [\s\S]*?\n\)\n/m)[0]
     const fn = vm.runInNewContext(
       src + '; countTreeLeaves',
       { isLeafNode: n => ['table', 'view', 'procedure', 'function', 'trigger', 'event'].includes(n.type) }

@@ -16,6 +16,8 @@ const ROOT = path.join(__dirname, '../../..')
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
 const JSX = 'src/client/components/database/db-session.jsx'
+// N11a：REDIS_TREE_* 常量与 buildKeyPathIndex 搬到了会话页纯常量段
+const SESSION_CONST = 'src/client/common/db-session-const.js'
 const STYL = 'src/client/components/database/db-session.styl'
 const TREE = 'src/client/common/db-key-tree.js'
 
@@ -32,16 +34,17 @@ const block = (src, start, endRe) => {
 
 describe('H7a-3 键树抓取', () => {
   const src = codeOf(read(JSX))
+  const constSrc = codeOf(read(SESSION_CONST))
   const loader = block(src, 'const loadRedisKeyTree =', /\n {2}\}\n/)
 
   test('抓取只发 keysOnly，且每轮 COUNT 用常量（不是一页 50 地磨）', () => {
     assert.match(loader, /keysOnly: true/)
     assert.match(loader, /pageSize: REDIS_TREE_SCAN_COUNT/)
-    assert.match(src, /const REDIS_TREE_SCAN_COUNT = 1000/, '后端 COUNT 上限就是 1000，别写小')
+    assert.match(constSrc, /const REDIS_TREE_SCAN_COUNT = 1000/, '后端 COUNT 上限就是 1000，别写小')
   })
 
   test('撞上限停手并标 truncated（不设上限会把渲染进程整死）', () => {
-    assert.match(src, /const REDIS_TREE_MAX_KEYS = 10000/)
+    assert.match(constSrc, /const REDIS_TREE_MAX_KEYS = 10000/)
     assert.match(loader, /names\.length >= REDIS_TREE_MAX_KEYS/)
     assert.match(loader, /truncated = true/)
   })
@@ -103,6 +106,7 @@ describe('H7a-3 视图切换与过滤', () => {
 
 describe('H7a-3 分层与展开', () => {
   const src = codeOf(read(JSX))
+  const constSrc = codeOf(read(SESSION_CONST))
   const effect = block(src, 'if (redisView !== \'tree\')', /\n {2}\}, \[redisView, keyTreeBuilt\]\n/)
 
   test('树只在 names/分隔符变化时重算（改分隔符不重扫）', () => {
@@ -114,7 +118,7 @@ describe('H7a-3 分层与展开', () => {
   })
 
   test('大键库一个目录都不自动摊（antd Tree 非虚拟，摊开就是上万 DOM）', () => {
-    assert.match(src, /const REDIS_TREE_AUTO_EXPAND_KEYS = 500/)
+    assert.match(constSrc, /const REDIS_TREE_AUTO_EXPAND_KEYS = 500/)
     assert.match(effect, /if \(redisView !== 'tree'\) \{\n {6}return\n {4}\}/)
     assert.match(effect, /keyTreeBuilt\.total <= REDIS_TREE_AUTO_EXPAND_KEYS/)
     assert.match(effect, /collectFolderKeys\(keyTreeBuilt\.nodes, 1\)/)
@@ -124,7 +128,7 @@ describe('H7a-3 分层与展开', () => {
   test('选中键那一支例外展开（走 ancestorKeys，不遍历整棵树）', () => {
     assert.match(effect, /ancestorKeys\(path, treeSep\)/)
     assert.match(effect, /keyPathIndex\.get\(redisKey\)/)
-    assert.match(src, /const buildKeyPathIndex = \(nodes\) => \{/)
+    assert.match(constSrc, /const buildKeyPathIndex = \(nodes\) => \{/)
   })
 
   test('纯目录不可选，选中态按键名索引（列表/树共用同一个 redisKey）', () => {

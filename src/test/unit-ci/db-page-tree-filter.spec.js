@@ -6,10 +6,13 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：isLeafNode / nodeKey 这类纯判定随常量段一起搬到 common/db-session-const.js
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const loadJsx = () => fs.readFileSync(JSX, 'utf8')
+const loadConst = () => fs.readFileSync(SESSION_CONST, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')
 const loadLocales = () => fs.readFileSync(LOCALES, 'utf8')
 
@@ -46,8 +49,8 @@ const loadVisibleMetadata = () => {
   assert.ok(m, 'visibleMetadata derivation not found in db-session.jsx')
   // F0：叶子判定提成了模块级 isLeafNode（table + view），
   // 抠函数体执行时要把它一起带上，否则 vm 里 ReferenceError
-  const leaf = src.match(/^const isLeafNode = .+$/m)
-  assert.ok(leaf, 'isLeafNode not found in db-session.jsx')
+  const leaf = loadConst().match(/^const isLeafNode = .+$/m)
+  assert.ok(leaf, 'isLeafNode not found in db-session-const.js')
   return vm.runInNewContext(
     '(() => {' + leaf[0] + '; return function (metadata, isRedis, treeFilterKw) {' + m[1] + '}; })()',
     {}
@@ -59,10 +62,10 @@ const loadTreeFilterExpandKeys = () => {
   const body = src.match(/ {4}(const keys = \[\][\s\S]*?)\n {4}setExpandedKeys\(keys\)/)
   assert.ok(body, 'tree filter auto-expand effect not found in db-session.jsx')
   // 展开键跟 isLeafNode / nodeKey 同源执行：测试里另抄一份 key 推导，就钉不住"两边是不是同一个形态"
-  const leaf = src.match(/^const isLeafNode = .+$/m)
-  assert.ok(leaf, 'isLeafNode not found in db-session.jsx')
-  const nk = src.match(/const nodeKey = \(database, schema, table\) => JSON\.stringify\(\[[\s\S]*?\]\)/)
-  assert.ok(nk, 'nodeKey not found in db-session.jsx')
+  const leaf = loadConst().match(/^const isLeafNode = .+$/m)
+  assert.ok(leaf, 'isLeafNode not found in db-session-const.js')
+  const nk = loadConst().match(/const nodeKey = \(database, schema, table\) => JSON\.stringify\(\[[\s\S]*?\]\)/)
+  assert.ok(nk, 'nodeKey not found in db-session-const.js')
   return vm.runInNewContext(
     '(() => {' + leaf[0] + ';' + nk[0] +
     '; return function (visibleMetadata) {' + body[1] + '\n return keys }; })()',

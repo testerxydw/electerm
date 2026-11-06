@@ -304,6 +304,8 @@ describe('B1 wiring: OP_MAP 注册', () => {
 })
 
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 // 从 jsx 源码切出模块级纯函数（无 JSX 依赖）后在沙箱求值。
@@ -323,6 +325,7 @@ function extractFn (src, name, extra) {
 
 describe('B1 wiring: renderer 接线', () => {
   const src = fs.readFileSync(JSX, 'utf8')
+  const constSrc = fs.readFileSync(SESSION_CONST, 'utf8')
 
   test('前端走 insertRow/deleteRows op', () => {
     assert.ok(src.includes("dbClientOp', tabId, 'insertRow'"), 'must call insertRow op')
@@ -354,7 +357,7 @@ describe('B1 wiring: renderer 接线', () => {
     const { isPgFamily } = await import(pathToFileURL(
       path.join(ROOT, 'src/client/common/db-engine-family.js')
     ).href)
-    const fn = extractFn(src, 'buildInsertFormColumns', { isPgFamily })
+    const fn = extractFn(constSrc, 'buildInsertFormColumns', { isPgFamily })
     const mysqlCols = fn([
       { Field: 'id', Type: 'int(11)', Null: 'NO', Key: 'PRI', Default: null, Extra: 'auto_increment' },
       { Field: 'name', Type: 'varchar(255)', Null: 'YES', Key: '', Default: null, Extra: '' }
@@ -439,8 +442,8 @@ describe('B1 wiring: renderer 接线', () => {
     const block = src.match(/const rowSelection = \{[\s\S]*?\n {2}\}/)
     assert.ok(block, 'rowSelection missing')
     assert.match(block[0], /columnWidth: SEL_COL_W/, 'rowSelection must pin selection column width')
-    const constDecl = src.match(/const SEL_COL_W = (\d+)/)
-    assert.ok(constDecl, 'SEL_COL_W constant missing')
+    const constDecl = constSrc.match(/const SEL_COL_W = (\d+)/)
+    assert.ok(constDecl, 'SEL_COL_W constant missing in db-session-const.js')
     // CSS 的 width/min-width 必须与常量同值，否则两侧对齐仍会差几像素
     const styl = fs.readFileSync(
       path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'

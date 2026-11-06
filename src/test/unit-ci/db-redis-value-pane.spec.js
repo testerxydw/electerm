@@ -18,8 +18,11 @@ const vm = require('node:vm')
 
 const ROOT = path.join(__dirname, '../../..')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 
 const jsx = () => fs.readFileSync(SESSION, 'utf8')
+const consts = () => fs.readFileSync(SESSION_CONST, 'utf8')
 
 // 去掉行注释：契约钉的是"代码里有没有这一句"，不是"注释里提没提"
 function codeOf (src) {
@@ -27,7 +30,7 @@ function codeOf (src) {
 }
 
 function metaMin () {
-  return Number((/const VALUE_META_MIN = (\d+)/.exec(jsx()) || [])[1])
+  return Number((/const VALUE_META_MIN = (\d+)/.exec(consts()) || [])[1])
 }
 
 // 抽出 redisCellInfo 这个 useMemo 的函数体，在 vm 里真跑
@@ -52,9 +55,8 @@ function loadRedisCellInfo () {
 
 describe('Redis 详情值面板：折叠与容器接线', () => {
   test('本批用独立的分区键（不与 SQL / 键列表共用一个高度比例）', () => {
-    const src = codeOf(jsx())
-    assert.match(src, /const REDIS_VALUE_SPLIT_KEY = 'electerm-db-redis-value-split'/)
-    assert.match(src, /storageKey=\{REDIS_VALUE_SPLIT_KEY\}/)
+    assert.match(codeOf(consts()), /const REDIS_VALUE_SPLIT_KEY = 'electerm-db-redis-value-split'/)
+    assert.match(codeOf(jsx()), /storageKey=\{REDIS_VALUE_SPLIT_KEY\}/)
   })
 
   test('折叠判据 = 没有选中格；bottom 只有值面板一种内容', () => {
@@ -191,7 +193,8 @@ describe('redisCellInfo：面板数据按 rowKey 现取（真实源码）', () =
   })
 
   test('字符数阈值与 SQL 结果共用一个常量（不再各留一份）', () => {
-    const src = jsx()
+    // 声明在 db-session-const.js、两处使用在 db-session.jsx —— 拼起来才看得全
+    const src = jsx() + consts()
     assert.equal((src.match(/const VALUE_META_MIN = /g) || []).length, 1)
     assert.ok(!/SQL_VALUE_META_MIN/.test(src), '旧的 SQL 专用阈值常量该已改名')
     assert.equal((src.match(/VALUE_META_MIN/g) || []).length >= 3, true)

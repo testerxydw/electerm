@@ -15,6 +15,8 @@ const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const INDEX_JS = path.join(ROOT, 'src/app/lib/db-client/index.js')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 function loadRedis (opts = {}) {
@@ -246,9 +248,9 @@ describe('R1：键列表跳页前端接线', () => {
 describe('R1 补充：键列表总页数（无过滤时按 INFO keyspace 键数换算）', () => {
   // 跑真实源码里的换算函数（不是拷贝），签名 (count, pageSize)
   const loadPagesOf = () => {
-    const src = fs.readFileSync(JSX, 'utf8')
+    const src = fs.readFileSync(SESSION_CONST, 'utf8')
     const m = src.match(/const redisKeyPagesOf = \(count, pageSize\) => \{?[\s\S]*?\n\)/)
-    assert.ok(m, 'redisKeyPagesOf not found in db-session.jsx')
+    assert.ok(m, 'redisKeyPagesOf not found in db-session-const.js')
     const expr = m[0].slice(m[0].indexOf('(count, pageSize)'))
     return vm.runInNewContext('(' + expr + ')', {})
   }

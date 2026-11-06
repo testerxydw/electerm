@@ -17,6 +17,8 @@ const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
 const HOME = 'src/client/components/database/db-workspace-home.jsx'
 const SESSION = 'src/client/components/database/db-session.jsx'
+// N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
+const SESSION_CONST = 'src/client/common/db-session-const.js'
 const STYL = 'src/client/components/database/db-session.styl'
 const LOCALES = 'src/app/common/locales-extra.js'
 
@@ -25,6 +27,8 @@ const codeOf = src => src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l))
 const homeSrc = () => codeOf(read(HOME))
 
 const sessionSrc = () => codeOf(read(SESSION))
+
+const constSrc = () => codeOf(read(SESSION_CONST))
 
 // 空态装配块：从 workspaceHome 到它后面第一个顶层 const
 const homeMount = () => {
@@ -108,7 +112,7 @@ describe('U1c 空态装配', () => {
 
   test('最近表取 metadata 前 8 张、只收表', () => {
     const memo = homeTablesMemo()
-    assert.match(sessionSrc(), /const HOME_TABLES_MAX = 8/)
+    assert.match(constSrc(), /const HOME_TABLES_MAX = 8/)
     assert.match(memo, /out\.length >= HOME_TABLES_MAX/)
     assert.match(memo, /node\.type === 'table' \|\| !node\.type/)
     assert.match(memo, /if \(node\.type === 'group'\) \{\s*continue\s*\}/, '库内对象分组里没有表')
