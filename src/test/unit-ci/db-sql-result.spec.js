@@ -455,7 +455,10 @@ describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', (
     path.join(ROOT, 'src/client/components/database/db-cell-menu.jsx'), 'utf8')
   const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
   const fnStart = src.indexOf('const openSqlCellMenu')
-  const fn = src.slice(fnStart, src.indexOf('const exportSqlCsv', fnStart))
+  // 导出簇搬去 use-db-export 之后，这段函数的右边界改成下一段「导入导出」注释：
+  // 拿已搬走的函数名当边界，找不到时 indexOf 返回 -1，slice 会变成「一直取到文件尾」，
+  // 断言看着在跑、其实白测
+  const fn = src.slice(fnStart, src.indexOf('// ---- C 批', fnStart))
 
   test('结果网格每格挂 onContextMenu → 单例菜单：不逐格挂 Dropdown，也不给列头另开一份', () => {
     const colsBlock = src.slice(

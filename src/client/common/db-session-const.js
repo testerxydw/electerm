@@ -199,6 +199,12 @@ const previewLiteral = (v) => {
   return "'" + (s.length > 60 ? s.slice(0, 60) + '…' : s) + "'"
 }
 // 网格写操作的语句预览：库名可缺省（连接无默认库时只显示表名）
+// 文件名时间戳：yyyymmdd-hhmmss
+const tsName = () => {
+  const d = new Date()
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
 const writeTargetLabel = (sel) => {
   if (!sel) {
     return ''
@@ -245,5 +251,6 @@ export {
   EMPTY_STRUCTURE_V2,
   buildInsertFormColumns,
   previewLiteral,
-  writeTargetLabel
+  writeTargetLabel,
+  tsName
 }

@@ -306,6 +306,8 @@ describe('B1 wiring: OP_MAP 注册', () => {
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
+// N11a 第 3 步：导出/复制簇搬到了 components/database/use-db-export.js
+const DB_EXPORT_HOOK = path.join(ROOT, 'src/client/components/database/use-db-export.js')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 // 从 jsx 源码切出模块级纯函数（无 JSX 依赖）后在沙箱求值。
@@ -326,6 +328,7 @@ function extractFn (src, name, extra) {
 describe('B1 wiring: renderer 接线', () => {
   const src = fs.readFileSync(JSX, 'utf8')
   const constSrc = fs.readFileSync(SESSION_CONST, 'utf8')
+  const exportSrc = fs.readFileSync(DB_EXPORT_HOOK, 'utf8')
 
   test('前端走 insertRow/deleteRows op', () => {
     assert.ok(src.includes("dbClientOp', tabId, 'insertRow'"), 'must call insertRow op')
@@ -394,8 +397,12 @@ describe('B1 wiring: renderer 接线', () => {
     assert.ok(src.includes('exportGridAs'), 'grid export json/sql dispatcher missing')
     assert.ok(src.includes('exportSqlJson'), 'sql result json export missing')
     assert.ok(src.includes('downloadText'), 'downloadText helper must be used')
-    // 导出范围同拍板语义：有选中为选中
-    assert.ok(src.includes('gridExportRows'), 'shared export rows helper missing')
+    // 导出范围同拍板语义：有选中为选中。helper 现在归 use-db-export，
+    // 页面仍要把选中行注进去，否则口径会悄悄退回「永远导整页」
+    assert.ok(/const gridExportRows = \(\) => selectedRowKeys\.length/.test(exportSrc),
+      'shared export rows helper missing from use-db-export')
+    assert.ok(/= useDbExport\(\{ grid, selectedRowKeys, filteredRows, sel, tab, pkColumn, visibleColumnNames \}\)/.test(src),
+      'page must inject selection into the export hook')
   })
 
   test('A2 DDL 入口 mysql 系显示 / PG 隐藏', () => {

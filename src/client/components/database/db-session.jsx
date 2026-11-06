@@ -45,8 +45,9 @@ import RemoteFloatControl from '../common/remote-float-control'
 import { highlightValue, useKeywordPatterns } from './db-highlight'
 import { hlText, hlNode } from './db-search'
 import { useDbPageSearch } from './use-db-page-search'
+import { useDbExport } from './use-db-export'
 import clone from '../../common/to-simple-obj'
-import { downloadCsv, downloadText, buildCopyStatements, sqlQuoteModeOf, toTsv, toJsonl, toMarkdownTable } from '../../common/db-csv'
+import { downloadText, buildCopyStatements, toTsv } from '../../common/db-csv'
 import { dbConnTarget } from '../../common/db-file'
 // 引擎归属（哪个引擎按 PG 的目录结构办事）只在 db-engine-family 定点，组件里不另写一份
 import { isPgFamily } from '../../common/db-engine-family'
@@ -213,7 +214,8 @@ import {
   EMPTY_STRUCTURE_V2,
   buildInsertFormColumns,
   previewLiteral,
-  writeTargetLabel
+  writeTargetLabel,
+  tsName
 } from '../../common/db-session-const'
 
 // A-1：CM6 外壳懒加载 —— 只有这个 dynamic import 会牵出 @codemirror/*，
@@ -2563,78 +2565,9 @@ export default auto(function DbSession (props) {
     runSqlNow(built.sql, built.values, sql)
   }
 
-  // ---- S3-B CSV 导出（只导当前可见结果集，全表流式导出属二期） ----
-
-  // 文件名时间戳：yyyymmdd-hhmmss
-  const tsName = () => {
-    const d = new Date()
-    const p = n => String(n).padStart(2, '0')
-    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
-  }
-
-  // A4 导出范围（同 A1 拍板语义）：有选中行 = 仅选中行；无选中 = 当前可见结果集
-  const gridExportRows = () => selectedRowKeys.length
-    ? grid.rows.filter((_, i) => selectedRowKeys.includes(i))
-    : filteredRows
-
-  // 导出列集 = 当前可见列（§7.6 验收 4：隐藏列不导出，导出按当前可见列 + 当前条件）。
-  // 复制为 INSERT/TSV 走同一条：隐藏列意味着用户此刻不关心它，
-  // 但真去读 row[k] 仍是原值 —— 格式化只发生在 renderCell，从不回流到这里
-  const gridExportHeaders = () => grid.rows.length
-    ? visibleColumnNames(Object.keys(grid.rows[0]))
-    : []
-
-  // 网格导出：列取当前可见列（grid.rows 不含 __rowKey）
-  const exportGridCsv = () => {
-    if (!grid.rows.length) {
-      return
-    }
-    downloadCsv(
-      `db-${sel.database}-${sel.table}-${tsName()}.csv`,
-      gridExportHeaders(),
-      gridExportRows()
-    )
-  }
-
-  // 网格导出 JSON / SQL INSERT（共用 A1 语句生成核心）
-  const exportGridAs = (kind) => {
-    if (!grid.rows.length || !sel) {
-      return
-    }
-    const headers = gridExportHeaders()
-    const base = `db-${sel.database}-${sel.table}-${tsName()}`
-    if (kind === 'json') {
-      const rows = gridExportRows().map(r => {
-        const o = {}
-        headers.forEach(h => {
-          o[h] = r && r[h] !== undefined ? r[h] : null
-        })
-        return o
-      })
-      downloadText(`${base}.json`, 'application/json;charset=utf-8', JSON.stringify(rows, null, 2))
-      return
-    }
-    downloadText(
-      `${base}.sql`,
-      'text/plain;charset=utf-8',
-      buildCopyStatements('insert', {
-        table: sel.table,
-        database: sel.database,
-        headers,
-        rows: gridExportRows(),
-        pkColumn,
-        quote: sqlQuoteModeOf(tab.dbType)
-      })
-    )
-  }
-
-  // SQL 结果导出：列取 fields（缺省回退首行键），行取该结果集 rows
-  const sqlExportHeaders = r => {
-    const rows = (r && r.rows) || []
-    return (r.fields && r.fields.length)
-      ? r.fields
-      : (rows.length ? Object.keys(rows[0]) : [])
-  }
+  // 导出/复制簇（数据页 + SQL 结果，共 11 个函数）整体在 use-db-export（N11a 第 3 步），
+  // 调用点在本文件更靠后的位置（要注入 visibleColumnNames）。下面这段单元格右键菜单留在页面：
+  // 它的 owner 是浮层与"按值过滤"联动，只是共用导出那套列序口径。
 
   // SQL 结果单元格右键菜单（设计 §2.3：结果网格 onCell 返回 onContextMenu，
   // 菜单项按上下文生成；复制的列序与导出同源 —— 都以 fields 为准）。
@@ -2687,86 +2620,6 @@ export default auto(function DbSession (props) {
         }
       ]
     })
-  }
-
-  const exportSqlCsv = (r, i) => {
-    const rows = (r && r.rows) || []
-    if (!rows.length) {
-      return
-    }
-    downloadCsv(`db-sql-result-${i + 1}-${tsName()}.csv`, sqlExportHeaders(r), rows)
-  }
-
-  // SQL 结果导出 JSON：直接序列化该结果集 rows
-  const exportSqlJson = (r, i) => {
-    const rows = (r && r.rows) || []
-    if (!rows.length) {
-      return
-    }
-    downloadText(
-      `db-sql-result-${i + 1}-${tsName()}.json`,
-      'application/json;charset=utf-8',
-      JSON.stringify(rows, null, 2)
-    )
-  }
-
-  // SQL 结果导出 TSV：贴表格软件（Excel/剪贴板同款转义），制表/换行压成空格
-  const exportSqlTsv = (r, i) => {
-    const rows = (r && r.rows) || []
-    if (!rows.length) {
-      return
-    }
-    downloadText(
-      `db-sql-result-${i + 1}-${tsName()}.tsv`,
-      'text/tab-separated-values;charset=utf-8',
-      toTsv(sqlExportHeaders(r), rows)
-    )
-  }
-
-  // SQL 结果导出 JSONL（ndjson）：一行一个 JSON 对象，流式工具逐行可读
-  const exportSqlJsonl = (r, i) => {
-    const rows = (r && r.rows) || []
-    if (!rows.length) {
-      return
-    }
-    downloadText(
-      `db-sql-result-${i + 1}-${tsName()}.jsonl`,
-      'application/x-ndjson;charset=utf-8',
-      toJsonl(sqlExportHeaders(r), rows)
-    )
-  }
-
-  // SQL 结果导出 Markdown：直接贴进文档/issue 就是表格
-  const exportSqlMarkdown = (r, i) => {
-    const rows = (r && r.rows) || []
-    if (!rows.length) {
-      return
-    }
-    downloadText(
-      `db-sql-result-${i + 1}-${tsName()}.md`,
-      'text/markdown;charset=utf-8',
-      toMarkdownTable(sqlExportHeaders(r), rows)
-    )
-  }
-
-  // A1 复制为 INSERT/UPDATE/JSON/TSV：有选中行 = 仅选中行；无选中 = 当前可见
-  // 结果集（含 T1 过滤，所见即所得）。列序以 grid.rows 首行键为准（无 __rowKey）
-  const copyGridAs = (kind) => {
-    if (!grid.rows.length || !sel) {
-      return
-    }
-    const rows = selectedRowKeys.length
-      ? grid.rows.filter((_, i) => selectedRowKeys.includes(i))
-      : filteredRows
-    const text = buildCopyStatements(kind, {
-      table: sel.table,
-      database: sel.database,
-      headers: gridExportHeaders(),
-      rows,
-      pkColumn,
-      quote: sqlQuoteModeOf(tab.dbType)
-    })
-    copy(text)
   }
 
   // ---- C 批：导出到文件 / 导入 CSV/TSV ----
@@ -4629,6 +4482,21 @@ export default auto(function DbSession (props) {
     return orderedColumnNames(keys)
       .filter(k => !hidden.has(String(k).toLowerCase()))
   }
+
+  // 导出与复制（N11a 第 3 步）：范围/列序/落地三条口径整体在 use-db-export。
+  // 调用点必须排在 visibleColumnNames 之后 —— 它是渲染期求值的实参，
+  // 写在前面会读到未初始化的绑定（TDZ 直接白屏），不是风格问题
+  const {
+    exportGridCsv,
+    exportGridAs,
+    sqlExportHeaders,
+    exportSqlCsv,
+    exportSqlJson,
+    exportSqlTsv,
+    exportSqlJsonl,
+    exportSqlMarkdown,
+    copyGridAs
+  } = useDbExport({ grid, selectedRowKeys, filteredRows, sel, tab, pkColumn, visibleColumnNames })
   // 数据页行对象上的 __rowKey 是网格辅助键（选中/编辑/过滤定位），不是数据列：
   // 从 Object.keys(row) 取列时会跟着进来，复制整行/行详情必须剔掉，
   // 否则导出的那一列是一串与表结构无关的内部下标
