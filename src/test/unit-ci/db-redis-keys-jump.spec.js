@@ -15,6 +15,8 @@ const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const INDEX_JS = path.join(ROOT, 'src/app/lib/db-client/index.js')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a 簇 C：跳页处理器已迁到 use-db-redis-keys.js（已接线）。
+const USE_DB_REDIS_KEYS = path.join(ROOT, 'src/client/components/database/use-db-redis-keys.js')
 // N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
 // 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
 const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
@@ -204,7 +206,8 @@ describe('H7a-1：getPageData keysOnly 只取键名（键树全量遍历用）',
 })
 
 describe('R1：键列表跳页前端接线', () => {
-  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
+  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') +
+    '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8')
   const index = fs.readFileSync(INDEX_JS, 'utf8')
 
   test('op 已在 redis 适配器注册且给足超时', () => {

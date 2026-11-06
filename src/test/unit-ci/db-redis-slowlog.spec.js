@@ -25,6 +25,9 @@ const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const INDEX_JS = path.join(ROOT, 'src/app/lib/db-client/index.js')
 const MODAL = path.join(ROOT, 'src/client/components/database/db-redis-info.jsx')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a 簇 C：closeRedisInfo 已迁到 use-db-redis-keys.js（已接线）。
+const USE_DB_REDIS_KEYS = path.join(ROOT, 'src/client/components/database/use-db-redis-keys.js')
+const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
@@ -402,18 +405,18 @@ describe('H7b-2 弹层慢日志页签（db-redis-info.jsx）', () => {
 
 describe('H7b-2 顶栏接线（db-session.jsx）', () => {
   test('op 名与后端一致，且不传 count（0 的"取全部"语义不该由前端碰出）', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     assert.match(src, /runGlobalAsync\('dbClientOp', tabId, 'getRedisSlowlog', \{\}\)/)
   })
 
   test('关闭弹层：令牌作废在途请求，条目清回"从没拉过"', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     assert.match(src, /redisInfoTokenRef\.current\+\+\n {4}redisSlowlogTokenRef\.current\+\+/)
     assert.match(src, /setRedisSlowlog\(\{ loading: false, error: '', entries: null \}\)/)
   })
 
   test('成功/失败分别归一：非数组回 []，失败回 null 并可重试', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     assert.match(src, /entries: Array\.isArray\(res\) \? res : \[\]/)
     assert.match(src, /entries: null,\n {8}error: cleanDbError/)
     // 两条回调都要过令牌门禁，否则关掉再打开会闪上一次的慢日志
@@ -421,7 +424,7 @@ describe('H7b-2 顶栏接线（db-session.jsx）', () => {
   })
 
   test('三个 props 全挂上（漏一个就是页签永远转圈或永远空白）', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     assert.match(src, /slowlog=\{redisSlowlog\}\n {14}onLoadSlowlog=\{loadRedisSlowlog\}\n {14}onRefreshSlowlog=\{loadRedisSlowlog\}/)
   })
 })

@@ -47,6 +47,9 @@ import { hlText, hlNode } from './db-search'
 import { useDbPageSearch } from './use-db-page-search'
 import { useDbExport } from './use-db-export'
 import { useDbChanges } from './use-db-changes'
+import { useDbTree } from './use-db-tree'
+import { useDbView } from './use-db-view'
+import { useDbRedisKeys } from './use-db-redis-keys'
 import DbChangePanel from './db-change-panel'
 import clone from '../../common/to-simple-obj'
 import { downloadText, buildCopyStatements, toTsv } from '../../common/db-csv'
@@ -155,31 +158,20 @@ import DbExplainDialog from './db-explain-tree'
 // D 批：Redis 类型化写接口层（写失败/成功都刷新详情，绝不本地假更新）
 import { redisWrite } from '../../common/db-redis-write'
 // H7a：Redis 键树（平铺键名 → 分层节点的纯函数，边界处理全在那一层）
-import {
-  buildRedisKeyTree,
-  collectFolderKeys,
-  ancestorKeys,
-  DEFAULT_SEPARATOR
-} from '../../common/db-key-tree'
+import { DEFAULT_SEPARATOR } from '../../common/db-key-tree'
 // H7b-3：批量删键的分批/预览（纯函数，零依赖；一批 500 只为进度可读）
-import { chunkRedisKeys, delPreview, delPercent, delCommandText } from '../../common/db-redis-del'
+import { delPercent } from '../../common/db-redis-del'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
 import {
   normalizeView,
-  buildWhere,
   parseClause,
   findClauseProblem,
-  nextSortOrder,
-  viewKey as gridViewKey
+  nextSortOrder
 } from '../../common/db-grid-view'
 // 视角持久化走主进程文件（userData/db-grid-views.json）：localStorage 会因
 // UI server 动态端口导致 origin 漂移，跨启动读空
-import {
-  getGridView,
-  saveGridView,
-  removeGridView
-} from '../../common/db-grid-views'
+import { removeGridView } from '../../common/db-grid-views'
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
 import { formatCellValue, readFormatLocale, isBinaryType, isNumberType, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
@@ -196,7 +188,6 @@ import './db-session.styl'
 // N11a 第一步（拆 db-session.jsx）：会话页的纯常量与纯函数搬到 common/db-session-const.js
 // —— 那一段既不含 JSX 也不含 React，是主文件里唯一能整块搬走的；组件只按名取用
 import {
-  DB_PAGE_SIZE_MAX,
   getDbPageSize,
   dbPageSizeOptions,
   getSqlResultPageSize,
@@ -211,11 +202,7 @@ import {
   CELL_SPLIT_KEY,
   SQL_VALUE_SPLIT_KEY,
   REDIS_DETAIL_PAGE,
-  REDIS_KEY_JUMP_WARN_PAGES,
   REDIS_TREE_MAX_KEYS,
-  REDIS_TREE_SCAN_COUNT,
-  REDIS_TREE_AUTO_EXPAND_KEYS,
-  buildKeyPathIndex,
   redisKeyPagesOf,
   SEL_COL_W,
   isLeafNode,
@@ -359,10 +346,6 @@ export default auto(function DbSession (props) {
         .includes(pageFilterKw)
     }))
   }, [grid.rows, pageFilterKw])
-  // T2 元数据树过滤：仅前端过滤已加载节点；进入过滤前记录展开状态，清空后还原
-  const [treeFilter, setTreeFilter] = useState('')
-  const treeFilterKw = treeFilter.trim().toLowerCase()
-  const treeExpandedBeforeFilter = useRef(null)
 
   // 元数据树宽度（可拖拽；持久化到 localStorage，避免污染用户配置）
   const [treeWidth, setTreeWidth] = useState(() => {
@@ -805,30 +788,143 @@ export default auto(function DbSession (props) {
 
   // 系统库显示开关：默认显示（专业工具惯例），隐藏偏好持久化在 config
   const hideSystemSchemas = window.store._config.dbHideSystemSchemas === true
-
-  const loadTree = (hideOverride) => {
-    // hideOverride 供开关切换时显式传值（setConfig 异步生效，闭包读 config 可能拿到旧值）；
-    // refresh 按钮等无参调用读 config。Button onClick 直传 event 的场景须用箭头包一层
-    const hide = hideOverride === undefined ? hideSystemSchemas : hideOverride
-    setTreeLoading(true)
-    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', { hideSystemSchemas: hide })
-      .then(data => {
-        setMetadata(data || [])
-        setTreeLoading(false)
-        setConnError('')
-      })
-      .catch(err => {
-        setTreeLoading(false)
-        onOpError(err)
-      })
-  }
-
-  // 切换后显式按 next 拉树：setConfig 异步生效，不能依赖闭包里的旧值
-  const toggleSys = () => {
-    const next = !(window.store._config.dbHideSystemSchemas === true)
-    window.store.setConfig({ dbHideSystemSchemas: next })
-    loadTree(next)
-  }
+  // N11a 簇 C（#2/#3/#11）：元数据树 / 视角 / Redis 键空间三簇互相调用
+  // （loadStructure ↔ refreshViewParts、openRefTable ↔ loadStructure、
+  // loadTree ↔ loadRedisKeys），按值注入必然形成循环。这里用调用期解析的 bridge
+  // 惰性箭头打破：三次 hook 返回后立刻 Object.assign，所有闭包都只在事件/effect
+  // 执行期读 bridge，那时三份 API 已就位。
+  // 后置定义的依赖（visibleMetadata / showObjectDdl / openTable /
+  // selectRedisKey / confirmRedisWrite）一律走 getter/箭头，避免渲染期 TDZ。
+  const bridge = {}
+  const treeApi = useDbTree({
+    tabId,
+    isRedis,
+    metadata,
+    hideSystemSchemas,
+    setTreeLoading,
+    setMetadata,
+    setConnError,
+    onOpError,
+    expandedKeys,
+    setExpandedKeys,
+    getVisibleMetadata: () => visibleMetadata,
+    setRedisDb,
+    setRedisKey,
+    setRedisDetail,
+    redisView,
+    resetKeyTree: (...a) => bridge.resetKeyTree(...a),
+    loadRedisKeys: (...a) => bridge.loadRedisKeys(...a),
+    loadRedisKeyTree: (...a) => bridge.loadRedisKeyTree(...a),
+    matchInput,
+    showObjectDdl: (...a) => showObjectDdl(...a),
+    openTable: (...a) => openTable(...a),
+    setStructure,
+    setStructureV2,
+    structureV2Ref,
+    refreshViewParts: (...a) => bridge.refreshViewParts(...a)
+  })
+  const viewApi = useDbView({
+    connKey,
+    dialect,
+    tabId,
+    sel,
+    structureV2Ref,
+    viewRef,
+    viewKeyRef,
+    viewSaveTimer,
+    viewSeqRef,
+    countKeyRef,
+    setView,
+    setViewMode,
+    setWhereDraft,
+    setViewBarSeq,
+    setViewRejected,
+    setViewTruncated,
+    setGrid,
+    setSelectedRowKeys,
+    setExactRows,
+    setSel,
+    loadStructure: (...a) => bridge.loadStructure(...a),
+    resetPageFilter,
+    resetExactRows,
+    onOpError,
+    isConnError
+  })
+  const redisApi = useDbRedisKeys({
+    tabId,
+    redisDb,
+    keyList,
+    setKeyList,
+    matchInput,
+    keyJumpInput,
+    setKeyJumpInput,
+    keyJumpTokenRef,
+    redisKeySel,
+    setRedisKeySel,
+    redisDel,
+    setRedisDel,
+    redisView,
+    setRedisView,
+    treeSep,
+    keyTree,
+    setKeyTree,
+    treeExpanded,
+    setTreeExpanded,
+    keyTreeTokenRef,
+    redisInfo,
+    setRedisInfo,
+    redisInfoTokenRef,
+    redisSlowlogTokenRef,
+    setRedisSlowlog,
+    redisKey,
+    setRedisKey,
+    setRedisDetail,
+    onOpError,
+    loadTree: (...a) => bridge.loadTree(...a),
+    confirmRedisWrite: (...a) => confirmRedisWrite(...a),
+    selectRedisKey: (...a) => selectRedisKey(...a)
+  })
+  Object.assign(bridge, treeApi, viewApi, redisApi)
+  const {
+    treeFilter,
+    setTreeFilter,
+    treeFilterKw,
+    loadTree,
+    toggleSys,
+    onSelectTree,
+    loadStructure
+  } = treeApi
+  const {
+    viewIdOf,
+    viewParts,
+    pageSizeOf,
+    applyView,
+    restoreView,
+    openRefTable,
+    loadQuery,
+    loadWithCount,
+    countExactRows,
+    onViewChange
+  } = viewApi
+  const {
+    loadRedisKeys,
+    jumpRedisKeysPage,
+    cancelKeyTree,
+    switchRedisView,
+    applyRedisFilter,
+    refreshRedisView,
+    loadRedisInfo,
+    openRedisInfo,
+    closeRedisInfo,
+    redisTreeNodes,
+    onRedisTreeSelect,
+    redisTreeStatus,
+    redisTreeSelected,
+    redisDelPreview,
+    openRedisDel,
+    closeRedisDel,
+    runRedisDel
+  } = redisApi
 
   // 重新建连：先释放旧连接（openDbTab 内部也会兜底关闭残留），再拉元数据
   const doConnect = () => window.pre.runGlobalAsync('closeDbTab', tabId)
@@ -1096,169 +1192,10 @@ export default auto(function DbSession (props) {
       })
   }
 
-  const onSelectTree = (keys, info) => {
-    const node = info.node
-    if (isRedis) {
-      // redis 树：key = db index 字符串
-      const dbIndex = parseInt(node.key, 10)
-      setRedisDb(dbIndex)
-      setRedisKey('')
-      setRedisDetail(null)
-      // 换 db = 换一整个键空间：在途的树抓取必须作废，否则旧 db 的键会混进新树
-      const wasTree = redisView === 'tree'
-      resetKeyTree()
-      loadRedisKeys(dbIndex, '0', matchInput)
-      if (wasTree) {
-        loadRedisKeyTree(dbIndex, matchInput)
-      }
-      return
-    }
-    if (!node.isLeaf) {
-      // 库 / schema 节点：点击标题切换展开/收起
-      const k = String(node.key)
-      setExpandedKeys(ks => (ks.includes(k) ? ks.filter(x => x !== k) : [...ks, k]))
-      return
-    }
-    // key 编码 [database, schema, table]；MySQL schema 为空串
-    const [database, schema, table] = JSON.parse(node.key)
-    // B2：非表对象（过程/函数/触发器/事件）没有数据网格，点开看 DDL
-    if (isDbObjectType(node.nodeType)) {
-      showObjectDdl({
-        database,
-        schema: schema || '',
-        name: table,
-        objectType: node.nodeType,
-        ...(node.objMeta || {})
-      })
-      return
-    }
-    // nodeType: 'table' | 'view'。缺省按 table 处理（旧 metadata 无 type 时是表）
-    openTable({ database, schema, table, nodeType: node.nodeType })
-  }
-
-  // 表结构（列定义）：MySQL 返回 Field/Type/Null/Key/Default/Extra，PG 返回 information_schema 列
-  const loadStructure = (target) => {
-    setStructure(s => ({ ...s, loading: true }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'describeTable', {
-      database: target.database,
-      schema: target.schema || '',
-      table: target.table
-    }).then(rows => {
-      setStructure({ loading: false, rows: rows || [] })
-    }).catch(err => {
-      setStructure({ loading: false, rows: [] })
-      onOpError(err)
-    })
-    // 视角条的列清单：与主进程校验同源（getTableStructure → structureCached），
-    // 主进程侧有 60s TTL，这里几乎是免费的一次调用。
-    // 失败静默置空：列拿不到时视角条只能退化（条件会被记为"未知列"），
-    // 但结果集本身仍要能打开 —— 不能因为注释查不到就让人看不了数据
-    setStructureV2(s => ({ ...s, loading: true }))
-    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getTableStructure', {
-      database: target.database,
-      schema: target.schema || '',
-      table: target.table
-    }).then(res => {
-      const columns = (res && Array.isArray(res.columns)) ? res.columns : []
-      const foreignKeys = (res && Array.isArray(res.foreignKeys)) ? res.foreignKeys : []
-      structureV2Ref.current = { columns, foreignKeys }
-      // H3a：整份 v2 契约留在 state 里（字典导出要索引/表注释/类型/行数估算）
-      setStructureV2({
-        loading: false,
-        columns,
-        foreignKeys,
-        indexes: (res && Array.isArray(res.indexes)) ? res.indexes : [],
-        type: (res && res.type) || 'table',
-        comment: (res && res.comment) || null,
-        estimatedRows: res && Number.isFinite(res.estimatedRows) ? res.estimatedRows : null
-      })
-      // 列清单晚到：重算"哪些条件引用了不存在的列"（列被删后旧视角要静默降级）
-      refreshViewParts()
-      return columns
-    }).catch(() => {
-      structureV2Ref.current = { columns: [] }
-      setStructureV2(EMPTY_STRUCTURE_V2)
-      refreshViewParts()
-      return []
-    })
-  }
-
   // 选中态：叶子=当前表，redis=当前 db 节点
   const selectedKeys = isRedis
     ? (redisDb >= 0 ? [String(redisDb)] : [])
     : (sel ? [nodeKey(sel.database, sel.schema, sel.table)] : [])
-
-  /* ---------------- E2 视角：键 / 片段 / 持久化 / 恢复 ---------------- */
-
-  // 视角键：connectionId 用连接身份（dbConnKey，与连接级安全带同一口径）。
-  // 不用 tabId：tabId 每次开 tab 都会变，重启后视角就再也对不上了
-  const viewIdOf = target => gridViewKey({
-    connectionId: connKey,
-    dbName: target && target.database,
-    schema: target && target.schema,
-    table: target && target.table
-  })
-
-  // 视角 → 请求片段。三件事都在这里做，调用方不再各拼一份：
-  // 1) 条件体与绑定参数由 buildWhere 生成（值永远走占位符，列名走白名单+引用符）；
-  // 2) 排序先按列白名单过一遍 —— 主进程会为"排序引用了不存在的列"直接抛错，
-  //    那会让整页取不出来（列被删掉后旧视角就变成一张打不开的表）；
-  // 3) 被丢弃/被截断的条件原样带出来给状态行用。
-  const viewParts = (v) => {
-    const cols = structureV2Ref.current.columns
-    const built = buildWhere(v, cols, dialect)
-    const known = new Set(cols.map(c => String(c.name).toLowerCase()))
-    const orderClauses = ((v && Array.isArray(v.order)) ? v.order : [])
-      .filter(o => o && o.column && known.has(String(o.column).toLowerCase()))
-      .map(o => ({ column: o.column, desc: o.desc === true }))
-    return {
-      where: built.clause,
-      whereParams: built.params,
-      orderClauses,
-      rejected: built.rejected,
-      truncated: built.truncated
-    }
-  }
-
-  const refreshViewParts = () => {
-    const parts = buildWhere(viewRef.current, structureV2Ref.current.columns, dialect)
-    setViewRejected(parts.rejected)
-    setViewTruncated(parts.truncated)
-  }
-
-  // 视角落盘：400ms 防抖（连点排序 chips 时不该每点一次写一次文件）
-  const scheduleViewSave = (v) => {
-    const key = viewKeyRef.current
-    if (!key) {
-      return
-    }
-    if (viewSaveTimer.current) {
-      clearTimeout(viewSaveTimer.current)
-    }
-    viewSaveTimer.current = setTimeout(() => {
-      viewSaveTimer.current = null
-      // 空视角不写盘而是删键：否则"重置"刚删掉的键会被下一次自动保存在 400ms 后复活。
-      // 列显示设置（宽/序/隐藏）也算"非空"：用户只拖过列宽时这份视角必须留得住
-      const empty = !v.conditions.length && !v.order.length && v.pageSize === undefined &&
-        !v.hiddenColumns.length && !v.columnOrder.length &&
-        Object.keys(v.columnWidths).length === 0
-      // 空视角不写盘而是删键：否则"重置"刚删掉的键会被下一次自动保存在 400ms 后复活
-      if (empty) {
-        removeGridView(key)
-        return
-      }
-      saveGridView(key, v)
-    }, 400)
-  }
-
-  const applyView = (next, opts = {}) => {
-    viewRef.current = next
-    setView(next)
-    refreshViewParts()
-    if (opts.persist !== false) {
-      scheduleViewSave(next)
-    }
-  }
 
   /**
    * 列显示设置（隐藏/列宽/列序）补丁。与 onViewChange 分开是因为：
@@ -1276,271 +1213,6 @@ export default auto(function DbSession (props) {
       columnWidths: patch.columnWidths !== undefined ? patch.columnWidths : cur.columnWidths,
       columnOrder: patch.columnOrder !== undefined ? patch.columnOrder : cur.columnOrder
     }))
-  }
-
-  /**
-   * 选表时恢复视角。**必须在第一次取页之前完成**，否则会先闪一页全量。
-   * @param {Object} target 目标表
-   * @param {number} seq 点击序号（与 onSelectTree 的令牌一致）
-   * @returns {Promise<boolean>} 是否仍然是"最新一次点击"（false 表示结果作废）
-   */
-  const restoreView = (target, seq) => {
-    const key = viewIdOf(target)
-    viewKeyRef.current = key
-    countKeyRef.current = ''
-    if (seq !== viewSeqRef.current) {
-      return Promise.resolve(false)
-    }
-    return getGridView(key).then(saved => {
-      if (seq !== viewSeqRef.current) {
-        return false
-      }
-      const v = normalizeView(saved)
-      viewRef.current = v
-      setView(v)
-      setViewMode('builder')
-      setWhereDraft('')
-      setViewBarSeq(n => n + 1)
-      refreshViewParts()
-      return true
-    })
-  }
-
-  // F1：关联行"在标签页打开"——主网格切到目标表并按外键等值条件过滤。
-  // 不恢复该表的历史视角（restoreView）：用户要的是"带着这个值跳过去"。
-  // 条件里的列名来自 catalog（目标表真实列），值来自当前选中行；
-  // 主进程 assertPageBoundary 会用目标表结构兜底校验，值全部走绑定参数。
-  const openRefTable = (item) => {
-    if (!item || !item.target || !item.target.table || item.unusable) {
-      return
-    }
-    const conds = item.whereColumns.map((c, i) => ({
-      column: c,
-      op: 'eq',
-      value: item.whereValues[i]
-    }))
-    const next = {
-      database: item.target.database,
-      schema: item.target.schema || '',
-      table: item.target.table,
-      nodeType: 'table'
-    }
-    resetPageFilter()
-    resetExactRows()
-    viewSeqRef.current += 1
-    const seq = viewSeqRef.current
-    loadStructure(next).then(() => {
-      if (seq !== viewSeqRef.current) {
-        return null
-      }
-      viewKeyRef.current = viewIdOf(next)
-      countKeyRef.current = ''
-      setViewMode('builder')
-      setWhereDraft('')
-      setViewBarSeq(n => n + 1)
-      applyView(normalizeView({ conditions: conds }))
-      setSel(next)
-      return loadQuery(next, 1)
-    })
-  }
-
-  // 有效页大小：视角里存过就用它（换机器/重启后仍按上次的粒度看），
-  // 否则回落全局配置。下限 10 与 getDbPageSize 一致，防脏数据把页大小写成 1
-  const pageSizeOf = (v) => {
-    const n = v && v.pageSize
-    return Number.isInteger(n) && n >= 10 ? Math.min(n, DB_PAGE_SIZE_MAX) : getDbPageSize()
-  }
-
-  // 空页回退：totalRows 来自 information_schema 估算，常偏大 → 尾部页可能无数据。
-  // 用 pageSize=1 探测二分查找真实末页（log2(页数) 次轻量查询）。
-  // 探测必须带上与取页**完全相同**的条件与排序，否则"有没有数据"和用户看到的不是一回事
-  const findLastPage = (target, page, q) => {
-    const size = pageSizeOf(viewRef.current)
-    // 探测第 p 页是否有数据 = 查「行偏移 (p-1)*size」处 1 行
-    // （probe 的 page 单位是行：page=(p-1)*size+1 → OFFSET (p-1)*size）
-    const probe = (p) => {
-      const args = {
-        database: target.database,
-        schema: target.schema || '',
-        table: target.table,
-        page: (p - 1) * size + 1,
-        pageSize: 1
-      }
-      if (q && q.where) {
-        args.where = q.where
-        args.whereParams = q.whereParams
-      }
-      if (q && q.orderClauses && q.orderClauses.length) {
-        args.orderClauses = q.orderClauses
-      }
-      return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', args)
-        .then(res => ((res && res.rows) || []).length > 0)
-    }
-    let lo = 1
-    let hi = page - 1
-    let ans = 1
-    const step = () => {
-      if (lo > hi) {
-        return Promise.resolve(ans)
-      }
-      const mid = Math.floor((lo + hi) / 2)
-      return probe(mid).then(ok => {
-        if (ok) {
-          ans = mid
-          lo = mid + 1
-        } else {
-          hi = mid - 1
-        }
-        return step()
-      })
-    }
-    return step()
-  }
-
-  /**
-   * 取一页数据。**签名刻意保持原样**（target, page, orderBy, order, opts）：
-   * 调用点统一走下面的 loadQuery，orderBy/order 两个参数只为兼容保留，**已不再使用**
-   * —— 排序的唯一数据源是视角（view.order），再存一份 grid.orderBy 迟早会与 chips 打架。
-   * @param {Object} target 目标表
-   * @param {number} page 页码
-   * @param {*} orderBy 兼容参数，忽略
-   * @param {*} order 兼容参数，忽略
-   * @param {Object} opts { query, view, skipEmptyCheck, keepLastPage }
-   * @returns {Promise} 取数 promise
-   */
-  const loadPage = (target, page, orderBy, order, opts = {}) => {
-    // 行选择挂在当前页索引上，重新取数后索引必然重排 → 先清空
-    setSelectedRowKeys([])
-    setGrid(g => ({ ...g, loading: true, error: '' }))
-    const v = opts.view || viewRef.current
-    const q = opts.query || viewParts(v)
-    const args = {
-      database: target.database,
-      schema: target.schema || '',
-      table: target.table,
-      page,
-      pageSize: pageSizeOf(v)
-    }
-    // where 只发给 getPageData，不进 SQL tab 的手写执行路径（那条有自己的分级与确认）
-    if (q.where) {
-      args.where = q.where
-      args.whereParams = q.whereParams
-    }
-    if (q.orderClauses && q.orderClauses.length) {
-      args.orderClauses = q.orderClauses
-    }
-    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', args).then(res => {
-      const rows = (res && res.rows) || []
-      // 跳到的页无数据且非首页：二分回退到真实末页（估算总行数偏大场景）
-      if (!rows.length && page > 1 && !opts.skipEmptyCheck) {
-        return findLastPage(target, page, q).then(last => {
-          setGrid(g => ({ ...g, loading: true, lastPage: last }))
-          return loadPage(target, last, null, null, {
-            ...opts,
-            query: q,
-            skipEmptyCheck: true,
-            keepLastPage: true
-          })
-        })
-      }
-      setGrid(g => ({
-        loading: false,
-        rows,
-        page,
-        hasMore: !!(res && res.hasMore),
-        // 服务端只在首页返回近似行数（information_schema 估算，**不带条件**）。
-        // 带条件时那个数字与屏幕上的结果集无关，必须用 count 的精确值，
-        // 否则"筛出 3 行"的表会显示"约 12 万行"
-        // 空表被估算说成 1 的事实在主进程取数时就复核掉了（mysql.js confirmEmpty），
-        // 这里只翻译服务端回传的数，界面不再自己推断
-        totalRows: q.where
-          ? (typeof g.totalRows === 'number' ? g.totalRows : undefined)
-          : (res && res.totalRows !== undefined
-              ? res.totalRows
-              : (page > 1 ? g.totalRows : undefined)),
-        // 换表/换排序/换页大小会重置；二分回退与常规翻页保留
-        lastPage: opts.keepLastPage ? g.lastPage : undefined,
-        error: ''
-      }))
-      return rows
-    }).catch(err => {
-      // 失败必须落到表格区（而非仅 toast）：否则界面看起来像「表没有数据」
-      setGrid(g => ({
-        ...g,
-        loading: false,
-        rows: [],
-        error: err && err.message ? err.message : String(err)
-      }))
-      onOpError(err)
-    })
-  }
-
-  // 取页的统一入口：条件与排序都来自当前视角
-  const loadQuery = (target, page, opts = {}) =>
-    loadPage(target, page, null, null, opts)
-
-  /**
-   * 条件变更后的取数：先 count 再取页（验收 6：不闪烁空表）。
-   * 为什么不能直接取页：条件一变就要知道"结果集多大"才能算页数、才能把页码钳住；
-   * 先取页再补 count，中途表格会因为 totalRows 还是旧值而闪一下空表。
-   * 为什么 count 期间不清 rows：表格保留上一批行 + loading 遮罩，视觉上是"在算"，
-   * 而不是"没了"。
-   * 条件没变（只是翻页/换排序）时不重复 count —— COUNT(*) 在大表上不便宜。
-   * @param {Object} target 目标表
-   * @param {number} page 页码
-   * @param {Object} opts 透传给 loadPage（可带 query 覆盖条件体）
-   * @returns {Promise} 取数 promise
-   */
-  const loadWithCount = (target, page, opts = {}) => {
-    const q = opts.query || viewParts(viewRef.current)
-    const key = JSON.stringify([q.where, q.whereParams])
-    if (!q.where || key === countKeyRef.current) {
-      return loadPage(target, page, null, null, { ...opts, query: q })
-    }
-    countKeyRef.current = key
-    setGrid(g => ({ ...g, loading: true, error: '' }))
-    return window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
-      database: target.database,
-      schema: target.schema || '',
-      table: target.table,
-      page: 1,
-      pageSize: 1,
-      where: q.where,
-      whereParams: q.whereParams,
-      count: true
-    }).then(res => {
-      const total = Number(res && res.total) || 0
-      // 带条件的总数是**精确**的（COUNT(*) 走了同一套条件），复用 exactRows 那套文案，
-      // 让"精确"与"估算"在界面上始终是两种不同的标签
-      setExactRows({ loading: false, value: total })
-      setGrid(g => ({ ...g, totalRows: total, lastPage: undefined }))
-      return null
-    }).catch(err => {
-      // 计数失败不阻断取页：清掉指纹，下次还能重试
-      countKeyRef.current = ''
-      if (isConnError(err)) {
-        onOpError(err)
-      }
-      return null
-    }).then(() => loadPage(target, page, null, null, { ...opts, query: q }))
-  }
-
-  // T11：按需精确计数；失败只提示，不影响已加载的页面数据
-  const countExactRows = () => {
-    if (!sel) {
-      return
-    }
-    setExactRows(s => ({ ...s, loading: true }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'countRows', {
-      database: sel.database,
-      schema: sel.schema || '',
-      table: sel.table
-    }).then(res => {
-      setExactRows({ loading: false, value: Number(res && res.count) || 0 })
-    }).catch(() => {
-      setExactRows(s => ({ ...s, loading: false }))
-      message.error(e('dbCountFailed'))
-    })
   }
 
   const turnPage = (page) => {
@@ -1570,40 +1242,6 @@ export default auto(function DbSession (props) {
       resetExactRows()
     }
     loadQuery(sel, 1)
-  }
-
-  /**
-   * 视角条的统一入口：只接受"补丁"，不接整份 view。
-   * 分成两条通道是因为其中两条**不改查询**：
-   * - mode / draft：纯 UI 状态；
-   * - conditions / order / pageSize：改查询，由 onViewApply 决定何时取数。
-   * @param {Object} patch 补丁
-   */
-  const onViewChange = (patch) => {
-    if (!patch || typeof patch !== 'object') {
-      return
-    }
-    if (patch.mode !== undefined) {
-      setViewMode(patch.mode === 'sql' ? 'sql' : 'builder')
-    }
-    if (patch.draft !== undefined) {
-      setWhereDraft(String(patch.draft === null || patch.draft === undefined ? '' : patch.draft))
-    }
-    const touchesQuery = patch.conditions !== undefined ||
-      patch.order !== undefined ||
-      patch.pageSize !== undefined
-    if (!touchesQuery) {
-      return
-    }
-    const cur = viewRef.current
-    applyView(normalizeView({
-      conditions: patch.conditions !== undefined ? patch.conditions : cur.conditions,
-      order: patch.order !== undefined ? patch.order : cur.order,
-      pageSize: patch.pageSize !== undefined ? patch.pageSize : cur.pageSize,
-      hiddenColumns: cur.hiddenColumns,
-      columnWidths: cur.columnWidths,
-      columnOrder: cur.columnOrder
-    }))
   }
 
   /**
@@ -3558,293 +3196,6 @@ export default auto(function DbSession (props) {
     }
   }
 
-  // ---- Redis 键空间 ----
-
-  const loadRedisKeys = (dbIndex, cursor, match, stack = []) => {
-    // 顺序翻页/过滤/刷新都会作废在途的跳页请求，避免旧跳页结果覆盖新页
-    keyJumpTokenRef.current++
-    setKeyList(s => ({ ...s, loading: true }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
-      dbIndex,
-      cursor: String(cursor || '0'),
-      pageSize: getDbPageSize(),
-      match: match || '*'
-    }).then(res => {
-      setKeyList({
-        loading: false,
-        rows: (res && res.rows) || [],
-        cursor: String(cursor || '0'),
-        nextCursor: (res && res.nextCursor) || '0',
-        hasMore: !!(res && res.hasMore),
-        match: match || '*',
-        stack
-      })
-    }).catch(err => {
-      setKeyList(s => ({ ...s, loading: false, rows: [] }))
-      // 与 loadPage 一致：断线要置顶提示（带重连），而不是只弹个 toast
-      onOpError(err)
-    })
-  }
-
-  // H7b-3：换库/换过滤就清空勾选 —— 勾选是键名集合，跨库没有意义；
-  // 同一过滤条件内跨页保留（否则一页最多 200 个键，"分批 500"永远只有一批）
-  useEffect(() => {
-    setRedisKeySel([])
-  }, [redisDb, keyList.match])
-
-  // R1：键列表跳到第 N 页（1 基）。SCAN 游标不透明，后端从 cursor=0 前向步进
-  // target 次并回传沿途每页起始游标；用这条游标链重建 prev 栈，
-  // 之后 prev/next 仍是顺序推进（不重复扫描）。目标页超出遍历范围时停在末页后。
-  const jumpRedisKeysPage = (pageNo) => {
-    const n = Math.floor(Number(pageNo))
-    if (!Number.isInteger(n) || n < 1) {
-      setKeyJumpInput('')
-      return
-    }
-    const target = n - 1
-    setKeyJumpInput('')
-    const doJump = () => {
-      const match = keyList.match || '*'
-      keyJumpTokenRef.current++
-      const token = keyJumpTokenRef.current
-      setKeyList(s => ({ ...s, loading: true }))
-      window.pre.runGlobalAsync('dbClientOp', tabId, 'scanKeysToPage', {
-        dbIndex: redisDb,
-        pageIndex: target,
-        pageSize: getDbPageSize(),
-        match
-      }).then(res => {
-        if (token !== keyJumpTokenRef.current) {
-          return
-        }
-        const cursors = (res && res.cursors) || ['0']
-        setKeyList({
-          loading: false,
-          rows: (res && res.rows) || [],
-          cursor: cursors[cursors.length - 1] || '0',
-          nextCursor: (res && res.nextCursor) || '0',
-          hasMore: !!(res && res.hasMore),
-          match,
-          stack: cursors.slice(0, -1)
-        })
-      }).catch(err => {
-        if (token !== keyJumpTokenRef.current) {
-          return
-        }
-        setKeyList(s => ({ ...s, loading: false }))
-        onOpError(err)
-      })
-    }
-    if (target > REDIS_KEY_JUMP_WARN_PAGES) {
-      Modal.confirm({
-        title: e('dbKeyJumpWarnTitle'),
-        content: e('dbKeyJumpWarn').replace('{n}', String(n)),
-        okText: e('dbGo'),
-        cancelText: e('cancel'),
-        onOk: doJump
-      })
-      return
-    }
-    doJump()
-  }
-
-  // H7a：键树抓取。列表是"一页一次 IPC 的游标分页"，树必须看到全部键名才能分层，
-  // 所以这里是渲染侧驱动的多轮 SCAN（keysOnly：只要名字，一键盘不发 TYPE/TTL）。
-  // - 每轮 COUNT 1000，收完一段就更新 scanned —— 进度是真进度，不是转圈动画
-  // - 撞 REDIS_TREE_MAX_KEYS 立即停手并标 truncated：不设上限时 500 万键的实例
-  //   会把渲染进程整死，"截断但可用"好过"完整但卡住"
-  // - 取消 = 令牌 +1：主进程没有 SCAN 中断通道（dbClientOp 只有单次超时），
-  //   能做的是不再采纳这一轮之后的任何响应，最后一发请求自然跑完即弃
-  const loadRedisKeyTree = (dbIndex, match = '*', sep = treeSep) => {
-    keyTreeTokenRef.current++
-    const token = keyTreeTokenRef.current
-    const pattern = match || '*'
-    setKeyTree(s => ({
-      ...s, loading: true, scanned: 0, total: 0, truncated: false, match: pattern
-    }))
-    const names = []
-    const seen = new Set()
-    let cursor = '0'
-    let truncated = false
-    const finish = () => {
-      setKeyTree({
-        loading: false,
-        scanned: names.length,
-        total: names.length,
-        truncated,
-        names,
-        match: pattern
-      })
-    }
-    const step = () => {
-      if (token !== keyTreeTokenRef.current) {
-        return
-      }
-      window.pre.runGlobalAsync('dbClientOp', tabId, 'getPageData', {
-        dbIndex,
-        cursor,
-        pageSize: REDIS_TREE_SCAN_COUNT,
-        match: pattern,
-        keysOnly: true
-      }).then(res => {
-        if (token !== keyTreeTokenRef.current) {
-          return
-        }
-        for (const r of (res && res.rows) || []) {
-          const name = r && r.name
-          // SCAN 只保证"至少一次"，重复键在这里先去重再计数，scanned 才是真实进度
-          if (!name || seen.has(name)) {
-            continue
-          }
-          seen.add(name)
-          names.push(name)
-        }
-        cursor = String((res && res.nextCursor) || '0')
-        setKeyTree(s => ({ ...s, scanned: names.length }))
-        if (cursor === '0') {
-          return finish()
-        }
-        if (names.length >= REDIS_TREE_MAX_KEYS) {
-          truncated = true
-          return finish()
-        }
-        step()
-      }).catch(err => {
-        if (token !== keyTreeTokenRef.current) {
-          return
-        }
-        setKeyTree(s => ({ ...s, loading: false }))
-        onOpError(err)
-      })
-    }
-    step()
-  }
-
-  const cancelKeyTree = () => {
-    keyTreeTokenRef.current++
-    setKeyTree(s => ({ ...s, loading: false }))
-  }
-
-  // 换 db / 关 tab 都要作废在途抓取：否则旧 db 的键会混进新 db 的树里
-  const resetKeyTree = () => {
-    keyTreeTokenRef.current++
-    setKeyTree({
-      loading: false,
-      scanned: 0,
-      total: 0,
-      truncated: false,
-      names: [],
-      match: '*'
-    })
-  }
-
-  // 树只在"抓取结束时"重算，改分隔符不该重扫一遍上万键
-  const keyTreeBuilt = useMemo(
-    () => buildRedisKeyTree(keyTree.names, { separator: treeSep }),
-    [keyTree.names, treeSep]
-  )
-  const keyPathIndex = useMemo(() => buildKeyPathIndex(keyTreeBuilt.nodes), [keyTreeBuilt])
-
-  // 进树视图 / 换分隔符 / 新一次抓取结束 → 重算展开集。
-  // 小键库默认把第一层目录摊开（省事）；大键库一个都不自动摊（见 REDIS_TREE_AUTO_EXPAND_KEYS）。
-  // 选中键那一支是例外：不展开就看不见被选中的那一行。
-  // 不跟 redisKey 走：用户在树里自己折叠过的，不该因为选了个键又被程序撑开。
-  useEffect(() => {
-    if (redisView !== 'tree') {
-      return
-    }
-    const auto = keyTreeBuilt.total <= REDIS_TREE_AUTO_EXPAND_KEYS
-      ? collectFolderKeys(keyTreeBuilt.nodes, 1)
-      : []
-    const exp = new Set(auto)
-    const path = redisKey ? keyPathIndex.get(redisKey) : null
-    if (path) {
-      for (const a of ancestorKeys(path, treeSep)) {
-        exp.add(a)
-      }
-    }
-    setTreeExpanded([...exp])
-  }, [redisView, keyTreeBuilt])
-
-  const switchRedisView = (v) => {
-    setRedisView(v)
-    if (v !== 'tree') {
-      return
-    }
-    // 已有结果且过滤条件没变 → 直接复用：来回切视图不该每次都把上万键重扫一遍
-    const pattern = keyList.match || matchInput || '*'
-    if (!keyTree.loading && (keyTree.match !== pattern || !keyTree.names.length)) {
-      loadRedisKeyTree(redisDb, pattern)
-    }
-  }
-
-  // 过滤条件两种视图共用（match 输入框只有一个）：在列表里改了过滤再切到树，
-  // 树必须按新条件重扫，否则输入框写着 user:*、树里装的还是全库键名。
-  // 树视图下按「过滤」同样要刷列表 —— 让两个视图的 match 始终一致，
-  // 视图来回切才谈得上"复用已抓的键名"。
-  const applyRedisFilter = () => {
-    loadRedisKeys(redisDb, '0', matchInput)
-    if (redisView === 'tree') {
-      loadRedisKeyTree(redisDb, matchInput)
-    }
-  }
-
-  const refreshRedisView = () => {
-    if (redisView === 'tree') {
-      loadRedisKeyTree(redisDb, keyTree.match || matchInput)
-    } else {
-      loadRedisKeys(redisDb, keyList.cursor || '0', keyList.match, keyList.stack)
-    }
-  }
-
-  // H7a-4：INFO 全量原文 → 弹层。op 不 select db（实例级信息），所以换库不需要重拉，
-  // 但"打开时拉一次"仍然保留：概览里最关键的是内存/客户端/命中率，都随写入在变。
-  const loadRedisInfo = () => {
-    redisInfoTokenRef.current++
-    const token = redisInfoTokenRef.current
-    setRedisInfo(s => ({ ...s, loading: true }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisInfo', {}).then(res => {
-      if (token !== redisInfoTokenRef.current) {
-        return
-      }
-      // 只写数据、不动 open：弹层可能在请求回来之前就关了，响应不该把它重新打开
-      setRedisInfo(s => ({
-        ...s,
-        loading: false,
-        text: String(res || ''),
-        error: ''
-      }))
-    }).catch(err => {
-      if (token !== redisInfoTokenRef.current) {
-        return
-      }
-      // 错误留在弹层内而不是走 onOpError：这里丢的只是"这一次查看"，
-      // 键列表照常可用；置顶横幅会让人以为整条连接断了。
-      // text 清空：留着上一份 INFO 会和"失败"并排显示，用户不知道看哪份。
-      setRedisInfo(s => ({
-        ...s,
-        loading: false,
-        text: '',
-        error: cleanDbError(err && err.message ? err.message : err)
-      }))
-    })
-  }
-
-  const openRedisInfo = () => {
-    setRedisInfo(s => ({ ...s, open: true }))
-    loadRedisInfo()
-  }
-
-  const closeRedisInfo = () => {
-    // 关闭即作废在途请求：否则关掉再打开会先看到上一次请求的结果闪一下
-    redisInfoTokenRef.current++
-    redisSlowlogTokenRef.current++
-    setRedisInfo({ open: false, loading: false, text: '', error: '' })
-    // 慢日志一起清回"从没拉过"：重开时切进该页签会重新拉，
-    // 留着上一次的条目会让人以为看到的是当前这段慢日志
-    setRedisSlowlog({ loading: false, error: '', entries: null })
-  }
-
   // H3b-3：ER 图取数。只发 listForeignKeys（MySQL 走 information_schema，
   // PG 走 pg_constraint），范围是当前库/schema —— 图里的表与本页选中的表无关，
   // 换表不用重拉，换库才需要（关闭再打开就是新的一次）。
@@ -3940,36 +3291,6 @@ export default auto(function DbSession (props) {
     })
   }
 
-  const redisTreeNodes = useMemo(() => {
-    const map = (list) => (list || []).map(n => ({
-      key: n.key,
-      title: n.title,
-      keyName: n.keyName,
-      count: n.count,
-      // 纯目录不可选：点了没键可加载，只该展开/收起
-      selectable: !!n.keyName,
-      children: n.children ? map(n.children) : undefined
-    }))
-    return map(keyTreeBuilt.nodes)
-  }, [keyTreeBuilt])
-
-  const onRedisTreeSelect = (keys, info) => {
-    const node = info && info.node
-    // 目录节点 selectable=false 走不到这里，但 antd 的取消选中回调也会进这里
-    if (!node || !node.keyName) {
-      return
-    }
-    selectRedisKey(node.keyName)
-  }
-
-  const redisTreeStatus = keyTree.loading
-    ? e('dbKeyTreeScanning').replace('{n}', keyTree.scanned)
-    : e('dbKeysTotal').replace('{n}', keyTree.total)
-
-  const redisTreeSelected = redisKey && keyPathIndex.has(redisKey)
-    ? [keyPathIndex.get(redisKey)]
-    : []
-
   // cursor/append 供 hash/set 服务端分页：append 时把新一页合并进已加载详情，
   // 不再把整个键一次性搬进内存
   const selectRedisKey = (key, cursor = '0', append = false) => {
@@ -4063,72 +3384,6 @@ export default auto(function DbSession (props) {
     }).catch(err => {
       showErrorModal({ error: err })
     })
-  }
-
-  // ---- H7b-3 批量删键：预览 → 确认（生产再过 E1）→ 分批 UNLINK → 进度 ----
-
-  // 弹层打开时冻结这批键名：随后后台刷新/翻页改了勾选，也不该让"确认时看到的"
-  // 和"实际删掉的"对不上
-  const openRedisDel = () => {
-    const keys = redisKeySel.slice()
-    if (!keys.length) {
-      return
-    }
-    setRedisDel({ open: true, keys, running: false, done: 0, error: '' })
-  }
-
-  const closeRedisDel = () => {
-    if (redisDel.running) {
-      return
-    }
-    setRedisDel({ open: false, keys: [], running: false, done: 0, error: '' })
-  }
-
-  const runRedisDel = async () => {
-    const targets = redisDel.keys
-    // E1：生产连接多一道风险确认（非生产只有这个预览弹层本身）。
-    // 命令文本只列前 10 个键 —— 500 个键名铺满一屏，谁都会直接点"仍要执行"
-    const ok = await confirmRedisWrite({
-      level: 'dangerous',
-      text: delCommandText(targets),
-      note: e('dbRedisDelKeysBody')
-    })
-    if (!ok) {
-      return
-    }
-    setRedisDel(d => ({ ...d, running: true, done: 0, error: '' }))
-    let done = 0
-    for (const chunk of chunkRedisKeys(targets)) {
-      try {
-        const n = await window.pre.runGlobalAsync('dbClientOp', tabId, 'delKeys', {
-          dbIndex: redisDb,
-          keys: chunk
-        })
-        done += Number(n) || 0
-        setRedisDel(d => ({ ...d, done }))
-      } catch (err) {
-        // 前面几批已经删了、回滚不了：停在弹层里让人看到"删到哪儿"
-        setRedisDel(d => ({
-          ...d,
-          running: false,
-          done,
-          error: cleanDbError(err && err.message ? err.message : err)
-        }))
-        return
-      }
-    }
-    setRedisDel({ open: false, keys: [], running: false, done: 0, error: '' })
-    setRedisKeySel([])
-    // 删掉的正好是详情里选中的那个键 → 详情一起清掉，不留一个已不存在的键
-    if (targets.includes(redisKey)) {
-      setRedisKey('')
-      setRedisDetail(null)
-    }
-    message.success(e('dbRedisDelKeysDone').replace('{n}', String(done)))
-    // 原页重拉（不是回第一页）：删的是本页的键，用户还该站在这一页
-    loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
-    // 键数变了 → 同步左侧各 db 的键个数
-    loadTree()
   }
 
   // ---- D 批：EXPLAIN（只读计划分析，设计 §12.1） ----
@@ -4921,44 +4176,6 @@ export default auto(function DbSession (props) {
     hlText(text, treeFilterKw, 'db-tree-hit'),
     kw
   )
-  // 进入过滤时记录原展开状态并展开命中的库 / schema；清空后还原（见下一个 effect）
-  useEffect(() => {
-    if (!treeFilterKw || isRedis) {
-      return
-    }
-    if (treeExpandedBeforeFilter.current === null) {
-      treeExpandedBeforeFilter.current = expandedKeys
-    }
-    const keys = []
-    // 展开键必须与 treeData 里同一节点的 key 同一推导：
-    // 分组节点（例程/触发器/事件）挂在「库[/schema] + 组名」三位形态上，
-    // schema 节点才是「库 + schema」两位形态。少一位 → 分组永远不展开，
-    // 计数条说命中 6 个节点、树里只画得出 4 个（真 MariaDB 实测踩到）
-    const walk = (dbName, schema, nodes) => {
-      (nodes || []).forEach(node => {
-        if (isLeafNode(node)) {
-          return
-        }
-        const isGroup = node.type === 'group'
-        keys.push(isGroup ? nodeKey(dbName, schema, node.name) : nodeKey(dbName, node.name))
-        walk(dbName, isGroup ? schema : node.name, node.children)
-      })
-    }
-    visibleMetadata.forEach(db => {
-      keys.push(nodeKey(db.name))
-      walk(db.name, '', db.children)
-    })
-    setExpandedKeys(keys)
-  }, [treeFilterKw, metadata, isRedis])
-  useEffect(() => {
-    if (treeFilterKw) {
-      return
-    }
-    if (treeExpandedBeforeFilter.current !== null) {
-      setExpandedKeys(treeExpandedBeforeFilter.current)
-      treeExpandedBeforeFilter.current = null
-    }
-  }, [treeFilterKw])
 
   // 树数据只在元数据/过滤/查找关键字变化时重建：
   // 输入页筛选、编辑单元格等状态变化不再递归重建整棵树。
@@ -5576,7 +4793,6 @@ export default auto(function DbSession (props) {
   }), [redisKeySel, isReadonly])
 
   // 弹层里的键名预览（前 20 个 + 还有多少）
-  const redisDelPreview = useMemo(() => delPreview(redisDel.keys), [redisDel.keys])
 
   // A2：Redis 各类型详情的行键数组（依赖 redisDetail / detailLimit）
   const redisHashRows = useMemo(() => {

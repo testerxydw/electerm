@@ -17,6 +17,8 @@ const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
 const HOME = 'src/client/components/database/db-workspace-home.jsx'
 const SESSION = 'src/client/components/database/db-session.jsx'
+// N11a 簇 C：onSelectTree 已迁到 use-db-tree.js（已接线）。
+const USE_DB_TREE = 'src/client/components/database/use-db-tree.js'
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = 'src/client/common/db-session-const.js'
 const STYL = 'src/client/components/database/db-session.styl'
@@ -26,7 +28,7 @@ const codeOf = src => src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l))
 
 const homeSrc = () => codeOf(read(HOME))
 
-const sessionSrc = () => codeOf(read(SESSION))
+const sessionSrc = () => codeOf(read(SESSION) + '\n' + read(USE_DB_TREE))
 
 const constSrc = () => codeOf(read(SESSION_CONST))
 

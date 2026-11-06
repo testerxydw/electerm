@@ -306,6 +306,9 @@ describe('H7a-4 formatPercent', () => {
 //   · 组件不碰 IPC：取数留在 db-session，弹层才是可单测的纯呈现
 const MODAL = path.join(ROOT, 'src/client/components/database/db-redis-info.jsx')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11a 簇 C：INFO 取数 / 开关弹层已迁到 use-db-redis-keys.js（已接线）。
+const USE_DB_REDIS_KEYS = path.join(ROOT, 'src/client/components/database/use-db-redis-keys.js')
+const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
@@ -388,7 +391,7 @@ describe('H7a-4 弹层呈现（db-redis-info.jsx）', () => {
 
 describe('H7a-4 顶栏接线（db-session.jsx）', () => {
   test('入口只在 Redis tab 出现', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const at = src.indexOf('icon={<InfoCircleOutlined />}')
     assert.notEqual(at, -1, 'Redis 没有信息入口')
     const btn = src.slice(at, at + 260)
@@ -399,7 +402,7 @@ describe('H7a-4 顶栏接线（db-session.jsx）', () => {
   })
 
   test('op 名与参数：getRedisInfo 走 dbClientOp，不带任何参数', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     assert.match(
       src,
       /runGlobalAsync\('dbClientOp', tabId, 'getRedisInfo', \{\}\)/,
@@ -408,7 +411,7 @@ describe('H7a-4 顶栏接线（db-session.jsx）', () => {
   })
 
   test('打开时拉一次，不做轮询', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const open = blockOf(src, 'const openRedisInfo = () => {', /\n {2}\}/)
     assert.match(open, /setRedisInfo\(s => \(\{ \.\.\.s, open: true \}\)\)/)
     assert.match(open, /loadRedisInfo\(\)/)
@@ -418,7 +421,7 @@ describe('H7a-4 顶栏接线（db-session.jsx）', () => {
   })
 
   test('在途响应有令牌守卫：连点刷新时旧的慢响应不覆盖新的', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const load = blockOf(src, 'const loadRedisInfo = () => {', /\n {2}\}/)
     assert.match(load, /redisInfoTokenRef\.current\+\+/)
     assert.match(load, /const token = redisInfoTokenRef\.current/)
@@ -427,28 +430,28 @@ describe('H7a-4 顶栏接线（db-session.jsx）', () => {
   })
 
   test('响应回来只写数据，不改 open：加载中关弹层不该被重新打开', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const load = blockOf(src, 'const loadRedisInfo = () => {', /\n {2}\}/)
     assert.equal(/setRedisInfo\(\{ open: true/.test(load), false, '响应里不该硬置 open: true')
     assert.match(load, /setRedisInfo\(s => \(\{[\s\S]*?\.\.\.s,[\s\S]*?loading: false/)
   })
 
   test('关闭即清原文：下次打开不能先闪上一次 INFO', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const close = blockOf(src, 'const closeRedisInfo = () => {', /\n {2}\}/)
     assert.match(close, /redisInfoTokenRef\.current\+\+/)
     assert.match(close, /open: false, loading: false, text: '', error: ''/)
   })
 
   test('取数失败留在弹层提示，不置顶"连接断开"横幅', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const load = blockOf(src, 'const loadRedisInfo = () => {', /\n {2}\}/)
     assert.equal(/onOpError\(err\)/.test(load), false, '走 onOpError 会把"这一次没看到信息"说成"连接断了"')
     assert.match(load, /error: cleanDbError\(/)
   })
 
   test('弹层挂载且 props 与状态同源', () => {
-    const src = fs.readFileSync(SESSION, 'utf8')
+    const src = sessionSrc()
     const at = src.indexOf('<DbRedisInfoModal')
     assert.notEqual(at, -1, '弹层未挂载')
     const modal = src.slice(at, at + 420)

@@ -16,21 +16,30 @@
 | N11a-4（并行 #1） | `DbGridTable` 网格包装（定高滚动 / 虚拟渲染） | `db-grid-table.jsx`（79 行） | 内联函数删除；`db-grid-scroll.spec.js` / `perf-guard.spec.js` 契约跟随迁移 |
 | N11a-5（并行 #14） | SQL 结果区渲染 `renderSqlResults` / `renderOne` | `db-sql-results.jsx`（352 行） | 主文件 −262 行；2 处调用点改 `<DbSqlResults/>` |
 | N11a-6（并行 #15） | Redis 值详情 `renderRedisDetail` / `renderRedisEditable` 等 | `db-redis-detail.jsx`（870 行） | 主文件 −777 行；1 处调用点改 `<DbRedisDetail/>` |
+| N11a-7（并行 #2） | 元数据树/结构加载：`loadTree`/`onSelectTree`/`loadStructure`/`treeFilter`/`toggleSys` | `use-db-tree.js`（213 行） | 逻辑 hook 化；`getVisibleMetadata` getter 注入避免 TDZ，两个 effect 依赖数组不变 |
+| N11a-8（并行 #3） | 视图/过滤/分页：`viewParts`/`applyView`/`findLastPage`/`loadPage`/`pageSizeOf` | `use-db-view.js`（454 行） | 导出纯函数 + hook；`pageSizeOf` clamp 契约随迁 `perf-guard.spec.js` |
+| N11a-9（并行 #11） | Redis 键空间：`loadRedisKeys`/`loadRedisKeyTree`/批量删键/键树 | `use-db-redis-keys.js`（487 行） | 返回 20 个名字；跨簇调用走 `bridge` 延迟绑定 |
 | N2-1 | 变更预览 + 变更集模型（纯函数，未接 UI） | `src/client/common/db-change-preview.js` + `src/client/common/db-change-set.js` | 仅改文案调用 |
-| N2-UI（WIP 未提交） | 变更面板 UI | `src/client/components/database/use-db-changes.js` + `db-change-panel.jsx` | 进行中 |
+| N2-UI（并行 WIP） | 变更面板 UI | `src/client/components/database/use-db-changes.js` + `db-change-panel.jsx` | 非本方案实现；因主文件已 import，依赖链随第二点提交纳入以保证可构建 |
 
-> 注：`db-change-panel.jsx` / `use-db-changes.js` 属用户其他 WIP，本方案不触碰。
+> 注：`db-change-panel.jsx` / `use-db-changes.js` 属用户其他 WIP，本方案不改动其实现，仅随提交纳入依赖链。
 
-三轮接线（#1 / #14 / #15）后主文件 **8926 行**。验证：`standard` RC=0、db-* 单测 **2199/2199**、`npm run compile` RC=0（`[check-cm6-chunk] OK`，产物 `db-session-5.8.1-*.js` 含拆分模块）；实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。改动均未提交（N2-UI 并行任务在途）。
+**进度**：三轮渲染接线（#1 / #14 / #15）后主文件 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**（相对 9970 行基线 −1828 行）。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
+
+**验证（三 hook 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **5092/5092 / fail 0**（其中 `not ok 1034 - build-time injection` 为 `node-safe-delete-shim.cjs` 对 `node_modules` 目录 trash 的 `EISDIR` 噪声）；`npm run compile` RC=0（`done build in 402.417 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-DecjfU0G.js` 344.27 kB）。另用 VM 实跑对比新版 `pageSizeOf` 与 `ccf04edb` 旧内联实现：函数体逐行一致、14 组输入输出 0 差异。实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。
+
+**提交**：分三点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ 本次提交 #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步。均未 push。
 
 ### 1.1 并行拆分实验结论（2026-11-06）
 
 - **纯多 agent 并发改 `db-session.jsx` 不可行**：16 个聚类同处一文件，且当时有 N2-UI 并行任务持有该文件。采用混合模式：多 agent **并行只建新模块 + 改测试**（各写不同文件、只读主文件），由 owner **串行做主文件的删除与接线**——这是唯一无法并行的瓶颈。
-- **契约测试必须跟随代码**：源码文本契约（正则抽真实函数体 / 字符串 `includes` / 出现次数）在代码迁出后必须把读取源指向新模块，或改为**组合读取全部已接线（shipped）文件**；阈值与语义不变。**绝不能把未接线的 dead 模块计入**——那是用死代码凑数。已回退 4 份"模块未接线却先改读取源"的 spec，消除"测试验证副本"的漏洞。
-- **#2 / #3 / #11 三 hook 簇暂缓**：三者存在跨簇循环依赖（tree 的 `loadStructure` ↔ view 的 `refreshViewParts` / `openRefTable`；redis keys 的 `loadTree` ↔ tree 的 `loadRedisKeys`），且 `useDbTree` 的过滤 effect 依赖后置 `visibleMetadata`（useMemo），按值注入会 TDZ / 改变 effect 顺序。另有约 15 份 spec 以文本契约绑定主文件内联实现，以及 `perf-guard.spec.js:250` 的 `pageSizeOf` clamp 断言。需先做延迟绑定桥接 + 逐簇重定位契约，风险显著高于渲染簇，留待 N2-UI 并行任务收口后单独推进。
-- **暂缓产物（dead duplicates，勿当作已接线）**：`use-db-tree.js` / `db-tree-panel.jsx` / `use-db-view.js` / `use-db-redis-keys.js` / `db-redis-key-space.jsx` / `db-grid-cell.jsx`。`renderCell` 经确认为网格与新组件共享，主文件内联实现保留。
+- **契约测试必须跟随代码**：源码文本契约（正则抽真实函数体 / 字符串 `includes` / 出现次数）在代码迁出后必须把读取源指向新模块，或改为**组合读取全部已接线（shipped）文件**；阈值与语义不变。**绝不能把未接线的 dead 模块计入**——那是用死代码凑数。已回退 4 份"模块未接线却先改读取源"的 spec，消除"测试验证副本"的漏洞；三 hook 收口时 14 份 spec 统一改为组合读取 shipped 文件，正则 / 阈值 / 出现次数一个未放宽。
+- **#2 / #3 / #11 三 hook 簇已接线（同日单独推进）**：跨簇循环依赖（tree 的 `loadStructure` ↔ view 的 `refreshViewParts` / `openRefTable`；redis keys 的 `loadTree` ↔ tree 的 `loadRedisKeys`）用 `const bridge = {}` + 惰性箭头 `(...a) => bridge.fn(...a)` + `Object.assign(bridge, treeApi, viewApi, redisApi)` 在调用期解析；后置依赖（`visibleMetadata`、`showObjectDdl`、`openTable`、`confirmRedisWrite`、`selectRedisKey`）一律 lazy 注入，`useDbTree` 改 `getVisibleMetadata()` getter 形态且两个 effect 依赖数组保持 `[treeFilterKw, metadata, isRedis]` / `[treeFilterKw]` 不变。契约侧 `db-page-tree-filter.spec.js` 的 VM 沙箱注入同名 getter、`perf-guard.spec.js` 的 `pageSizeOf` clamp 读取源加入 `use-db-view.js`。
+- **仍未接线（dead duplicates，勿当作已接线）**：`db-tree-panel.jsx` / `db-redis-key-space.jsx` / `db-grid-cell.jsx` 三个渲染副本；主文件内联 `<div className='db-tree-panel'>` 与 `redisArea` 渲染保留，`renderCell` 经确认为网格与新组件共享故内联实现保留。三者不纳入本次提交，留待后续 PR 单独接线。
 
 ## 2. 剩余拆分方案（按耦合度递增排序）
+
+> 进度注：#1 / #14 / #15 与 #2 / #3 / #11 已于 2026-11-06 实装接线（见 §1 N11a-4~9 与 §1.1）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。
 
 聚类的当前位置以源码 `// ----` 分段标记 + 函数名为锚（行号会随抽取漂移，故以标记为准）：
 
@@ -60,4 +69,4 @@
 - **`window.translate` 在模块内即时调用**（不加载时取值），否则切语言后文案钉死。
 - **句柄归属**：页面级 ref/状态由 owner 注入 hook，hook 不自建、不回流（见 AGENTS.md §5.2 边界与句柄归属）。
 - **调用点位置**：依赖渲染期实参（如 `visibleColumnNames`）的 hook，调用点必须落在其实参定义之后，否则 TDZ 白屏——源码留注释说明为何不能前移。
-- 行数达 AGENTS.md §5.1 文件大小限制阈值即停手登记下一拆分步，不在本文件继续堆。
+- 判据是职责是否单一（AGENTS.md §5.1），行数只作坏味道信号：一旦出现第二职责就登记下一拆分步，不在本文件继续堆；不设"必须拆分"的行数硬门禁。

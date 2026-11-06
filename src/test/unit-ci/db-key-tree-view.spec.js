@@ -20,9 +20,16 @@ const JSX = 'src/client/components/database/db-session.jsx'
 const SESSION_CONST = 'src/client/common/db-session-const.js'
 const STYL = 'src/client/components/database/db-session.styl'
 const TREE = 'src/client/common/db-key-tree.js'
+// N11a 簇 C：键树抓取/视图切换在 use-db-redis-keys.js，树点击分支在 use-db-tree.js。
+// 组合读取三份已接线的发布源码；未接线的 dead 渲染面板不计入。
+const USE_DB_TREE = 'src/client/components/database/use-db-tree.js'
+const USE_DB_REDIS_KEYS = 'src/client/components/database/use-db-redis-keys.js'
 
 // 注释不参与匹配：契约钉的是代码，不是"某句话里提到了某个词"
 const codeOf = src => src.split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
+const wiredSrc = () => codeOf(
+  read(JSX) + '\n' + read(USE_DB_TREE) + '\n' + read(USE_DB_REDIS_KEYS)
+)
 
 const block = (src, start, endRe) => {
   const at = src.indexOf(start)
@@ -33,7 +40,7 @@ const block = (src, start, endRe) => {
 }
 
 describe('H7a-3 键树抓取', () => {
-  const src = codeOf(read(JSX))
+  const src = wiredSrc()
   const constSrc = codeOf(read(SESSION_CONST))
   const loader = block(src, 'const loadRedisKeyTree =', /\n {2}\}\n/)
 
@@ -71,7 +78,7 @@ describe('H7a-3 键树抓取', () => {
 })
 
 describe('H7a-3 视图切换与过滤', () => {
-  const src = codeOf(read(JSX))
+  const src = wiredSrc()
   const sw = block(src, 'const switchRedisView =', /\n {2}\}\n/)
   const filter = block(src, 'const applyRedisFilter =', /\n {2}\}\n/)
 
@@ -105,7 +112,7 @@ describe('H7a-3 视图切换与过滤', () => {
 })
 
 describe('H7a-3 分层与展开', () => {
-  const src = codeOf(read(JSX))
+  const src = wiredSrc()
   const constSrc = codeOf(read(SESSION_CONST))
   const effect = block(src, 'if (redisView !== \'tree\')', /\n {2}\}, \[redisView, keyTreeBuilt\]\n/)
 

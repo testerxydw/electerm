@@ -550,8 +550,11 @@ describe('F0 接线：op 注册与缓存', () => {
 // ---- 前端消费侧：treeData 是 JSX，vm 跑不了，用源码守卫钉契约 ----
 // 这几条对应真机验证时暴露的两个缺口：视图在树里认不出来、视图上还能点"添加行"
 describe('视图在树里的呈现（源码守卫）', () => {
+  // N11a 簇 C：树点击分支（openTable 调用）已迁到 use-db-tree.js（已接线）。
   const jsx = fs.readFileSync(
     path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
+  ) + '\n' + fs.readFileSync(
+    path.join(ROOT, 'src/client/components/database/use-db-tree.js'), 'utf8'
   )
   const styl = fs.readFileSync(
     path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'

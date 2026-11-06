@@ -11,6 +11,8 @@ const HIGHLIGHT = path.join(DB_DIR, 'db-highlight.jsx')
 const DB_SESSION = path.join(DB_DIR, 'db-session.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const DB_SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
+// N11a 簇 C：pageSizeOf 的 clamp 已迁到 use-db-view.js（已接线）。
+const USE_DB_VIEW = path.join(DB_DIR, 'use-db-view.js')
 // N11a：DbGridTable 已迁出为独立组件，虚拟化开关随之迁走
 const DB_GRID_TABLE = path.join(DB_DIR, 'db-grid-table.jsx')
 
@@ -240,7 +242,7 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
 
   test('dbPageSize capped at 200 so one page cannot explode render cost', () => {
     // 上限常量与网格取数夹取在 db-session-const.js，视角 pageSize 夹取仍在组件里
-    const src = loadSrc(DB_SESSION) + loadSrc(DB_SESSION_CONST)
+    const src = loadSrc(DB_SESSION) + loadSrc(DB_SESSION_CONST) + '\n' + loadSrc(USE_DB_VIEW)
     assert.ok(src.includes('DB_PAGE_SIZE_MAX = 200'), 'page size ceiling drifted')
     assert.ok(
       /return v >= 10 \? Math\.min\(v, DB_PAGE_SIZE_MAX\)/.test(src),

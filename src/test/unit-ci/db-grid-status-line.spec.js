@@ -11,14 +11,17 @@ const path = require('node:path')
 
 const ROOT = path.join(__dirname, '../../..')
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
+const readSession = () => read(SESSION) + '\n' + read(USE_DB_VIEW)
 
 const SESSION = 'src/client/components/database/db-session.jsx'
+// N11a 簇 C：loadPage 已迁到 use-db-view.js，状态行契约组合读取已接线源码。
+const USE_DB_VIEW = 'src/client/components/database/use-db-view.js'
 const STYL = 'src/client/components/database/db-session.styl'
 const LOCALES = 'src/app/common/locales-extra.js'
 
 // 状态行：从 .db-grid-total 到自己的收尾标签
 const totalSpan = () => {
-  const src = read(SESSION)
+  const src = readSession()
   const start = src.indexOf("<span className='db-grid-total'>")
   assert.ok(start !== -1, '没找到 .db-grid-total')
   const end = src.indexOf('\n              </span>', start)
@@ -28,7 +31,7 @@ const totalSpan = () => {
 
 // 批量动作组：从 U1d 注释到组的 `: null`（组内子块的 `: null` 缩进更深，不会被误截）
 const batchGroup = () => {
-  const src = read(SESSION)
+  const src = readSession()
   const start = src.indexOf('// U1d：勾选后的一族动作')
   assert.ok(start !== -1, '没找到批量动作组')
   const end = src.indexOf(': null\n        }', start)
@@ -37,7 +40,7 @@ const batchGroup = () => {
 }
 
 const blockOf = (startMarker, endMarker) => {
-  const src = read(SESSION)
+  const src = readSession()
   const start = src.indexOf(startMarker)
   assert.ok(start !== -1, startMarker + ' 未找到')
   const end = src.indexOf(endMarker, start)
@@ -73,7 +76,7 @@ describe('U1d 数据页状态行', () => {
   })
 
   test('状态行常量在 dataArea 之前定义，口径判定不重复', () => {
-    const src = read(SESSION)
+    const src = readSession()
     const at = src.indexOf('const gridRowsText =')
     assert.ok(at !== -1 && at < src.indexOf('const dataArea = ('), 'gridRowsText 应在 dataArea 之前')
     const body = totalSpan()
@@ -106,7 +109,7 @@ describe('U1d 批量动作分组', () => {
   })
 
   test('组仍挂在数据页控制条里，位置在翻页组之前', () => {
-    const src = read(SESSION)
+    const src = readSession()
     const group = src.indexOf("<span className='db-tool-group'>")
     const pager = src.indexOf("<span className='db-grid-head-pager'>")
     assert.ok(group !== -1 && pager > group, '批量组应在翻页组之前')

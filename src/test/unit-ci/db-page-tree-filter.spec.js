@@ -10,10 +10,12 @@ const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 // N11a 第 2 步：顶栏查找的计数在 use-db-page-search.js 里，这条跨文件判据跟过去
 const DB_PAGE_SEARCH = path.join(ROOT, 'src/client/components/database/use-db-page-search.js')
+// N11a 簇 C：树过滤状态 / 自动展开 effect 已迁到 use-db-tree.js（已接线）。
+const USE_DB_TREE = path.join(ROOT, 'src/client/components/database/use-db-tree.js')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
-const loadJsx = () => fs.readFileSync(JSX, 'utf8')
+const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_TREE, 'utf8')
 const loadConst = () => fs.readFileSync(SESSION_CONST, 'utf8')
 const loadPageSearch = () => fs.readFileSync(DB_PAGE_SEARCH, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')
@@ -63,7 +65,7 @@ const loadVisibleMetadata = () => {
 const loadTreeFilterExpandKeys = () => {
   const src = loadJsx()
   const body = src.match(/ {4}(const keys = \[\][\s\S]*?)\n {4}setExpandedKeys\(keys\)/)
-  assert.ok(body, 'tree filter auto-expand effect not found in db-session.jsx')
+  assert.ok(body, 'tree filter auto-expand effect not found in shipped db-session sources')
   // 展开键跟 isLeafNode / nodeKey 同源执行：测试里另抄一份 key 推导，就钉不住"两边是不是同一个形态"
   const leaf = loadConst().match(/^const isLeafNode = .+$/m)
   assert.ok(leaf, 'isLeafNode not found in db-session-const.js')
@@ -71,7 +73,9 @@ const loadTreeFilterExpandKeys = () => {
   assert.ok(nk, 'nodeKey not found in db-session-const.js')
   return vm.runInNewContext(
     '(() => {' + leaf[0] + ';' + nk[0] +
-    '; return function (visibleMetadata) {' + body[1] + '\n return keys }; })()',
+    // N11a 簇 C：effect 走 getVisibleMetadata() getter（按值注入会 TDZ），
+    // 沙箱把入参包成同名 getter，执行的仍是发布源码里的原样展开逻辑。
+    '; return function (visibleMetadata) { const getVisibleMetadata = () => visibleMetadata;' + body[1] + '\n return keys }; })()',
     {}
   )
 }
