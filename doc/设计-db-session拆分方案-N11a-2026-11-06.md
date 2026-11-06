@@ -26,7 +26,7 @@
 
 > 注：`db-change-panel.jsx` / `use-db-changes.js` 属用户其他 WIP，本方案不改动其实现，仅随提交纳入依赖链。
 
-**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7853 行**（相对 9970 行基线 −2117 行）。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
+**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7852 行**（相对 9970 行基线 −2117 行）。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
 
 **验证（三 hook 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **5092/5092 / fail 0**（其中 `not ok 1034 - build-time injection` 为 `node-safe-delete-shim.cjs` 对 `node_modules` 目录 trash 的 `EISDIR` 噪声）；`npm run compile` RC=0（`done build in 402.417 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-DecjfU0G.js` 344.27 kB）。另用 VM 实跑对比新版 `pageSizeOf` 与 `ccf04edb` 旧内联实现：函数体逐行一致、14 组输入输出 0 差异。实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。
 
