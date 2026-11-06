@@ -143,6 +143,7 @@ const INSTALL = `(() => {
     frames: 0,          // 收到的 client→server 全部帧数
     setEncodings: [],   // 每条 SetEncodings 帧的编码列表（int32）
     encodeFrames: 0,    // SetEncodings 帧数
+    fbUpdates: [],      // 每条 FramebufferUpdateRequest（msg-type 3）
     errors: [],         // 未捕获异常
     rfbBuilt: 0,
     createTerm: 0,
@@ -217,6 +218,14 @@ const INSTALL = `(() => {
           }
           vq.setEncodings.push(encs)
           vq.encodeFrames++
+        }
+        if (u8.length >= 10 && u8[0] === 3) {
+          // FramebufferUpdateRequest: type(1) incremental(1) x(2) y(2) w(2) h(2)
+          vq.fbUpdates.push({
+            incremental: u8[1] === 1,
+            w: (u8[6] << 8) | u8[7],
+            h: (u8[8] << 8) | u8[9]
+          })
         }
         return
       }
@@ -375,6 +384,16 @@ const SET_ENC_VALUES = `(() => {
   })
 })()`
 
+const FBU_STATE = `(() => {
+  const vq = window.__vq
+  const full = vq.fbUpdates.filter(f => !f.incremental)
+  return JSON.stringify({
+    total: vq.fbUpdates.length,
+    full: full.length,
+    lastFull: full[full.length - 1] || null
+  })
+})()`
+
 const SELECT_DISABLED = `(() => {
   const sel = document.querySelector('.vnc-quality-select')
   if (!sel) {
@@ -449,6 +468,7 @@ const main = async () => {
     e0.hasNeg29 && e0.hasNeg255, JSON.stringify(e0))
 
   // 选「清晰」(Q6/C2)：真产品 handler → 真实 noVNC → 真报文 -26/-254
+  const fbu0 = JSON.parse(await cdp.eval(FBU_STATE))
   await cdp.eval(HANDPRESET('sharp'))
   await sleep(250)
   const r1 = JSON.parse(await cdp.eval(RBF_STATE))
@@ -456,6 +476,11 @@ const main = async () => {
   const e1 = JSON.parse(await cdp.eval(SET_ENC_VALUES))
   check('出口报文含 -26(qualityLevel0+6) / -254(compressLevel0+2)',
     e1.hasNeg26 && e1.hasNeg254, JSON.stringify(e1))
+  const fbu1 = JSON.parse(await cdp.eval(FBU_STATE))
+  check('切档后主动补一次全刷新请求（非增量、整屏）',
+    fbu1.full > fbu0.full && fbu1.lastFull &&
+      !fbu1.lastFull.incremental && fbu1.lastFull.w > 0 && fbu1.lastFull.h > 0,
+    'full ' + fbu0.full + '→' + fbu1.full + ' last=' + JSON.stringify(fbu1.lastFull))
 
   // 同档再点：不再多推一帧
   await cdp.eval(HANDPRESET('sharp'))
