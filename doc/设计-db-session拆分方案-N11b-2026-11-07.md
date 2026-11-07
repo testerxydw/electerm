@@ -372,7 +372,7 @@ editFavorite, removeOneFavorite。两个清单**交集只有 `favGroups`**，且
 
 | 脚本 | 桩 | 结果 | 覆盖到的判据 |
 |---|---|---|---|
-| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **43/43**（首轮 36/37，唯一 FAIL 是真 bug；修复后先 37/37，再补 added/changed 与重试反向两条线到 43/43） | #28 打开/保存/另存/取消/覆盖确认/扩展名补全 + #29 掉线横幅/重连按钮/重试正向与反向 + 三个弹层 + 结构对比三分支 |
+| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **53/53**（首轮 36/37 → 修 bug 37/37 → 补结构对比三分支与重试反向 43/43 → 补 ER 连线几何 / SQL 结果值面板 / 覆盖确认取消 53/53） | #28 打开/保存/另存/取消/覆盖确认正反两路/扩展名补全 + #29 掉线横幅/重连按钮/重试正反两路 + ER 图（含连线端点）/结构对比/值面板两个入口 |
 | `self-test/fake-redis.js` + `n11b-redis-smoke.js` | 自写 RESP2 最小服务端（869 行，18 种命令） | **38/38** | Redis 翻页/跳页/越界钳制/树视图/过滤/五种类型详情/INFO/慢日志/批量删键/TTL/SELECT 切库 |
 
 Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回到服务端对账**（`fake-redis`
@@ -412,15 +412,30 @@ Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回�
   这一条解释了为什么修复要放在**成功分支**而不是「点重试时先清 error」：
   后者会让失败路径出现「卡片闪一下又回来」甚至空白页。
 
+**再补三个盲区**（`12c9f686`，43 → 53 条）。这三个都压在拆出去的文件上，
+补上它们等于给拆分本身加回归网：
+
+- **ER 连线几何（#26）**。夹具加 `order_items(order_id integer references orders(id))`，
+  现在 `nodes: 3 / edges: 1`，且「本库没有定义外键」那句说明不再出现。
+  关键是**不只数边**：取 SVG `path` 的 `getPointAtLength(0)` 与 `(totalLength)`，
+  用 `getScreenCTM()` 换算到屏幕坐标，再跟每个表节点的 `getBoundingClientRect()`
+  比包含关系（±24px），断言首尾各命中**恰好一个**、且是**两张不同的表**；
+  另加一条语义判据把 pair 钉成 `order_items↔orders`。实测
+  `{"from":["main.order_items"],"to":["main.orders"],"pair":"order_items↔orders"}`。
+  线是连对的。
+- **值面板的第二个入口（#2）**。原 C3 只从数据网格进；补 `select 1 as a, 'sqlpane-marker' as b;`
+  后点结果格，实测 `{"n":1,"title":"b · 第 1 行","text":"b · 第 1 行sqlpane-marker"}`。
+  注意 SQL 结果网格的容器是 **`.db-sql-result-grid`**（行仍是 `.ant-table-row`），
+  坐标探针要按这个容器单独量，照抄数据页的选择器会点空。
+- **覆盖确认的「取消」分支（#28）**。脏缓冲上点「打开」→ 弹「覆盖当前 SQL？」→ 点取消，
+  实测 `{same:true, beforeLen:67, afterLen:67, diskLen:50}`、页签仍 `q.sql •`。
+  判据是**编辑器全文一字未变 + 磁盘没被写**，只看页签标题会漏掉「内容被换掉但脏标记还在」。
+
 **这次没覆盖到、且短期也没法用 CDP 覆盖的**：
 
-- **跨库连接**（`connectOtherDb`）—— 需要 PG 实例；本环境只有 SQLite。
-- **ER 图外键连线的几何**（线有没有连对节点）—— 夹具是 SQLite 且没建外键，实测 `edges: 0`；
-  脚本只验了「没外键时仍画表 + 给说明文案」，没验有外键时 SVG `path` 的端点坐标。
-- **SQL 覆盖确认 Modal 的「取消」分支** —— 只验了「确认」路径。
-- **值面板从 SQL 结果进入的路径** —— 只验了从数据网格进。
+- **跨库连接**（`connectOtherDb`）—— 需要 PG 实例；本环境只有 SQLite。这是唯一剩下的硬缺口。
 
-三个把判据写错的坑（都已写进脚本注释，下一个写 CDP 脚本的人会再踩）：
+四个把判据写错的坑（都已写进脚本注释，下一个写 CDP 脚本的人会再踩）：
 
 1. **antd 虚拟表格的行不是 `tbody > tr`** —— `.db-grid-table` 用的是 `ant-table-virtual`，
    行是 `.ant-table-row`（数据页在 `tr` 上，结构页在 `div` 上，两者不一样）；
@@ -428,3 +443,7 @@ Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回�
    `onHeaderCell` 只挂了 `onContextMenu`（列宽菜单），点 `th` 什么都不会发生；
 3. **弹层淡入期间 `opacity` 仍 < 0.05** —— 带可见性过滤的探针会把刚打开的
    Popover 数成 0，于是「面板没渲染」是假红。结构判定要用原始 `querySelectorAll`。
+4. **antd 的 `autoInsertSpace` 会把「取消」渲染成「取 消」**（两个汉字按钮自动加空格）——
+   拿 `textContent` 直接匹配「取消」永远匹配不上，按钮点是空的。要先 `replace(/\s+/g,'')`
+   再匹配。这个坑和「弹层里有两套按钮（卡片上一个、Modal 里一个）」叠在一起时特别难查：
+   脚本报 `no-btn`，看起来像 UI 没弹，其实弹了、只是选择器没中。
