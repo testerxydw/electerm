@@ -7,7 +7,8 @@
  *   B. #29 掉线重连（reconnect）与初次失败重试（retryConnect）—— use-db-connection.js
  *      正向：补上库文件后重试 → 进入正常界面
  *      反向：不补文件再点一次 → 失败卡片必须原地不动（不许把错误态提前清掉）
- *   C. 三个弹层：ER 图 / 结构对比 / 值面板 —— use-db-redis-instance.js + 值面板入口
+ *   C. 弹层：ER 图（含外键连线端点几何）/ 结构对比 / 值面板（数据页 + SQL 结果两条入口）
+ *      —— use-db-redis-instance.js、use-db-sql-result-columns.jsx
  *
  * 为什么不是「照抄 n11b-split-smoke」：
  *   - 文件对话框走主进程（window.api.openDialog → ipc → dialog），而 window.api 由
@@ -150,6 +151,58 @@ const PROBE = `(() => {
       h: Math.round(p.getBoundingClientRect().height)
     })
   }
+  // SQL 结果网格（#2）：容器是 .db-sql-result-grid，行仍是 antd 虚拟表的 .ant-table-row，
+  // 但和数据页网格不是同一张表 —— 坐标必须按各自的容器量
+  window.__sqlRows = () => window.__q('.db-sql-result-grid .ant-table-row')
+  window.__sqlCellXY = (label, rowIdx) => {
+    const g = document.querySelector('.db-sql-result-grid')
+    if (!g) return JSON.stringify({ error: 'no-sql-grid' })
+    const nameOf = th => {
+      const n = th.querySelector('.db-col-name')
+      return ((n && n.innerText) || th.innerText || '').trim().split('\\n')[0]
+    }
+    const ths = [...g.querySelectorAll('thead th')]
+    let idx = -1
+    for (let i = 0; i < ths.length; i++) { if (nameOf(ths[i]) === label) { idx = i; break } }
+    if (idx < 0) return JSON.stringify({ error: 'no-col:' + label, ths: ths.map(nameOf) })
+    const tr = [...g.querySelectorAll('.ant-table-row')][rowIdx || 0]
+    if (!tr) return JSON.stringify({ error: 'no-row:' + rowIdx })
+    const td = tr.children[idx]
+    if (!td) return JSON.stringify({ error: 'no-td' })
+    const r = td.getBoundingClientRect()
+    const gr = g.getBoundingClientRect()
+    const x = Math.round(r.left + Math.min(r.width / 2, 50))
+    const y = Math.round(r.top + r.height / 2)
+    return JSON.stringify({
+      x, y,
+      inView: x > gr.left && x < gr.right && y > gr.top && y < gr.bottom,
+      text: td.innerText.trim().slice(0, 24)
+    })
+  }
+  // 编辑器全文（__sqlDoc 只取前 80 字，取消覆盖要比对整段缓冲）
+  window.__sqlDocFull = () => {
+    const ed = [...document.querySelectorAll('.db-sql-area .cm-content')].find(window.__vis)
+    return ed ? String(ed.innerText) : ''
+  }
+  // Modal.confirm（覆盖确认）读数：antd 的 confirm 不带自定义 class，只能按公共类名取
+  window.__confirmInfo = () => JSON.stringify({
+    n: window.__all('.ant-modal-confirm').length,
+    raw: window.__q('.ant-modal-confirm'),
+    title: window.__txtOf('.ant-modal-confirm-title'),
+    body: window.__txtOf('.ant-modal-confirm-content'),
+    btns: [...document.querySelectorAll('.ant-modal-confirm-btns button')].map(b => window.__txt(b))
+  })
+  // 点 confirm 里的按钮。antd 的 autoInsertSpace 会把两个汉字拆成「取 消」，
+  // 所以比对前必须先去空白 —— 与 __btnRe 的区别只在这里
+  window.__clickConfirm = re => {
+    const rx = new RegExp(re, 'i')
+    const btns = [...document.querySelectorAll('.ant-modal-confirm-btns button')].filter(window.__visEl)
+    const b = btns.find(x => rx.test(window.__txt(x).replace(/\\s/g, '')))
+    if (!b) return 'no-btn:' + btns.map(x => window.__txt(x)).join(',')
+    if (b.disabled) return 'btn-disabled:' + re
+    b.click()
+    return 'ok'
+  }
   // 弹层信息：raw 计数（淡入期也在）+ 可见计数
   window.__modal = sel => JSON.stringify({
     raw: document.querySelectorAll(sel).length,
@@ -160,11 +213,37 @@ const PROBE = `(() => {
     modalVis: window.__all('.db-er-modal').length,
     nodes: window.__q('.db-er-node'),
     edges: window.__q('.db-er-edge'),
+    nodeNames: [...document.querySelectorAll('.db-er-modal .db-er-node title')].map(t => t.textContent),
     empty: window.__q('.db-er-empty'),
     note: window.__txtOf('.db-er-note'),
     err: window.__txtOf('.db-er-err'),
     hint: window.__txtOf('.db-er-hint')
   })
+  // ER 连线几何：节点矩形取 <rect> 的屏幕矩形，连线端点用 getPointAtLength + getScreenCTM
+  // 换算到同一套屏幕坐标 —— 只数 edges 不能证明线连对了表
+  window.__erGeom = () => {
+    const nodes = [...document.querySelectorAll('.db-er-modal .db-er-node')].map(g => {
+      const box = g.querySelector('rect')
+      const r = (box || g).getBoundingClientRect()
+      const t = g.querySelector('title')
+      return { id: (t && t.textContent) || '', x: r.left, y: r.top, w: r.width, h: r.height }
+    })
+    const edges = [...document.querySelectorAll('.db-er-modal .db-er-edge path')].map(p => {
+      const m = p.getScreenCTM()
+      const total = p.getTotalLength()
+      const p0 = p.getPointAtLength(0)
+      const p1 = p.getPointAtLength(total)
+      const a = m ? p0.matrixTransform(m) : p0
+      const b = m ? p1.matrixTransform(m) : p1
+      return {
+        d: p.getAttribute('d'),
+        total: Math.round(total),
+        from: { x: a.x, y: a.y },
+        to: { x: b.x, y: b.y }
+      }
+    })
+    return JSON.stringify({ nodes, edges })
+  }
   window.__diffInfo = () => JSON.stringify({
     modal: window.__all('.db-struct-diff-modal').length,
     selects: window.__q('.db-struct-diff-modal .db-diff-select'),
@@ -252,6 +331,12 @@ const writeFixture = () => {
     insert into orders values (2, 250, '2026-01-02');
     insert into orders values (3, 375, '2026-01-03');
     insert into orders values (4, 480, '2026-01-04');
+    create table order_items (
+      id integer primary key,
+      order_id integer references orders(id),
+      sku text
+    );
+    insert into order_items values (1, 1, 'a'), (2, 2, 'b');
     create table orders_copy (
       id integer primary key,
       amount text,
@@ -489,8 +574,11 @@ async function main () {
 
   const expanded = await cdp.eval('window.__expand()')
   const hasOrders = await waitFor(cdp, 'window.__hasTree("orders")', '树里等不到 orders', 20000)
-  check('元数据树展开出两张表', hasOrders && await cdp.eval('window.__hasTree("orders_copy")'),
-    { switched: expanded, names: await cdp.eval('window.__txtOf(".db-tree .ant-tree-node-content-wrapper")') })
+  const treeNames = await cdp.eval('window.__txtOf(".db-tree .ant-tree-node-content-wrapper")')
+  check('元数据树展开出三张表（orders / order_items / orders_copy）',
+    hasOrders && await cdp.eval('window.__hasTree("orders_copy")') &&
+    await cdp.eval('window.__hasTree("order_items")'),
+    { switched: expanded, names: treeNames })
   await cdp.eval('window.__clickTree("orders")')
   const gridOk = await waitFor(cdp, 'window.__dataRows() >= 4', '数据页网格等不到行', 20000)
   check('选 orders 后数据页出 4 行', gridOk, await cdp.eval('window.__dataRows()'))
@@ -510,10 +598,35 @@ async function main () {
     '(() => { const i = JSON.parse(window.__erInfo()); return i.nodes > 0 || i.empty > 0 || i.err.length > 0 })()',
     'ER 弹层没打开/没内容', 20000)
   const erInfo = await cdp.jeval('window.__erInfo()')
-  check('C1 ER 图弹层打开且渲染出节点（sqlite 无外键时仍画表）', erOpen && erInfo.nodes >= 2,
+  check('C1 ER 图弹层打开且渲染出 3 个表节点（orders / order_items / orders_copy）',
+    erOpen && erInfo.nodes === 3 &&
+    /orders/.test(erInfo.nodeNames.join(' ')) &&
+    /order_items/.test(erInfo.nodeNames.join(' ')) &&
+    /orders_copy/.test(erInfo.nodeNames.join(' ')),
     { ret: erClick, info: erInfo })
-  check('C1 无外键时有说明文案（不是空白图）',
-    erInfo.nodes >= 2 ? /外键|foreign key/i.test(erInfo.note) : true, erInfo.note)
+  check('C1 有外键时画出连线（edges >= 1），且「没有定义外键」的说明不再出现',
+    erInfo.edges >= 1 && !/没有定义外键|no foreign key/i.test(erInfo.note),
+    { edges: erInfo.edges, note: erInfo.note })
+  // 连线几何：端点是 SVG 用户坐标，getScreenCTM 换算到与 <rect> 同一套屏幕坐标再比对
+  const erGeom = await cdp.jeval('window.__erGeom()')
+  const TOL = 24
+  const inNode = (pt, n) => pt.x >= n.x - TOL && pt.x <= n.x + n.w + TOL &&
+    pt.y >= n.y - TOL && pt.y <= n.y + n.h + TOL
+  const hits = pt => erGeom.nodes.filter(n => inNode(pt, n)).map(n => n.id)
+  const shortId = s => String(s || '').split('.').pop()
+  const edgesGeo = erGeom.edges.map(e => ({
+    from: hits(e.from),
+    to: hits(e.to),
+    pair: [shortId(hits(e.from)[0]), shortId(hits(e.to)[0])].sort().join('↔'),
+    d: e.d
+  }))
+  check('C1 连线首尾各落在端点表的矩形内（±24px），且两端是两张不同的表',
+    edgesGeo.length >= 1 && edgesGeo.every(g =>
+      g.from.length === 1 && g.to.length === 1 && g.from[0] !== g.to[0]),
+    { nodes: erGeom.nodes.map(n => ({ id: n.id, box: [n.x, n.y, n.w, n.h].map(Math.round) })), edges: edgesGeo })
+  check('C1 连线连的是 order_items → orders（不是随便两条边）',
+    edgesGeo.some(g => g.pair === 'order_items↔orders'),
+    edgesGeo.map(g => g.pair))
   await shot('01-er-graph.png')
   const erClose = await cdp.eval('window.__closeModal(".db-er-modal")')
   const erGone = await waitFor(cdp, 'window.__all(".db-er-modal").length === 0', 'ER 弹层关闭后仍可见', 8000)
@@ -617,6 +730,43 @@ async function main () {
   const paneGone = await waitFor(cdp, 'window.__all(".db-value-pane").length === 0', '值面板关闭后仍可见', 8000)
   check('C3 关闭后值面板不残留', paneGone, { close: paneClose, info: await cdp.jeval('window.__paneInfo()') })
 
+  // ---- C4 SQL 结果网格的值面板（#2 use-db-sql-result-columns） ----
+  // 与 C3 同构，但作用于 SQL 结果自己的网格（.db-sql-result-grid），列定义/选中态
+  // 由 use-db-sql-result-columns 产出，和数据页那一套是两条独立链路
+  await cdp.eval('window.__tabN(1)')
+  const sqlEdReady = await waitFor(cdp,
+    '!![...document.querySelectorAll(".db-sql-area .cm-content")].find(window.__vis)',
+    'SQL 编辑器没就绪', 15000)
+  check('C4 SQL 页签编辑器就绪', sqlEdReady, await cdp.eval('window.__tabLabel(1)'))
+  if (!sqlEdReady) return finish()
+  const sqlCanvas = "select 1 as a, 'sqlpane-marker' as b;"
+  await setSql(cdp, sqlCanvas)
+  const runRet = await cdp.eval('window.__clickRunSql()')
+  const sqlRowsOk = await waitFor(cdp, 'window.__sqlRows() >= 1', 'SQL 结果网格没出数', 25000)
+  check('C4 执行 SQL 后结果网格出数', sqlRowsOk,
+    { ret: runRet, rows: await cdp.eval('window.__sqlRows()'), btns: await cdp.eval('window.__sqlBarBtns()') })
+  const sqlCell = await cdp.jeval('window.__sqlCellXY("b", 0)')
+  let sqlPaneOK = false
+  let sqlPaneInfo = { n: 0 }
+  if (sqlRowsOk && !sqlCell.error && sqlCell.inView !== false) {
+    await cdp.click(sqlCell.x, sqlCell.y)
+    sqlPaneOK = await waitFor(cdp, 'window.__all(".db-value-pane").length > 0',
+      'SQL 结果值面板没出现', 8000)
+    sqlPaneInfo = await cdp.jeval('window.__paneInfo()')
+  }
+  check('C4 单击 SQL 结果单元格弹出值面板（标题带列名 + 行号，正文是该格内容）',
+    sqlPaneOK &&
+    /(?:^|\W)b(?:\W|$)/.test(sqlPaneInfo.title) &&
+    /第 1 行|row 1/i.test(sqlPaneInfo.title) &&
+    /sqlpane-marker/.test(sqlPaneInfo.text),
+    { cell: sqlCell, info: sqlPaneInfo })
+  await shot('04b-sql-result-pane.png')
+  const sqlPaneClose = await cdp.eval('window.__closePane()')
+  const sqlPaneGone = await waitFor(cdp, 'window.__all(".db-value-pane").length === 0',
+    'SQL 结果值面板关闭后仍可见', 8000)
+  check('C4 关闭后 SQL 结果值面板不残留', sqlPaneGone,
+    { close: sqlPaneClose, info: await cdp.jeval('window.__paneInfo()') })
+
   // =====================================================================
   // A. #28 SQL 文件打开 / 保存
   // =====================================================================
@@ -657,6 +807,39 @@ async function main () {
   check('A3 编辑器改动后页签出现 •（sqlFileDirty）', typed2.ok && dirtySeen,
     { tab: await cdp.eval('window.__tabLabel(1)') })
   await shot('05-sql-file-dirty.png')
+
+  // A3b 覆盖确认的「取消」分支：脏缓冲上再点「打开」→ 必须问一声；
+  // 取消后编辑器缓冲与磁盘都不能动（取消不能静默丢改动，也不能偷偷写盘）
+  const docBefore = await cdp.eval('window.__sqlDocFull()')
+  await setDialogStub(mainCdp, { open: [UNBOUND + '.sql'], save: UNBOUND })
+  const openAgain = await cdp.eval('window.__btnRe(".db-sql-bar button", "打开|open")')
+  const confirmUp = await waitFor(cdp,
+    "document.querySelectorAll('.ant-modal-confirm').length > 0", '覆盖确认弹层没出现', 8000)
+  const confirmInfo = await cdp.jeval('window.__confirmInfo()')
+  check('A3b 脏缓冲上点「打开」→ 弹出覆盖确认（标题/正文/两个按钮都在）',
+    confirmUp && /覆盖|replace/i.test(confirmInfo.title) && confirmInfo.btns.length === 2,
+    { ret: openAgain, info: confirmInfo })
+  await shot('05b-sql-replace-confirm.png')
+  const cancelClick = await cdp.eval('window.__clickConfirm("取消|cancel")')
+  const confirmGone = await waitFor(cdp,
+    "window.__all('.ant-modal-confirm').length === 0", '点取消后确认弹层没关', 8000)
+  const docAfter = await cdp.eval('window.__sqlDocFull()')
+  const tabAfter = await cdp.eval('window.__tabLabel(1)')
+  const diskAfter = fs.existsSync(Q_SQL) ? fs.readFileSync(Q_SQL, 'utf8') : null
+  check('A3b 点「取消」→ 编辑器全文一字未变（没静默丢改动）',
+    confirmGone && cancelClick === 'ok' && docAfter === docBefore && /dirty marker/.test(docAfter),
+    {
+      cancel: cancelClick,
+      same: docAfter === docBefore,
+      beforeLen: docBefore.length,
+      afterLen: docAfter.length,
+      tail: docAfter.slice(-24)
+    })
+  check('A3b 取消后页签仍是 q.sql •（脏标记还在）',
+    /q\.sql/.test(String(tabAfter)) && String(tabAfter).indexOf('•') >= 0, tabAfter)
+  check('A3b 取消后磁盘 q.sql 未被写入（仍是打开时的原文）',
+    diskAfter === Q_TEXT,
+    { diskLen: diskAfter === null ? null : diskAfter.length, expLen: Q_TEXT.length })
 
   // A4 保存 → 磁盘内容 == 编辑器内容
   const save2 = await cdp.eval('window.__btnRe(".db-sql-bar button", "保存|save")')
