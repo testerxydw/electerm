@@ -37,7 +37,6 @@ import {
   wideColumnWidth,
   cellText
 } from '../../common/db-column-width'
-import { buildRefItems } from './db-ref-utils'
 import { isBinEnvelope } from './value-renderers'
 import RemoteFloatControl from '../common/remote-float-control'
 import { useKeywordPatterns } from './db-highlight'
@@ -60,6 +59,7 @@ import { useDbGridColumns } from './use-db-grid-columns'
 import { useDbSqlResultColumns } from './use-db-sql-result-columns'
 import { useDbTreeData } from './use-db-tree-data'
 import { useDbRedisInstance } from './use-db-redis-instance'
+import { useDbForeignRefs } from './use-db-foreign-refs'
 import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
@@ -384,74 +384,17 @@ export default auto(function DbSession (props) {
     return cellText(panelValue).length + ' chars'
   }, [panelValue])
 
-  // ---- F1 外键引用侧栏（设计 §8） ----
-  // 反向引用（"哪些表指向本表"）按 表+列 懒拉取并缓存：
-  // 换单元格但列不变时复用结果，避免每次点单元格都打一次 catalog
-  const [refInfo, setRefInfo] = useState({ loading: false, references: [], degraded: false })
-  const refsKeyRef = useRef('')
-  useEffect(() => {
-    if (isRedis || !sel || !selectedCell || !selectedCell.col) {
-      refsKeyRef.current = ''
-      return undefined
-    }
-    const key = [sel.database || '', sel.schema || '', sel.table || '', selectedCell.col].join('\u0000')
-    if (refsKeyRef.current === key) {
-      return undefined
-    }
-    refsKeyRef.current = key
-    let cancelled = false
-    setRefInfo({ loading: true, references: [], degraded: false })
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'getReferences', {
-      database: sel.database,
-      schema: sel.schema || '',
-      table: sel.table,
-      columns: [selectedCell.col]
-    }).then(res => {
-      if (cancelled) {
-        return
-      }
-      setRefInfo({
-        loading: false,
-        references: (res && Array.isArray(res.references)) ? res.references : [],
-        degraded: !!(res && res.degraded)
-      })
-    }).catch(() => {
-      if (cancelled) {
-        return
-      }
-      // 目录查询失败等同降级：页签隐藏 + 一行提示，不影响主流程
-      setRefInfo({ loading: false, references: [], degraded: true })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [isRedis, sel, selectedCell && selectedCell.col, tabId])
-  // 两方向的引用项：父行（本表外键 → 父表）本地可算；子记录依赖 refInfo
-  const refItems = useMemo(() => {
-    if (isRedis || !selectedCell || !sel) {
-      return []
-    }
-    const row = grid.rows[selectedCell.rowKey]
-    if (!row) {
-      return []
-    }
-    return buildRefItems({
-      column: selectedCell.col,
-      row,
-      foreignKeys: structureV2.foreignKeys || [],
-      references: refInfo.references,
-      database: sel.database,
-      schema: sel.schema || '',
-      dialect
-    })
-  }, [isRedis, selectedCell, grid.rows, structureV2.foreignKeys, refInfo.references, sel, dialect])
-  // 页签可见性：本表有外键（本地 FK 即刻可判）或反向引用非空时显示；
-  // 两者皆无 → 隐藏；降级（目录不可读）且无本地外键 → 隐藏 + 一行提示
-  const showRefTab = !isRedis && !!selectedCell && (
-    (structureV2.foreignKeys || []).length > 0 ||
-    refInfo.references.length > 0 ||
-    refInfo.degraded
-  )
+  // ---- #9 外键引用侧栏拆到 use-db-foreign-refs（行为零变更）----
+  // 反向引用缓存 effect / 两方向引用项 / 页签可见性整体搬到同目录 hook
+  const { refInfo, refItems, showRefTab } = useDbForeignRefs({
+    isRedis,
+    sel,
+    selectedCell,
+    tabId,
+    grid,
+    structureV2,
+    dialect
+  })
   // T1 过滤变化会改变可见行：清掉选中/编辑，避免原索引指向另一行
   const resetPageFilter = () => {
     setPageFilter('')
