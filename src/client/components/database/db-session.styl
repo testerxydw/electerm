@@ -3151,6 +3151,21 @@ body.db-col-resizing
   color var(--text)
   word-break break-all
 
+// N4a：格式下拉 + 文件元信息 + 灰掉按钮的原因说明
+.db-import-format
+  width 150px
+
+.db-import-file-meta
+.db-import-script-meta
+  margin-top 4px
+  color var(--text-dark)
+  font-size 12px
+
+.db-import-hint
+  margin-top 10px
+  color var(--warn)
+  font-size 12px
+
 .db-import-sample
   margin-top 8px
   padding 8px
@@ -3245,6 +3260,49 @@ body.db-col-resizing
   font-family var(--db-code-font, var(--font-mono))
   font-size 12px
   word-break break-all
+
+// N4a：SQL 脚本导入的语句清单（序号 + 风险级 + 语句文本）。
+// 风险级标签沿用 E1 的 .db-risk-stmt-lv / .db-risk-lv-*，不另配色
+.db-import-stmt-note
+  margin-bottom 8px
+  color var(--text-dark)
+  font-size 12px
+
+.db-import-stmt-list
+  max-height 260px
+  overflow auto
+  padding 6px 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+
+.db-import-stmt
+  display flex
+  gap 8px
+  align-items baseline
+  padding 3px 0
+  border-bottom 1px dashed var(--border)
+
+  &:last-child
+    border-bottom none
+
+.db-import-stmt-no
+  flex none
+  color var(--text-dark)
+  font-size 12px
+  min-width 28px
+
+.db-import-stmt-text
+  flex 1
+  min-width 0
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  color var(--text)
+  word-break break-all
+
+.db-import-stmt-more
+  margin-top 6px
+  color var(--text-dark)
+  font-size 12px
 
 // B 批：SQL 收藏面板（与历史弹层共用容器，双 tab）
 .db-history-tabbar

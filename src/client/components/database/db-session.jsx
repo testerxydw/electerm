@@ -4329,11 +4329,13 @@ export default auto(function DbSession (props) {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         tabId={tabId}
+        dbType={tab.dbType}
         database={sel ? sel.database : ''}
         schema={sel ? sel.schema : ''}
         table={sel ? sel.table : ''}
         columns={structureV2.columns || []}
         confirmRisk={confirmImportRisk}
+        confirmSqlRisk={confirmSqlRisk}
       />
       {/* D 批：EXPLAIN 执行计划（选区/整段语句，只读分析；redis 不入口） */}
       <DbExplainDialog

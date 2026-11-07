@@ -1,8 +1,10 @@
 /**
- * db-importer 单测（C 批，设计 §10）
+ * 导入执行层 + CSV/TSV 解析单测（C 批 §10 + N4a §N4）
  *
  * 覆盖重点：RFC4180 解析器纯函数（createParserState / feedChunk / finish /
- * parseSample）+ 映射归一 + 行映射。解析器跑真实源码（模块顶层仅依赖 log，
+ * parseSample，现居 db-import/parsers.js）+ 映射归一与行映射（现居
+ * db-import/mapping.js）+ SQL 脚本通道（runScriptImport / normalizeStatements /
+ * affectedOf，注入假 exec，不碰连接）。跑真实源码（模块顶层仅依赖 log，
  * 经 electron/electron-log 桩后可 plain require）。
  *
  * 块边界是解析器的主风险面（4KB 流式喂入）：任何切块方式都必须与整串解析
@@ -12,6 +14,9 @@ process.env.NODE_ENV = 'development'
 
 const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const Module = require('node:module')
 
 const electronStub = { app: { getPath: () => '/tmp', isPackaged: false }, dialog: {} }
@@ -40,9 +45,19 @@ const {
   finish,
   parseSample,
   isEmptyRow,
+  resolveFormat
+} = require('../../app/lib/db-import/parsers')
+const {
   normalizeMapping,
-  mapRowToInsert,
-  DEFAULT_BATCH_SIZE
+  mapRowToInsert
+} = require('../../app/lib/db-import/mapping')
+const {
+  runScriptImport,
+  runRowImport,
+  normalizeStatements,
+  affectedOf,
+  DEFAULT_BATCH_SIZE,
+  MAX_IMPORT_STATEMENTS
 } = require('../../app/lib/db-importer')
 
 // 整串一次性解析
@@ -352,5 +367,240 @@ describe('mapRowToInsert 行映射', () => {
 describe('常量', () => {
   test('默认批次 500', () => {
     assert.equal(DEFAULT_BATCH_SIZE, 500)
+  })
+})
+
+// ---------- SQL 脚本通道（N4a） ----------
+
+const newScriptTask = () => ({
+  status: 'running',
+  totalStatements: 0,
+  executedStatements: 0,
+  failedStatements: 0,
+  statementNo: 0,
+  committedRows: 0,
+  errors: []
+})
+
+describe('normalizeStatements 语句数组校验', () => {
+  test('非空文本原样通过（顺序不变）', () => {
+    assert.deepEqual(normalizeStatements(['A;', 'B;', 'C;']), ['A;', 'B;', 'C;'])
+  })
+
+  test('空数组 / 非数组 → 抛错', () => {
+    assert.throws(() => normalizeStatements([]), /SQL 导入需要至少一条语句/)
+    assert.throws(() => normalizeStatements(undefined), /SQL 导入需要至少一条语句/)
+  })
+
+  test('空串 / 纯空白 / 非字符串 → 抛错并给出行号', () => {
+    assert.throws(() => normalizeStatements(['A;', '']), /第 2 条语句为空或不是文本/)
+    assert.throws(() => normalizeStatements(['  ']), /第 1 条/)
+    assert.throws(() => normalizeStatements([123]), /第 1 条/)
+  })
+
+  test('超过条数上限 → 抛错（IPC 载荷护栏）', () => {
+    const many = new Array(MAX_IMPORT_STATEMENTS + 1).fill('SELECT 1')
+    assert.throws(() => normalizeStatements(many), new RegExp(`上限 ${MAX_IMPORT_STATEMENTS}`))
+  })
+})
+
+describe('affectedOf 影响行数汇总', () => {
+  test('results[].affected 求和，缺字段按 0', () => {
+    assert.equal(affectedOf({ results: [{ affected: 2 }, { affected: 3 }] }), 5)
+    assert.equal(affectedOf({ results: [{ affected: undefined }, { affected: 1 }] }), 1)
+  })
+
+  test('空结果 / 非对象 → 0', () => {
+    assert.equal(affectedOf(null), 0)
+    assert.equal(affectedOf({}), 0)
+    assert.equal(affectedOf({ results: [] }), 0)
+  })
+})
+
+describe('runScriptImport 逐条执行', () => {
+  test('按顺序原样下发每条语句，进度与影响行数累计', async () => {
+    const task = newScriptTask()
+    const seen = []
+    await runScriptImport(
+      { statements: ['A;', 'B;', 'C;'] },
+      task,
+      async sql => {
+        seen.push(sql)
+        return { results: [{ affected: 2 }] }
+      }
+    )
+    assert.deepEqual(seen, ['A;', 'B;', 'C;'])
+    assert.equal(task.status, 'done')
+    assert.equal(task.totalStatements, 3)
+    assert.equal(task.executedStatements, 3)
+    assert.equal(task.statementNo, 3)
+    assert.equal(task.committedRows, 6)
+    assert.deepEqual(task.errors, [])
+  })
+
+  test('取消在语句边界止步：已执行的保留，未执行的一条不发', async () => {
+    const task = newScriptTask()
+    const seen = []
+    await runScriptImport(
+      { statements: ['A;', 'B;', 'C;'] },
+      task,
+      async sql => {
+        seen.push(sql)
+        if (sql === 'A;') {
+          task.cancelRequested = true
+        }
+        return { results: [{ affected: 1 }] }
+      }
+    )
+    assert.deepEqual(seen, ['A;'])
+    assert.equal(task.status, 'cancelled')
+    assert.equal(task.executedStatements, 1)
+  })
+
+  // 真实取消来自另一个宏任务（IPC 消息），不是 exec 内部。同步 await 链会把宏任务
+  // 饿死：循环不主动让出事件循环的话，这条 cancel 请求永远排不到，任务一路跑到 done。
+  test('取消请求来自宏任务时接得住：每条语句之间让出事件循环', async () => {
+    const task = newScriptTask()
+    const seen = []
+    setImmediate(() => {
+      task.cancelRequested = true
+    })
+    await runScriptImport(
+      { statements: Array.from({ length: 50 }, (_, i) => `S${i};`) },
+      task,
+      async sql => {
+        seen.push(sql)
+        return { results: [{ affected: 1 }] }
+      }
+    )
+    assert.equal(task.status, 'cancelled')
+    assert.ok(seen.length < 50, `50 条全跑完了，说明循环没有让出事件循环：${seen.length}`)
+    assert.equal(task.executedStatements, seen.length)
+  })
+
+  test('失败即止：不再执行后续语句，错误带语句序号', async () => {
+    const task = newScriptTask()
+    const seen = []
+    await assert.rejects(
+      runScriptImport(
+        { statements: ['A;', 'B;', 'C;'] },
+        task,
+        async sql => {
+          seen.push(sql)
+          if (sql === 'B;') {
+            throw new Error('no such table')
+          }
+          return { results: [{ affected: 1 }] }
+        }
+      ),
+      /第 2 条语句失败，导入已停止：no such table/
+    )
+    assert.deepEqual(seen, ['A;', 'B;'])
+    assert.equal(task.executedStatements, 1)
+    assert.equal(task.failedStatements, 1)
+    assert.deepEqual(task.errors, [{ no: 2, message: 'no such table' }])
+  })
+
+  test('语句校验失败时一条都不执行', async () => {
+    const task = newScriptTask()
+    const seen = []
+    await assert.rejects(
+      runScriptImport({ statements: ['A;', ''] }, task, async sql => { seen.push(sql); return {} }),
+      /第 2 条语句为空或不是文本/
+    )
+    assert.deepEqual(seen, [])
+    assert.equal(task.executedStatements, 0)
+  })
+})
+
+// ---------- 行通道分批提交（N4a 缺陷回归） ----------
+//
+// 适配器每次 insertRows 都能清空目标表，而导入按 batchSize 把一份文件拆成多次
+// insertRows：若每次都清，最后一批提交后只剩最后一批的行，committedRows 与库内
+// 行数就此对不上。这里钉住"一个任务只清一次"的调用口径。
+describe('runRowImport 分批提交：overwrite 只在首批清空目标表', () => {
+  const writeCsv = (dir, rows) => {
+    const filePath = path.join(dir, 'src.csv')
+    fs.writeFileSync(filePath, ['id,name'].concat(rows).join('\n') + '\n')
+    return filePath
+  }
+
+  const fakeCtx = (calls, structure) => {
+    const dbClientPath = require.resolve('../../app/lib/db-client')
+    const saved = require.cache[dbClientPath]
+    // runRowImport 取表结构走 dbClientOp，这里只替换这一个入口
+    require.cache[dbClientPath] = {
+      id: dbClientPath,
+      filename: dbClientPath,
+      loaded: true,
+      exports: { dbClientOp: async () => structure }
+    }
+    return {
+      ctx: {
+        conn: {},
+        readOnly: false,
+        adapter: {
+          insertRows: async (conn, arg) => {
+            calls.push(arg)
+            return { affected: arg.rows.length, batchCount: 1, failures: [] }
+          }
+        }
+      },
+      restore: () => {
+        if (saved) {
+          require.cache[dbClientPath] = saved
+        } else {
+          delete require.cache[dbClientPath]
+        }
+      }
+    }
+  }
+
+  const structure = { columns: [{ name: 'id', isPrimaryKey: true }, { name: 'name' }] }
+  const mapping = [
+    { fileCol: 'id', target: 'id' },
+    { fileCol: 'name', target: 'name' }
+  ]
+  const taskOf = () => ({
+    status: 'running', committedRows: 0, failedBatches: 0, errors: [], cancelRequested: false
+  })
+
+  const runOverwrite = async (mode, batchSize, rows) => {
+    const calls = []
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-importer-clear-'))
+    const { ctx, restore } = fakeCtx(calls, structure)
+    try {
+      const filePath = writeCsv(dir, rows)
+      const task = taskOf()
+      await runRowImport(
+        { filePath, database: 'main', schema: '', table: 't', mapping, mode, batchSize },
+        task,
+        ctx,
+        'sqlite',
+        resolveFormat(filePath)
+      )
+      return { calls, task }
+    } finally {
+      restore()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  test('5 行 / batchSize 2 → 三次调用，clearTarget 依次 true,false,false', async () => {
+    const { calls, task } = await runOverwrite('overwrite', 2, [
+      '1,a', '2,b', '3,c', '4,d', '5,e'
+    ])
+    assert.equal(calls.length, 3)
+    assert.deepEqual(calls.map(c => c.clearTarget), [true, false, false])
+    assert.deepEqual(calls.map(c => c.rows.length), [2, 2, 1])
+    assert.deepEqual(calls.map(c => c.mode), ['overwrite', 'overwrite', 'overwrite'])
+    assert.equal(task.committedRows, 5)
+    assert.equal(task.failedBatches, 0)
+  })
+
+  test('append 全程不清空（clearTarget 恒为 false）', async () => {
+    const { calls } = await runOverwrite('append', 2, ['1,a', '2,b', '3,c'])
+    assert.equal(calls.length, 2)
+    assert.deepEqual(calls.map(c => c.clearTarget), [false, false])
   })
 })

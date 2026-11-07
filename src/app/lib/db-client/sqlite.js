@@ -742,9 +742,11 @@ function insertBatchParams (rows, cols, expressions) {
   return params
 }
 
+// clearTarget=false 用于导入的分批提交：同一导入任务只在首批清空目标表，
+// 否则每批都清一次会把前面已提交的行删光（默认 true 保持单次调用语义不变）
 async function insertRows (
   conn,
-  { table, rows, readOnly, mode = 'append', pkColumns, updateColumns, expressions }
+  { table, rows, readOnly, mode = 'append', pkColumns, updateColumns, expressions, clearTarget = true }
 ) {
   checkWritable(readOnly)
   if (!INSERT_MODES.includes(mode)) {
@@ -763,7 +765,7 @@ async function insertRows (
   const batches = planInsertBatches(list)
   let affected = 0
   const failures = []
-  if (mode === 'overwrite') {
+  if (mode === 'overwrite' && clearTarget) {
     db.exec('BEGIN')
     try {
       db.prepare('DELETE FROM ' + fullTable(table)).run()

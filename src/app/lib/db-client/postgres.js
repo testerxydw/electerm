@@ -808,7 +808,10 @@ const INSERT_MODES = ['append', 'overwrite', 'upsert']
 
 async function insertRows (
   conn,
-  { database, schema, table, rows, readOnly, mode = 'append', pkColumns, updateColumns, expressions }
+  {
+    database, schema, table, rows, readOnly, mode = 'append', pkColumns, updateColumns, expressions,
+    clearTarget = true
+  }
 ) {
   checkWritable(readOnly)
   if (!INSERT_MODES.includes(mode)) {
@@ -831,7 +834,7 @@ async function insertRows (
   const batches = planInsertBatches(list)
   let affected = 0
   const failures = []
-  if (mode === 'overwrite') {
+  if (mode === 'overwrite' && clearTarget) {
     // 清空与写入分事务：DELETE 本身可整批失败（权限/外键），失败则整个导入中止
     // （抛错，不继续批次）；已提交批次保留是导入的既定语义（止步不回滚），
     // 不在一条大事务里硬凑原子性。与 mysql 适配器 overwrite 分支口径一致。

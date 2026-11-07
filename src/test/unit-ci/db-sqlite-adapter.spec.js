@@ -621,6 +621,17 @@ describe('sqlite adapter · integration', () => {
     assert.equal(overwrite.affected, 1)
     assert.deepEqual(plain(await adapter.countRows(ctx.conn, { table: 'nopk' })), { count: 1 })
 
+    // clearTarget=false：导入分批提交的后续批次，前一批已提交的行必须留着
+    const keepFirst = await adapter.insertRows(ctx.conn, {
+      table: 'nopk', mode: 'overwrite', rows: [{ a: 'b1' }, { a: 'b2' }]
+    })
+    assert.equal(keepFirst.affected, 2)
+    const keepNext = await adapter.insertRows(ctx.conn, {
+      table: 'nopk', mode: 'overwrite', rows: [{ a: 'b3' }], clearTarget: false
+    })
+    assert.equal(keepNext.affected, 1)
+    assert.deepEqual(plain(await adapter.countRows(ctx.conn, { table: 'nopk' })), { count: 3 })
+
     await assert.rejects(
       adapter.insertRows(ctx.conn, { table: 'users', rows: [{ name: 'x' }], mode: 'rebuild' }),
       /unsupported insertRows mode/
