@@ -133,15 +133,9 @@ import DbExplainDialog from './db-explain-tree'
 import { delPercent } from '../../common/db-redis-del'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
-import {
-  normalizeView,
-  parseClause,
-  findClauseProblem,
-  nextSortOrder
-} from '../../common/db-grid-view'
+import { normalizeView } from '../../common/db-grid-view'
 // 视角持久化走主进程文件（userData/db-grid-views.json）：localStorage 会因
 // UI server 动态端口导致 origin 漂移，跨启动读空
-import { removeGridView } from '../../common/db-grid-views'
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
 // 这里只消费：编辑框取原值、导出取原始行、UPDATE 拼原值，都不经过它
 import { readFormatLocale, FORMAT_LOCALE_KEY } from '../../common/db-format-value'
@@ -724,6 +718,9 @@ export default auto(function DbSession (props) {
     setViewBarSeq,
     setViewRejected,
     setViewTruncated,
+    // #30：视图动作已并进 useDbView，两个纯 UI 状态随之下传
+    viewMode,
+    whereDraft,
     setGrid,
     setSelectedRowKeys,
     setExactRows,
@@ -762,7 +759,12 @@ export default auto(function DbSession (props) {
     loadQuery,
     loadWithCount,
     countExactRows,
-    onViewChange
+    onViewChange,
+    patchViewColumns,
+    turnPage,
+    onColSort,
+    onViewApply,
+    onViewReset
   } = viewApi
   const {
     loadRedisKeys,
@@ -1030,116 +1032,6 @@ export default auto(function DbSession (props) {
   const selectedKeys = isRedis
     ? (redisDb >= 0 ? [String(redisDb)] : [])
     : (sel ? [nodeKey(sel.database, sel.schema, sel.table)] : [])
-
-  /**
-   * 列显示设置（隐藏/列宽/列序）补丁。与 onViewChange 分开是因为：
-   * 这些改动**不改变结果集**，不该走"应用 → 回第 1 页 → 重新取数"那条路
-   * （拖个列宽就重新查一次库是不可接受的）。落盘照走 400ms 防抖。
-   * @param {Object} patch { hiddenColumns?, columnWidths?, columnOrder? }
-   */
-  const patchViewColumns = (patch) => {
-    const cur = viewRef.current
-    applyView(normalizeView({
-      conditions: cur.conditions,
-      order: cur.order,
-      pageSize: cur.pageSize,
-      hiddenColumns: patch.hiddenColumns !== undefined ? patch.hiddenColumns : cur.hiddenColumns,
-      columnWidths: patch.columnWidths !== undefined ? patch.columnWidths : cur.columnWidths,
-      columnOrder: patch.columnOrder !== undefined ? patch.columnOrder : cur.columnOrder
-    }))
-  }
-
-  const turnPage = (page) => {
-    if (!sel) {
-      return
-    }
-    loadQuery(sel, page, { keepLastPage: true })
-  }
-
-  // 列头点击：**只负责把这次点击写进 view.order**，方向与 3 列上限由 nextSortOrder 决定。
-  // 视角条的 chips 走同一个函数，两处显示因此永远一致（各写一份必然打架）。
-  // 箭头由 ColHead 自己画（与 SQL 结果同一套）：不再借 antd 的 col.sorter，
-  // 它会把标题包进 .ant-table-column-sorters、挤掉列头右沿的拖宽热区，
-  // 还带一个语言包里没有的英文 tooltip（"Click to sort ascending"）
-  const onColSort = (field) => {
-    if (!sel || !field) {
-      return
-    }
-    applyView(normalizeView({
-      ...viewRef.current,
-      order: nextSortOrder(viewRef.current.order, String(field), 3)
-    }))
-    resetPageFilter()
-    // 换排序/换页大小都不改结果集大小：有生效条件时那个"精确行数"仍然成立，
-    // 清掉它只会让表头退回"近似"（而近似值在带条件时根本不适用）
-    if (!viewParts(viewRef.current).where) {
-      resetExactRows()
-    }
-    loadQuery(sel, 1)
-  }
-
-  /**
-   * 应用视角：回第 1 页并重新取数（先 count 再取页）。
-   * SQL 模式下手写条件体**不经过 buildWhere**（字面量已内联），
-   * 但一样要好主进程那一道闸门 —— findClauseProblem 只是提前禁用按钮，
-   * 真正的拒绝在 assertSafeClause。
-   */
-  const onViewApply = () => {
-    if (!sel) {
-      return
-    }
-    resetPageFilter()
-    resetExactRows()
-    if (viewMode === 'sql') {
-      const text = String(whereDraft || '').trim()
-      const problem = findClauseProblem(text, dialect)
-      if (problem) {
-        message.error(e('dbViewBlocked'))
-        return
-      }
-      const q = {
-        where: text,
-        whereParams: [],
-        orderClauses: viewParts(viewRef.current).orderClauses
-      }
-      // 能结构化的顺手同步回 conditions：这样持久化的是**等价条件**，
-      // 重启后还能恢复；结构化不了的就只在本次会话生效（不写盘）
-      const parsed = text
-        ? parseClause(text, structureV2Ref.current.columns, dialect)
-        : { conditions: [] }
-      if (parsed) {
-        applyView(normalizeView({ ...viewRef.current, conditions: parsed.conditions }))
-      }
-      loadWithCount(sel, 1, { query: q })
-      return
-    }
-    loadWithCount(sel, 1)
-  }
-
-  // 重置：清条件与排序、删持久化键（页大小是显示偏好，不属于"筛选"，不动）
-  const onViewReset = () => {
-    if (viewSaveTimer.current) {
-      clearTimeout(viewSaveTimer.current)
-      viewSaveTimer.current = null
-    }
-    if (viewKeyRef.current) {
-      removeGridView(viewKeyRef.current)
-    }
-    countKeyRef.current = ''
-    resetPageFilter()
-    resetExactRows()
-    const fresh = normalizeView({ pageSize: viewRef.current.pageSize })
-    viewRef.current = fresh
-    setView(fresh)
-    setViewMode('builder')
-    setWhereDraft('')
-    setViewRejected([])
-    setViewTruncated([])
-    setViewBarSeq(n => n + 1)
-    if (sel) {
-      loadQuery(sel, 1)
-    }
-  }
 
   // 只读模式（默认开，书签 readOnly !== false）。
   // 用本地 state 而非直接读 tab：本组件是普通函数组件，父级不读 readOnly，
