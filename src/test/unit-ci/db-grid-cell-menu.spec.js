@@ -16,6 +16,8 @@ const path = require('node:path')
 
 const ROOT = path.join(__dirname, '../../..')
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
+// N11b-#22：openDataCellMenu / rowColumnNames 已迁到 use-db-grid-columns.jsx（已接线）
+const readSession = () => read(SESSION) + '\n' + read('src/client/components/database/use-db-grid-columns.jsx')
 
 const MENU = 'src/client/components/database/db-cell-menu.jsx'
 const SESSION = 'src/client/components/database/db-session.jsx'
@@ -23,7 +25,7 @@ const SESSION = 'src/client/components/database/db-session.jsx'
 const codeOf = src => src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
 
 const dataMenuBody = () => {
-  const src = codeOf(read(SESSION))
+  const src = codeOf(readSession())
   const start = src.indexOf('const openDataCellMenu =')
   assert.notEqual(start, -1, 'openDataCellMenu 未找到')
   // 函数体到同级缩进的收尾大括号为止（按下一个顶层 const 截会把 body 里的
@@ -69,7 +71,7 @@ describe('H2 单元格右键菜单：浮层契约', () => {
 
 describe('H2 单元格右键菜单：数据页装配', () => {
   test('全站单例：DbCellMenu 只挂一处，两页共用同一份 cellMenu state', () => {
-    const src = codeOf(read(SESSION))
+    const src = codeOf(readSession())
     const mounts = src.match(/<DbCellMenu\b/g) || []
     assert.equal(mounts.length, 1, '右键菜单必须是全站单例')
     assert.equal((src.match(/setCellMenu\(/g) || []).length > 2, true, '两页都要能写这份 state')

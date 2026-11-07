@@ -15,7 +15,9 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 // CSS 契约背景：auto 高度的 flex 容器里子项 flex-basis 0 会把内容高缩成 0
 // （曾导致 Redis 键列表整块塌陷），故 .db-grid-table 的 basis 必须是 auto。
 
-const loadJsx = () => fs.readFileSync(JSX, 'utf8')
+// N11b-#22：数据网格列定义已迁到 use-db-grid-columns.jsx（已接线）
+const GRID_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-grid-columns.jsx')
+const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')
 // H1a-4：数据页 / SQL 结果页列定义并入公共列工厂，单元格级契约跟着挪过去
 const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
@@ -200,7 +202,9 @@ describe('批次 C：数据库页渲染收口契约', () => {
       'const { quickOpen, setQuickOpen, quickItems } = useDbQuickOpen(',
       'const sqlTables = useMemo(',
       'const treeData = useMemo(',
-      'const columnWidths = useMemo('
+      // N11b-#22：columnWidths 已随列定义迁到 use-db-grid-columns.jsx，
+      // 这里钉 owner 侧的 hook 调用点
+      '} = useDbGridColumns({'
     ]
     for (const m of markers) {
       const pos = src.indexOf(m)

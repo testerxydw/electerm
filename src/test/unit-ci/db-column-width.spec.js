@@ -50,7 +50,10 @@ const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
 // 源码文本契约跟着代码走，组合读两份发布源码，断言语义与计数阈值保持原样（总数守恒）。
 const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.jsx')
-const read = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
+// N11b-#22：数据网格列定义（列宽三态 / columns memo / 自适应全部列）已迁到
+// use-db-grid-columns.jsx（已接线），组合读取源追加该 hook
+const GRID_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-grid-columns.jsx')
+const read = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8')
 // H1a-4（网格复用整合）：数据页 / SQL 结果页的列定义并入公共列工厂，
 // 两处网格的接线契约（ColHead/onCell/CELL_ELLIPSIS/三源选宽）跟着挪进工厂
 const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
@@ -533,7 +536,10 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
     }
     assert.equal((src.match(/colFitAllBtn\(/g) || []).length, 4, '一处网格一个按钮，定义本身不带括号')
     // 只在有手动宽时可点：没拖过时按下去不会有任何变化，禁用比"点了没反应"诚实
-    const btn = src.match(/const colFitAllBtn = \(wg\) => \{[\s\S]*?\n {2}\}\)/)
+    // N11b-#22：定义已迁到 use-db-grid-columns.jsx，原正则靠「非贪婪扩展到后面某个 `  })`」
+    // 才终止；迁出后 hook 文件里定义之后没有这样的锚点。改为按函数体自身的
+    // `   }` 收口 —— 比原来更精确（原来的匹配会跨到几百行之后）
+    const btn = src.match(/const colFitAllBtn = \(wg\) => \{[\s\S]*?\n {2}\}\n/)
     assert.ok(btn, 'colFitAllBtn not found')
     assert.ok(btn[0].includes('disabled={!wg.hasManual}'), 'fit-all must stay disabled without manual widths')
     assert.ok(!/onClick=\{\(\) => wg\./.test(btn[0]), '内联箭头 = 每轮新引用，标准也拦着')

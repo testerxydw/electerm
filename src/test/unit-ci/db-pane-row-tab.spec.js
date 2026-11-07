@@ -16,10 +16,12 @@ const ROW_DETAIL = path.join(ROOT, 'src/client/components/database/db-row-detail
 const extra = require(path.join(ROOT, 'src/app/common/locales-extra.js'))
 
 const read = p => fs.readFileSync(p, 'utf8')
+// N11b-#22：rowColumnNames / colTypeByName 已迁到 use-db-grid-columns.jsx（已接线）
+const readSession = () => read(path.join(ROOT, 'src/client/components/database/db-session.jsx')) + '\n' + read(path.join(ROOT, 'src/client/components/database/use-db-grid-columns.jsx'))
 
 describe('H2 底部"行"页签', () => {
   test('复用 db-row-detail 的 DbRowDetail 本体（不另写一份字段列表）', () => {
-    const src = read(SESSION)
+    const src = readSession()
     assert.match(
       src,
       /import\s*\{\s*DbRowDetail,\s*DbRowDetailModal\s*\}\s*from\s*'\.\/db-row-detail'/,
@@ -29,7 +31,7 @@ describe('H2 底部"行"页签', () => {
   })
 
   test('页签三选：值 / 行 / 关联，关联按 showRefTab 条件挂载', () => {
-    const src = read(SESSION)
+    const src = readSession()
     const start = src.indexOf('const detailTabItems = [')
     assert.notEqual(start, -1, 'detailTabItems 未找到')
     const body = src.slice(start, src.indexOf('const emptyPaneEl', start))
@@ -39,7 +41,7 @@ describe('H2 底部"行"页签', () => {
   })
 
   test('行页签字段序与类型表与网格同源（rowColumnNames / colTypeByName）', () => {
-    const src = read(SESSION)
+    const src = readSession()
     const start = src.indexOf('const rowPaneEl = selectedRow')
     assert.notEqual(start, -1, 'rowPaneEl 未找到')
     const body = src.slice(start, src.indexOf('const detailTabItems', start))
@@ -49,7 +51,7 @@ describe('H2 底部"行"页签', () => {
   })
 
   test('rowColumnNames 剔掉 __rowKey（不是数据列，只是网格定位键）', () => {
-    const src = read(SESSION)
+    const src = readSession()
     assert.match(
       src,
       /const rowColumnNames = \(row\) => visibleColumnNames\(\s*Object\.keys\(row \|\| \{\}\)\.filter\(k => k !== '__rowKey'\)/,
