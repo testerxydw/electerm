@@ -19,9 +19,9 @@ import { paletteHealth } from '../../common/keyword-palette-health'
 import {
   addUserRule,
   allPresetViews,
-  applySemanticTier,
+  applyAllRules,
+  applyAllView,
   isRuleOn,
-  isStructureTierOn,
   presetKeywordIndex,
   removeEntry,
   removeUserGroup,
@@ -33,6 +33,7 @@ import {
   setPresetRuleOn,
   setTierOn,
   setUserGroupOn,
+  tierView,
   updateEntry,
   userGroupViews
 } from '../../common/keyword-groups'
@@ -453,12 +454,15 @@ export default function KeywordForm (props) {
     )
   }
 
-  // V2 §7.2：全部应用 = 应用语义档（signal 全开 + structure 默认关），
-  // 不再逐组 setPresetGroupOn —— 那样会因 requires 把两个通用结构档一起点亮，
-  // 又回到「105 条全上、满屏蓝」。结构档由下面的独立开关按需打开。
-  const setAll = (on) => commit(on ? applySemanticTier(list) : setAllOff(list))
-  const structureOn = isStructureTierOn(list)
-  const setStructure = (on) => commit(setTierOn(list, 'structure', on))
+  // 工具条三勾选按 tier 逐条置位，不走 setPresetGroupOn —— 后者会因 requires 把两个
+  // 通用结构档一起点亮，勾「语义档」就顺带满屏蓝（密度治理 V2 §7.2 的原教训）。
+  // 「应用全部」是两份档位 + 用户规则的超集：只从它们派生，不另存状态，
+  // 取消其中任何一项它自动退成 indeterminate，因此不再需要独立的「全部取消」按钮。
+  const semanticView = tierView(list, 'signal')
+  const structureView = tierView(list, 'structure')
+  const allView = applyAllView(list)
+  const setTier = (tier, on) => commit(setTierOn(list, tier, on))
+  const setApplyAll = (on) => commit(on ? applyAllRules(list) : setAllOff(list))
 
   // 色板体检（批次 F）：KU-6 四条闸的实测值，纯展示不参与裁决；
   // 数字与 CI 闸同源（keyword-palette-health.js），换色板后两边一起变。
@@ -484,19 +488,37 @@ export default function KeywordForm (props) {
           value={q}
           onChange={ev => setQ(ev.target.value)}
         />
-        <Tooltip title={e('kwApplySemanticTip')}>
-          <Button size='small' onClick={() => setAll(true)}>{e('kwApplySemantic')}</Button>
+        <Tooltip title={e('kwSemanticTierTip')}>
+          <label className='kw-only-on'>
+            <TriCheck
+              checked={semanticView.checked}
+              indeterminate={semanticView.indeterminate}
+              onChange={on => setTier('signal', on)}
+            />
+            {e('kwSemanticTier')}
+            <span className='kw-tier-count'>{semanticView.on}/{semanticView.total}</span>
+          </label>
         </Tooltip>
-        <Button size='small' onClick={() => setAll(false)}>{e('kwUnapplyAll')}</Button>
         <Tooltip title={e('kwStructureTierTip')}>
           <label className='kw-only-on'>
-            <input
-              type='checkbox'
-              className='kw-check'
-              checked={structureOn}
-              onChange={ev => setStructure(ev.target.checked)}
+            <TriCheck
+              checked={structureView.checked}
+              indeterminate={structureView.indeterminate}
+              onChange={on => setTier('structure', on)}
             />
             {e('kwStructureTier')}
+            <span className='kw-tier-count'>{structureView.on}/{structureView.total}</span>
+          </label>
+        </Tooltip>
+        <Tooltip title={e('kwApplyAllTip')}>
+          <label className='kw-only-on'>
+            <TriCheck
+              checked={allView.checked}
+              indeterminate={allView.indeterminate}
+              onChange={setApplyAll}
+            />
+            {e('kwApplyAll')}
+            <span className='kw-tier-count'>{allView.on}/{allView.total}</span>
           </label>
         </Tooltip>
         <label className='kw-only-on'>

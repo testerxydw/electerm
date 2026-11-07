@@ -371,4 +371,82 @@ describe('keyword groups', () => {
     assert.ok(applyCoverageGate(line, reversedHits).length < reversedHits.length,
       '反证：structure 先到会被覆盖率闸丢掉，signal 前置是必需的')
   })
+
+  test('tierView 三态：单条勾选是 indeterminate，整档补齐才 checked', async () => {
+    const { tierView, setTierOn, setPresetRuleOn, isStructureTierOn } = await load()
+    const { keywordPresets } = await loadPresets()
+    const preset = keywordPresets.find(p => p.keywords.some(k => (k.tier || 'signal') === 'signal'))
+    const first = preset.keywords.find(k => (k.tier || 'signal') === 'signal')
+
+    const empty = tierView([], 'signal')
+    assert.ok(empty.total > 0, '预设语义档应有规则，否则这条断言没意义')
+    assert.equal(empty.on, 0)
+    assert.equal(empty.checked, false, '一条都没有 = unchecked，不是 indeterminate')
+    assert.equal(empty.indeterminate, false)
+
+    const one = setPresetRuleOn([], preset, first.keyword, true)
+    const partial = tierView(one, 'signal')
+    assert.equal(partial.on, 1)
+    assert.equal(partial.checked, false)
+    assert.equal(partial.indeterminate, true, '部分应用必须报三态，否则面板显示未勾选、再点变成补齐')
+    assert.equal(tierView(one, 'structure').checked, false, 'signal 勾选不牵连结构档')
+
+    const full = setTierOn(one, 'signal', true)
+    assert.equal(tierView(full, 'signal').checked, true)
+    assert.equal(tierView(full, 'signal').indeterminate, false)
+    assert.equal(isStructureTierOn(full), tierView(full, 'structure').checked,
+      '结构档旧导出必须与 tierView 同口径')
+  })
+
+  test('tierView 走只读派生档位：老配置（无 tier、旧组名）也认得出整档已应用', async () => {
+    const { tierView } = await load()
+    const { keywordPresets } = await loadPresets()
+    const legacy = keywordPresets.flatMap(p => p.keywords.map(k => ({
+      keyword: k.keyword, color: k.color, source: 'preset', group: 'OLD-' + p.name
+    })))
+    assert.equal(legacy.filter(r => r.tier).length, 0, 'fixture 必须不带 tier 字段')
+    assert.equal(tierView(legacy, 'signal').checked, true)
+    assert.equal(tierView(legacy, 'structure').checked, true)
+  })
+
+  test('关掉语义档只动 signal：结构档与用户规则不被牵连', async () => {
+    const { setTierOn, tierView, userRuleView, applyAllRules } = await load()
+    const list = setTierOn(applyAllRules([{ keyword: 'mine', color: 'red' }]), 'signal', false)
+    assert.equal(tierView(list, 'signal').on, 0)
+    assert.equal(tierView(list, 'signal').indeterminate, false)
+    assert.equal(tierView(list, 'structure').checked, true)
+    assert.equal(userRuleView(list).checked, true)
+  })
+
+  test('applyAllView 由两档 + 用户规则派生；空关键字默认行不牵制', async () => {
+    const { applyAllView, applyAllRules, setTierOn } = await load()
+    const none = applyAllView([])
+    assert.equal(none.checked, false)
+    assert.equal(none.indeterminate, false)
+    assert.equal(none.total, applyAllView(applyAllRules([])).total, '总数与配置内容无关，恒为预设全量')
+
+    assert.equal(applyAllView(setTierOn([], 'signal', true)).indeterminate, true,
+      '只开语义档 → 应用全部处于部分应用')
+    const all = applyAllRules([])
+    assert.equal(applyAllView(all).checked, true)
+    assert.equal(applyAllView([...all, { keyword: 'mine', color: 'red' }]).checked, true,
+      '未静音的用户规则算已应用')
+    assert.equal(applyAllView([...all, { keyword: '', color: 'red' }]).checked, true,
+      '刚新建还没填的正则行不算一条规则')
+    assert.equal(applyAllView([...all, { keyword: 'mine', color: 'red', off: true }]).indeterminate, true)
+  })
+
+  test('applyAllRules 点亮两档与用户规则；setAllOff 只静音不删规则', async () => {
+    const { applyAllRules, applyAllView, activeKeywords, setAllOff, tierView, userRuleView } = await load()
+    const all = applyAllRules([{ keyword: 'mine', color: 'red', off: true }])
+    assert.equal(tierView(all, 'signal').checked, true)
+    assert.equal(tierView(all, 'structure').checked, true)
+    assert.equal(userRuleView(all).checked, true, '用户自定义规则随「应用全部」一起开')
+
+    const off = setAllOff(all)
+    assert.equal(off.length, all.length, '取消全部 = 静音，规则保留')
+    assert.equal(activeKeywords(off).length, 0)
+    assert.equal(applyAllView(off).checked, false)
+    assert.equal(applyAllView(off).indeterminate, false)
+  })
 })

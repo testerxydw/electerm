@@ -78,40 +78,56 @@ describe('keywords form: add rule / create group wiring (real source)', () => {
   })
 })
 
-// V2 §7.2：全部应用 = 应用语义档（signal 全开 / structure 默认关）+ 独立结构档开关。
-// 老实现逐组 setPresetGroupOn 会因 requires 把通用结构档一起点亮，等于没治密度。
-describe('keywords form: V2 semantic-tier apply-all wiring (real source)', () => {
-  test('locale keys for semantic tier and structure toggle exist in both en and zh', () => {
+// 工具条三勾选（语义档 / 结构档 / 应用全部）：档位各自独立按 tier 置位，
+// 「应用全部」只从两份档位 + 用户规则派生，因此不再有独立的「全部取消」按钮。
+// 密度治理原教训仍在：不能走 setPresetGroupOn —— 它会因 requires 把通用结构档一起点亮。
+describe('keywords form: toolbar tier toggles (real source)', () => {
+  test('locale keys for the three ticks exist in both en and zh', () => {
     const src = loadLocales()
-    for (const key of ['kwApplySemantic', 'kwApplySemanticTip', 'kwStructureTier', 'kwStructureTierTip']) {
+    for (const key of [
+      'kwSemanticTier', 'kwSemanticTierTip',
+      'kwStructureTier', 'kwStructureTierTip',
+      'kwApplyAll', 'kwApplyAllTip'
+    ]) {
       const hits = src.match(new RegExp(key + ':', 'g')) || []
       assert.equal(hits.length, 2, `${key} must exist in both en_US and zh_CN blocks`)
     }
   })
 
-  test('apply-all uses tier helpers, never the per-group requires path', () => {
-    const fn = loadJsx().match(/const setAll = \(on\) =>[^\n]+/)
-    assert.ok(fn, 'setAll helper not found')
-    assert.match(fn[0], /applySemanticTier\(list\)/, 'apply-all must open signal tier only')
-    assert.match(fn[0], /setAllOff\(list\)/, 'unapply-all must switch everything off')
-    assert.ok(!/setPresetGroupOn/.test(fn[0]), 'apply-all must not expand requires (would re-enable structure tier)')
+  test('retired button labels are gone from source and locales', () => {
+    for (const [file, src] of [[JSX, loadJsx()], [LOCALES, loadLocales()]]) {
+      for (const stale of ['kwApplySemantic', 'kwUnapplyAll', 'applySemanticTier']) {
+        assert.ok(!src.includes(stale), `${stale} must not survive in ${file}`)
+      }
+    }
   })
 
-  test('toolbar shows apply-semantic label with a tooltip and a structure-tier switch', () => {
+  test('every toolbar tick is a three-state TriCheck with its own count', () => {
     const src = loadJsx()
     const toolbar = src.match(/<div className='kw-toolbar'>[\s\S]*?<\/span>\s*<\/div>/)
     assert.ok(toolbar, 'toolbar block not found')
-    assert.match(toolbar[0], /kwApplySemanticTip/, 'apply-all needs a tooltip explaining the reduced coloring')
-    assert.match(toolbar[0], />\{e\('kwApplySemantic'\)\}</, 'button label says "apply semantic tier"')
-    assert.match(toolbar[0], /setStructure\(ev\.target\.checked\)/, 'structure toggle must be wired')
-    assert.match(toolbar[0], /checked=\{structureOn\}/, 'structure toggle reflects current state')
-    assert.match(toolbar[0], /kwStructureTierTip/, 'structure toggle needs a density warning')
+    assert.equal((toolbar[0].match(/<TriCheck/g) || []).length, 3, 'three ticks: semantic / structure / apply-all')
+    assert.ok(!/<Button/.test(toolbar[0]), 'no apply / unapply buttons left in the toolbar')
+    for (const view of ['semanticView', 'structureView', 'allView']) {
+      assert.ok(toolbar[0].includes(`checked={${view}.checked}`), `${view} must reflect state`)
+      assert.ok(toolbar[0].includes(`indeterminate={${view}.indeterminate}`),
+        `${view} must show the partial state (otherwise a half-applied tier reads as off)`)
+      assert.ok(toolbar[0].includes(`{${view}.on}/{${view}.total}`), `${view} shows n/m`)
+    }
+    assert.equal((toolbar[0].match(/Tip'\)\}>/g) || []).length, 3, 'every tick needs a tooltip')
   })
 
-  test('structure toggle state comes from the shared group helper', () => {
+  test('tier ticks go through setTierOn, apply-all through applyAllRules / setAllOff', () => {
     const src = loadJsx()
-    assert.match(src, /const structureOn = isStructureTierOn\(list\)/)
-    assert.match(src, /setTierOn\(list, 'structure', on\)/)
-    assert.match(src, /import \{[\s\S]*?applySemanticTier,[\s\S]*?\} from '\.\.\/\.\.\/common\/keyword-groups'/)
+    const block = src.match(/const semanticView = [\s\S]*?const setApplyAll = [^\n]+/)
+    assert.ok(block, 'toolbar tier handlers not found')
+    assert.match(block[0], /tierView\(list, 'signal'\)/)
+    assert.match(block[0], /tierView\(list, 'structure'\)/)
+    assert.match(block[0], /applyAllView\(list\)/)
+    assert.match(block[0], /setTierOn\(list, tier, on\)/, 'ticks must set the tier by rule, group-by-group would drag requires along')
+    assert.match(block[0], /applyAllRules\(list\)/)
+    assert.match(block[0], /setAllOff\(list\)/, 'un-ticking apply-all is the only all-off entry')
+    assert.ok(!/setPresetGroupOn/.test(block[0]), 'toolbar must not expand requires')
+    assert.match(src, /import \{[\s\S]*?applyAllRules,[\s\S]*?tierView,[\s\S]*?\} from '\.\.\/\.\.\/common\/keyword-groups'/)
   })
 })

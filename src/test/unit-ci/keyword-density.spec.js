@@ -15,6 +15,14 @@ const ipColorCode = async () => {
   return hexToTruecolor(COLOR_GROUPS.ip.color)
 }
 
+// 「语义档」勾选后的配置形态：signal 全开 + structure 全关。工具条改三勾选之前这是
+// 导出的 applySemanticTier（供「应用语义档」按钮用）；现在档位各自独立置位，测试直接
+// 按 tier 组合出同一份配置，等价且不必为一个 UI 入口保留生产导出。
+const semanticOnly = async (list = []) => {
+  const { setTierOn } = await loadGroups()
+  return setTierOn(setTierOn(list, 'signal', true), 'structure', false)
+}
+
 /**
  * V2 §7 / §9 密度回归验收。
  *
@@ -68,11 +76,10 @@ let gateCache = null
 
 const buildPatterns = async (withStructure) => {
   const { compileKeywords, clearKeywordCache } = await loadCompile()
-  const { applySemanticTier, activeKeywords, setTierOn } = await loadGroups()
+  const { activeKeywords, setTierOn } = await loadGroups()
   clearKeywordCache()
-  const list = withStructure
-    ? setTierOn(applySemanticTier([]), 'structure', true)
-    : applySemanticTier([])
+  const semantic = await semanticOnly([])
+  const list = withStructure ? setTierOn(semantic, 'structure', true) : semantic
   const keywords = activeKeywords(list)
   const patterns = compileKeywords(keywords)
   const { buildScan } = await loadScan()
@@ -108,8 +115,8 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
   })
 
   test('结构档开关：默认关 → 打开 → 再关，幂等且老配置零迁移', async () => {
-    const { applySemanticTier, activeKeywords, setTierOn, isStructureTierOn } = await loadGroups()
-    const semantic = applySemanticTier([])
+    const { activeKeywords, setTierOn, isStructureTierOn } = await loadGroups()
+    const semantic = await semanticOnly([])
     assert.equal(isStructureTierOn(semantic), false)
     const opened = setTierOn(semantic, 'structure', true)
     assert.equal(isStructureTierOn(opened), true)
@@ -123,10 +130,10 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     assert.equal(isStructureTierOn(closed), false)
     assert.deepEqual(activeKeywords(closed), activeKeywords(semantic))
     // 幂等
-    assert.deepEqual(applySemanticTier(semantic), semantic)
+    assert.deepEqual(await semanticOnly(semantic), semantic)
     // 老配置没有 tier 字段，按 signal 处理，不会被丢弃也不会被误标 structure
     const legacy = [{ keyword: 'foo', color: 'red' }]
-    const migrated = applySemanticTier(legacy)
+    const migrated = await semanticOnly(legacy)
     assert.ok(migrated.some(r => r.keyword === 'foo' && !r.off))
     assert.equal(migrated.find(r => r.keyword === 'foo').tier, undefined)
   })
@@ -267,7 +274,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
 
   test('老配置（无 tier / 旧组名）也能只读派生档位，闸真正生效', async () => {
     const { keywordPresets } = await import('../../client/common/keyword-presets.js')
-    const { activeKeywords, applySemanticTier, setTierOn, isStructureTierOn } = await loadGroups()
+    const { activeKeywords, setTierOn, isStructureTierOn } = await loadGroups()
     const { compileKeywords, clearKeywordCache } = await loadCompile()
     const { buildScan, collectMatches, applyCoverageGate } = gateCache
     // 批次 1/2 之前写入的存量配置：全量 preset 规则，没有 tier，带旧组名
@@ -294,7 +301,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     assert.equal(raw.ratio, 0, 'dirty line must be gated for legacy config too')
     assert.equal(raw.ui, true, 'UI toggle must agree with the effective tier')
     // 点「全部应用」→ 结构档关；再手动打开 → 结构档开且闸仍生效
-    const semantic = applySemanticTier(legacy)
+    const semantic = await semanticOnly(legacy)
     assert.equal(measure(semantic).structure, 0)
     assert.equal(isStructureTierOn(semantic), false)
     const reopened = setTierOn(semantic, 'structure', true)

@@ -599,7 +599,7 @@ describe('keyword presets', () => {
     assert.match(demo, /loadV2Baseline/, '期望值必须从真实数据源现算')
     assert.match(demo, /keyword-density-demo\.js/)
     assert.match(demo, /keyword-density\.spec\.js/)
-    for (const key of ['kwApplySemantic', 'kwUnapplyAll', 'kwStructureTier']) {
+    for (const key of ['kwSemanticTier', 'kwApplyAll', 'kwStructureTier']) {
       assert.ok(new RegExp('\\b' + key + '\\s*:').test(locales), `${key} 必须存在于 locales-extra.js`)
       assert.ok(demo.includes(key), `CDP demo 仍应使用 ${key}`)
     }

@@ -386,11 +386,11 @@ export const presetKeywordIndex = () => {
 export const countOn = rules => (rules || []).filter(isRuleOn).length
 
 /* ------------------------------------------------------------------ *
- * 档位操作（V2 §7.2：全部应用 = 应用语义档，结构档默认关）
+ * 档位操作（工具条三勾选：语义档 / 结构档 / 应用全部，各自独立置位）
  *
- * 不能复用 setPresetGroupOn 做「全部应用」：它按组展开 requires，勾选业务组会连带
+ * 不能复用 setPresetGroupOn 做档位勾选：它按组展开 requires，勾选业务组会连带
  * 点亮两个通用结构档，等于把最吵的 11 条结构规则又强塞回来。全选必须按 tier 逐条
- * 置位，才能做到「signal 全开 / structure 全关」，同时不动单组勾选的 requires 语义。
+ * 置位，才能做到「打开语义档不牵连结构档」，同时不动单组勾选的 requires 语义。
  * ------------------------------------------------------------------ */
 
 // 预设表全量规则（跨组唯一），带上归属组，按 preset 定义顺序稳定输出
@@ -438,27 +438,70 @@ export const setTierOn = (list, tier, on) => {
   return rules
 }
 
-/** 「全部应用」：signal 全开 + structure 全关 + 用户自定义规则全开 */
-export const applySemanticTier = (list) => {
-  let rules = setTierOn(list, 'signal', true)
-  rules = setTierOn(rules, 'structure', false)
-  return rules.map(r => (r.source === presetSource ? r : resetOff(r, true)))
-}
-
 /** 「全部取消」：所有条目打 off，不删除规则（与原有逐组取消结论一致） */
 export const setAllOff = list => clone(list).map(r => resetOff(r, false))
 
+/** 「应用全部」：预设两档全开 + 用户自定义规则全开 */
+export const applyAllRules = (list) => {
+  let rules = setTierOn(list, 'signal', true)
+  rules = setTierOn(rules, 'structure', true)
+  return rules.map(r => (r.source === presetSource ? r : resetOff(r, true)))
+}
+
 /**
- * 结构档开关的 checked 状态。口径必须与 activeKeywords 一致（只读派生），否则
- * 老配置（无 tier）会出现「UI 显示已勾选、实际闸却没生效」的假状态。
+ * 档位勾选态：全中 = checked、部分 = indeterminate、一条没中 = unchecked。
+ * 三态是必需的：单组/单条勾选会让档位处于「部分应用」，若只报 checked/unchecked，
+ * 面板会显示成未勾选，用户再点一次是「补成全开」而不是关掉 —— 出现关不掉的死区。
+ *
+ * 口径必须走 activeKeywords（tier 只读派生），否则老配置（无 tier 字段）会出现
+ * 「UI 显示未勾选、实际却在生效」的假状态；用户自定义规则不计入预设档位（ruleTierOf
+ * 让它们默认落 signal，算进来会让「语义档」勾选框被用户规则牵动）。
  */
-export const isStructureTierOn = (list) => {
-  const onStructure = new Set(activeKeywords(list)
-    .filter(r => r.tier === 'structure')
+export const tierView = (list, tier) => {
+  const onKeywords = new Set(activeKeywords(list)
+    .filter(r => (r.tier || 'signal') === tier)
     .map(r => r.keyword))
-  const structure = allPresetRules().filter(r => ruleTierOf(r) === 'structure')
-  return structure.length > 0 &&
-    structure.every(r => onStructure.has(r.keyword))
+  const rules = allPresetRules().filter(r => ruleTierOf(r) === tier)
+  const total = rules.length
+  const on = rules.filter(r => onKeywords.has(r.keyword)).length
+  return {
+    tier,
+    total,
+    on,
+    checked: total > 0 && on === total,
+    indeterminate: on > 0 && on < total
+  }
+}
+
+/** 结构档开关的 checked 状态（保留独立导出：密度用例与历史调用点按此口径断言） */
+export const isStructureTierOn = list => tierView(list, 'structure').checked
+
+/** 用户自定义规则勾选态；关键字还没填的默认行不算一条规则，不牵制「应用全部」 */
+export const userRuleView = (list) => {
+  const rules = clone(list).filter(r => r.source === userSource && r.keyword)
+  const on = rules.filter(isRuleOn).length
+  return {
+    total: rules.length,
+    on,
+    checked: rules.length > 0 && on === rules.length,
+    indeterminate: on > 0 && on < rules.length
+  }
+}
+
+/**
+ * 「应用全部」勾选态：它是两个档位 + 用户规则的超集，所以联动只由这三份派生值算出，
+ * UI 不再单独存一份状态。取消其中任何一项，它就自动退成 indeterminate。
+ */
+export const applyAllView = (list) => {
+  const parts = [tierView(list, 'signal'), tierView(list, 'structure'), userRuleView(list)]
+  const total = parts.reduce((n, p) => n + p.total, 0)
+  const on = parts.reduce((n, p) => n + p.on, 0)
+  return {
+    total,
+    on,
+    checked: total > 0 && on === total,
+    indeterminate: on > 0 && on < total
+  }
 }
 
 /* ------------------------------------------------------------------ *
