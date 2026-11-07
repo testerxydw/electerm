@@ -7,6 +7,9 @@ const path = require('node:path')
 const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/app/lib/db-sql-history.js')
 const FRONT = path.join(ROOT, 'src/client/common/db-sql-history.js')
+// N11b-#31a：历史 tab 的列表 JSX 已迁到 db-sql-history-panel.jsx，
+// 「单条删除按钮」那组断言要连同新文件一起读，否则切片落空、断言变成静默通过
+const PANEL = path.join(ROOT, 'src/client/components/database/db-sql-history-panel.jsx')
 
 // S3-C SQL 执行历史（doc/已完成/设计-数据库阶段3-2026-10-22--已完成.md §2）：
 // 存储已从渲染层 localStorage 迁至主进程固定文件（userData/db-sql-history.json）——
@@ -246,7 +249,7 @@ describe('db-sql-history (main-process file store)', () => {
   test('单条删除按钮：hover 才显形，且必须挡住冒泡（否则同时插回编辑器）', () => {
     const jsx = fs.readFileSync(
       path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
-    )
+    ) + '\n' + fs.readFileSync(PANEL, 'utf8')
     const btn = jsx.slice(jsx.indexOf("className='db-history-del'"))
     assert.ok(btn.includes('CloseOutlined'), 'X icon required')
     assert.ok(/onClick=\{ev => \{[\s\S]{0,200}?ev\.stopPropagation\(\)[\s\S]{0,120}?removeOneSqlHistory\(item\)/.test(btn),
