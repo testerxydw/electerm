@@ -55,8 +55,12 @@ before(async () => {
 // 组件接线（db-session.jsx / db-danger-confirm.jsx）只能读源码断言 —— 那两个文件是 JSX，
 // CJS 测试进程里既不能 require 也不能用 vm 跑。这与仓库里 db-cell-update / db-grid-scroll
 // 等 spec 的做法一致：断言的是"接线存在且形状正确"，DOM 行为由 QA 的渲染断言覆盖。
+// N11a-#7：执行闸门（guardRef/riskGate/四个 confirm 闸门/bypass 倒计时）已迁到
+// use-db-guard.js（已接线），接线断言改读「owner + hook」组合源码
 const SESSION_JSX = fs.readFileSync(
   path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
+) + '\n' + fs.readFileSync(
+  path.join(ROOT, 'src/client/components/database/use-db-guard.js'), 'utf8'
 )
 const CONFIRM_JSX = fs.readFileSync(
   path.join(ROOT, 'src/client/components/database/db-danger-confirm.jsx'), 'utf8'
@@ -933,7 +937,12 @@ describe('db-safe-guard: 只读提示按引擎选词条（不拿 MySQL 口径套
   test('接线：Tooltip 按引擎取词条', () => {
     assert.match(SESSION_JSX, /e\(readOnlyHintKey\(tab\.dbType\)\)/,
       '只读开关的 Tooltip 还在写死 MySQL 口径')
-    assert.match(SESSION_JSX, /\n {2}readOnlyHintKey,\n/, '必须从 db-safe-guard 导入')
+    // 导入可能是单行也可能是多行展开，按「命名导入里出现 readOnlyHintKey 且来源是 db-safe-guard」判
+    assert.match(
+      SESSION_JSX,
+      /import \{[^}]*\breadOnlyHintKey\b[^}]*\} from '\.\.\/\.\.\/common\/db-safe-guard'/,
+      '必须从 db-safe-guard 导入'
+    )
   })
 })
 

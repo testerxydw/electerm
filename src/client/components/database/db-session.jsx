@@ -58,6 +58,7 @@ import { useDbRedisWrite } from './use-db-redis-write'
 import { useDbInsert } from './use-db-insert'
 import { useDbCellEdit } from './use-db-cell-edit'
 import { useDbBulkEdit } from './use-db-bulk-edit'
+import { useDbGuard } from './use-db-guard'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
 import { DbTreePanel } from './db-tree-panel'
@@ -104,28 +105,15 @@ import {
 import fs from '../../common/fs'
 import { dbTypeLabelMap } from '../../common/constants'
 import { dialectIdOf } from '../../common/sql-dialects'
-// E1：危险 SQL 分级 + 连接级安全带。两个模块都是零依赖纯函数（时间经 now 注入），
-// 判定逻辑与 UI 解耦，单测可直接跑源码
-import { classifySql } from '../../common/db-sql-risk'
+// N11a-#7：危险 SQL 分级（classifySql）与安全带判定（shouldConfirm/markAsked/
+// createGuardState/bypass*）随执行闸门迁入 use-db-guard；owner 只剩渲染侧要用的
+// muteLowWrite（弹窗"仍要执行并静音"）与 readOnlyHintKey（只读提示文案）
 // AI 第一批：提示词/落编辑器策略都是纯函数（db-sql-ai.js），回复解析在弹层里做；
 // 会话页只负责把编辑器句柄登记到目标表、把弹层的产出落到编辑器
 import { buildSqlAiPrompt, planSqlInsertion } from '../../common/db-sql-ai'
 import { buildDbAiSource } from '../ai/ai-source-context'
 import { resolveAiLanguage } from '../../common/ai-role'
-import {
-  BYPASS_TTL_MS,
-  bypassLeftMinutes,
-  cancelPendingGate,
-  clearBypass,
-  createGuardState,
-  dbConnKey,
-  grantBypass,
-  isBypassed,
-  markAsked,
-  muteLowWrite,
-  readOnlyHintKey,
-  shouldConfirm
-} from '../../common/db-safe-guard'
+import { muteLowWrite, readOnlyHintKey } from '../../common/db-safe-guard'
 import DbDangerConfirm from './db-danger-confirm'
 import DbViewBar from './db-view-bar'
 // E2-3b 命令面板：打分/分组是纯函数层（db-quick-open.js），组件只管展示与键盘
@@ -608,30 +596,27 @@ export default auto(function DbSession (props) {
     sqlFilterCommitted.current = {}
   }, [sqlResult.results])
 
-  // ---- E1 危险 SQL 分级 + 连接级安全带 ----
-  // guard 状态放 ref：lowRiskMuted / bypass / asked 都是内存开关，只在事件回调里读写，
-  // 不需要参与渲染（倒计时另用 tick 触发重渲染）
-  const guardRef = useRef(null)
-  if (guardRef.current === null) {
-    guardRef.current = createGuardState()
-  }
-  // 危险确认弹窗的受控状态：null = 不显示；非 null 时 riskResolveRef 里挂着等待中的 promise
-  const [riskGate, setRiskGate] = useState(null)
-  const riskResolveRef = useRef(null)
-  // 卸载（关 tab / 切连接）时把挂起的闸门解析为 false。
-  // 不清理的后果很具体：弹窗还开着的时候用户关掉这个 tab，`runSql` 里那次 `await`
-  // 永远不 settle —— 闭包握着 sql 与 risk 对象，DevTools 里留一堆永不 resolve 的 promise，
-  // 标签页多的会话里会累积。解析成 false（取消）而不是 true：卸载绝不能让
-  // "用户还没确认的执行"继续跑，这与用户点"取消"是同一条零执行分支。
-  useEffect(() => () => cancelPendingGate(riskResolveRef), [])
-  // 生产标记来自书签（tab 由书签展开），只认严格 true：
-  // 旧书签没有该字段时为 undefined，必须视为非生产
-  const isProduction = tab.production === true
-  // 连接身份：mute 与"临时解除"都按它记账（见 db-safe-guard 注释）
-  const connKey = useMemo(
-    () => dbConnKey(tab),
-    [tab.dbType, tab.dbHost, tab.dbPort, tab.dbUser, tab.dbName, tab.dbFile]
-  )
+  // ---- E1 执行闸门 / 危险 SQL 分级拆到 use-db-guard（行为零变更）----
+  // guardRef / riskGate / 四个闸门（confirmSqlRisk / confirmRowWrite /
+  // confirmRedisWrite / confirmImportRisk）/ 安全带 bypass 倒计时集中在一处。
+  // redisDb 用 getter 惰性取值：它定义在本行之后（Redis 键空间段），即时传值会 TDZ
+  const {
+    guardRef,
+    riskGate,
+    settleRiskGate,
+    confirmSqlRisk,
+    confirmRowWrite,
+    confirmRedisWrite,
+    confirmImportRisk,
+    isProduction,
+    connKey,
+    bypassMinutes,
+    toggleProductionBypass
+  } = useDbGuard({
+    tab,
+    sel,
+    getRedisDb: () => redisDb
+  })
 
   // Redis 键空间状态（db 节点 → SCAN 键列表 → 类型化键详情）
   const [redisDb, setRedisDb] = useState(-1)
@@ -1454,112 +1439,6 @@ export default auto(function DbSession (props) {
     setSelectedCell({ rowKey: row.__rowKey, col })
   }
 
-  // ---- E1 执行闸门（设计 §6.2 / §6.3 / §6.4）----
-
-  // 每次执行都是一个新批次：scope 带自增序号，避免上一批的"已问过"吞掉本批弹窗
-  const scopeSeqRef = useRef(0)
-  const nextScope = kind => kind + ':' + (++scopeSeqRef.current)
-
-  // 弹一次确认并等用户决定；取消/关闭都解析为 false（零执行）
-  const askRiskConfirm = payload => {
-    // 上一个闸门还没结束（用户连点两次"运行"）：先把旧的按取消处理，
-    // 否则那次 runSql 的 promise 永远不 settle，一次执行挂在半路
-    const prev = riskResolveRef.current
-    if (prev) {
-      riskResolveRef.current = null
-      prev(false)
-    }
-    return new Promise(resolve => {
-      riskResolveRef.current = resolve
-      setRiskGate(payload)
-    })
-  }
-
-  const settleRiskGate = ok => {
-    const resolve = riskResolveRef.current
-    riskResolveRef.current = null
-    setRiskGate(null)
-    if (resolve) {
-      resolve(ok)
-    }
-  }
-
-  // SQL 执行闸门：返回 true 才继续。
-  // 只读模式下执行入口本就被编辑器禁用、主进程白名单还会二次拦，这里不弹（验收 §6.5 第 5 条）。
-  // Redis 写操作走独立的 confirmRedisWrite（同机制，库名用当前 db index 充当）
-  const confirmSqlRisk = async (sql, database) => {
-    const risk = classifySql(sql, tab.dbType)
-    const state = guardRef.current
-    const scope = nextScope('sql')
-    const verdict = shouldConfirm({
-      level: risk.level,
-      production: isProduction,
-      state,
-      connKey,
-      scope,
-      now: Date.now()
-    })
-    if (!verdict.need || !risk.statements.length) {
-      return true
-    }
-    const ok = await askRiskConfirm({
-      level: risk.level,
-      requireDbName: verdict.requireDbName,
-      dbName: database,
-      statements: risk.statements,
-      reasons: risk.reasons,
-      // shouldConfirm 已经算好"为什么拦"（生产 / 首次写 / ddl 每次 / 高危每次 / 认不出），
-      // 不传下去它就只是白算：用户看到的弹窗在五种情形下长得一模一样，只会无脑点
-      // "仍要执行" —— 安全带退化成确认噪音。reason 与 reasons 是两件事：
-      // reason = 「为什么要问你」，reasons = 「这条 SQL 凭什么被判成这个级别」
-      reason: verdict.reason,
-      // 静音只对"非生产的低风险写"开放：生产连接正是安全带要覆盖的场景
-      allowMute: !isProduction && risk.level === 'write'
-    })
-    if (ok) {
-      markAsked(state, scope)
-    }
-    return ok
-  }
-
-  // 行级写（单元格保存 / 插行 / 删行）在 production 连接上再过一道确认。
-  // 复用同一个弹窗：它表达的是"执行前给人看"，不是 SQL 编辑器专属 UI。
-  // N2 之后一段批（变更集应用）也走这里：payload.texts 给多条语句，弹窗本来就是列表式的
-  // （SQL 页一次执行多条语句用的就是它），按条数弹 N 次只会训练用户连点确认。
-  const confirmRowWrite = async payload => {
-    if (!isProduction) {
-      return true
-    }
-    const state = guardRef.current
-    const scope = nextScope('row')
-    const verdict = shouldConfirm({
-      level: payload.level,
-      production: true,
-      state,
-      connKey,
-      scope,
-      now: Date.now()
-    })
-    if (!verdict.need) {
-      return true
-    }
-    const texts = payload.texts || [payload.text]
-    const ok = await askRiskConfirm({
-      level: payload.level,
-      requireDbName: verdict.requireDbName,
-      dbName: (sel && sel.database) || tab.dbName || '',
-      statements: texts.map(text => ({ text, level: payload.level, firstKeyword: '' })),
-      reasons: [payload.note],
-      // 行级写同样要说清"为什么问你"：production 首次写 vs ddl 每次，用户的反应不一样
-      reason: verdict.reason,
-      allowMute: false
-    })
-    if (ok) {
-      markAsked(state, scope)
-    }
-    return ok
-  }
-
   // ---- #5 行级 INSERT / DELETE 拆到 use-db-insert（行为零变更）----
   const {
     rowSelection,
@@ -1641,67 +1520,6 @@ export default auto(function DbSession (props) {
     setSelectedRowKeys,
     structureV2
   })
-
-  // Redis 类型化写 / 删除 / 改名 / 过期，在 production 连接上再过一道确认。
-  // 复用同一弹窗与判定（DbDangerConfirm + shouldConfirm）：Redis 没有"表"概念，
-  // 库名用当前选中的 db index 充当（Redis 的 database 就是数字 db index，
-  // 与生产 MySQL 输库名同语义）。非 production 直接放行，与 confirmRowWrite 同口径。
-  const confirmRedisWrite = async payload => {
-    if (!isProduction) {
-      return true
-    }
-    const state = guardRef.current
-    const scope = nextScope('redis')
-    const verdict = shouldConfirm({
-      level: payload.level,
-      production: true,
-      state,
-      connKey,
-      scope,
-      now: Date.now()
-    })
-    const ok = await askRiskConfirm({
-      level: payload.level,
-      requireDbName: verdict.requireDbName,
-      dbName: String(redisDb),
-      statements: [{ text: payload.text, level: payload.level, firstKeyword: '' }],
-      reasons: [payload.note],
-      reason: verdict.reason,
-      allowMute: false
-    })
-    if (ok) {
-      markAsked(state, scope)
-    }
-    return ok
-  }
-
-  // 生产标记 + 临时解除倒计时。bumpBypass 只是"到点重渲染"的触发器（值本身不用，
-  // 故解构丢弃）；只有生效期才起定时器，常态不空转
-  const [, bumpBypass] = useState(0)
-  const bypassMinutes = isProduction
-    ? bypassLeftMinutes(guardRef.current, connKey, Date.now())
-    : 0
-  useEffect(() => {
-    if (!isProduction || bypassMinutes <= 0) {
-      return undefined
-    }
-    const timer = setInterval(() => bumpBypass(v => v + 1), 30000)
-    return () => clearInterval(timer)
-  }, [isProduction, bypassMinutes])
-
-  const toggleProductionBypass = () => {
-    const state = guardRef.current
-    const now = Date.now()
-    if (isBypassed(state, connKey, now)) {
-      clearBypass(state, connKey)
-    } else {
-      grantBypass(state, connKey, now)
-      message.warning(
-        e('dbRiskBypassOn').replace('{n}', String(Math.round(BYPASS_TTL_MS / 60000)))
-      )
-    }
-    bumpBypass(v => v + 1)
-  }
 
   // H6a：参数化开关（默认开）。关掉就是原来的纯文本执行，:name 原样发给服务端
   const [sqlParamMode, setSqlParamMode] = useState(true)
@@ -1883,43 +1701,6 @@ export default auto(function DbSession (props) {
     }
     setExportParts(viewParts(viewRef.current))
     setExportOpen(true)
-  }
-
-  // 危险导入模式（overwrite/upsert）的 production 闸门：复用 E1 riskGate 弹窗
-  // （shouldConfirm 决定要不要问、问几次；输库名那条路径由 DbDangerConfirm 承担）。
-  // 取消 = 零调用：对话框收不到放行信号就不会发起 start
-  const confirmImportRisk = async (mode) => {
-    const note = mode === 'overwrite' ? e('dbImportModeOverwrite') : e('dbImportModeUpsert')
-    if (!isProduction) {
-      return true
-    }
-    const state = guardRef.current
-    const scope = nextScope('import')
-    const verdict = shouldConfirm({
-      level: 'write',
-      production: true,
-      state,
-      connKey,
-      scope,
-      now: Date.now()
-    })
-    if (!verdict.need) {
-      return true
-    }
-    const target = `${mode} ${(sel && sel.database) || tab.dbName || ''}.${sel && sel.table}`
-    const ok = await askRiskConfirm({
-      level: 'write',
-      requireDbName: verdict.requireDbName,
-      dbName: (sel && sel.database) || tab.dbName || '',
-      statements: [{ text: target, level: 'write', firstKeyword: '' }],
-      reasons: [note],
-      reason: verdict.reason,
-      allowMute: false
-    })
-    if (ok) {
-      markAsked(state, scope)
-    }
-    return ok
   }
 
   // ---- S3-C SQL 执行历史（主进程文件环形存储，上限见 SQL_HISTORY_MAX，仅本地，跨启动稳定） ----
