@@ -23,6 +23,10 @@
 #   - node_modules/electron 运行时会被外部清理, 若缺失 compile 报 Cannot find module
 #     'shelljs'、bdebfast 报找不到 electron/dist → 脚本 [0/5] 已自动恢复
 #     (装依赖必须 --legacy-peer-deps; electron 二进制走 ELECTRON_MIRROR 镜像)
+#   - 合并上游会把 package.json/lockfile 里的依赖版本抬上去, 但根 node_modules 不会
+#     自动跟着变(--prepare 只管 work/app 生产依赖) → vite 报 MISSING_EXPORT。
+#     [0/5] 现在按 package.json+lockfile 的指纹比对, 变了就重装根依赖
+#     (指纹存 node_modules/.deps-stamp, 装完再写以免 npm 改 lockfile 造成反复重装)
 
 set -euo pipefail
 
@@ -148,12 +152,25 @@ apply_cpu_limit () {
 }
 apply_cpu_limit
 
-# 依赖预检: node_modules / electron 运行时会被外部清理(工作区克隆、缓存清理等),
-# 缺了就白跑 compile 直接报 Cannot find module 'shelljs' / 找不到 electron/dist
+# 依赖预检: ① node_modules / electron 运行时会被外部清理(工作区克隆、缓存清理等),
+# 缺了就白跑 compile 直接报 Cannot find module 'shelljs' / 找不到 electron/dist；
+# ② 合并上游后 package.json/lockfile 里的依赖版本会变，但根 node_modules 还是旧的
+# —— --prepare 只重建 work/app 的生产依赖，devDependency 不会刷新，vite 会报
+# MISSING_EXPORT("xxx" is not exported by ...)。故除"缺失"外还要比对依赖清单指纹。
+DEPS_STAMP=node_modules/.deps-stamp
+deps_fingerprint () {
+  cat package.json package-lock.json | sha256sum | cut -d' ' -f1
+}
 if [ ! -d node_modules ] || [ ! -d node_modules/shelljs ]; then
   echo "========== [0/5] 依赖缺失, 恢复 node_modules =========="
-  # 上游 @types/node 22.9.3 与 vite8 peer(>=22.12.0) 冲突, 仓库约定用 --legacy-peer-deps
+  # 上游 @types/node 与 vite8 peer 冲突, 仓库约定用 --legacy-peer-deps
   npm install --legacy-peer-deps --no-audit --no-fund
+  deps_fingerprint > "$DEPS_STAMP"
+elif [ ! -f "$DEPS_STAMP" ] || [ "$(cat "$DEPS_STAMP")" != "$(deps_fingerprint)" ]; then
+  echo "========== [0/5] 依赖清单有变化(常见于合并上游), 同步根 node_modules =========="
+  npm install --legacy-peer-deps --no-audit --no-fund
+  # npm 可能顺手改写 lockfile, 指纹必须在装完之后再取
+  deps_fingerprint > "$DEPS_STAMP"
 fi
 if [ ! -d node_modules/electron/dist ]; then
   echo "========== [0/5] electron 运行时缺失, 下载二进制 =========="
