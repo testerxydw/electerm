@@ -20,6 +20,9 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const read = p => fs.readFileSync(p, 'utf8')
+// N11b-#26：ER 图的 state 与取数 handler 已迁到 use-db-redis-instance.js
+const REDIS_INSTANCE = path.join(ROOT, 'src/client/components/database/use-db-redis-instance.js')
+const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE)
 
 // 取一个代码块：从 anchor 起，到第一个同缩进的收尾大括号（含）
 function blockOf (src, anchor) {
@@ -32,7 +35,7 @@ function blockOf (src, anchor) {
 
 describe('H3b-3 ER 图：入口与取数', () => {
   test('结构页工具条有「ER 图」入口，弹层由 db-session 挂载（Redis 不挂）', () => {
-    const s = read(SESSION)
+    const s = readSession()
     assert.match(s, /e\('dbErGraph'\)/, '工具条按钮文案缺失')
     assert.match(s, /onClick=\{openErGraph\}/, '工具条按钮没接到 openErGraph')
     assert.match(s, /<DbErView[\s\S]{0,400}onOpenTable=\{openTable\}/, '弹层没接"打开表"')
@@ -43,7 +46,7 @@ describe('H3b-3 ER 图：入口与取数', () => {
   })
 
   test('打开只拉一次 listForeignKeys（不轮询、带令牌丢弃过期响应）', () => {
-    const s = read(SESSION)
+    const s = readSession()
     const hits = (s.match(/'listForeignKeys'/g) || []).length
     assert.equal(hits, 1, `listForeignKeys 应只有一处调用，实际 ${hits} 处`)
     const fn = blockOf(s, 'const loadErGraph = () => {')
@@ -56,7 +59,7 @@ describe('H3b-3 ER 图：入口与取数', () => {
   })
 
   test('关闭即作废在途请求，重开不闪上一次的图', () => {
-    const s = read(SESSION)
+    const s = readSession()
     const close = blockOf(s, 'const closeErGraph = () => {')
     assert.match(close, /erTokenRef\.current\+\+/, '关弹层要作废在途请求')
     const open = blockOf(s, 'const openErGraph = () => {')
@@ -64,7 +67,7 @@ describe('H3b-3 ER 图：入口与取数', () => {
   })
 
   test('刷新失败保留旧图：catch 分支不把 graph 清空', () => {
-    const s = read(SESSION)
+    const s = readSession()
     const fn = blockOf(s, 'const loadErGraph = () => {')
     const catchAt = fn.indexOf('}).catch(')
     assert.notEqual(catchAt, -1, 'loadErGraph 应有 catch')
@@ -160,7 +163,7 @@ describe('H3b-3 ER 图：样式与词条', () => {
   })
 
   test('弹层用到的每个 dbEr* 词条都有中英两份', () => {
-    const view = read(VIEW) + read(SESSION)
+    const view = read(VIEW) + readSession()
     const keys = [...new Set([...view.matchAll(/e\('(dbEr[A-Za-z]+)'\)/g)].map(m => m[1]))]
     assert.ok(keys.length >= 10, `dbEr* 词条应有 10+ 个，实际 ${keys.length} 个`)
     const extra = require(LOCALES)

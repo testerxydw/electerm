@@ -18,6 +18,9 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const read = p => fs.readFileSync(p, 'utf8')
+// N11b-#26：结构对比的 state 与取数 handler 已迁到 use-db-redis-instance.js
+const REDIS_INSTANCE = path.join(ROOT, 'src/client/components/database/use-db-redis-instance.js')
+const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE)
 
 function blockOf (src, anchor) {
   const at = src.indexOf(anchor)
@@ -29,7 +32,7 @@ function blockOf (src, anchor) {
 
 describe('H4 结构对比：入口与表清单', () => {
   test('结构页工具条有「结构对比」入口，弹层由 db-session 挂载（Redis 不挂）', () => {
-    const s = read(SESSION)
+    const s = readSession()
     assert.match(s, /e\('dbStructDiff'\)/, '工具条按钮文案缺失')
     assert.match(s, /onClick=\{openStructureDiff\}/, '工具条按钮没接到 openStructureDiff')
     assert.match(s, /<DbStructureDiff[\s\S]{0,500}tables=\{diffTables\}/, '弹层没接表清单')
@@ -38,7 +41,7 @@ describe('H4 结构对比：入口与表清单', () => {
   })
 
   test('候选表来自已加载 metadata：只收当前库的表，不收视图与分组', () => {
-    const s = read(SESSION)
+    const s = readSession()
     const memo = blockOf(s, 'const diffTables = useMemo(() => {')
     assert.match(memo, /metadata/, '必须走已加载的 metadata（零请求）')
     assert.match(memo, /node\.type === 'table' \|\| !node\.type/, '只收表')
@@ -49,7 +52,7 @@ describe('H4 结构对比：入口与表清单', () => {
   })
 
   test('打开时以当前表为 A，关闭即复位', () => {
-    const s = read(SESSION)
+    const s = readSession()
     const open = blockOf(s, 'const openStructureDiff = () => {')
     assert.match(open, /base: sel \?/, '当前选中的表应作为 A（基准）')
     assert.match(open, /table: sel\.table/, 'A 的取数目标缺表名')
@@ -60,7 +63,7 @@ describe('H4 结构对比：入口与表清单', () => {
 
 describe('H4 结构对比：取数口径', () => {
   test('两边结构走 getTableStructure + refresh（绕过 60s 缓存）', () => {
-    const s = read(SESSION)
+    const s = readSession()
     const fn = blockOf(s, 'const loadDiffStructure = useCallback(target => window.pre.runGlobalAsync(')
     assert.match(fn, /'dbClientOp', tabId, 'getTableStructure'/)
     assert.match(fn, /refresh: true/, '对比必须取当下这一版结构')
@@ -141,7 +144,7 @@ describe('H4 结构对比：样式与词条', () => {
   })
 
   test('弹层用到的每个 dbStructDiff* 词条都有中英两份，键集合一致', () => {
-    const view = read(VIEW) + read(SESSION)
+    const view = read(VIEW) + readSession()
     const keys = [...new Set([...view.matchAll(/e\('(dbStructDiff[A-Za-z]+)'\)/g)].map(m => m[1]))]
     // 字段名那批（dbStructDiffField*）走 FIELD_KEY 映射，不经 e() 字面量，单独核对
     const fieldKeys = [...new Set([...view.matchAll(/'(dbStructDiffField[A-Za-z]+)'/g)].map(m => m[1]))]

@@ -4,7 +4,7 @@
  * S5 将在此目录扩展 Redis 键空间形态，S4 增加 SQL 编辑器
  */
 
-import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Alert, Empty, Spin, Tabs, Input, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Progress } from 'antd'
 import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, RobotOutlined, BulbOutlined, BugOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
@@ -59,6 +59,7 @@ import { useDbGuard } from './use-db-guard'
 import { useDbGridColumns } from './use-db-grid-columns'
 import { useDbSqlResultColumns } from './use-db-sql-result-columns'
 import { useDbTreeData } from './use-db-tree-data'
+import { useDbRedisInstance } from './use-db-redis-instance'
 import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
@@ -642,13 +643,20 @@ export default auto(function DbSession (props) {
   // 而这份数据没人盯着看。令牌管"连点刷新时旧响应不覆盖新响应"。
   const [redisInfo, setRedisInfo] = useState({ open: false, loading: false, text: '', error: '' })
   const redisInfoTokenRef = useRef(0)
-  // H3b-3：ER 图。图是整个库/schema 的一张快照，与"当前在看哪张表"无关，
-  // 所以打开时按当前库拉一次即可；令牌管"连点刷新时旧响应不覆盖新响应"
-  const [er, setEr] = useState({ open: false, loading: false, error: '', graph: null })
-  const erTokenRef = useRef(0)
-  // H4：结构对比。两张表的选择、取数与差异状态都在弹层里；这里只提供表清单、
-  // 取数通道和"从哪张表开始比"
-  const [structDiff, setStructDiff] = useState({ open: false, base: null })
+  // ---- #26 ER 图 / 结构对比拆到 use-db-redis-instance（行为零变更）----
+  // 两个弹层的 state、令牌与取数 handler 整体搬到同目录 hook；
+  // redisInfo / redisSlowlog 留在原地（令牌被 useDbRedisKeys 直接 ++，并入 #25）
+  const {
+    er,
+    loadErGraph,
+    openErGraph,
+    closeErGraph,
+    structDiff,
+    loadDiffStructure,
+    openStructureDiff,
+    closeStructureDiff
+  } = useDbRedisInstance({ tabId, sel })
+
   // H7b-2：慢日志与 INFO 同层弹层、不同命令，状态也分开：
   // INFO 失败不该让慢日志看起来失败，反之亦然。entries=null 是"从没拉过"，[] 是"拉过、空的"
   const [redisSlowlog, setRedisSlowlog] = useState({ loading: false, error: '', entries: null })
@@ -2022,70 +2030,6 @@ export default auto(function DbSession (props) {
     } catch (err) {
       message.error(e('dbSqlFileWriteErr') + ' ' + (err && err.message ? err.message : err))
     }
-  }
-
-  // H3b-3：ER 图取数。只发 listForeignKeys（MySQL 走 information_schema，
-  // PG 走 pg_constraint），范围是当前库/schema —— 图里的表与本页选中的表无关，
-  // 换表不用重拉，换库才需要（关闭再打开就是新的一次）。
-  const loadErGraph = () => {
-    if (!sel || !sel.database) {
-      return
-    }
-    const target = { database: sel.database, schema: sel.schema || '' }
-    erTokenRef.current++
-    const token = erTokenRef.current
-    setEr(s => ({ ...s, loading: true, error: '' }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'listForeignKeys', target).then(graph => {
-      if (token !== erTokenRef.current) {
-        return
-      }
-      setEr({ open: true, loading: false, error: '', graph: graph || null })
-    }).catch(err => {
-      if (token !== erTokenRef.current) {
-        return
-      }
-      // 失败保留上一张图：刷新失败不该把还能看的东西一起收走，报错条会说明情况
-      setEr(s => ({
-        ...s,
-        open: true,
-        loading: false,
-        error: cleanDbError(err && err.message ? err.message : err)
-      }))
-    })
-  }
-
-  const openErGraph = () => {
-    // 先清空旧图：换库后打开，上一张图闪一下再被顶掉会被当成"新库就长这样"
-    setEr({ open: true, loading: true, error: '', graph: null })
-    loadErGraph()
-  }
-
-  const closeErGraph = () => {
-    // 关闭即作废在途请求：关掉再打开不该先看到上一次请求的结果
-    erTokenRef.current++
-    setEr({ open: false, loading: false, error: '', graph: null })
-  }
-
-  // H4：结构对比取数。refresh 让主进程跳过结构缓存 —— 刚 ALTER 过的表在 60s
-  // TTL 内还会返回旧结构，拿它对比会得出看不出来的错误结论
-  const loadDiffStructure = useCallback(target => window.pre.runGlobalAsync(
-    'dbClientOp', tabId, 'getTableStructure', {
-      database: target.database,
-      schema: target.schema || '',
-      table: target.table,
-      refresh: true
-    }
-  ), [tabId])
-
-  const openStructureDiff = () => {
-    setStructDiff({
-      open: true,
-      base: sel ? { database: sel.database, schema: sel.schema || '', table: sel.table } : null
-    })
-  }
-
-  const closeStructureDiff = () => {
-    setStructDiff({ open: false, base: null })
   }
 
   // H7b-2：慢日志。与 INFO 同一个弹层、另一条命令 —— 只在第一次切进"慢日志"页签时拉，
