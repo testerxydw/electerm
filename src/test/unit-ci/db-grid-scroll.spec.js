@@ -195,8 +195,9 @@ describe('批次 C：数据库页渲染收口契约', () => {
     const early = src.indexOf('  if (error) {')
     assert.ok(early > 0, 'error early-return marker missing')
     const markers = [
-      'const [quickOpen, setQuickOpen] = useState(false)',
-      'const quickItems = useMemo(',
+      // N11a-#13：命令面板的 4 个 state/effect/memo 已迁到 use-db-quick-open.js，
+      // 这里改为钉住 owner 侧的 hook 调用点（仍必须在早退之前）
+      'const { quickOpen, setQuickOpen, quickItems } = useDbQuickOpen(',
       'const sqlTables = useMemo(',
       'const treeData = useMemo(',
       'const columnWidths = useMemo('

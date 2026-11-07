@@ -23,6 +23,8 @@ const DB_CLIENT = path.join(ROOT, 'src/app/lib/db-client')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a 簇 C：onSelectTree 的 isDbObjectType 分支已迁到 use-db-tree.js（已接线）。
 const USE_DB_TREE = path.join(ROOT, 'src/client/components/database/use-db-tree.js')
+// N11a-#13：命令面板的对象 hint（DB_OBJECT_MARKS[node.type]）已迁到 use-db-quick-open.js
+const USE_DB_QUICK_OPEN = path.join(ROOT, 'src/client/components/database/use-db-quick-open.js')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
@@ -213,7 +215,7 @@ describe('B2 主进程契约', () => {
 })
 
 describe('B2 前端契约', () => {
-  const jsx = read(JSX) + '\n' + read(USE_DB_TREE)
+  const jsx = read(JSX) + '\n' + read(USE_DB_TREE) + '\n' + read(USE_DB_QUICK_OPEN)
   const constSrc = read(SESSION_CONST)
 
   test('isLeafNode 认四类对象（跑真实源码行）', () => {
