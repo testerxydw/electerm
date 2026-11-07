@@ -62,6 +62,7 @@ import { useDbRedisInstance } from './use-db-redis-instance'
 import { useDbForeignRefs } from './use-db-foreign-refs'
 import { useDbRedisBrowse } from './use-db-redis-browse'
 import { useDbSqlFile } from './use-db-sql-file'
+import { useDbConnection } from './use-db-connection'
 import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
@@ -783,45 +784,21 @@ export default auto(function DbSession (props) {
     runRedisDel
   } = redisApi
 
-  // 重新建连：先释放旧连接（openDbTab 内部也会兜底关闭残留），再拉元数据
-  const doConnect = () => window.pre.runGlobalAsync('closeDbTab', tabId)
-    .catch(() => {})
-    .then(() => window.pre.runGlobalAsync('openDbTab', clone(tab), clone(getSshBookmark())))
-    .then(() => window.pre.runGlobalAsync('dbClientOp', tabId, 'getMetadata', { hideSystemSchemas }))
-    .then(data => {
-      setMetadata(data || [])
-      setConnError('')
-      setReady(true)
-      return null
-    })
-
-  // T4 跨库连接：复用当前连接的主机/端口/账号，目标库另开临时 tab（不写书签）
-  const connectOtherDb = () => {
-    if (!connectDb) {
-      return
-    }
-    const next = clone(tab)
-    delete next.id
-    delete next.tabCount
-    delete next.status
-    delete next.title
-    next.dbName = connectDb
-    window.store.addTab(next)
-    setConnectDb(null)
-  }
-
-  // 掉线后重连：失败仍留在界面上（顶部横幅提示），便于继续排查
-  const reconnect = () => doConnect()
-    .catch(err => {
-      setReady(true)
-      setConnError(err && err.message ? err.message : String(err))
-    })
-
-  // 初次建连失败后的重试：失败则继续停留在失败卡片上（而非进入空界面）
-  const retryConnect = () => doConnect()
-    .catch(err => {
-      setError(err && err.message ? err.message : String(err))
-    })
+  // ---- #29 连接生命周期拆到 use-db-connection（行为零变更）----
+  // 重连 / 重试 / 跨库另开 tab 三个动作整体搬走；挂载建连 effect 仍留在本文件
+  // （它同时复位视角与草稿，硬搬会复制一份 useDbView 的形参表，见 hook 头注释）
+  const { connectOtherDb, reconnect, retryConnect } = useDbConnection({
+    tabId,
+    tab,
+    connectDb,
+    setConnectDb,
+    getSshBookmark,
+    hideSystemSchemas,
+    setMetadata,
+    setConnError,
+    setReady,
+    setError
+  })
 
   // 挂载建连 + 首次拉元数据；卸载断开连接
   useEffect(() => {

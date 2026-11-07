@@ -14,8 +14,10 @@ const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const read = p => fs.readFileSync(p, 'utf8')
 // N11b-#24：treeData 的「非当前 PG 库给连接入口」分支已迁到 use-db-tree-data.jsx
+// N11b-#29：connectOtherDb 本体已迁到 use-db-connection.js
 const TREE_DATA = path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx')
-const readSession = () => read(JSX) + '\n' + read(TREE_DATA)
+const CONNECTION = path.join(ROOT, 'src/client/components/database/use-db-connection.js')
+const readSession = () => read(JSX) + '\n' + read(TREE_DATA) + '\n' + read(CONNECTION)
 
 describe('T4 postgres cross-database connect', () => {
   test('入口仅对非当前 PG 库显示', () => {
