@@ -35,6 +35,10 @@ export function useDbConnection ({
     .then(data => {
       setMetadata(data || [])
       setConnError('')
+      // 初次建连失败后点「重试」成功时，必须把失败卡片放下来：这个 error 是整页的
+      // 提前 return 判据（`if (error) return <DbConnError/>`），只有挂载 effect 会清它。
+      // 少这一句的表现是「连接已恢复、卡片永远不动」，用户只能关页签重开
+      setError('')
       setReady(true)
       return null
     })
