@@ -22,12 +22,14 @@
 | N11a-10（接线） | 树面板 + Redis 键空间两个渲染副本真正接线 | `db-tree-panel.jsx`（79 行）+ `db-redis-key-space.jsx`（293 行） | 主文件 −236 行；`keys` 显式合成 11 个 hook 返回值 + 7 个 owner state，保留 `const redisArea =` 锚点；7 份契约改组合读取 |
 | N11a-11（#6） | F2 手动事务：轮询 tick + 自动回滚提示 + 6 个 handler | `use-db-transaction.js`（118 行） | 主文件 −53 行；state/ref 留 owner 注入，2 个 useEffect 依赖数组不变；契约零改动 |
 | N11a-12（#10） | AI 登记段：上下文刷新 + 只读快照 + 稳定目标对象 + 注册/注销 effect | `use-db-ai-register.js`（125 行） | 主文件 7852 → **7768 行**（−84）；`sqlAiCtxRef` 是页面级共享 ref（2821 / 7305 仍消费），留 owner 持有并注入；`sqlAiTarget` 回流给 `insertAiSql`；3 份契约改组合读取 |
+| N11a-13（#12） | EXPLAIN（只读计划分析）+ Redis 类型化写（T12）：10 个编排 handler | `use-db-explain.js`（32 行）+ `use-db-redis-write.js`（247 行） | 主文件 7768 → **7584 行**（−184）；无 state / 无 JSX / 无 effect，全部为普通函数；`redisWrite`/`showErrorModal`/`message`/`confirmRedisWrite` 等依赖全部注入；10 个函数名在 unit-ci spec 0 命中 → 契约零改动 |
+| N11a-14（#8） | SQL 执行历史（S3-C 状态/refs/handlers + S3-D 导出） | `use-db-sql-history.js`（160 行） | 主文件 7584 → **7503 行**（−81）；页面级 state/ref 随簇搬入（参照 `use-db-tree` 自建簇私有 state 先例），仅 `setSqlText` 由 owner 注入；历史弹层 JSX 与 `startHistResize`/`moveHist` 留 owner，`db-sql-history.spec.js` 9 处断言仍命中主文件（无需改读源）；逐字等价 |
 | N2-1 | 变更预览 + 变更集模型（纯函数，未接 UI） | `src/client/common/db-change-preview.js` + `src/client/common/db-change-set.js` | 仅改文案调用 |
 | N2-UI（并行 WIP） | 变更面板 UI | `src/client/components/database/use-db-changes.js` + `db-change-panel.jsx` | 非本方案实现；因主文件已 import，依赖链随第二点提交纳入以保证可构建 |
 
 > 注：`db-change-panel.jsx` / `use-db-changes.js` 属用户其他 WIP，本方案不改动其实现，仅随提交纳入依赖链。
 
-**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7852 行**（相对 9970 行基线 −2117 行）；#10 AI 登记段拆出后再 −84 行 → **7768 行**。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
+**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7852 行**（相对 9970 行基线 −2117 行）；#10 AI 登记段拆出后再 −84 行 → 7768 行；#12 EXPLAIN/Redis 写拆出 −184 行 → 7584 行；#8 SQL 历史拆出 −81 行 → **7503 行**。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
 
 **验证（三 hook 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **5092/5092 / fail 0**（其中 `not ok 1034 - build-time injection` 为 `node-safe-delete-shim.cjs` 对 `node_modules` 目录 trash 的 `EISDIR` 噪声）；`npm run compile` RC=0（`done build in 402.417 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-DecjfU0G.js` 344.27 kB）。另用 VM 实跑对比新版 `pageSizeOf` 与 `ccf04edb` 旧内联实现：函数体逐行一致、14 组输入输出 0 差异。实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。
 
@@ -37,7 +39,11 @@
 
 **验证（#10 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **fail 0**（`not ok 1034 - build-time injection` 下 10 个 cancelled 子测试为已知 `widget-protocol.spec.js` safe-delete 垫片噪声，另有 zmodem 临时 `dup.txt` ENOENT 清理噪声）；`npm run compile` RC=0（`done build in 283.496 s`、`[check-cm6-chunk] OK: 主入口干净，CM6 在 db-sql-editor-5.8.1-Cv0HViK9.js(375KB)`、产物 `db-session-5.8.1-CpbFXPB1.js` 339K，内含搬过去的 `getResultSnapshot` 实现）。hook 函数体 101 行与旧内联段逐字一致（仅少掉移交给 owner 的 ref 声明）；VM 实跑新旧 `getResultSnapshot` **8 组输入 0 差异**；组合读取源下窗口型断言实测 `sqlAiTarget` idx=257471、2200 / 3000 字符窗口均不含 `runSql`，`insertAiSql` / `askAiAboutSql` 仍命中主文件，无 `indexOf` 假阳性；81 个相对 import 全部闭合。实机 GUI smoke 未跑。
 
-**提交**：分五点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ `7b0e291f` #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步；④ `9fefc08a` 接线树面板 / Redis 键空间两个渲染组件 + 7 份契约迁移；⑤ `b409f7ee` #6 事务 hook + 文档进度同步（另有 `8e810ab4` 纯文档行数校正）；⑥ 本次提交 #10 AI 登记 hook + 3 份契约迁移 + 文档进度同步。均未 push。
+**验证（#12 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **fail 0**（10 个 cancelled 子测试为已知 `build-time injection` safe-delete 垫片噪声）；`npm run compile` RC=0（`done build in 314.935 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-C7m91moZ.js` 341K 含 `doRenameKeyNx`/`openExplain`/`runRedisWrite` 实现、CM6 仍在独立 `db-sql-editor-5.8.1-Cv0HViK9.js` 375K）。两个 hook 函数体逐字抽取自旧内联段（3232–3248 / 3250–3455），10 个函数名在 unit-ci spec 0 命中 → 契约零改动；83 个相对 import 闭合。实机 GUI smoke 未跑。
+
+**验证（#8 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **fail 0**（同上 10 个 cancelled 噪声）；`npm run compile` 同 #12 批次一并以 RC=0 通过（同一产物 `db-session-5.8.1-C7m91moZ.js` 含 `histList`/`openSqlHistory` 实现）。两段（S3-C 2244–2317 / S3-D 2783–2807）逐字迁入 `use-db-sql-history.js`、主文件完全消除；`db-sql-history.spec.js` 9 处断言（历史弹层 JSX 与 `startHistResize`/`moveHist`）仍在主文件命中、未改读源；组合读取白名单不受影响。实机 GUI smoke 未跑。
+
+**提交**：分五点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ `7b0e291f` #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步；④ `9fefc08a` 接线树面板 / Redis 键空间两个渲染组件 + 7 份契约迁移；⑤ `b409f7ee` #6 事务 hook + 文档进度同步（另有 `8e810ab4` 纯文档行数校正）；⑥ 本次提交 #10 AI 登记 hook + 3 份契约迁移 + 文档进度同步；⑦ `ffad5e30` #12 EXPLAIN/Redis 写两个 hook + 文档进度同步；⑧ `f866bd17` #8 SQL 历史 hook + 文档进度同步。均未 push。
 
 ### 1.1 并行拆分实验结论（2026-11-06）
 
@@ -51,7 +57,7 @@
 
 ## 2. 剩余拆分方案（按耦合度递增排序）
 
-> 进度注：#1 / #14 / #15、#2 / #3 / #11、两个渲染副本接线、#6 事务簇、#10 AI 登记段均已于 2026-11-06 实装（见 §1 N11a-4~12 与 §1.1）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。其中 #13 实为依赖 6+ 簇的聚合消费者且持有全局 `mainTab`、#10 仅登记段独立 —— 原表「独立」标注与实测有偏差。
+> 进度注：#1 / #14 / #15、#2 / #3 / #11、两个渲染副本接线、#6 事务簇、#10 AI 登记段均已于 2026-11-06 实装（见 §1 N11a-4~12 与 §1.1）；#12 EXPLAIN/Redis 写（`use-db-explain.js` + `use-db-redis-write.js`）与 #8 SQL 历史（`use-db-sql-history.js`）已于 2026-11-07 实装（见 §1 N11a-13/14）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。其中 #13 实为依赖 6+ 簇的聚合消费者且持有全局 `mainTab`、#10 仅登记段独立 —— 原表「独立」标注与实测有偏差。
 
 聚类的当前位置以源码 `// ----` 分段标记 + 函数名为锚（行号会随抽取漂移，故以标记为准）：
 
