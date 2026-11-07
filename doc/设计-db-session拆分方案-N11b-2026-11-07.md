@@ -1,7 +1,7 @@
 # db-session.jsx 继续拆分方案（N11b）
 
 > 状态：**执行中**（2026-11-07）。N11a 的 §2 队列已全部收口（`db-session.jsx` 9970 → 6290 行）；
-> N11b 已收口 #22 / #23 / #24 / #26 / #9（6290 → 5567 行）。
+> N11b 已收口 #22 / #23 / #24 / #26 / #9 / #25（+ #25b 形参收拢）（6290 → 5434 行）。
 > 本文回答一个问题：**还能不能继续拆、值不值得拆、按什么顺序拆**。执行进度见 §7。
 
 ---
@@ -64,7 +64,7 @@
 | 1 | ✅ 网格列定义（`renderCell` / `colMenu` / `columnWidths` / `colTypeByName` / `colCommentByName` / `orderedColumnNames` / `hiddenColumnSet` / `visibleColumnNames` / `rowColumnNames` / `openDataCellMenu` / `dataWidths` / `colFitAllBtn` / `toggleColumnVisible` / `moveColumn` / `columns`） | 2275–2614 | 实测 owner −275 / hook 407 | `use-db-grid-columns.jsx` ✅ 已建 | 5 份（已跟迁） |
 | 2 | ✅ SQL 结果列定义（`sqlColumnKeys` / `sqlColWidths` / `sqlFitted` / `sqlWidths` / `sqlColTypeMaps` / `sqlResultColumns` / `sqlSortNumeric` / `sqlResultViews` / `sqlCellInfo` / `sqlValuePane` / `sqlPaneShown`） | 2616–2802 | 实测 owner −171 / hook 254 | `use-db-sql-result-columns.jsx` ✅ 已建 | 5 份（已跟迁） |
 | 3 | ✅ 树数据（`visibleMetadata` / `countTreeNodes` / `treeFilterNodeCount` / `treeTitle` / `treeData`） | 2804–2969 + 195–209（图标表） | 实测 owner −171 / hook 233 | `use-db-tree-data.jsx` ✅ 已建 | 8 份（已跟迁） |
-| 4 | Redis 键浏览（键列表/键树/选中/详情/TTL：`redisDb` 起 24 个 state 中的浏览类 + `selectRedisKey` / `applyTtl` / `delSelectedKey`） | 620–696 + 2142–2233 | ~230 | `use-db-redis-browse.js` | 3–4 份 |
+| 4 | ✅ Redis 键浏览（键列表/键树/选中/详情/TTL：`redisDb` 起 24 个 state 中的浏览类 + `selectRedisKey` / `applyTtl` / `delSelectedKey`） | 546–615 + 2009–2102 | 实测 owner −133（含 #25b）/ hook 234 | `use-db-redis-browse.js` ✅ 已建 | 2 份（已跟迁） |
 | 5 | ✅ Redis 实例视图（ER 图 + 结构对比；redisInfo/redisSlowlog 并入 #4）（`redisInfo` / `er` / `structDiff` / `redisSlowlog` + `loadErGraph` / `openErGraph` / `closeErGraph` / `loadDiffStructure` / `openStructureDiff` / `closeStructureDiff` / `loadRedisSlowlog`） | 645–651 + 2027–2089 | 实测 owner −56 / hook 107 | `use-db-redis-instance.js` ✅ 已建 | 2 份（已跟迁） |
 | 6 | SQL 文件读写（`sqlFile` / `sqlFileDirty` + `sqlBufferReplacable` / `confirmReplaceBuffer` / `openSqlFile` / `saveSqlFile`） | 492–493 + 1973–2046 | ~85 | `use-db-sql-file.js` | 1–2 份 |
 | 7 | 连接生命周期（`doConnect` / `connectOtherDb` / `reconnect` / `retryConnect` + 连接 effect） | 893–994 | ~102 | `use-db-connection.js` | 1–2 份 |
@@ -171,7 +171,7 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 
 ## 7. 进度记录
 
-基线：**6290 行**（N11a 全部收口后）。当前：**5567 行**（−723，−11.5%）。
+基线：**6290 行**（N11a 全部收口后）。当前：**5434 行**（−856，−13.6%）。
 
 | 簇 | 目标文件 | owner 行数 | 提交 | 验证 |
 |---|---|---|---|---|
@@ -180,6 +180,8 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 | #24 元数据树数据 | `use-db-tree-data.jsx`（233） | 5851 → 5680 | `49dc8f9b` | 字节等价 body 166/166 + 图标表 15/15；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #26 ER 图 / 结构对比 | `use-db-redis-instance.js`（107） | 5680 → 5624 | `aa655754` | 字节等价 71/71；standard 仅 6 条基线（连带清 useCallback 死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #9 外键引用侧栏 | `use-db-foreign-refs.js`（99） | 5624 → 5567 | `d46fee30` | 字节等价 68/68；standard 仅 6 条基线（连带清 buildRefItems 死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #25 Redis 键浏览 | `use-db-redis-browse.js`（234） | 5567 → 5466 | `59929b86` | 字节等价 152/152；standard 仅 6 条基线（连带清 2 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #25b 形参收拢 | 改 `use-db-redis-keys.js` 签名 32→5 | 5466 → 5434 | `fd7e6ed6` | standard 零新增；db-* 2199/2199；全量 fail 0；compile RC=0 |
 
 ### #22 落地要点（供后续簇复用）
 
@@ -226,3 +228,21 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 一行没改。这反而验证了「组合读取源」这条纪律没有退化：**没有 spec 依赖的代码可以整段
 搬走而不惊动任何断言**。反过来说，之前每簇改 5–8 份 spec 的成本，全部来自「spec 用
 `readFileSync` + 正则钉 owner 文件」这个既有设计，不是拆分本身制造的。
+
+### #25 / #25b 落地要点
+
+- **「同一个变更理由被劈成三段」的最后一块**：Redis 键浏览的状态在 546–615、取键详情与
+  写键在 2009–2102、传给另一个 hook 的 32 个形参在 745–780。搬完之后，这个文件里
+  再没有「一个功能要看三个地方」的情况。
+- **回流的 41 个名字不是反模式**。§6 警告过「返回 30 个无人使用的解构」，但那说的是
+  「无人使用」。这里 41 个里 owner 真的用到 40 个（只有 `setDetailLoading` 全程在 hook
+  内部用）—— 判据是**有没有消费者**，不是**数量多少**。
+- **state 搬走 ≠ 形参收拢，必须分两步**。#25 只搬代码，`useDbRedisKeys` 仍逐项收 32 个；
+  #25b 才把形参收成 `browse` 对象。分两步的价值在于：#25 是纯搬运（字节等价可证），
+  #25b 是接口变更（只能靠 lint + 全量 + 手工点验证）。混在一起出问题就分不清是谁的锅。
+- **收拢形参会暴露隐性冗余**：`keyJumpInput` / `treeExpanded` / `redisInfo` 三个字段
+  在 use-db-redis-keys 里**从来没用过**，但作为函数形参 `standard` 不报；改成解构后
+  立刻被 `no-unused-vars` 抓出来。接口收拢本身就有清理作用。
+- **`useDbRedisWrite` 这次没动**：它 17 个形参里 7 个是 `redisAdd` / `redisEdit` /
+  `renameInput` 这类**写状态**，不在 browse 里（属 D 批 T12），硬塞进去会让 browse
+  变成「Redis 大杂烩」。留待后续单独一簇。
