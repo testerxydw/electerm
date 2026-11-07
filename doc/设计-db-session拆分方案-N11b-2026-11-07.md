@@ -294,10 +294,10 @@ props 下限。用 @babel/parser 统计（排除块内自声明、回调形参�
 | 块 | 行数 | owner 变量（= props 下限） | 行/变量 | 块内条件·映射行 | 结论 |
 |---|---|---|---|---|---|
 | `structureArea` | 70 | 13 | 5.4 | 3 | ✅ 已做（#32） |
-| `historyInnerEl` | 222 | 19 | 11.7 | — | 候选 |
-| `favContentEl` | 282 | 20 | 14.1 | — | 候选 |
-| `sqlOptsPop` | 22 | 2 | 11.0 | — | 太小，不值一个文件 |
-| `workspaceHome` | 19 | 11 | 1.7 | — | ❌ 19 行换 11 个 props |
+| `historyInnerEl` | 220 | 19 | 11.6 | — | 候选 |
+| `favContentEl` | 280 | 20 | 14.0 | — | 候选 |
+| `sqlOptsPop` | 20 | 2 | 10.0 | — | 太小，不值一个文件 |
+| `workspaceHome` | 17 | 11 | 1.5 | — | ❌ 17 行换 11 个 props |
 | `redisArea` | 44 | 38 | 1.2 | 0 | ❌ 写个 38 props 组件去省 44 行 |
 | `sqlArea` | 426 | 48 | 8.9 | 33 | ⚠️ 见下 |
 | `dataArea` | 770 | 86 | 9.0 | — | ❌ §6 已明令不拆 |
@@ -316,7 +316,17 @@ props 下限。用 @babel/parser 统计（排除块内自声明、回调形参�
 3. **`dataArea`（770 行 / 86 props）坚决不动**。§6 的判据在这里得到数据支持：
    86 个 props 的组件比 770 行内联 JSX 难改得多。
 
-**结论：render 段只做两块 —— `historyInnerEl` + `favContentEl`（504 行 / 39 props，
+两个面板的变量清单（自测复核，`@babel/traverse` 取 `binding.scope === DbSession 函数作用域`）：
+`historyInnerEl` = sqlHistory, exportSqlHistory, clearAllSqlHistory, histFilter, setHistFilter,
+setHistIndex, onHistFilterKeyDown, histList, histListRef, onHistKeyDown, histIndex,
+pickSqlHistory, isRedis, isFaved, favoriteNow, favGroups, openQuickFav, removeOneSqlHistory, histCur；
+`favContentEl` = newFavorite, importFav, favList, exportFavScoped, setExportMulti, favGroups,
+setGroupInput, setGroupDialog, favFilter, setFavFilter, favGroupView, setFavGroupView,
+favVisible, favBuckets, favFolded, toggleFavFold, pickFavorite, moveFavoriteGroup,
+editFavorite, removeOneFavorite。两个清单**交集只有 `favGroups`**，且都不引用任何 `*Area` ——
+所以可以独立搬、可以分两次提交。
+
+**结论：render 段只做两块 —— `historyInnerEl` + `favContentEl`（500 行 / 39 props，
 两块互不引用、也不引用任何 `*Area`，可独立搬）。做完约 4675 行，然后停。**
 
 停下来的理由不是「累了」，而是剩下的每一块都满足不了「变量数远小于行数」这一条：
