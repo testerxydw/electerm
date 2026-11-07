@@ -87,18 +87,16 @@ import { summarizeColumn, summaryText } from '../../common/db-grid-summary'
 // N11a-#4b：planSameValue/planReplace（db-grid-replace）与
 // bulkUpdatePreview/replacePreview（db-change-preview）随 B3-2/B3-3 迁入 use-db-bulk-edit
 import { copy } from '../../common/clipboard'
-import { appendSqlHistory, clearSqlHistory, removeSqlHistory, exportSqlHistory as exportHistoryFile } from '../../common/db-sql-history'
+import { appendSqlHistory } from '../../common/db-sql-history'
 // B 批：SQL 模板（B-3，内置骨架菜单 + 按表生成 INSERT，见下方 insertTemplate）
 import { SQL_TEMPLATES, buildTemplateSql } from '../../common/db-sql-snippets'
 import {
   clampPanelSize,
-  readHistoryPanelSize,
   sizePatch,
   splitMode,
   moveHistoryIndex,
   clampHistoryIndex,
-  previewText,
-  filterHistory
+  previewText
 } from '../../common/db-sql-history-panel'
 import { formatSql } from '../../common/db-sql-format'
 // 只取元数据整形函数：引擎主体仍只被懒加载的编辑器引用，
@@ -1474,7 +1472,7 @@ export default auto(function DbSession (props) {
   // ---- S3-C SQL 执行历史（主进程文件环形存储，上限见 SQL_HISTORY_MAX，仅本地，跨启动稳定） ----
   // 状态/refs/handlers 已拆到 use-db-sql-history.js（N11a-14），setSqlText 由本页注入。
   const {
-    sqlHistoryOpen, setSqlHistoryOpen,
+    sqlHistoryOpen,
     sqlHistory, setSqlHistory,
     histSize, setHistSize,
     histSizeRef,

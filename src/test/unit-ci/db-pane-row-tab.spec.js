@@ -11,7 +11,6 @@ const fs = require('fs')
 const path = require('path')
 
 const ROOT = path.join(__dirname, '../../..')
-const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const ROW_DETAIL = path.join(ROOT, 'src/client/components/database/db-row-detail.jsx')
 const extra = require(path.join(ROOT, 'src/app/common/locales-extra.js'))
 

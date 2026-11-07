@@ -175,7 +175,7 @@ async function main () {
     return t.id
   })()`)
   const connected = await waitFor(cdp,
-    `!!(window.__head() && window.__head().indexOf('smoke.db') >= 0)`, '会话头部等不到库文件名', 25000)
+    '!!(window.__head() && window.__head().indexOf(\'smoke.db\') >= 0)', '会话头部等不到库文件名', 25000)
   check('#29 加页签即建连（头部显示库文件名）', connected, await cdp.eval('window.__head()'))
   if (!connected) {
     check('后续判据依赖建连，提前中止', false, cdp.tail(6))
