@@ -163,7 +163,9 @@ describe('批次 D：Redis 详情分页（后端）', () => {
 })
 
 describe('批次 D：Redis 详情分页（前端接线）', () => {
-  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
+  // N11b-#25：selectRedisKey（cursor/append 服务端分页）已迁到 use-db-redis-browse.js
+  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') +
+    '\n' + fs.readFileSync(path.join(ROOT, 'src/client/components/database/use-db-redis-browse.js'), 'utf8')
 
   test('请求带游标与页大小，加载更多按游标追加', () => {
     assert.ok(src.includes('cursor: String(cursor || \'0\')'), 'cursor must be sent')

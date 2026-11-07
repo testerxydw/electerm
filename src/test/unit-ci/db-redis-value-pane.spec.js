@@ -24,7 +24,9 @@ const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.j
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 
-const jsx = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
+// N11b-#25：redisCell / 详情 state 已迁到 use-db-redis-browse.js
+const REDIS_BROWSE = path.join(ROOT, 'src/client/components/database/use-db-redis-browse.js')
+const jsx = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') + '\n' + fs.readFileSync(REDIS_BROWSE, 'utf8')
 const consts = () => fs.readFileSync(SESSION_CONST, 'utf8')
 
 // 去掉行注释：契约钉的是"代码里有没有这一句"，不是"注释里提没提"
