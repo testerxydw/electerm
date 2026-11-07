@@ -228,22 +228,28 @@ const url = '\\bhttps?://[^\\s"\']+'
  * FAMILY_RANK 是发布契约：新增家族必须同时登记 rank，否则 keyword-family.spec.js 失败。
  * ------------------------------------------------------------------ */
 export const FAMILY_RANK = {
-  // 0 · marker — 边界记号：Redis 类型标记——先于一切形状，否则被路径/数字吃掉
+  // 0 · marker — 边界记号：Redis 类型标记、diff 头/hunk、冲突标记——先于一切形状，否则被路径/数字吃掉
   'redis-type': 0,
-  // 10 · exact-addr — 精确地址：IP / IPv6+MAC / URL / UUID / PCI——长度确定、误染代价最高
+  'conflict-marker': 0,
+  'diff-header': 0,
+  'diff-hunk': 0,
+  // 10 · exact-addr — 精确地址：IP / IPv6+MAC / URL / UUID / PCI / SSH 指纹——长度确定、误染代价最高
   ipv4: 10,
   'ipv6-mac': 10,
   'pci-address': 10,
   url: 10,
   uuid: 10,
+  fingerprint: 10,
   // 20 · path — 路径与位置：绝对路径、源文件、file:line、栈帧
   'file-line': 20,
   path: 20,
   'stack-frame': 20,
   // 30 · domain-id — 领域标识：接口名、unit、设备、镜像、SQL 关键词…
   'auth-daemon': 30,
+  'commit-sha': 30,
   'daemon-tag': 30,
   'device-name': 30,
+  'git-ref': 30,
   'http-method': 30,
   'image-ref': 30,
   'interface-name': 30,
@@ -345,6 +351,7 @@ export const COLOR_GROUPS = {
   error: { color: 'red', label: '错误 / 失败 / 冲突' },
   warning: { color: 'yellow', label: '警告 / 跳过 / 4xx' },
   success: { color: 'green', label: '成功 / 运行中 / 2xx' },
+  info: { color: 'cyan', label: '信息' },
   debug: { color: 'blue', label: '调试' },
   nullish: { color: 'magenta', label: '空值 / 布尔 / 杂项' },
   // structure · 真彩色
@@ -377,6 +384,7 @@ export const FAMILY_GROUP = {
   'net-link-state.err': 'error',
   'k8s-workload.err': 'error',
   'git-cmd.err': 'error',
+  'conflict-marker': 'error',
   'word-warn': 'warning',
   'word-skip': 'warning',
   'syslog-sev.warn': 'warning',
@@ -388,7 +396,7 @@ export const FAMILY_GROUP = {
   'kernel-msg.ok': 'success',
   'k8s-workload.ok': 'success',
   'sql-status.ok': 'success',
-  'word-info': 'debug',
+  'word-info': 'info',
   'word-debug': 'debug',
   'null-bool': 'nullish',
   timestamp: 'time',
@@ -421,9 +429,14 @@ export const FAMILY_GROUP = {
   'pod-name': 'artifact',
   uuid: 'artifact',
   'user-agent': 'artifact',
+  'commit-sha': 'artifact',
+  'git-ref': 'artifact',
+  fingerprint: 'artifact',
   path: 'path',
+  'diff-header': 'path',
   'file-line': 'loc',
-  'stack-frame': 'loc'
+  'stack-frame': 'loc',
+  'diff-hunk': 'loc'
 }
 
 // 家族 → 颜色（唯一的颜色来源；预设规则的 color 字段全部由它派生）
@@ -586,7 +599,19 @@ const keywordPresetsRaw = [
     requires: ['通用 · 级别与状态', '通用 · 地址与路径'],
     description: 'git status/log/diff/fetch/push/pull/merge output: branch and tracking state, changed and untracked files, conflicts, commit ids, diff hunks',
     keywords: [
-      { keyword: '\\b(conflict|conflicts|both modified|both added|both deleted|deleted by (us|them)|added by (us|them)|unmerged|non-fast-forward|failed to push|detached HEAD|refusing to|would be overwritten|not possible to fast-forward)\\b', tier: 'signal', family: 'git-cmd.err' }
+      // 冲突标记优先于普通 conflict 单词（批次 G 回表：signal 红，永不被覆盖率闸丢弃）
+      { keyword: '<{7}|={7}|>{7}', tier: 'signal', family: 'conflict-marker' },
+      { keyword: '\\b(conflict|conflicts|both modified|both added|both deleted|deleted by (us|them)|added by (us|them)|unmerged|non-fast-forward|failed to push|detached HEAD|refusing to|would be overwritten|not possible to fast-forward)\\b', tier: 'signal', family: 'git-cmd.err' },
+      // 分支/远端引用（批次 G 回表）
+      { keyword: '\\b(HEAD|FETCH_HEAD|ORIG_HEAD|origin|upstream|main|master|develop|trunk|staging|production|release)/[\\w./-]+\\b', tier: 'structure', family: 'git-ref' },
+      // commit id：完整/commit 前缀形制 + oneline 行首短 sha（批次 G 回表）。
+      // 行首短 sha 必须同时含数字与 hex 字母（挡住纯数字行与英文词），长度 7–10
+      // （docker 12 位容器 ID 不属于本族）；(?<=^|\n) 让它只认行首，不抢行中数字。
+      // (?!ED25519\b) 挡住 SSH 密钥类型词——它恰好也是 7 位 hex 字母数字混排。
+      { keyword: '\\bcommit [0-9a-f]{7,40}\\b|\\b[0-9a-f]{40}\\b|(?<=^|\\n)(?!ED25519\\b)(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,10}\\b', tier: 'structure', family: 'commit-sha' },
+      { keyword: '@@ -\\d+(,\\d+)? \\+\\d+(,\\d+)? @@', tier: 'structure', family: 'diff-hunk' },
+      // diff 头 / +++/--- 文件头 / index 行（批次 G 回表；index 并入本族，一族一色）
+      { keyword: '\\bdiff --(git|stat)\\b|(?<!\\S)(\\+\\+\\+|---) [ab]/\\S+|\\bindex [0-9a-f]{7,}\\.\\.[0-9a-f]{7,}( \\d+)?\\b', tier: 'structure', family: 'diff-header' }
     ]
   },
   {
@@ -598,7 +623,9 @@ const keywordPresetsRaw = [
       // revoked/expired、reject 已归通用红档）
       { keyword: '\\b(sshd|sudo|pam_[a-z]+|fail2ban|nft|iptables|firewalld|ufw|polkit|openssl|openssh|gssapi)\\b', tier: 'structure', family: 'auth-daemon' },
       { keyword: '\\bport \\d{1,5}\\b', tier: 'structure', family: 'port-word' },
-      { keyword: '\\b(TLSv1(\\.[0-3])?|SSLv3|TLS_AES_\\w+|ECDHE[\\w-]*|cipher|handshake|verify (returned|ok|error)|Cipher is)\\b', tier: 'structure', family: 'tls-word' }
+      { keyword: '\\b(TLSv1(\\.[0-3])?|SSLv3|TLS_AES_\\w+|ECDHE[\\w-]*|cipher|handshake|verify (returned|ok|error)|Cipher is)\\b', tier: 'structure', family: 'tls-word' },
+      // SSH 首连指纹（批次 G 回表）：SHA256 base64 / MD5 冒号十六进制，精确地址层
+      { keyword: '\\b(SHA256:[A-Za-z0-9+/]{43}=?|MD5:[0-9a-f]{2}(:[0-9a-f]{2}){15})', tier: 'structure', family: 'fingerprint' }
     ]
   },
   {

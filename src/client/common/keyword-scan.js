@@ -240,7 +240,7 @@ function selectByRank (hits) {
  * @param {Array} patterns compileKeywords 的输出（含 re / color / colorCode / tier / rank）
  * @param {object|null} scan buildScan 的产物，传 null 走逐规则保底
  * @param {number} cap 单段命中上限
- * @returns {Array<{start,end,text,color,colorCode,tier,rank}>} 已按家族优先级去重叠、互不重叠
+ * @returns {Array<{start,end,text,color,colorCode,tier,rank,family}>} 已按家族优先级去重叠、互不重叠
  */
 export function collectMatches (content, patterns, scan, cap = maxMatchesDefault) {
   if (!patterns || !patterns.length) {
@@ -250,7 +250,12 @@ export function collectMatches (content, patterns, scan, cap = maxMatchesDefault
     ? collectViaCombined(content, scan, cap)
     : collectViaRules(patterns, content, cap)
   // 合并大正则路径内部已按 rank 裁决；这里统一再排一次，兜住保底路径与任何边界
-  return selectByRank(raw)
+  const out = selectByRank(raw)
+  // 家族随命中下发：覆盖率闸的豁免（marker 层 / fingerprint）要按家族认人
+  for (const h of out) {
+    h.family = patterns[h.index].family
+  }
+  return out
 }
 
 /**
@@ -260,7 +265,8 @@ export function collectMatches (content, patterns, scan, cap = maxMatchesDefault
  * 该行只保留 signal 命中、丢弃全部 structure 命中。这样：
  *   - 「一条 absPath 吃满整行」的 93% 花屏被消灭；
  *   - 错误/警告/成功词（signal）永远不会被闸掉；
- *   - 多行片段里某一行很脏不影响其它干净行，阈值不会被平均掉。
+ *   - 多行片段里某一行很脏不影响其它干净行，阈值不会被平均掉；
+ *   - marker 层（rank 0）与 fingerprint 是豁免族：不计入占比、也不被丢弃（批次 G）。
  *
  * 网格侧一个单元格即一行，天然同口径；两端共用本函数，不存在实现分叉。
  *
@@ -315,7 +321,15 @@ export function applyCoverageGate (content, matches, opts = {}) {
   const colored = new Array(lineStarts.length).fill(0)
   const structureByLine = new Array(lineStarts.length)
   const lineCount = lineStarts.length
+  // 批次 G（用户裁决）：marker 层（rank 0：diff 头/hunk/冲突标记/Redis 类型）与 SSH 指纹
+  // 是边界记号/精确 token，不计入行染色占比、也不被闸丢弃——这些行天然短，
+  // 35% 闸会把「diff --git a/x b/x」「SHA256:…」整行误杀，等于增补后仍然素色。
+  // 胖路径/长 URL（rank ≥ 10 的其它家族）照旧受闸。
+  const isGateExempt = m => m.rank === 0 || m.family === 'fingerprint'
   for (const m of matches) {
+    if (isGateExempt(m)) {
+      continue
+    }
     // 二分找起点所在行
     let lo = 0
     let hi = lineCount - 1

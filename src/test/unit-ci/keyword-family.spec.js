@@ -14,63 +14,11 @@ const loadScan = () => import('../../client/common/keyword-scan.js')
 // 用（white 留给用户自定义规则）。结构档占用它们就是「一个颜色两种语义」的开始。
 const ansiNames = new Set(['red', 'yellow', 'green', 'blue', 'magenta', 'cyan', 'white'])
 
-// sRGB → CIELAB → ΔE(1976)。终端底色是深色，配色是否"撞车"只能靠感知距离判断，
-// 肉眼在等宽字体上对色相+明度的差别远比对 RGB 差值敏感。
-const srgbToLab = (hex) => {
-  const h = hex.replace('#', '')
-  const lin = ([0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255))
-    .map(c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)))
-  const [r, g, b] = lin
-  const xyz = [
-    r * 0.4124 + g * 0.3576 + b * 0.1805,
-    r * 0.2126 + g * 0.7152 + b * 0.0722,
-    r * 0.0193 + g * 0.1192 + b * 0.9505
-  ]
-  const ref = [0.95047, 1, 1.08883]
-  const f = xyz.map((v, i) => {
-    const t = v / ref[i]
-    return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116
-  })
-  return [116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])]
-}
-const deltaE76 = (a, b) => Math.hypot(...srgbToLab(a).map((v, i) => v - srgbToLab(b)[i]))
-// ΔE(2000)：CIEDE2000。ΔE(1976) 在蓝段把距离报大了、绿段报小了，同一把尺卡全色板
-// 会让淡蓝簇白跑一趟，所以可辨性闸用 CIEDE2000 复核一遍。
-const deltaE00 = (hex1, hex2) => {
-  const [L1, a1, b1] = srgbToLab(hex1)
-  const [L2, a2, b2] = srgbToLab(hex2)
-  const C1 = Math.hypot(a1, b1)
-  const C2 = Math.hypot(a2, b2)
-  const Cb = (C1 + C2) / 2
-  const G = 0.5 * (1 - Math.sqrt(Cb ** 7 / (Cb ** 7 + 25 ** 7)))
-  const a1p = (1 + G) * a1
-  const a2p = (1 + G) * a2
-  const C1p = Math.hypot(a1p, b1)
-  const C2p = Math.hypot(a2p, b2)
-  const h1p = (Math.atan2(b1, a1p) * 180 / Math.PI + 360) % 360
-  const h2p = (Math.atan2(b2, a2p) * 180 / Math.PI + 360) % 360
-  let dhp = 0
-  if (C1p * C2p !== 0) {
-    dhp = h2p - h1p
-    if (dhp > 180) dhp -= 360
-    else if (dhp < -180) dhp += 360
-  }
-  const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(dhp * Math.PI / 360)
-  const Lbp = (L1 + L2) / 2
-  const Cbp = (C1p + C2p) / 2
-  let hbp = h1p + h2p
-  if (C1p * C2p !== 0) hbp = Math.abs(h1p - h2p) > 180 ? (h1p + h2p + 360) / 2 : (h1p + h2p) / 2
-  const T = 1 - 0.17 * Math.cos((hbp - 30) * Math.PI / 180) + 0.24 * Math.cos(2 * hbp * Math.PI / 180) +
-    0.32 * Math.cos((3 * hbp + 6) * Math.PI / 180) - 0.2 * Math.cos((4 * hbp - 63) * Math.PI / 180)
-  const dTh = 30 * Math.exp(-Math.pow((hbp - 275) / 25, 2))
-  const Rc = 2 * Math.sqrt(Cbp ** 7 / (Cbp ** 7 + 25 ** 7))
-  const Sl = 1 + (0.015 * Math.pow(Lbp - 50, 2)) / Math.sqrt(20 + Math.pow(Lbp - 50, 2))
-  const Sc = 1 + 0.045 * Cbp
-  const Sh = 1 + 0.015 * Cbp * T
-  const Rt = -Math.sin(2 * dTh * Math.PI / 180) * Rc
-  return Math.sqrt(Math.pow((L2 - L1) / Sl, 2) + Math.pow((C2p - C1p) / Sc, 2) +
-    Math.pow(dHp / Sh, 2) + Rt * ((C2p - C1p) / Sc) * (dHp / Sh))
-}
+// 感知距离数学与闸值/色相带/主题锚点已搬到 common（批次 F，SSOT）：
+// CI 闸与设置面板「色板体检」共用 keyword-color-math.js / keyword-palette-health.js，
+// 面板展示的数字与这里的判定逐字同源，不存在第二套近似实现。
+const loadColorMath = () => import('../../client/common/keyword-color-math.js')
+const loadPaletteHealth = () => import('../../client/common/keyword-palette-health.js')
 
 // 家族 → 规则列表（全量预设展开，按 family 归组）
 const familyIndex = async () => {
@@ -138,7 +86,9 @@ const wordTable = async () => {
   return table
 }
 
-describe('V3 信号家族契约', () => {
+describe('V3 信号家族契约', async () => {
+  const { srgbToLab, deltaE76, deltaE00 } = await loadColorMath()
+  const { PALETTE_GATES, HUE_BANDS, SIGNAL_ANSI_NAMES, themeSignalColors } = await loadPaletteHealth()
   test('家族登记表（§4）：每条预设规则都声明 family，且 family 已登记 rank / 归属组', async () => {
     const { keywordPresets, FAMILY_RANK, FAMILY_HOME, FAMILY_LAYERS } = await loadPresets()
     const layers = new Set(Object.values(FAMILY_LAYERS))
@@ -235,7 +185,21 @@ describe('V3 信号家族契约', () => {
     { line: 'web-0  Up 3 hours', want: [['k8s-workload.ok', 'Up 3 hours']] },
     { line: 'port 80', want: [['port-word', 'port 80']] },
     { line: '0x7ffe', want: [['hex-literal', '0x7ffe']] },
-    { line: '--max-time=30', want: [['cli-flag', '--max-time=30']] }
+    { line: '--max-time=30', want: [['cli-flag', '--max-time=30']] },
+    // Git / SSH 盲区回表（批次 G）：diff 头/hunk/冲突标记在 marker 层（rank 0），
+    // commit/引用/指纹各归其族。`diff --git` 只吃命令头、文件路径仍归 path；
+    // 12 位 docker 容器 ID 不是 commit-sha（短 sha 限 7–10 且必须数字+hex 字母混排）。
+    { line: '<<<<<<< HEAD', want: [['conflict-marker', '<<<<<<<']] },
+    { line: '=======', want: [['conflict-marker', '=======']] },
+    { line: '>>>>>>> feature/safe', want: [['conflict-marker', '>>>>>>>']] },
+    { line: 'diff --git a/src/app.js b/src/app.js', want: [['diff-header', 'diff --git'], ['path', 'a/src/app.js'], ['path', 'b/src/app.js']] },
+    { line: 'index 1a2b3c4..5d6e7f8 100644', want: [['diff-header', 'index 1a2b3c4..5d6e7f8 100644']] },
+    { line: '@@ -12,7 +12,8 @@ const init = () => {', want: [['diff-hunk', '@@ -12,7 +12,8 @@']] },
+    { line: 'b139c57e (HEAD -> master) refactor: 收敛', want: [['commit-sha', 'b139c57e']] },
+    { line: 'a1b2c3d4e5f6   nginx:1.20     web-0', want: [['image-ref', 'nginx:1.20']] },
+    { line: '1730899200 some epoch line', want: [['number', '1730899200']] },
+    { line: "Your branch is ahead of 'origin/master' by 3 commits.", want: [['git-ref', 'origin/master'], ['number', '3']] },
+    { line: 'ED25519 key fingerprint is SHA256:4Kq9vX2mZ8bR1nT6wY3cJ5hL0pF7sD9gA2eU4iO6xQ8.', want: [['fingerprint', 'SHA256:4Kq9vX2mZ8bR1nT6wY3cJ5hL0pF7sD9gA2eU4iO6xQ8']] }
   ]
   test('KU-3 形状边界 · 家族样本矩阵：每个形状在全量配置下只有一个归属', async () => {
     const { keywordPresets } = await loadPresets()
@@ -369,32 +333,12 @@ describe('V3 信号家族契约', () => {
 
   // ---- KU-6 色板几何闸（批次 E·B-2 定稿）----
   // 三条闸各自管一件事：色板内部不撞、色板内部一眼可辨、结构色长得不像信号词。
-  // 数值口径见 keyword-presets.js 的 KU-6 注释块；求解脚本是一次性的，
-  // 复算命令：node /tmp 无关，改色板后跑本文件即可（下面两条把违规对直接打出来）。
-  // ΔE76 在蓝段把距离报大了、绿段报小了，所以两把尺一起用：只卡 ΔE76 会逼淡蓝簇
-  // 无谓地跑远，只卡 ΔE00 又会放过绿段。
-  const GATES = {
-    // 实测 16.0（size↔path，B-2 前是 6.2）
-    pairDeltaE76: 16,
-    // 实测 8.5（time↔path，B-2 前是 4.5，同一对）
-    pairDeltaE00: 8,
-    // 实测 11.6（number↔主题 blue，B-2 前最低是 mac↔主题 magenta 7.4）
-    themeDeltaE76: 11
-  }
+  // 闸值 / 色相带 / 主题锚点的唯一真源在 common/keyword-palette-health.js（批次 F 搬出，
+  // 与面板「色板体检」同源）；改色板后跑本文件即可复算（下面两条把违规对直接打出来）。
+  const GATES = PALETTE_GATES
   const structureHexes = async () => {
     const { COLOR_GROUPS } = await loadPresets()
     return Object.entries(COLOR_GROUPS).filter(([, d]) => /^#/.test(d.color))
-  }
-  // 内置终端主题里 signal 档会真正发出的那批颜色（theme-defaults.js，不抄第二份表）。
-  // 只取 normal 变体：colorToCode 发的是 SGR 31–37，bright* 需要加粗，高亮从不加粗。
-  // ANSI 由主题控制，用户换主题就是换一组锚点，所以这条是"别把结构色配成我们自带主题的
-  // 信号色"的参照闸，不是跨主题承诺。已知越界且不拦：number 与深色主题 brightBlue 只差 2.4
-  // ——那是别的程序加粗的颜色，不在关键字高亮的语义空间里（详见 keyword-presets.js KU-6 注释）。
-  const SIGNAL_ANSI_NAMES = ['red', 'yellow', 'green', 'blue', 'magenta', 'cyan']
-  const themeSignalColors = async () => {
-    const mod = await import('../../client/common/theme-defaults.js')
-    return [mod.defaultTheme(), mod.defaultThemeLight()]
-      .flatMap(t => SIGNAL_ANSI_NAMES.map(n => t.themeConfig[n]))
   }
   const nearestTheme = async (hex) => {
     const anchors = await themeSignalColors()
@@ -451,26 +395,7 @@ describe('V3 信号家族契约', () => {
       '用户在屏幕上看到的就是"一个数值和一个信号词同色"，KU-6 一色一语义在观感上失效。')
   })
 
-  // 色的语义身份 = 色相。重排色板只能在色相带内调整明度/彩度，不能把 ident 从绿相
-  // 推成芥末金——那等于换了语义。这张表就是每个结构色组允许住着的色相弧。
-  const HUE_BANDS = {
-    time: [215, 250],
-    duration: [165, 200],
-    size: [245, 280],
-    number: [250, 285],
-    hexnum: [295, 330],
-    flag: [75, 100],
-    ip: [335, 360],
-    mac: [0, 25],
-    url: [30, 60],
-    port: [140, 170],
-    ident: [110, 140],
-    artifact: [60, 85],
-    diffmark: [100, 130],
-    action: [150, 175],
-    path: [215, 245],
-    loc: [130, 160]
-  }
+  // 色相带登记表的唯一真源在 keyword-palette-health.js（HUE_BANDS，describe 顶部导入）。
   test('KU-6 色相带：每个结构色组必须留在自己的色相弧内（并组前不许换色族）', async () => {
     const hexes = await structureHexes()
     const drift = []

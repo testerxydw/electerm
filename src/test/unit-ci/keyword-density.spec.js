@@ -149,6 +149,23 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     assert.ok(after.hits.some(h => h.text === 'ERROR'), 'error word still coloured')
   })
 
+  test('批次 G 闸豁免：diff 头/hunk/指纹不计入占比、不被闸丢；脏路径照旧被闸', async () => {
+    const { patterns, scan } = await buildPatterns(true)
+    const { collectMatches, applyCoverageGate } = gateCache
+    const families = line => applyCoverageGate(line, collectMatches(line, patterns, scan, 512))
+      .map(h => h.family)
+    // 这三类行天然短：不计豁免的话 diff 头 ≈ 89%、hunk = 45%、指纹 ≈ 65%，会被整行丢弃
+    assert.deepEqual(families('diff --git a/src/app.js b/src/app.js'), ['diff-header'])
+    assert.deepEqual(families('@@ -12,7 +12,8 @@ const init = () => {'), ['diff-hunk'])
+    assert.deepEqual(families('ED25519 key fingerprint is SHA256:4Kq9vX2mZ8bR1nT6wY3cJ5hL0pF7sD9gA2eU4iO6xQ8.'), ['fingerprint'])
+    // 豁免不扩散：同一条短行上的胖路径（rank 20）仍然被闸
+    assert.deepEqual(families(dirtyLine), [])
+    // 反证：diff 行若把豁免命中计入占比，整体已超 35%——豁免确实从占比里扣掉了
+    const raw = collectMatches('diff --git a/src/app.js b/src/app.js', patterns, scan, 512)
+    const rawRatio = raw.reduce((n, h) => n + (h.end - h.start), 0) / 38
+    assert.ok(rawRatio > 0.35)
+  })
+
   test('多行片段：按行算，脏行被闸、9 行净不受影响（按片段算会漏）', async () => {
     const { patterns, scan } = await buildPatterns(true)
     const { collectMatches, applyCoverageGate } = gateCache

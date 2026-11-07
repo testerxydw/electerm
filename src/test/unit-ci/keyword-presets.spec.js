@@ -528,11 +528,13 @@ describe('keyword presets', () => {
     assert.equal(addon.highlightKeywords(prose), prose)
   })
 
-  test('批次 D 数量收敛：生效规则数 ≤62（保留 INFO/DEBUG 两档后的目标）', async () => {
-    // 批次 D：删零命中规则 + 真同语义同色归并，56 条生效规则；INFO/DEBUG 两档经用户裁决保留。
+  test('批次 D+G 数量收敛：生效规则数 ≤62（批次 G 回表增补后正好触顶）', async () => {
+    // 批次 D：删零命中规则 + 真同语义同色归并，收敛到 56 条；INFO/DEBUG 两档经用户裁决保留。
+    // 批次 G：盲区三场景回表增补 6 条（conflict-marker / git-ref / commit-sha / diff-hunk /
+    // diff-header / fingerprint）→ 62 条，恰好卡在用户裁决的 ≤62 上限。
     const all = await allApplied()
     assert.ok(all.length <= 62, `effective ${all.length} should be within ≤62 (INFO/DEBUG kept)`)
-    assert.equal(all.length, 56, `effective ${all.length} matches the batch D target 56`)
+    assert.equal(all.length, 62, `effective ${all.length} matches the batch D+G target 62`)
     // 顺带确认：通用档仍是共享形状的唯一存放处（跨组唯一 + 共享只一份）
     const { keywordPresets } = await loadPresets()
     const { resolvePresetKeywords } = await loadGroups()
