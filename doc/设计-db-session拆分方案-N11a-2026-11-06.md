@@ -25,12 +25,13 @@
 | N11a-13（#12） | EXPLAIN（只读计划分析）+ Redis 类型化写（T12）：10 个编排 handler | `use-db-explain.js`（32 行）+ `use-db-redis-write.js`（247 行） | 主文件 7768 → **7584 行**（−184）；无 state / 无 JSX / 无 effect，全部为普通函数；`redisWrite`/`showErrorModal`/`message`/`confirmRedisWrite` 等依赖全部注入；10 个函数名在 unit-ci spec 0 命中 → 契约零改动 |
 | N11a-14（#8） | SQL 执行历史（S3-C 状态/refs/handlers + S3-D 导出） | `use-db-sql-history.js`（160 行） | 主文件 7584 → **7503 行**（−81）；页面级 state/ref 随簇搬入（参照 `use-db-tree` 自建簇私有 state 先例），仅 `setSqlText` 由 owner 注入；历史弹层 JSX 与 `startHistResize`/`moveHist` 留 owner，`db-sql-history.spec.js` 9 处断言仍命中主文件（无需改读源）；逐字等价 |
 | N11a-15（#5） | 行级 INSERT / DELETE（B1 标记段 1538–1676，不含 A2 DDL 的 `ddl` state） | `use-db-insert.js`（~190 行） | 主文件 7503 → **7368 行**（−135）；页面级 state/ref 随簇注入（`selectedRowKeys`/`setSelectedRowKeys`/`filteredRows`/`grid`/`setGrid`/`countKeyRef`/`structure`/`tab`/`tabId`/`changes`/`confirmRowWrite`/`onOpError`/`pkColumn`/`sel`）；`rowSelection`/`invertSelection`/`openInsertModal`/`submitInsert`/`runDeleteRows`/`setInsertCol`/`insertPayload`/`canSubmitInsert` 等 11 个名字回流 owner；`ddl` 留 owner（A2 DDL 查看器，render 6466+ 与 handlers 6524+ 仍消费）；`db-row-write.spec.js` 组合读取源追加 `use-db-insert.js`，`invertSelection`/`rowSelection`/`insertRow`/`deleteRows` op 字符串断言仍命中，契约零改动 |
+| N11a-16（#9） | SQL 查询收藏（B 批 B-1~B-6：数据层/CRUD/分组 B-5/一键 B-6/导出导入 B-4） | `use-db-sql-favorite.js`（450 行） | 主文件 7368 → **7004 行**（−364）；收藏逻辑与 AI 代码交错（AI 登记 2249 / AI 生成弹层 2268–2314 / AI 联动 B-7 / SQL 模板 B-3 含 JSX），按 SRP 只抽「收藏数据管理」，AI 与模板留 owner；分两段（A 2157–2238 + B 2316–2615）逐字迁入；页面级注入 `sqlText`/`tab`/`insertToEditor`/`openSqlHistory`；39 个名字回流 owner（19 state + 3 derived + 17 handler）；unit-ci **无任何 spec** 读主文件断言收藏符号 → 契约零改动；同步清理 owner 的 12 个收藏 backend dead import + `filterFavorites` |
 | N2-1 | 变更预览 + 变更集模型（纯函数，未接 UI） | `src/client/common/db-change-preview.js` + `src/client/common/db-change-set.js` | 仅改文案调用 |
 | N2-UI（并行 WIP） | 变更面板 UI | `src/client/components/database/use-db-changes.js` + `db-change-panel.jsx` | 非本方案实现；因主文件已 import，依赖链随第二点提交纳入以保证可构建 |
 
 > 注：`db-change-panel.jsx` / `use-db-changes.js` 属用户其他 WIP，本方案不改动其实现，仅随提交纳入依赖链。
 
-**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7852 行**（相对 9970 行基线 −2117 行）；#10 AI 登记段拆出后再 −84 行 → 7768 行；#12 EXPLAIN/Redis 写拆出 −184 行 → 7584 行；#8 SQL 历史拆出 −81 行 → 7503 行；#5 行级 INSERT/DELETE 拆出 −135 行 → **7368 行**。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
+**进度**：三轮渲染接线（#1 / #14 / #15）后 **8926 行**；三 hook 簇（#2 / #3 / #11）接线后 **8142 行**；两个渲染副本接线后 **7906 行**；#6 事务簇拆出后 **7852 行**（相对 9970 行基线 −2117 行）；#10 AI 登记段拆出后再 −84 行 → 7768 行；#12 EXPLAIN/Redis 写拆出 −184 行 → 7584 行；#8 SQL 历史拆出 −81 行 → 7503 行；#5 行级 INSERT/DELETE 拆出 −135 行 → 7368 行；#9 SQL 收藏拆出 −364 行 → **7004 行**。主文件内联定义残留 0，N2-UI markers（`useDbChanges` / `DbChangePanel`）保持存活。
 
 **验证（三 hook 收口）**：`standard` RC=0；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **5092/5092 / fail 0**（其中 `not ok 1034 - build-time injection` 为 `node-safe-delete-shim.cjs` 对 `node_modules` 目录 trash 的 `EISDIR` 噪声）；`npm run compile` RC=0（`done build in 402.417 s`、`[check-cm6-chunk] OK`、产物 `db-session-5.8.1-DecjfU0G.js` 344.27 kB）。另用 VM 实跑对比新版 `pageSizeOf` 与 `ccf04edb` 旧内联实现：函数体逐行一致、14 组输入输出 0 差异。实机 GUI smoke（`self-test/db-sqlite-sql-demo.js`）**未跑**。
 
@@ -46,7 +47,9 @@
 
 **验证（#5 收口）**：`standard` 仅余 #8 遗留的 SQL 历史 dead import 基线噪声（clearSqlHistory/removeSqlHistory/exportHistoryFile/readHistoryPanelSize/filterHistory/setSqlHistoryOpen + 1 处空行），**本簇未引入新 lint 错误**；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` 仅余 keyword WIP + Electron 22 打包 / build-time injection 已知噪声（均与本簇无关）；`npm run compile` RC=0（`done build in 338.638 s`、产物 `db-session-5.8.1-DYbTx6Fo.js` 含 `submitInsert`/`runDeleteRows`/`invertSelection`/`rowSelection` 实现）。B1 标记段（1538–1676，不含 A2 DDL 的 `ddl`）逐字迁入 `use-db-insert.js`；`ddl` 留 owner（A2 DDL 查看器，render 6466+ 与 handlers 6524+ 仍消费）；`db-row-write.spec.js` 组合读取源追加 `use-db-insert.js`，`invertSelection`/`rowSelection`/`insertRow`/`deleteRows` op 字符串 3 处断言仍命中；11 个回流名字（rowSelection/insertOpen/setInsertOpen/insertCols/insertValues/openInsertModal/setInsertCol/canSubmitInsert/submitInsert/runDeleteRows/invertSelection）与 owner render 接线一致。实机 GUI smoke 未跑。
 
-**提交**：分五点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ `7b0e291f` #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步；④ `9fefc08a` 接线树面板 / Redis 键空间两个渲染组件 + 7 份契约迁移；⑤ `b409f7ee` #6 事务 hook + 文档进度同步（另有 `8e810ab4` 纯文档行数校正）；⑥ 本次提交 #10 AI 登记 hook + 3 份契约迁移 + 文档进度同步；⑦ `ffad5e30` #12 EXPLAIN/Redis 写两个 hook + 文档进度同步；⑧ `f866bd17` #8 SQL 历史 hook + 文档进度同步；⑨ `ba96a840` #5 行级 INSERT/DELETE hook + 契约迁移（分点提交，未 push）。均未 push。
+**验证（#9 收口）**：`standard` 仅余 #8 遗留的 SQL 历史 dead import 基线噪声（本簇未引入新 lint，并顺手消掉原基线里 1 处双空行）；db-* 单测 **2199/2199**；全量 `npm run test-unit-ci` **# fail 0**（5083 pass / 10 cancelled 均为已知 Electron 22 打包噪声）；`npm run compile` RC=0（`done build in 376.456 s`、产物 `db-session-5.8.1-Co4INDay.js` 含 `favoriteNow`/`exportFavScoped`/`saveFavEdit`/`refreshFavorites` 等实现）。收藏逻辑分两段（A 2157–2238 状态/派生/refresh + B 2316–2615 pick/CRUD/导入/分组/一键/导出）逐字迁入 `use-db-sql-favorite.js`；AI 登记 / AI 生成弹层 / AI 联动 B-7 / SQL 模板 B-3（含 JSX）按 SRP 留 owner；39 个名字回流、内部 9 个（setFavTab/setFavList/setFavSaving/setFavGroups/setFavFolded/favListShown/favSqlSet/favTitleFallback/doExportFavorites）不外泄（grep 实测 owner 0 残留）；unit-ci 无 spec 读主文件断言收藏符号 → 契约零改动。实机 GUI smoke 未跑。
+
+**提交**：分五点固化 —— ① `be269e52` 本文档 + 并行实验结论；② `ccf04edb` #1/#14/#15 三组件 + 契约迁移 + N2-UI 依赖链；③ `7b0e291f` #2/#3/#11 三 hook + 14 份契约迁移 + 文档进度同步；④ `9fefc08a` 接线树面板 / Redis 键空间两个渲染组件 + 7 份契约迁移；⑤ `b409f7ee` #6 事务 hook + 文档进度同步（另有 `8e810ab4` 纯文档行数校正）；⑥ 本次提交 #10 AI 登记 hook + 3 份契约迁移 + 文档进度同步；⑦ `ffad5e30` #12 EXPLAIN/Redis 写两个 hook + 文档进度同步；⑧ `f866bd17` #8 SQL 历史 hook + 文档进度同步；⑨ `ba96a840` #5 行级 INSERT/DELETE hook + 契约迁移（分点提交，未 push）；⑩ `77379802` #9 SQL 查询收藏 hook + 死导入清理（分点提交，未 push）。均未 push。
 
 ### 1.1 并行拆分实验结论（2026-11-06）
 
@@ -60,7 +63,7 @@
 
 ## 2. 剩余拆分方案（按耦合度递增排序）
 
-> 进度注：#1 / #14 / #15、#2 / #3 / #11、两个渲染副本接线、#6 事务簇、#10 AI 登记段均已于 2026-11-06 实装（见 §1 N11a-4~12 与 §1.1）；#12 EXPLAIN/Redis 写（`use-db-explain.js` + `use-db-redis-write.js`）、#8 SQL 历史（`use-db-sql-history.js`）与 #5 行级 INSERT/DELETE（`use-db-insert.js`）均已于 2026-11-07 实装（见 §1 N11a-13/14/15）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。其中 #13 实为依赖 6+ 簇的聚合消费者且持有全局 `mainTab`、#10 仅登记段独立 —— 原表「独立」标注与实测有偏差。
+> 进度注：#1 / #14 / #15、#2 / #3 / #11、两个渲染副本接线、#6 事务簇、#10 AI 登记段均已于 2026-11-06 实装（见 §1 N11a-4~12 与 §1.1）；#12 EXPLAIN/Redis 写（`use-db-explain.js` + `use-db-redis-write.js`）、#8 SQL 历史（`use-db-sql-history.js`）与 #5 行级 INSERT/DELETE（`use-db-insert.js`）、#9 SQL 收藏（`use-db-sql-favorite.js`）均已于 2026-11-07 实装（见 §1 N11a-13/14/15/16）。下表保留原设计边界，供后续簇参照；未接线者仍按耦合度顺序推进。其中 #13 实为依赖 6+ 簇的聚合消费者且持有全局 `mainTab`、#10 仅登记段独立 —— 原表「独立」标注与实测有偏差。
 
 聚类的当前位置以源码 `// ----` 分段标记 + 函数名为锚（行号会随抽取漂移，故以标记为准）：
 
