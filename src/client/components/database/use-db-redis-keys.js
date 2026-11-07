@@ -45,38 +45,42 @@ const e = window.translate
 
 export function useDbRedisKeys ({
   tabId,
-  redisDb,
-  keyList,
-  setKeyList,
-  matchInput,
-  keyJumpInput,
-  setKeyJumpInput,
-  keyJumpTokenRef,
-  redisKeySel,
-  setRedisKeySel,
-  redisDel,
-  setRedisDel,
-  redisView,
-  setRedisView,
-  treeSep,
-  keyTree,
-  setKeyTree,
-  treeExpanded,
-  setTreeExpanded,
-  keyTreeTokenRef,
-  redisInfo,
-  setRedisInfo,
-  redisInfoTokenRef,
-  redisSlowlogTokenRef,
-  setRedisSlowlog,
-  redisKey,
-  setRedisKey,
-  setRedisDetail,
+  browse,
   onOpError,
   loadTree,
-  confirmRedisWrite,
-  selectRedisKey
+  confirmRedisWrite
 }) {
+  // N11b-#25b：浏览类 state / 令牌 ref / selectRedisKey 由 use-db-redis-browse 持有，
+  // 这里按一个对象整体接收再解构 —— 原来这 28 项是逐项形参，加上 tabId / onOpError /
+  // loadTree / confirmRedisWrite 共 32 个，调用点一次要写 32 行。
+  // 解构名与改造前的形参名完全一致，函数体零改动。
+  const {
+    redisDb,
+    keyList,
+    setKeyList,
+    matchInput,
+    setKeyJumpInput,
+    keyJumpTokenRef,
+    redisKeySel,
+    setRedisKeySel,
+    redisDel,
+    setRedisDel,
+    redisView,
+    setRedisView,
+    treeSep,
+    keyTree,
+    setKeyTree,
+    setTreeExpanded,
+    keyTreeTokenRef,
+    setRedisInfo,
+    redisInfoTokenRef,
+    redisSlowlogTokenRef,
+    setRedisSlowlog,
+    redisKey,
+    setRedisKey,
+    setRedisDetail,
+    selectRedisKey
+  } = browse
   const loadRedisKeys = (dbIndex, cursor, match, stack = []) => {
     // 顺序翻页/过滤/刷新都会作废在途的跳页请求，避免旧跳页结果覆盖新页
     keyJumpTokenRef.current++

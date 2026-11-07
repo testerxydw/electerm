@@ -545,32 +545,31 @@ export default auto(function DbSession (props) {
   // ---- #25 Redis 键浏览拆到 use-db-redis-browse（行为零变更）----
   // 21 个 state + 4 个令牌 ref + 3 个写路径 handler 收进同目录 hook；
   // loadRedisKeys / loadTree 在本行之后才定义，按既有 bridge 惯例传惰性箭头
+  const browse = useDbRedisBrowse({
+    tabId,
+    confirmRedisWrite,
+    loadRedisKeys: (...a) => loadRedisKeys(...a),
+    loadTree: (...a) => loadTree(...a)
+  })
+  // 同一份对象既解构给本文件用，也整体传给 useDbRedisKeys（#25b 收了它的 32 个形参）
   const {
     redisDb,
     setRedisDb,
     keyList,
-    setKeyList,
     matchInput,
     setMatchInput,
     keyJumpInput,
     setKeyJumpInput,
-    keyJumpTokenRef,
     redisKeySel,
     setRedisKeySel,
     redisDel,
-    setRedisDel,
     redisView,
-    setRedisView,
     treeSep,
     setTreeSep,
     keyTree,
-    setKeyTree,
     treeExpanded,
     setTreeExpanded,
-    keyTreeTokenRef,
     redisInfo,
-    setRedisInfo,
-    redisInfoTokenRef,
     redisSlowlog,
     setRedisSlowlog,
     redisSlowlogTokenRef,
@@ -586,12 +585,7 @@ export default auto(function DbSession (props) {
     selectRedisKey,
     applyTtl,
     delSelectedKey
-  } = useDbRedisBrowse({
-    tabId,
-    confirmRedisWrite,
-    loadRedisKeys: (...a) => loadRedisKeys(...a),
-    loadTree: (...a) => loadTree(...a)
-  })
+  } = browse
 
   // ---- #26 ER 图 / 结构对比拆到 use-db-redis-instance（行为零变更）----
   // 两个弹层的 state、令牌与取数 handler 整体搬到同目录 hook；
@@ -740,39 +734,13 @@ export default auto(function DbSession (props) {
     onOpError,
     isConnError
   })
+  // N11b-#25b：浏览类 28 项改由 browse 对象整体传入（原来逐项形参，调用点 32 行）
   const redisApi = useDbRedisKeys({
     tabId,
-    redisDb,
-    keyList,
-    setKeyList,
-    matchInput,
-    keyJumpInput,
-    setKeyJumpInput,
-    keyJumpTokenRef,
-    redisKeySel,
-    setRedisKeySel,
-    redisDel,
-    setRedisDel,
-    redisView,
-    setRedisView,
-    treeSep,
-    keyTree,
-    setKeyTree,
-    treeExpanded,
-    setTreeExpanded,
-    keyTreeTokenRef,
-    redisInfo,
-    setRedisInfo,
-    redisInfoTokenRef,
-    redisSlowlogTokenRef,
-    setRedisSlowlog,
-    redisKey,
-    setRedisKey,
-    setRedisDetail,
+    browse,
     onOpError,
     loadTree: (...a) => bridge.loadTree(...a),
-    confirmRedisWrite: (...a) => confirmRedisWrite(...a),
-    selectRedisKey: (...a) => selectRedisKey(...a)
+    confirmRedisWrite: (...a) => confirmRedisWrite(...a)
   })
   Object.assign(bridge, treeApi, viewApi, redisApi)
   const {
