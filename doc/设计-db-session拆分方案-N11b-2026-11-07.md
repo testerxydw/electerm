@@ -77,7 +77,11 @@ L1 小计：**约 1300 行**，owner 降到 **约 5000 行**。
 > 现状 `useDbRedisKeys`（816–849）一口气注入 **33 个参数**，全部是 Redis state；`useDbRedisWrite`（2256–2274）又注入其中一批；而 `selectRedisKey`（2142）反过来通过 `(...a) => selectRedisKey(...a)` 惰性箭头注回 `useDbRedisKeys` —— **存在双向依赖**。
 > 所以这里不能只「把 state 搬进 hook 返回 30 个名字」（那只会让 owner 多一片无人使用的解构）。正确切法是：
 > - `use-db-redis-browse.js` 持有浏览类 state + `selectRedisKey` / `applyTtl` / `delSelectedKey`，并把 `loadRedisKeys` 等通过 `bridge` 惰性取（沿用现有 `Object.assign(bridge, ...)` 机制）；
-> - `use-db-redis-instance.js` 持有 INFO / 慢日志 / ER 图 / 结构对比的 state 与 handler，与浏览类**无交集**，可独立先做；
+> - `use-db-redis-instance.js` 持有 ER 图 / 结构对比的 state 与 handler，与浏览类**无交集**，可独立先做；
+>   （**原计划含 INFO / 慢日志，实际收窄了** —— 令牌 ref 被 `use-db-redis-keys.js:358` 直接改写，
+>   搬它就要同时改另一个 hook 的形参，见 §「#26 的范围收窄」。落地后 `redisInfo` / `redisSlowlog`
+>   的 state 与 4 个令牌 ref 都在 `use-db-redis-browse.js`，而 `loadRedisSlowlog` 本体仍在
+>   `db-session.jsx:1742–1770`。）
 > - 做完这两块后，`use-db-redis-keys.js` 的 33 个注入参数应当缩到 5 个以内（state 从 state hook 内部直取）。
 > 如果只是为了减行数，这一项**投入产出比最差**；如果为了「Redis 首次做到 state / 逻辑 / 渲染三层分离」，它是最值得做的一项。建议先做第 5 项（`use-db-redis-instance`，无循环依赖、契约面 3 份），验证手感后再动第 4 项。
 
@@ -138,7 +142,7 @@ L2 小计：**约 1280 行**，owner 降到 **约 3600 行**。
 **第二批（有副作用，但契约面小）**
 `#26 use-db-redis-instance` ✅ → `#27 use-db-foreign-refs` ✅（= §3 L1 第 9 项）→ `#25 use-db-redis-browse`
 
-Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无交集、无循环依赖，先做它验证手感；`use-db-redis-browse` 涉及 state 与 `useDbRedisKeys` 的双向依赖，放本批最后，做完后 `useDbRedisKeys` 的 33 个注入参数应缩到 5 个以内。
+Redis 实例视图（**实际只搬了 ER 图 + 结构对比**，INFO / 慢日志并入 #25 见「#26 的范围收窄」）与浏览类无交集、无循环依赖，先做它验证手感；`use-db-redis-browse` 涉及 state 与 `useDbRedisKeys` 的双向依赖，放本批最后，做完后 `useDbRedisKeys` 的 33 个注入参数应缩到 5 个以内。
 
 **第三批（接线类）**
 `#28 use-db-sql-file` → `#29 use-db-connection` → `#30 use-db-view-actions`
@@ -361,14 +365,35 @@ editFavorite, removeOneFavorite。两个清单**交集只有 `favGroups`**，且
 | 双 tab 来回切 | 正常 |
 | 渲染层硬错误 | 0（`Cannot read` / `is not a function` / `TypeError` 全无） |
 
-**没覆盖到的（别把 20/20 读成「全都验过了」）**：
+**第二轮补验证：把「没覆盖到的」补掉大半**
 
-- **Redis 全链路**（翻页/跳页/树视图/过滤/INFO/慢日志/批量删键/TTL）—— 需要真 Redis 实例；
-  `fd7e6ed6` 那次形参 32→5 的改动仍只有静态验证。
-- **#29 的重连路径**（`reconnect` / `retryConnect`）—— 要构造掉线，脚本没做。
-- **SQL 文件打开/保存**（#28）—— 走主进程对话框，CDP 点不了。
-- **跨库连接**（`connectOtherDb`）—— 需要 PG 实例。
-- **ER 图 / 结构对比 / 值面板 / 导出** 这些弹层只验了入口按钮在，没点进去。
+静态 + 冒烟只能证明「结构在」，不能证明「功能还在跑」。所以又补了两套实机脚本，
+各自带自己的桩，尽量不依赖外部服务：
+
+| 脚本 | 桩 | 结果 | 覆盖到的判据 |
+|---|---|---|---|
+| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **36/37**（唯一 FAIL 已修真 bug，见下） | #28 打开/保存/另存/取消/覆盖确认/扩展名补全 + #29 掉线横幅/重连按钮/重试卡片 + 三个弹层开关 |
+| `self-test/fake-redis.js` + `n11b-redis-smoke.js` | 自写 RESP2 最小服务端（869 行，18 种命令） | **38/38** | Redis 翻页/跳页/越界钳制/树视图/过滤/五种类型详情/INFO/慢日志/批量删键/TTL/SELECT 切库 |
+
+Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回到服务端对账**（`fake-redis`
+收到的命令流水 + `DBSIZE`），确认真的降到 62 —— 只数 UI 行数会被乐观更新骗过去。
+另外 `unknown=0`（服务端收到 374 条命令 / 18 种，没有一条是脚本没实现的）说明桩没有
+「靠返回同一坨默认值蒙过去」。
+
+**这套验证抓到一个真 bug（`c5edb07e` 引入，不是本轮搬迁引入）**：
+`doConnect` 成功分支只 `setConnError('')` 不 `setError('')`，而 `error` 是整页提前 return
+的判据。表现是「掉线 → 补好连接 → 点重试 → 连上了，但失败卡片永远不消失，用户只能关页签重开」。
+冒烟里 `{"stillCard":1,"linkAlive":"meta:1"}` 就是这个状态：链路活的、界面死的。
+修法是在成功分支补一句 `setError('')`（`use-db-connection.js:41`）。
+
+**这次没覆盖到、且短期也没法用 CDP 覆盖的**：
+
+- **跨库连接**（`connectOtherDb`）—— 需要 PG 实例；本环境只有 SQLite。
+- **`reconnect` / `retryConnect` 的失败分支**（重试仍失败 → 卡片应当保留）—— 需要「连接先坏后好再坏」的三段状态机，脚本只做了两段。
+- **ER 图外键连线的几何**（线有没有连对节点）—— 脚本只验了弹层打开、节点数、无硬错误，没验 SVG `path` 的端点坐标。
+- **结构对比的 added / changed 分支** —— 脚本只跑了「完全相同」这一种输入。
+- **SQL 覆盖确认 Modal 的「取消」分支** —— 只验了「确认」路径。
+- **值面板从 SQL 结果进入的路径** —— 只验了从数据网格进。
 
 三个把判据写错的坑（都已写进脚本注释，下一个写 CDP 脚本的人会再踩）：
 
