@@ -52,6 +52,8 @@ import { useDbView } from './use-db-view'
 import { useDbRedisKeys } from './use-db-redis-keys'
 import { useDbTransaction } from './use-db-transaction'
 import { useDbAiRegister } from './use-db-ai-register'
+import { useDbExplain } from './use-db-explain'
+import { useDbRedisWrite } from './use-db-redis-write'
 import { DbTreePanel } from './db-tree-panel'
 import { DbRedisKeySpace } from './db-redis-key-space'
 import DbChangePanel from './db-change-panel'
@@ -159,7 +161,6 @@ import DbWorkspaceHome from './db-workspace-home'
 // D 批：EXPLAIN 执行计划弹窗（树/图/JSON 三视图 + SVG/PNG 导出）
 import DbExplainDialog from './db-explain-tree'
 // D 批：Redis 类型化写接口层（写失败/成功都刷新详情，绝不本地假更新）
-import { redisWrite } from '../../common/db-redis-write'
 // H7a：Redis 键树（平铺键名 → 分层节点的纯函数，边界处理全在那一层）
 import { DEFAULT_SEPARATOR } from '../../common/db-key-tree'
 // H7b-3：批量删键的分批/预览（纯函数，零依赖；一批 500 只为进度可读）
@@ -3230,230 +3231,45 @@ export default auto(function DbSession (props) {
   }
 
   // ---- D 批：EXPLAIN（只读计划分析，设计 §12.1） ----
-
-  // 「解释」入口：优先解释编辑器当前选区，无选区解释整段语句。
-  // 库/schema 取当前树选中（与 runSql 同口径）；换行/分号的闸门在后端
-  const openExplain = () => {
-    const editor = sqlEditorRef.current
-    const selected = editor && editor.getSelectionText
-      ? editor.getSelectionText()
-      : ''
-    const text = (selected || sqlText).trim()
-    if (!text) {
-      message.warning(e('dbExplainEmptySql'))
-      return
-    }
-    setExplainSql(text)
-    setExplainOpen(true)
-  }
+  // 编排 handler 已拆到 use-db-explain.js（N11a-13），页面级 state / ref 由本页注入。
+  const { openExplain } = useDbExplain({
+    sqlEditorRef,
+    sqlText,
+    setExplainSql,
+    setExplainOpen
+  })
 
   // ---- D 批：Redis 类型化写（T12） ----
-
-  // 统一执行：成功/失败都刷新详情与键列表（redisWrite 纪律），这里只补
-  // 成功提示与失败 toast。返回 { ok } 而不 rethrow，调用方按 ok 决定收尾。
-  // gate 为 production 连接的生产闸门（{ level, text, note }）：非 production 时忽略，
-  // 命中则先弹 confirmRedisWrite，取消 = 零执行（{ ok: false }）
-  const runRedisWrite = (op, params, successMsg, gate) => {
-    const doWrite = () => redisWrite(tabId, op, params, {
-      refresh: () => {
-        selectRedisKey(redisKey)
-        loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
-      }
-    }).then(res => {
-      if (successMsg) {
-        message.success(successMsg)
-      }
-      return { ok: true, res }
-    }).catch(err => {
-      showErrorModal({ error: err })
-      return { ok: false }
-    })
-    if (gate && isProduction) {
-      return confirmRedisWrite(gate).then(ok => (ok ? doWrite() : { ok: false }))
-    }
-    return doWrite()
-  }
-
-  const addHashField = () => {
-    const field = redisAdd.field.trim()
-    if (!field) {
-      return
-    }
-    runRedisWrite('hashSetField', {
-      dbIndex: redisDb, key: redisKey, field, value: redisAdd.value
-    }, e('saved'), {
-      level: 'write',
-      text: 'HSET ' + redisKey + ' ' + field,
-      note: e('saved')
-    }).then(r => {
-      if (r.ok) {
-        setRedisAdd(s => ({ ...s, field: '', value: '' }))
-      }
-    })
-  }
-
-  const addMember = () => {
-    const member = redisAdd.member.trim()
-    if (!member) {
-      return
-    }
-    if (redisDetail && redisDetail.type === 'zset') {
-      runRedisWrite('zsetAdd', {
-        dbIndex: redisDb, key: redisKey, score: redisAdd.score, member
-      }, e('saved'), {
-        level: 'write',
-        text: 'ZADD ' + redisKey + ' ' + redisAdd.score + ' ' + member,
-        note: e('saved')
-      }).then(r => {
-        if (r.ok) {
-          setRedisAdd(s => ({ ...s, member: '', score: '' }))
-        }
-      })
-    } else {
-      runRedisWrite('setAdd', {
-        dbIndex: redisDb, key: redisKey, members: [member]
-      }, e('saved'), {
-        level: 'write',
-        text: 'SADD ' + redisKey + ' ' + member,
-        note: e('saved')
-      }).then(r => {
-        if (r.ok) {
-          setRedisAdd(s => ({ ...s, member: '' }))
-        }
-      })
-    }
-  }
-
-  const pushList = (position) => {
-    if (redisAdd.listValue === '') {
-      return
-    }
-    runRedisWrite('listPush', {
-      dbIndex: redisDb, key: redisKey, value: redisAdd.listValue, position
-    }, e('saved'), {
-      level: 'write',
-      text: (position === 'left' ? 'LPUSH ' : 'RPUSH ') + redisKey,
-      note: e('saved')
-    }).then(r => {
-      if (r.ok) {
-        setRedisAdd(s => ({ ...s, listValue: '' }))
-      }
-    })
-  }
-
-  // hash 行内编辑保存：HSET 覆盖同字段
-  const saveHashValue = (record) => {
-    const value = redisEdit ? redisEdit.value : ''
-    runRedisWrite('hashSetField', {
-      dbIndex: redisDb, key: redisKey, field: record.field, value
-    }, e('saved'), {
-      level: 'write',
-      text: 'HSET ' + redisKey + ' ' + record.field,
-      note: e('saved')
-    }).then(r => {
-      if (r.ok) {
-        setRedisEdit(null)
-      }
-    })
-  }
-
-  // zset 分值行内编辑：ZADD 同 member 天然覆盖
-  const saveZsetScore = (record) => {
-    const score = redisEdit ? redisEdit.value : ''
-    runRedisWrite('zsetAdd', {
-      dbIndex: redisDb, key: redisKey, score, member: record.member
-    }, e('saved'), {
-      level: 'write',
-      text: 'ZADD ' + redisKey + ' ' + score + ' ' + record.member,
-      note: e('saved')
-    }).then(r => {
-      if (r.ok) {
-        setRedisEdit(null)
-      }
-    })
-  }
-
-  // list 行内编辑：LSET 按下标覆盖
-  const saveListValue = (record) => {
-    const value = redisEdit ? redisEdit.value : ''
-    runRedisWrite('listSetAt', {
-      dbIndex: redisDb, key: redisKey, index: record.index, value
-    }, e('saved'), {
-      level: 'write',
-      text: 'LSET ' + redisKey + ' ' + record.index,
-      note: e('saved')
-    }).then(r => {
-      if (r.ok) {
-        setRedisEdit(null)
-      }
-    })
-  }
-
-  // set 成员编辑 = 删旧加新（成员是身份标识）：任一步失败都刷新详情
-  const editSetMember = async (oldMember, newMember) => {
-    const nm = String(newMember || '').trim()
-    if (!nm || nm === oldMember) {
-      setRedisEdit(null)
-      return
-    }
-    const ok = await confirmRedisWrite({
-      level: 'dangerous',
-      text: 'SREM ' + redisKey + ' ' + oldMember + ' / SADD ' + redisKey + ' ' + nm,
-      note: e('saved')
-    })
-    if (!ok) {
-      setRedisEdit(null)
-      return
-    }
-    redisWrite(tabId, 'setRem', {
-      dbIndex: redisDb, key: redisKey, members: [oldMember]
-    }).then(() => redisWrite(tabId, 'setAdd', {
-      dbIndex: redisDb, key: redisKey, members: [nm]
-    })).then(() => {
-      message.success(e('saved'))
-      setRedisEdit(null)
-      selectRedisKey(redisKey)
-      loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
-    }).catch(err => {
-      // 中间态可能已删旧未加新：必须刷新详情拿真实状态
-      selectRedisKey(redisKey)
-      loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack)
-      showErrorModal({ error: err })
-    })
-  }
-
-  // 重命名键（RENAMENX，不覆盖）：成功后切到新键；冲突由后端抛含 newKey 的
-  // 可读错误，经 toast 展示。键名变化，刷新走 keyList，详情在新键上重拉
-  const doRenameKeyNx = async () => {
-    const newKey = renameInput.trim()
-    if (!newKey || newKey === redisKey) {
-      return
-    }
-    const ok = await confirmRedisWrite({
-      level: 'write',
-      text: 'RENAMENX ' + redisKey + ' ' + newKey,
-      note: e('dbRenamed')
-    })
-    if (!ok) {
-      return
-    }
-    redisWrite(tabId, 'renameKeyNx', {
-      dbIndex: redisDb, key: redisKey, newKey
-    }, {
-      refresh: () => loadRedisKeys(redisDb, keyList.cursor, keyList.match, keyList.stack),
-      onSuccess: () => {
-        setRedisKey(newKey)
-        selectRedisKey(newKey)
-      }
-    }).then(() => {
-      message.success(e('dbRenamed'))
-      setRenameOpen(false)
-      setRenameInput('')
-    }).catch(err => {
-      showErrorModal({ error: err })
-    })
-  }
-
+  // 编排 handler 已拆到 use-db-redis-write.js（N11a-13），依赖全部前置注入。
+  const {
+    runRedisWrite,
+    addHashField,
+    addMember,
+    pushList,
+    saveHashValue,
+    saveZsetScore,
+    saveListValue,
+    editSetMember,
+    doRenameKeyNx
+  } = useDbRedisWrite({
+    tabId,
+    isProduction,
+    redisDb,
+    redisKey,
+    redisDetail,
+    redisAdd,
+    setRedisAdd,
+    redisEdit,
+    setRedisEdit,
+    keyList,
+    renameInput,
+    setRenameOpen,
+    setRenameInput,
+    setRedisKey,
+    selectRedisKey,
+    loadRedisKeys,
+    confirmRedisWrite
+  })
   // dataType 来自 structureV2.columns（数据页）或结果集的 columns[].type（SQL 结果，
   // H1a-3）；两处都拿不到类型时传 '' —— 此时只格式化"驱动已经给出 JS number"的值，
   // 字符串不猜
