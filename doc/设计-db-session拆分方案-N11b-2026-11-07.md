@@ -1,7 +1,7 @@
 # db-session.jsx 继续拆分方案（N11b）
 
 > 状态：**执行中**（2026-11-07）。N11a 的 §2 队列已全部收口（`db-session.jsx` 9970 → 6290 行）；
-> N11b-#22 已收口（6290 → 6015 行）。
+> N11b 第一批 #22 → #23 → #24 已全部收口（6290 → 5680 行）。
 > 本文回答一个问题：**还能不能继续拆、值不值得拆、按什么顺序拆**。执行进度见 §7。
 
 ---
@@ -62,8 +62,8 @@
 | # | 簇 | 现状位置 | 行数 | 目标文件 | 契约跟迁 |
 |---|---|---|---|---|---|
 | 1 | ✅ 网格列定义（`renderCell` / `colMenu` / `columnWidths` / `colTypeByName` / `colCommentByName` / `orderedColumnNames` / `hiddenColumnSet` / `visibleColumnNames` / `rowColumnNames` / `openDataCellMenu` / `dataWidths` / `colFitAllBtn` / `toggleColumnVisible` / `moveColumn` / `columns`） | 2275–2614 | 实测 owner −275 / hook 407 | `use-db-grid-columns.jsx` ✅ 已建 | 5 份（已跟迁） |
-| 2 | SQL 结果列定义（`sqlColumnKeys` / `sqlColWidths` / `sqlFitted` / `sqlWidths` / `sqlColTypeMaps` / `sqlResultColumns` / `sqlSortNumeric` / `sqlResultViews` / `sqlCellInfo` / `sqlValuePane` / `sqlPaneShown`） | 2616–2802 | ~187 | `use-db-sql-result-columns.js` | 3–5 份 |
-| 3 | 树数据（`visibleMetadata` / `countTreeNodes` / `treeFilterNodeCount` / `treeTitle` / `treeData`） | 2804–2969 | ~166 | `use-db-tree-data.js` | 2–3 份 |
+| 2 | ✅ SQL 结果列定义（`sqlColumnKeys` / `sqlColWidths` / `sqlFitted` / `sqlWidths` / `sqlColTypeMaps` / `sqlResultColumns` / `sqlSortNumeric` / `sqlResultViews` / `sqlCellInfo` / `sqlValuePane` / `sqlPaneShown`） | 2616–2802 | 实测 owner −171 / hook 254 | `use-db-sql-result-columns.jsx` ✅ 已建 | 5 份（已跟迁） |
+| 3 | ✅ 树数据（`visibleMetadata` / `countTreeNodes` / `treeFilterNodeCount` / `treeTitle` / `treeData`） | 2804–2969 + 195–209（图标表） | 实测 owner −171 / hook 233 | `use-db-tree-data.jsx` ✅ 已建 | 8 份（已跟迁） |
 | 4 | Redis 键浏览（键列表/键树/选中/详情/TTL：`redisDb` 起 24 个 state 中的浏览类 + `selectRedisKey` / `applyTtl` / `delSelectedKey`） | 620–696 + 2142–2233 | ~230 | `use-db-redis-browse.js` | 3–4 份 |
 | 5 | Redis 实例视图（`redisInfo` / `er` / `structDiff` / `redisSlowlog` + `loadErGraph` / `openErGraph` / `closeErGraph` / `loadDiffStructure` / `openStructureDiff` / `closeStructureDiff` / `loadRedisSlowlog`） | 661–673 + 2048–2141 | ~110 | `use-db-redis-instance.js` | 3 份 |
 | 6 | SQL 文件读写（`sqlFile` / `sqlFileDirty` + `sqlBufferReplacable` / `confirmReplaceBuffer` / `openSqlFile` / `saveSqlFile`） | 492–493 + 1973–2046 | ~85 | `use-db-sql-file.js` | 1–2 份 |
@@ -167,11 +167,13 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 
 ## 7. 进度记录
 
-基线：**6290 行**（N11a 全部收口后）。当前：**6015 行**（−275，−4.4%）。
+基线：**6290 行**（N11a 全部收口后）。当前：**5680 行**（−610，−9.7%）。
 
 | 簇 | 目标文件 | owner 行数 | 提交 | 验证 |
 |---|---|---|---|---|
 | #22 网格列定义 | `use-db-grid-columns.jsx`（407） | 6290 → 6015 | `e7a9e4b4` | 字节等价 326/326；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0 / pass 5083 / cancelled 10；compile RC=0 |
+| #23 SQL 结果列定义与派生视图 | `use-db-sql-result-columns.jsx`（254） | 6015 → 5851 | `a85a92b4` | 字节等价 187/187；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #24 元数据树数据 | `use-db-tree-data.jsx`（233） | 5851 → 5680 | `49dc8f9b` | 字节等价 body 166/166 + 图标表 15/15；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
 
 ### #22 落地要点（供后续簇复用）
 
@@ -180,3 +182,21 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 - **最小化返回值**：只回流 owner 消费的 13 个符号；`columnWidths` / `colCommentByName` / `hiddenColumnSet` / `sortOrderOf` / `openDataCellMenu` / `dataLive` 保持私有，否则 owner 侧会多出 6 条 `no-unused-vars`。
 - **契约正则的隐形锚点**：`db-column-width.spec.js` 的 `colFitAllBtn` 原正则靠「非贪婪扩到后面某个 `  })`」终止，定义迁出后其后已无该锚点 → 改为按函数体自身 `\n  }\n` 收口。迁出 `useMemo`/`useCallback` 大块时先检查 spec 正则的终止锚点是否依赖后续代码。
 - **hooks 顺序守卫**：`db-grid-scroll.spec.js` 的 `markers` 要换钉 owner 侧调用点 `} = useDbGridColumns({`，不能留着旧定义名，否则守卫形同虚设。
+
+### #23 / #24 落地要点
+
+- **同一簇里混了「该搬」与「不该搬」的边界**：#23 的 `setSqlColWidths` 被 owner 的
+  「重新执行 = 新一轮列宽」用到（原 1564 行）。这里没有把裸 setter 丢出去，而是让 hook
+  提供语义化出口 `resetSqlColWidths()`。判断标准：**state 归 hook，但「重置」是业务动作，
+  该有名字**。副作用是契约要跟着改（原断言数 `setSqlColWidths({})` 出现次数）。
+- **图标表这类「只为别人服务的模块级常量」要跟簇走**：#24 的 `DB_OBJECT_ICONS` /
+  `DB_GROUP_ICONS` 只被 `treeData` 两行消费。留在 owner 时 `standard` 不会报（有引用），
+  但它已经不属于 owner 的任何职责。搬走后有 3 份 spec 要跟迁。
+- **组合读取源会制造假阳性**：`db-sql-value-pane` 的「只读面板不传 onSave」原来读
+  owner+hook 拼接源，拼接后非贪婪正则会先命中 owner 里数据页那个带 `onSave` 的
+  `<DbValuePane>`。**一旦把两个文件拼起来，任何「第一个匹配」型正则都要重新审视**。
+- **不能只跑 `db-*.spec.js`**：#24 的两个失败在 `css-tokens.spec.js` 与
+  `perf-guard.spec.js`（都不带 db 前缀）。每簇收尾必须跑全量，全量是唯一可信的判据。
+- **整行删除 import 要连带检查契约**：`perf-guard` 直接断言 owner 里有
+  `from './db-search'`。删掉死导入后该断言失败 —— 契约改成「谁引用谁负责导入」，
+  并给新归属（hook）补一条同样的断言，约束不放松。
