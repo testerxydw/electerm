@@ -53,7 +53,9 @@ const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.j
 // N11b-#22：数据网格列定义（列宽三态 / columns memo / 自适应全部列）已迁到
 // use-db-grid-columns.jsx（已接线），组合读取源追加该 hook
 const GRID_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-grid-columns.jsx')
-const read = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8')
+// N11b-#23：SQL 结果列宽（sqlColWidths/sqlFitted/sqlWidths）已迁到 use-db-sql-result-columns.jsx
+const SQL_RESULT_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-sql-result-columns.jsx')
+const read = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8') + '\n' + fs.readFileSync(SQL_RESULT_COLUMNS, 'utf8')
 // H1a-4（网格复用整合）：数据页 / SQL 结果页的列定义并入公共列工厂，
 // 两处网格的接线契约（ColHead/onCell/CELL_ELLIPSIS/三源选宽）跟着挪进工厂
 const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
@@ -517,8 +519,22 @@ describe('H1a-2 接线契约：4 处网格可拖可菜单，手动宽的落点�
 
   test('重新执行 = 新一轮列宽：新结果路径清 SQL 手动宽，且只清这一处', () => {
     const src = read()
-    assert.equal((src.match(/setSqlColWidths\(\{\}\)/g) || []).length, 1, '清空只能出现在新结果集路径')
-    const at = src.indexOf('setSqlColWidths({})')
+    // N11b-#23：手动宽 map 与其 setter 已迁到 use-db-sql-result-columns.jsx，
+    // 对外只留语义化出口 resetSqlColWidths()。契约随之改成两条：
+    //   1) 裸清空全站唯一一处（hook 里的出口定义）
+    //   2) owner 侧只按名字调用一次，且挂在新结果落地之后
+    assert.equal((src.match(/setSqlColWidths\(\{\}\)/g) || []).length, 1, '裸清空只能有一处（hook 的出口定义）')
+    assert.ok(
+      src.includes('const resetSqlColWidths = () => setSqlColWidths({})'),
+      '清空出口必须由 hook 提供，且只有这一条实现'
+    )
+    assert.equal(
+      (src.match(/resetSqlColWidths\(\)/g) || []).length,
+      1,
+      'owner 侧只按名字清空一次'
+    )
+    const at = src.indexOf('        resetSqlColWidths()')
+    assert.ok(at > 0, 'owner 侧必须按名字调用清空出口')
     // 清空在"发请求"那个函数里（runSql 拆出 runSqlNow 后仍成立，按名字锚会误伤）
     const upto = src.slice(src.lastIndexOf('const runSql', at), at)
     assert.ok(upto.includes('setSqlResult({'), '清空必须挂在新结果落地之后（翻页/本地过滤不走这里，列宽要留住）')

@@ -16,7 +16,9 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 const RESULTS = path.join(ROOT, 'src/client/components/database/db-sql-results.jsx')
-const read = () => fs.readFileSync(JSX, 'utf8') + fs.readFileSync(RESULTS, 'utf8')
+// N11b-#23：sqlResultViews（过滤→排序→切页）已迁到 use-db-sql-result-columns.jsx
+const SQL_RESULT_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-sql-result-columns.jsx')
+const read = () => fs.readFileSync(JSX, 'utf8') + fs.readFileSync(RESULTS, 'utf8') + fs.readFileSync(SQL_RESULT_COLUMNS, 'utf8')
 const readConst = () => fs.readFileSync(CONST, 'utf8')
 
 // 跑真实源码里的页码夹取函数（不是拷贝）

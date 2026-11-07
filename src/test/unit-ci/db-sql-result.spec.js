@@ -17,6 +17,10 @@ const ROOT = path.join(__dirname, '../../..')
 const MOD = path.join(ROOT, 'src/client/common/db-sql-result.js')
 const WIDTH_MOD = path.join(ROOT, 'src/client/common/db-column-width.js')
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
+// N11b-#23：SQL 结果的列定义 / 派生视图 / 值面板已迁到 use-db-sql-result-columns.jsx，
+// 读取源拼上该 hook，否则这些契约会读到 air
+const SQL_RESULT_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-sql-result-columns.jsx')
+const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(SQL_RESULT_COLUMNS, 'utf8')
 // N11a 拆分 #14：SQL 结果渲染（renderSqlResults / renderOne）迁到 db-sql-results.jsx。
 // 渲染侧的接线契约改从新文件读；派生侧（sqlResultViews / sqlResultColumns /
 // onSqlFilterInput / onSqlSort 等）仍留在 db-session.jsx，继续从 SESSION 读。
@@ -299,7 +303,7 @@ describe('db-sql-result: 列显隐（可见列 + 至少留一列）', () => {
 })
 
 describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', () => {
-  const src = fs.readFileSync(SESSION, 'utf8')
+  const src = sessionSrc()
   const results = loadResults()
   test('派生链走 filterRowIndexes，且 memo 依赖含 sqlViews', () => {
     assert.ok(/filterRowIndexes\(/.test(src), 'SQL 结果没走共用的过滤函数')
@@ -417,7 +421,7 @@ describe('db-sql-result: 接线契约（纯函数对了还得真被用上）', (
 })
 
 describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
-  const src = fs.readFileSync(SESSION, 'utf8')
+  const src = sessionSrc()
   const results = loadResults()
   const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
 
@@ -457,7 +461,7 @@ describe('db-sql-result: 执行耗时状态（行数 + elapsedMs）', () => {
 })
 
 describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', () => {
-  const src = fs.readFileSync(SESSION, 'utf8')
+  const src = sessionSrc()
   const menuSrc = fs.readFileSync(
     path.join(ROOT, 'src/client/components/database/db-cell-menu.jsx'), 'utf8')
   const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
@@ -537,7 +541,7 @@ describe('db-sql-result: 单元格右键菜单（复制族 + 按值过滤）', (
 })
 
 describe('db-sql-result: 编辑器底部状态（方言 / 只读 / 选区字符数）', () => {
-  const src = fs.readFileSync(SESSION, 'utf8')
+  const src = sessionSrc()
   const editor = fs.readFileSync(path.join(ROOT, 'src/client/components/database/db-sql-editor.jsx'), 'utf8')
   const locales = fs.readFileSync(path.join(ROOT, 'src/app/common/locales-extra.js'), 'utf8')
   const status = src.slice(src.indexOf("className='db-sql-status'"), src.indexOf("className='db-sql-result'"))

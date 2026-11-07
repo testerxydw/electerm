@@ -26,7 +26,10 @@ const PREVIEW = path.join(ROOT, 'src/client/components/database/db-cell-preview.
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
-const jsx = () => fs.readFileSync(SESSION, 'utf8')
+// N11b-#23：sqlCellInfo / sqlValuePane / sqlPaneShown 已迁到 use-db-sql-result-columns.jsx
+const SQL_RESULT_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-sql-result-columns.jsx')
+const sqlPaneSrc = () => fs.readFileSync(SQL_RESULT_COLUMNS, 'utf8')
+const jsx = () => fs.readFileSync(SESSION, 'utf8') + '\n' + sqlPaneSrc()
 const consts = () => fs.readFileSync(SESSION_CONST, 'utf8')
 const metaMin = () => Number((/const VALUE_META_MIN = (\d+)/.exec(consts()) || [])[1])
 const splitSrc = () => fs.readFileSync(SPLIT, 'utf8')
@@ -205,8 +208,10 @@ describe('sqlCellInfo：面板数据取自结果集与类型契约（真实源�
 
 describe('完整值面板：只读复用 DbValuePane', () => {
   test('editable=false 且不传 onSave（SQL 结果不写回）', () => {
-    const src = jsx()
-    const m = /<DbValuePane[\s\S]*?onClose=\{\(\) => setSqlCell\(null\)\}/.exec(src)
+    // N11b-#23：SQL 侧的 DbValuePane 挂载点已迁到 use-db-sql-result-columns.jsx。
+    // 这里必须只读 hook 文件：owner 里数据页还有别的 <DbValuePane>（带 onSave），
+    // 拼在一起时非贪婪正则会先命中数据页那处，断言就成了假阳性
+    const m = /<DbValuePane[\s\S]*?onClose=\{\(\) => setSqlCell\(null\)\}/.exec(sqlPaneSrc())
     assert.ok(m, 'SQL 侧的 DbValuePane 挂载点没找到')
     assert.match(m[0], /editable=\{false\}/)
     assert.ok(!/onSave/.test(m[0]), '只读面板不该有保存回调')
@@ -214,7 +219,7 @@ describe('完整值面板：只读复用 DbValuePane', () => {
   })
 
   test('面板的 × 直接取消选中（与数据页关闭预览框同一语义）', () => {
-    assert.match(codeOf(jsx()), /onClose=\{\(\) => setSqlCell\(null\)\}/)
+    assert.match(codeOf(sqlPaneSrc()), /onClose=\{\(\) => setSqlCell\(null\)\}/)
   })
 })
 
