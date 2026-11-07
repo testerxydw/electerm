@@ -171,7 +171,7 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 
 ## 7. 进度记录
 
-基线：**6290 行**（N11a 全部收口后）。当前：**5179 行**（−1111，−17.7%）。
+基线：**6290 行**（N11a 全部收口后）。当前：**4730 行**（−1560，−24.8%）。
 
 | 簇 | 目标文件 | owner 行数 | 提交 | 验证 |
 |---|---|---|---|---|
@@ -186,6 +186,8 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 | #29 连接生命周期 | `use-db-connection.js`（69） | 5359 → 5336 | `f698bb97` | 字节等价 39/39；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #30 视图动作 | 并入 `use-db-view.js`（454→576） | 5336 → 5228 | `4e0468c8` | 字节等价 107/109（余 2 行 viewParts 注入形态）；standard 仅 6 条基线（连带清 4 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #32 表结构区 | `db-structure-area.jsx`（105） | 5228 → 5179 | `d593eee0` | 字节等价 68/68；standard 仅 6 条基线（连带清死导入 SearchOutlined）；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #31a SQL 历史面板 | `db-sql-history-panel.jsx`（272） | 5179 → 4982 | `203c7f08` | 字节等价 220/220；standard 仅 6 条基线（连带清 CloseOutlined / SQL_HISTORY_MAX）；db-* 2199/2199；全量 fail 0；compile RC=0；CDP 实机 PASS |
+| #31b SQL 收藏面板 | `db-sql-fav-panel.jsx`（335） | 4982 → 4730 | `be9b85ce` | 字节等价 280/280；standard 仅 6 条基线（连带清 3 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0；CDP 实机 PASS |
 
 ### #22 落地要点（供后续簇复用）
 
@@ -334,3 +336,45 @@ editFavorite, removeOneFavorite。两个清单**交集只有 `favGroups`**，且
 （**「这个会话页怎么摆」**），继续拆只是把内联 JSX 换成 props 表，不会让任何一次
 功能修改变简单。§6 写的「到 3600 行左右」应修正为「**到 4650 行左右**」：
 原估算是按行数拍的，没量过 props 面。
+
+### 第四批收口 + CDP 实机验证（本轮新增）
+
+`#32` + `#31a` + `#31b` 做完，render 段按 §7 的量化判据到此为止（`dataArea` 86 props、
+`redisArea` 38、`sqlArea` 48，都不满足「变量数远小于行数」）。owner = **4730 行**。
+
+**13 个簇此前只有静态验证，这一轮补上了实机那一层**：`self-test/n11b-split-smoke.js`
+（真 Electron + 真 SQLite 夹具，判据读 DOM 与渲染层异常日志），**20/20 PASS**，
+截图在 `self-test/n11b-smoke-shots/`。
+
+实机确认到的（不是「文件存在」式的确认，而是 DOM 上的状态）：
+
+| 判据 | 实测 |
+|---|---|
+| 建连 + 元数据树 | 头部显示 `smoke.db`；树展开出 `main / smoke_users` |
+| 选表取数 | 数据页网格 4 行（夹具 4 行） |
+| 列头排序三态 | 点一次 → `排序 name ↑`；第三次 → 回到 `排序 无` |
+| 结构区工具行 | 5 颗按钮（查看 DDL / 自适应列宽 / ER 图 / 结构对比 / 导出数据字典） |
+| 结构表格 | 4 行 × Field/Type/Null/Key/Default/Extra（`structColumns` / `structureRows` 两个 props 都对） |
+| 字典导出下拉 | 展开出 Markdown / CSV 两项（`exportDictionary` 仍挂在 onClick 上） |
+| 历史面板 | 标题 + 条数角标 + 过滤框 + 列表 + 悬浮预览栏 |
+| 收藏面板 | 4 颗工具按钮 + 分组条 + 空态 |
+| 双 tab 来回切 | 正常 |
+| 渲染层硬错误 | 0（`Cannot read` / `is not a function` / `TypeError` 全无） |
+
+**没覆盖到的（别把 20/20 读成「全都验过了」）**：
+
+- **Redis 全链路**（翻页/跳页/树视图/过滤/INFO/慢日志/批量删键/TTL）—— 需要真 Redis 实例；
+  `fd7e6ed6` 那次形参 32→5 的改动仍只有静态验证。
+- **#29 的重连路径**（`reconnect` / `retryConnect`）—— 要构造掉线，脚本没做。
+- **SQL 文件打开/保存**（#28）—— 走主进程对话框，CDP 点不了。
+- **跨库连接**（`connectOtherDb`）—— 需要 PG 实例。
+- **ER 图 / 结构对比 / 值面板 / 导出** 这些弹层只验了入口按钮在，没点进去。
+
+三个把判据写错的坑（都已写进脚本注释，下一个写 CDP 脚本的人会再踩）：
+
+1. **antd 虚拟表格的行不是 `tbody > tr`** —— `.db-grid-table` 用的是 `ant-table-virtual`，
+   行是 `.ant-table-row`（数据页在 `tr` 上，结构页在 `div` 上，两者不一样）；
+2. **列头排序的点击目标是 `ColHead` 里的 `.db-col-head-sortable`** —— `th` 的
+   `onHeaderCell` 只挂了 `onContextMenu`（列宽菜单），点 `th` 什么都不会发生；
+3. **弹层淡入期间 `opacity` 仍 < 0.05** —— 带可见性过滤的探针会把刚打开的
+   Popover 数成 0，于是「面板没渲染」是假红。结构判定要用原始 `querySelectorAll`。
