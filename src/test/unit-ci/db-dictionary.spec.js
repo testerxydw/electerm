@@ -20,6 +20,9 @@ const SESSION = 'src/client/components/database/db-session.jsx'
 // N11a 簇 C：loadStructure（setStructureV2 整份 v2 契约）已迁到 use-db-tree.js，
 // 契约组合读取已接线的发布源码（白名单不含未接线的渲染面板）。
 const USE_DB_TREE = 'src/client/components/database/use-db-tree.js'
+// N11b-#32：结构页工具行（db-struct-tools 那段）已整块迁到 db-structure-area.jsx，
+// 契约的组合读取源跟上；否则切片会落空，断言变成静默通过
+const STRUCT_AREA = 'src/client/components/database/db-structure-area.jsx'
 const LOCALES = 'src/app/common/locales-extra.js'
 
 const load = () => import('../../client/common/db-dictionary.js')
@@ -230,7 +233,7 @@ describe('H3a 数据字典：CSV 内容', () => {
 
 describe('H3a 数据字典：接线', () => {
   test('结构页工具行有导出入口（Markdown / CSV，未取到列时禁用）', () => {
-    const src = codeOf(read(SESSION) + '\n' + read(USE_DB_TREE))
+    const src = codeOf(read(SESSION) + '\n' + read(USE_DB_TREE) + '\n' + read(STRUCT_AREA))
     assert.match(src, /import \{ buildDataDictionary \} from '\.\.\/\.\.\/common\/db-dictionary'/)
     const tools = src.slice(src.indexOf('db-struct-tools'), src.indexOf('DbGridTable', src.indexOf('db-struct-tools')))
     assert.match(tools, /disabled=\{!structureV2\.columns\.length\}/)
@@ -240,7 +243,7 @@ describe('H3a 数据字典：接线', () => {
   })
 
   test('导出用的是 structureV2 整份契约（索引/注释/行数不进回收站）', () => {
-    const src = codeOf(read(SESSION) + '\n' + read(USE_DB_TREE))
+    const src = codeOf(read(SESSION) + '\n' + read(USE_DB_TREE) + '\n' + read(STRUCT_AREA))
     const setter = src.slice(src.indexOf('setStructureV2({') - 400, src.indexOf('setStructureV2({') + 500)
     assert.match(setter, /indexes:/)
     assert.match(setter, /type:/)

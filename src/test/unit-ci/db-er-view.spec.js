@@ -22,7 +22,9 @@ const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 const read = p => fs.readFileSync(p, 'utf8')
 // N11b-#26：ER 图的 state 与取数 handler 已迁到 use-db-redis-instance.js
 const REDIS_INSTANCE = path.join(ROOT, 'src/client/components/database/use-db-redis-instance.js')
-const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE)
+// N11b-#32：ER 图入口按钮（openErGraph）随工具行迁到 db-structure-area.jsx
+const STRUCT_AREA = path.join(ROOT, 'src/client/components/database/db-structure-area.jsx')
+const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE) + '\n' + read(STRUCT_AREA)
 
 // 取一个代码块：从 anchor 起，到第一个同缩进的收尾大括号（含）
 function blockOf (src, anchor) {

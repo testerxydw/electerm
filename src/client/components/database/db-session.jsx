@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Alert, Empty, Spin, Tabs, Input, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, RobotOutlined, BulbOutlined, BugOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, RobotOutlined, BulbOutlined, BugOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -72,6 +72,8 @@ import DbChangePanel from './db-change-panel'
 import clone from '../../common/to-simple-obj'
 import { downloadText, buildCopyStatements, toTsv } from '../../common/db-csv'
 import DbGridTable from './db-grid-table'
+// N11b-#32：表结构区（工具行 + 结构表格）整块迁出为纯展示组件
+import DbStructureArea from './db-structure-area'
 import { dbConnTarget } from '../../common/db-file'
 // 引擎归属（哪个引擎按 PG 的目录结构办事）只在 db-engine-family 定点，组件里不另写一份
 import { isPgFamily } from '../../common/db-engine-family'
@@ -4438,75 +4440,24 @@ export default auto(function DbSession (props) {
     }
   }
 
+  // ---- #32 表结构区拆到 db-structure-area（行为零变更）----
+  // 纯展示块：13 个入参全是本文件已有的派生值 / handler，组件侧零 state
   const structureArea = (
-    <div className='db-struct-area'>
-      {
-        // 工具行：只要结构表有行就留着。原来只在 mysql 系（有 DDL 按钮）时渲染，
-        // 那样 PG 就没有任何地方点"自适应全部列"（H1a-2）—— 行集有列就该有列宽工具
-        structure.rows.length
-          ? (
-            <div className='db-struct-tools'>
-              {
-                // A2 DDL 入口：仅 mysql 系显示
-                !isPg
-                  ? (
-                    <Button
-                      size='small'
-                      icon={<SearchOutlined />}
-                      loading={ddl.loading}
-                      onClick={fetchDdl}
-                    >
-                      {e('dbViewDdl')}
-                    </Button>
-                    )
-                  : null
-              }
-              {colFitAllBtn(structWidths)}
-              {/* H3b-3：整库 ER 图。只读，不进 SQL 编辑器；图的范围是当前库/schema */}
-              <Button
-                size='small'
-                icon={<NodeIndexOutlined />}
-                loading={er.loading && er.open}
-                onClick={openErGraph}
-              >
-                {e('dbErGraph')}
-              </Button>
-              {/* H4：两张表结构对比（同连接同库）。只读，不生成任何 DDL */}
-              <Button
-                size='small'
-                icon={<DiffOutlined />}
-                onClick={openStructureDiff}
-              >
-                {e('dbStructDiff')}
-              </Button>
-              <Dropdown
-                trigger='click'
-                disabled={!structureV2.columns.length}
-                menu={{
-                  items: [
-                    { key: 'md', label: 'Markdown' },
-                    { key: 'csv', label: 'CSV' }
-                  ],
-                  onClick: ({ key }) => exportDictionary(key)
-                }}
-              >
-                <Button size='small' icon={<DownloadOutlined />}>
-                  {e('dbDictExport')}
-                </Button>
-              </Dropdown>
-            </div>
-            )
-          : null
-      }
-      <DbGridTable
-        size='small'
-        loading={structure.loading}
-        columns={structColumns}
-        dataSource={structureRows}
-        rowKey='__rowKey'
-        pagination={false}
-      />
-    </div>
+    <DbStructureArea
+      structure={structure}
+      isPg={isPg}
+      ddl={ddl}
+      fetchDdl={fetchDdl}
+      colFitAllBtn={colFitAllBtn}
+      structWidths={structWidths}
+      er={er}
+      openErGraph={openErGraph}
+      openStructureDiff={openStructureDiff}
+      structureV2={structureV2}
+      exportDictionary={exportDictionary}
+      structColumns={structColumns}
+      structureRows={structureRows}
+    />
   )
 
   // A1/A2：redisKeyColumns / redisKeyRows 见上方集中 memo 块

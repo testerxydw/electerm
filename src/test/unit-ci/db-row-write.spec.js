@@ -308,6 +308,8 @@ const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 const USE_DB_VIEW = path.join(ROOT, 'src/client/components/database/use-db-view.js')
 // N11a 簇 #5：行级 INSERT/DELETE 已迁到 use-db-insert.js（已接线）
 const USE_DB_INSERT = path.join(ROOT, 'src/client/components/database/use-db-insert.js')
+// N11b-#32：结构页工具行（A2 DDL 入口）已迁到 db-structure-area.jsx
+const STRUCT_AREA = path.join(ROOT, 'src/client/components/database/db-structure-area.jsx')
 // N11a：纯常量/纯函数搬到了 common/db-session-const.js，声明级断言跟过去
 const SESSION_CONST = path.join(ROOT, 'src/client/common/db-session-const.js')
 // N11a 第 3 步：导出/复制簇搬到了 components/database/use-db-export.js
@@ -330,7 +332,7 @@ function extractFn (src, name, extra) {
 }
 
 describe('B1 wiring: renderer 接线', () => {
-  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8') + '\n' + fs.readFileSync(USE_DB_INSERT, 'utf8')
+  const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8') + '\n' + fs.readFileSync(USE_DB_INSERT, 'utf8') + '\n' + fs.readFileSync(STRUCT_AREA, 'utf8')
   const constSrc = fs.readFileSync(SESSION_CONST, 'utf8')
   const exportSrc = fs.readFileSync(DB_EXPORT_HOOK, 'utf8')
 

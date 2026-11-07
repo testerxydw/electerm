@@ -20,7 +20,9 @@ const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 const read = p => fs.readFileSync(p, 'utf8')
 // N11b-#26：结构对比的 state 与取数 handler 已迁到 use-db-redis-instance.js
 const REDIS_INSTANCE = path.join(ROOT, 'src/client/components/database/use-db-redis-instance.js')
-const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE)
+// N11b-#32：结构对比入口按钮（openStructureDiff）随工具行迁到 db-structure-area.jsx
+const STRUCT_AREA = path.join(ROOT, 'src/client/components/database/db-structure-area.jsx')
+const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE) + '\n' + read(STRUCT_AREA)
 
 function blockOf (src, anchor) {
   const at = src.indexOf(anchor)
