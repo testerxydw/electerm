@@ -1,7 +1,7 @@
 # db-session.jsx 继续拆分方案（N11b）
 
 > 状态：**执行中**（2026-11-07）。N11a 的 §2 队列已全部收口（`db-session.jsx` 9970 → 6290 行）；
-> N11b 第一批 #22 → #23 → #24 已全部收口（6290 → 5680 行）。
+> N11b 已收口 #22 / #23 / #24 / #26 / #9（6290 → 5567 行）。
 > 本文回答一个问题：**还能不能继续拆、值不值得拆、按什么顺序拆**。执行进度见 §7。
 
 ---
@@ -65,11 +65,11 @@
 | 2 | ✅ SQL 结果列定义（`sqlColumnKeys` / `sqlColWidths` / `sqlFitted` / `sqlWidths` / `sqlColTypeMaps` / `sqlResultColumns` / `sqlSortNumeric` / `sqlResultViews` / `sqlCellInfo` / `sqlValuePane` / `sqlPaneShown`） | 2616–2802 | 实测 owner −171 / hook 254 | `use-db-sql-result-columns.jsx` ✅ 已建 | 5 份（已跟迁） |
 | 3 | ✅ 树数据（`visibleMetadata` / `countTreeNodes` / `treeFilterNodeCount` / `treeTitle` / `treeData`） | 2804–2969 + 195–209（图标表） | 实测 owner −171 / hook 233 | `use-db-tree-data.jsx` ✅ 已建 | 8 份（已跟迁） |
 | 4 | Redis 键浏览（键列表/键树/选中/详情/TTL：`redisDb` 起 24 个 state 中的浏览类 + `selectRedisKey` / `applyTtl` / `delSelectedKey`） | 620–696 + 2142–2233 | ~230 | `use-db-redis-browse.js` | 3–4 份 |
-| 5 | Redis 实例视图（`redisInfo` / `er` / `structDiff` / `redisSlowlog` + `loadErGraph` / `openErGraph` / `closeErGraph` / `loadDiffStructure` / `openStructureDiff` / `closeStructureDiff` / `loadRedisSlowlog`） | 661–673 + 2048–2141 | ~110 | `use-db-redis-instance.js` | 3 份 |
+| 5 | ✅ Redis 实例视图（ER 图 + 结构对比；redisInfo/redisSlowlog 并入 #4）（`redisInfo` / `er` / `structDiff` / `redisSlowlog` + `loadErGraph` / `openErGraph` / `closeErGraph` / `loadDiffStructure` / `openStructureDiff` / `closeStructureDiff` / `loadRedisSlowlog`） | 645–651 + 2027–2089 | 实测 owner −56 / hook 107 | `use-db-redis-instance.js` ✅ 已建 | 2 份（已跟迁） |
 | 6 | SQL 文件读写（`sqlFile` / `sqlFileDirty` + `sqlBufferReplacable` / `confirmReplaceBuffer` / `openSqlFile` / `saveSqlFile`） | 492–493 + 1973–2046 | ~85 | `use-db-sql-file.js` | 1–2 份 |
 | 7 | 连接生命周期（`doConnect` / `connectOtherDb` / `reconnect` / `retryConnect` + 连接 effect） | 893–994 | ~102 | `use-db-connection.js` | 1–2 份 |
 | 8 | 视图操作（`patchViewColumns` / `turnPage` / `onColSort` / `onViewApply` / `onViewReset`） | 1169–1275 | ~107 | `use-db-view-actions.js` | 2–3 份 |
-| 9 | 外键引用侧栏（`refInfo` / `refsKeyRef` / effect / `refItems` / `showRefTab`） | 404–466 | ~63 | `use-db-foreign-refs.js` | 0 |
+| 9 | ✅ 外键引用侧栏（`refInfo` / `refsKeyRef` / effect / `refItems` / `showRefTab`） | 387–454 | 实测 owner −57 / hook 99 | `use-db-foreign-refs.js` ✅ 已建 | 0 |
 
 L1 小计：**约 1300 行**，owner 降到 **约 5000 行**。
 
@@ -167,13 +167,15 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 
 ## 7. 进度记录
 
-基线：**6290 行**（N11a 全部收口后）。当前：**5680 行**（−610，−9.7%）。
+基线：**6290 行**（N11a 全部收口后）。当前：**5567 行**（−723，−11.5%）。
 
 | 簇 | 目标文件 | owner 行数 | 提交 | 验证 |
 |---|---|---|---|---|
 | #22 网格列定义 | `use-db-grid-columns.jsx`（407） | 6290 → 6015 | `e7a9e4b4` | 字节等价 326/326；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0 / pass 5083 / cancelled 10；compile RC=0 |
 | #23 SQL 结果列定义与派生视图 | `use-db-sql-result-columns.jsx`（254） | 6015 → 5851 | `a85a92b4` | 字节等价 187/187；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #24 元数据树数据 | `use-db-tree-data.jsx`（233） | 5851 → 5680 | `49dc8f9b` | 字节等价 body 166/166 + 图标表 15/15；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #26 ER 图 / 结构对比 | `use-db-redis-instance.js`（107） | 5680 → 5624 | `aa655754` | 字节等价 71/71；standard 仅 6 条基线（连带清 useCallback 死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #9 外键引用侧栏 | `use-db-foreign-refs.js`（99） | 5624 → 5567 | `d46fee30` | 字节等价 68/68；standard 仅 6 条基线（连带清 buildRefItems 死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 
 ### #22 落地要点（供后续簇复用）
 
@@ -200,3 +202,23 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 - **整行删除 import 要连带检查契约**：`perf-guard` 直接断言 owner 里有
   `from './db-search'`。删掉死导入后该断言失败 —— 契约改成「谁引用谁负责导入」，
   并给新归属（hook）补一条同样的断言，约束不放松。
+
+### #26 的范围收窄（与 §3 L1 原计划不同，需留档）
+
+原计划把 `redisInfo` / `redisSlowlog` 也放进 `use-db-redis-instance`。实际动手时发现
+它们的令牌 ref 被 **另一个 hook** 直接改写：`use-db-redis-keys.js:358` 在关闭弹层时
+`redisSlowlogTokenRef.current++` 作废在途请求，而这个 ref 是 owner 按值注入进去的。
+
+如果这时把 state 搬进新 hook，就得同时改 `use-db-redis-keys.js` 的 5 个形参 —— 那是
+「一边搬 state、一边改另一个 hook 的接口」，两个变更理由混在一个提交里。
+
+所以收窄为 **只做 er + structDiff**（两者 handler 全在 owner，无跨 hook 引用），
+`redisInfo` / `redisSlowlog` 并入 #25 一起处理。判据：**一个簇的边界不由行号区间决定，
+而由「搬它要不要同时改别的 hook」决定。**
+
+### #9 的另一个收获：无契约簇也存在
+
+`use-db-foreign-refs` 是方案里唯一「契约命中面 0 份」的簇 —— 三段验证跑完，`db-*.spec.js`
+一行没改。这反而验证了「组合读取源」这条纪律没有退化：**没有 spec 依赖的代码可以整段
+搬走而不惊动任何断言**。反过来说，之前每簇改 5–8 份 spec 的成本，全部来自「spec 用
+`readFileSync` + 正则钉 owner 文件」这个既有设计，不是拆分本身制造的。
