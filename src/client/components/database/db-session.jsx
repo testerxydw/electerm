@@ -1086,6 +1086,7 @@ export default auto(function DbSession (props) {
     commitTx
   } = useDbTransaction({
     tabId,
+    dbType: tab.dbType,
     isRedis,
     onOpError,
     sel,
@@ -1111,6 +1112,7 @@ export default auto(function DbSession (props) {
   }
   const changes = useDbChanges({
     tabId,
+    dbType: tab.dbType,
     sel,
     pkColumn,
     isReadonly,

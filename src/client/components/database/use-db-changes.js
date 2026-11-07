@@ -33,12 +33,14 @@ import {
   planSubmit,
   canStage
 } from '../../common/db-change-set'
+import { canStageDialect } from '../../common/sql-dialects'
 
 const e = window.translate
 
 export function useDbChanges (deps) {
   const {
     tabId,
+    dbType,
     sel,
     pkColumn,
     isReadonly,
@@ -54,7 +56,10 @@ export function useDbChanges (deps) {
   const [staged, setStaged] = useState(createChangeSet)
   const [applying, setApplying] = useState(false)
 
-  const stageEnabled = canStage({ readOnly: isReadonly, pkColumn, isRedis })
+  // 可暂存 = 方言能力位（redis 无 SQL）且连接/表级条件都满足。
+  // 方言位是唯一真源：新引擎没登记 editableStaging 就默认关，不会静默放开写路径
+  const stageEnabled = canStageDialect(dbType) &&
+    canStage({ readOnly: isReadonly, pkColumn, isRedis })
   const count = useMemo(() => countChanges(staged), [staged])
   const groups = useMemo(() => listChanges(staged), [staged])
 

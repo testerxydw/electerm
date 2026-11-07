@@ -7,11 +7,13 @@
 import { useEffect } from 'react'
 import { Modal } from 'antd'
 import message from '../common/message'
+import { capabilityOf } from '../../common/sql-dialects'
 
 const e = window.translate
 
 export function useDbTransaction ({
   tabId,
+  dbType,
   isRedis,
   onOpError,
   sel,
@@ -23,7 +25,9 @@ export function useDbTransaction ({
   setTxListOpen,
   txNotifiedAtRef
 }) {
-  const txSupported = !isRedis
+  // 方言能力位是唯一真源：redis 无 SQL 语法，capability 位为 false → 入口不展示。
+  // 保留 isRedis 参数只为了不误读 —— 事务开关本就由能力位驱动，二者同真同假。
+  const txSupported = capabilityOf(dbType, 'transaction') && !isRedis
   const txActive = !!(txState && txState.active)
   const txPending = (txState && txState.pendingCount) || 0
 

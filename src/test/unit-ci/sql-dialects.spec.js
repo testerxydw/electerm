@@ -16,9 +16,15 @@ let dialectIdOf
 let isSqlDialect
 let staticCandidates
 let cmDialectSpec
+let capabilityOf
+let getCapabilities
+let canStageDialect
+let rewriteType
+let ddlProfileOf
 
 before(async () => {
-  ;({ dialectMap, getDialect, dialectIdOf, isSqlDialect, staticCandidates, cmDialectSpec } =
+  ;({ dialectMap, getDialect, dialectIdOf, isSqlDialect, staticCandidates, cmDialectSpec,
+    capabilityOf, getCapabilities, canStageDialect, rewriteType, ddlProfileOf } =
     await import(pathToFileURL(SRC).href))
 })
 
@@ -238,5 +244,99 @@ describe('sql-dialects: cmDialectSpec（给 lang-sql 的 define 参数）', () =
     const spec = cmDialectSpec({ id: 'x', keywords: [], builtin: [], types: [] })
     assert.equal(spec.keywords, '')
     assert.equal(spec.types, '')
+  })
+})
+
+// ---------------------------------------------------------------- N8 能力位
+// 验收（设计 §N8）：能力位驱动 UI 可见性，且新增引擎走"未登记能力位 = 默认关"的降级路径。
+describe('sql-dialects: N8 能力位（capabilities）', () => {
+  test('三条 SQL 方言都登记了 capabilities（缺登记 = 新引擎漏表）', () => {
+    for (const id of ['mysql', 'postgres', 'sqlite']) {
+      assert.ok(dialectMap[id].capabilities, `${id} 缺 capabilities`)
+      assert.equal(typeof dialectMap[id].capabilities.multiStatement, 'boolean', `${id}.multiStatement`)
+      assert.equal(typeof dialectMap[id].capabilities.transaction, 'boolean', `${id}.transaction`)
+    }
+  })
+
+  test('PG 多语句能力位为 false（postgres.js 显式拒绝 → UI 相关入口置灰）', () => {
+    assert.equal(capabilityOf('postgres', 'multiStatement'), false)
+    assert.equal(capabilityOf('mysql', 'multiStatement'), true)
+  })
+
+  test('事务能力：三 SQL 方言真，redis 假', () => {
+    for (const id of ['mysql', 'postgres', 'sqlite']) {
+      assert.equal(capabilityOf(id, 'transaction'), true, `${id} 应支持事务`)
+    }
+    assert.equal(capabilityOf('redis', 'transaction'), false)
+  })
+
+  test('SQLite 元数据树只有 1 层（无 schema），mysql/pg 为 2 层', () => {
+    assert.equal(dialectMap.sqlite.capabilities.treeDepth, 1)
+    assert.equal(dialectMap.mysql.capabilities.treeDepth, 2)
+    assert.equal(dialectMap.postgres.capabilities.treeDepth, 2)
+  })
+
+  test('canStageDialect：SQL 方言可暂存，redis 默认关（写路径不静默放开）', () => {
+    for (const id of ['mysql', 'postgres', 'sqlite']) {
+      assert.equal(canStageDialect(id), true, `${id} 应可暂存编辑`)
+    }
+    assert.equal(canStageDialect('redis'), false)
+    // 未登记能力位的新引擎：能力位查询默认关
+    assert.equal(canStageDialect('totally_new_engine'), false)
+  })
+
+  test('getCapabilities 对未知引擎返回全 false 的保守形状（降级不崩）', () => {
+    const c = getCapabilities('unknown_engine')
+    assert.equal(c.multiStatement, false)
+    assert.equal(c.transaction, false)
+    assert.equal(c.editableStaging, false)
+    assert.equal(c.treeDepth, 0)
+  })
+
+  test('capabilityOf 未知引擎 / 未声明位一律 false', () => {
+    assert.equal(capabilityOf('unknown_engine', 'transaction'), false)
+    assert.equal(capabilityOf('mysql', 'doesNotExist'), false)
+  })
+
+  // 类型改写与 DDL profile：N3 结构对比的前置，这里钉死形状与"未声明键返回 null/false"
+  test('typeRewrite：族间类型翻译与未命中原样返回', () => {
+    assert.equal(rewriteType('mysql', 'UUID'), 'CHAR(36)')
+    assert.equal(rewriteType('mysql', 'JSONB'), 'JSON')
+    assert.equal(rewriteType('sqlite', 'DOUBLE PRECISION'), 'REAL')
+    // 未命中的类型原样返回
+    assert.equal(rewriteType('postgres', 'VARCHAR'), 'VARCHAR')
+    // 未知引擎无改写表，原样返回
+    assert.equal(rewriteType('unknown_engine', 'UUID'), 'UUID')
+  })
+
+  test('ddlProfile：方言各有片段模板；未知键返回 null（调用方据此藏掉入口）', () => {
+    assert.match(ddlProfileOf('mysql', 'addColumn'), /ADD COLUMN/)
+    assert.match(ddlProfileOf('postgres', 'changeColumn'), /ALTER COLUMN .* TYPE/)
+    assert.equal(ddlProfileOf('mysql', 'doesNotExist'), null)
+    assert.equal(ddlProfileOf('redis', 'addColumn'), null)
+    assert.equal(ddlProfileOf('unknown_engine', 'addColumn'), null)
+  })
+
+  // 未登记能力位的降级路径：直接去掉一个已解析方言的某能力位，
+  // 验证 capabilityOf / canStageDialect 对"声明过但缺某位"的方言默认关（不静默放开写路径）。
+  // 用 mysql（可解析）而非造一条 db-engine-family 里没有的假引擎名 —— 后者连
+  // getDialect 都回 null，测的是"完全未知"分支（上面已覆盖），不是"缺能力位"分支。
+  test('缺能力位的方言默认关（不静默放开写路径）', () => {
+    const orig = dialectMap.mysql.capabilities
+    const saved = { ...orig }
+    delete orig.editableStaging
+    delete orig.multiStatement
+    try {
+      assert.equal(capabilityOf('mysql', 'editableStaging'), false)
+      assert.equal(capabilityOf('mysql', 'multiStatement'), false)
+      assert.equal(canStageDialect('mysql'), false)
+      // 已登记的位不受影响
+      assert.equal(capabilityOf('mysql', 'transaction'), true)
+    } finally {
+      dialectMap.mysql.capabilities = saved
+    }
+    // 还原后恢复默认
+    assert.equal(canStageDialect('mysql'), true)
+    assert.equal(capabilityOf('mysql', 'multiStatement'), true)
   })
 })

@@ -1,8 +1,9 @@
 /**
  * SQL 方言表（阶段4 A 批，设计 §4.7 纪律 1）
  *
- * 唯一真源：编辑器高亮、补全关键字、CREATE TABLE 类型建议、引号/注释规则
- * 全部从这里取，**不允许**在组件里另写一份关键字。新增引擎只加一条记录。
+ * 唯一真源：编辑器高亮、补全关键字、CREATE TABLE 类型建议、引号/注释规则、
+ * **能力位（capabilities）**、**类型改写（typeRewrite）**、**DDL 片段（ddlProfile）**
+ * 全部从这里取，**不允许**在组件里另写一份。新增引擎只加一条记录。
  *
  * 纯数据 + 纯函数：唯一的依赖是同目录的 db-engine-family.js（引擎 → 方言家族的
  * 定点表），node 单测可直接 import，不进浏览器 bundle 也成立。
@@ -200,7 +201,41 @@ export const dialectMap = {
     // MySQL 的 -- 必须后跟空白才算注释（--1 是减负数）；PG 没有这个限制
     spaceAfterDashes: true,
     // $tag$ ... $tag$（PG 函数体常用）只有 PG 需要
-    dollarQuote: false
+    dollarQuote: false,
+    // ---- N8 能力位：UI 显式降级 / 主进程 op 口径的唯一真源 ----
+    // 取值来自 src/app/lib/db-client/*.js 的实测能力，不写在别处。
+    capabilities: {
+      // 单次 executeSql 可发多条语句（后端 multipleStatements 开启）
+      multiStatement: true,
+      // 单连接可切换/访问其它库（PG 一个连接只绑一个库）
+      crossDatabase: true,
+      // 可执行 EXPLAIN ANALYZE（会真跑语句；本工具在 db-explain-tree 主动拒绝，位仍留）
+      explainAnalyze: true,
+      // 连接级手动事务（BEGIN/COMMIT/ROLLBACK）
+      transaction: true,
+      // 服务端游标 / 结果集流式（无则 LIMIT 分块）
+      serverCursor: false,
+      // 元数据树深度：2=schema.table / 1=仅 database.table
+      treeDepth: 2,
+      // 可否暂存编辑（N2 变更集：改格不落库，统一提交）
+      editableStaging: true
+    },
+    // 族间类型改写（N8）：从另一家族读到某类型时，映射到本方言的口径。
+    // 场景：结构对比 / 跨引擎 DDL 时，PG 的 UUID ↔ MySQL 的 CHAR(36) 这类翻译。
+    typeRewrite: {
+      UUID: 'CHAR(36)',
+      JSONB: 'JSON',
+      'DOUBLE PRECISION': 'DOUBLE'
+    },
+    // DDL 片段模板（N8，供 N3 结构对比生成 ALTER 用）。{col} {type} 占位，
+    // quote 由各条记录给出；这里只给"跨语句形状"，方言差异在 quote 上体现。
+    ddlProfile: {
+      addColumn: 'ALTER TABLE {table} ADD COLUMN {def}',
+      dropColumn: 'ALTER TABLE {table} DROP COLUMN {name}',
+      changeColumn: 'ALTER TABLE {table} MODIFY COLUMN {def}',
+      addIndex: 'ALTER TABLE {table} ADD INDEX {name} ({cols})',
+      dropIndex: 'ALTER TABLE {table} DROP INDEX {name}'
+    }
   },
   postgres: {
     id: 'postgres',
@@ -213,7 +248,32 @@ export const dialectMap = {
     // PG 的 E'' 才有反斜杠转义，普通字符串没有 → 别把 'C:\path' 当转义
     backslashEscapes: false,
     spaceAfterDashes: false,
-    dollarQuote: true
+    dollarQuote: true,
+    // ---- N8 能力位：见 mysql 条注释，逐位按后端实测填 ----
+    capabilities: {
+      // PG 单条连接不允许多语句（postgres.js 显式拒绝）→ UI 多语句相关入口要置灰
+      multiStatement: false,
+      // PG 一个连接只绑一个库（postgres.js 拒绝跨库，仅引导新开 tab）
+      crossDatabase: false,
+      // PG 原生支持 EXPLAIN ANALYZE（会真执行）
+      explainAnalyze: true,
+      transaction: true,
+      // PG 主进程走 LIMIT 分块（pgAdmin 的 cursor 手法未采用）
+      serverCursor: false,
+      treeDepth: 2,
+      editableStaging: true
+    },
+    typeRewrite: {
+      // 反方向：PG 视角的通用类型已属本族，一般不改写；保留空映射以示对称
+      'CHAR(36)': 'UUID'
+    },
+    ddlProfile: {
+      addColumn: 'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {def}',
+      dropColumn: 'ALTER TABLE {table} DROP COLUMN IF EXISTS {name}',
+      changeColumn: 'ALTER TABLE {table} ALTER COLUMN {name} TYPE {type}',
+      addIndex: 'CREATE INDEX {name} ON {table} ({cols})',
+      dropIndex: 'DROP INDEX IF EXISTS {name}'
+    }
   },
   sqlite: {
     id: 'sqlite',
@@ -230,7 +290,33 @@ export const dialectMap = {
     // `--` 后不需要空白，`SELECT 1--1` 在 SQLite 里后半截是注释
     spaceAfterDashes: false,
     // 没有 $tag$...$tag$ 美元引用
-    dollarQuote: false
+    dollarQuote: false,
+    // ---- N8 能力位：见 mysql 条注释，逐位按后端实测填 ----
+    capabilities: {
+      // SQLite 原生不支持多条语句一包发（prepare 单语句；node:sqlite 同）
+      multiStatement: false,
+      // SQLite 就是一个库文件，无"跨库连接"概念
+      crossDatabase: false,
+      // SQLite 的 EXPLAIN 不真执行（EXPLAIN QUERY PLAN）
+      explainAnalyze: false,
+      transaction: true,
+      serverCursor: false,
+      // SQLite 元数据树只有 database → table（无 schema 层）
+      treeDepth: 1,
+      editableStaging: true
+    },
+    // SQLite 类型改写：PG 视角类型落到本族后的存储/展示口径
+    typeRewrite: {
+      'DOUBLE PRECISION': 'REAL',
+      'CHARACTER VARYING': 'TEXT'
+    },
+    ddlProfile: {
+      addColumn: 'ALTER TABLE {table} ADD COLUMN {def}',
+      dropColumn: 'ALTER TABLE {table} DROP COLUMN {name}',
+      changeColumn: 'ALTER TABLE {table} ALTER COLUMN {name} TYPE {type}',
+      addIndex: 'CREATE INDEX {name} ON {table} ({cols})',
+      dropIndex: 'DROP INDEX {name}'
+    }
   }
 }
 
@@ -308,4 +394,83 @@ export function staticCandidates (dbType) {
     ...d.builtin.map(name => ({ label: name, kind: 'function' })),
     ...d.types.map(name => ({ label: name, kind: 'type' }))
   ]
+}
+
+// ---- N8 能力位访问 ----
+// 前端 UI 一律问这两个函数，不直接在组件里读 capabilities 字段 ——
+// 这样"某能力没声明"的方言能拿到一个保守默认（false），不会因漏字段而静默放开。
+
+/**
+ * 取单能力位。非 SQL 方言 / 未声明的位一律 false（保守降级：功能入口默认关闭）。
+ * @param {string} dbType 引擎或方言 id
+ * @param {string} key capabilities 键名（multiStatement / crossDatabase / …）
+ * @returns {boolean|number} 能力位的值；未声明返回 false
+ */
+export function capabilityOf (dbType, key) {
+  const d = getDialect(dbType)
+  if (!d || !d.capabilities) {
+    return false
+  }
+  const v = d.capabilities[key]
+  return v === undefined ? false : v
+}
+
+/**
+ * 语义化的能力查询。给"能力位驱动可见性"的调用方一个自文档的入口，
+ * 避免各处散落 capabilityOf(dbType, 'multiStatement') 这种裸 key。
+ * @param {string} dbType
+ * @returns {object} 与 dialectMap 记录的 capabilities 同形状；未声明位为 false
+ */
+export function getCapabilities (dbType) {
+  const d = getDialect(dbType)
+  return (d && d.capabilities) || {
+    multiStatement: false,
+    crossDatabase: false,
+    explainAnalyze: false,
+    transaction: false,
+    serverCursor: false,
+    // treeDepth 是数字（元数据树层数），缺省 0 = 无树；与其它布尔位不同
+    treeDepth: 0,
+    editableStaging: false
+  }
+}
+
+/**
+ * 是否可暂存编辑（N2 变更集：改格不落库、统一提交）。
+ * 合并两条既有硬约束：只读 / 无主键是**连接与表级**条件（调用方在 canStage 判），
+ * 这里是**方言级**能力位（redis 无 SQL 无法暂存）。缺省按 false。
+ * @param {string} dbType
+ * @returns {boolean}
+ */
+export function canStageDialect (dbType) {
+  return capabilityOf(dbType, 'editableStaging')
+}
+
+/**
+ * 类型改写：把其它家族视角的类型名映射到本方言口径。
+ * @param {string} dbType
+ * @param {string} typeName 源类型名
+ * @returns {string} 映射后的类型；无改写记录则原样返回
+ */
+export function rewriteType (dbType, typeName) {
+  const d = getDialect(dbType)
+  const map = (d && d.typeRewrite) || {}
+  const hit = map[typeName]
+  return hit === undefined ? typeName : hit
+}
+
+/**
+ * DDL 片段模板：供 N3 结构对比生成 ALTER 时按方言取片段。
+ * 未声明的键返回 null（调用方据此对该方言降级：不支持该 DDL 形状就藏掉入口）。
+ * @param {string} dbType
+ * @param {string} key ddlProfile 键名（addColumn / dropColumn / …）
+ * @returns {string|null}
+ */
+export function ddlProfileOf (dbType, key) {
+  const d = getDialect(dbType)
+  if (!d || !d.ddlProfile) {
+    return null
+  }
+  const v = d.ddlProfile[key]
+  return v === undefined ? null : v
 }
