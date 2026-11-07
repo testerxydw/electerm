@@ -101,7 +101,40 @@ describe('H4 结构对比：只读边界与报告', () => {
     // 外键的 ON DELETE / ON UPDATE 是结构属性的名字，不是写命令，先摘掉再查
     const bare = view.replace(/ON (DELETE|UPDATE)/g, '')
     assert.ok(!/\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT)\b/.test(bare),
-      '对比弹层不该出现任何写/DDL 关键字')
+      '对比弹层不该出现任何写/DDL 关键字：语句由纯模块生成，组件里不拼 SQL')
+    // N3a 加了生成通道，边界只有两条：语句不来自组件、执行不由组件发起
+    assert.ok(!/executeSql|runSql|confirmSqlRisk/.test(view), '弹层不得自己执行任何语句')
+  })
+
+  test('N3a 候选 DDL：语句来自纯模块，交回父组件的通道只有一条', () => {
+    const view = read(VIEW)
+    assert.match(view, /import \{ diffToDdl, buildScript \} from '\.\.\/\.\.\/common\/db-ddl-generate'/,
+      '生成规则必须在纯模块里，组件不拼字符串')
+    assert.match(view, /diffToDdl\(diff, dialect, base\)/, '语句作用在基准表 A 上，定位取 base')
+    assert.match(view, /buildScript\(ddl, picked\)/, '脚本只由勾选项拼出')
+    const apply = blockOf(view, 'const applyScript = () => {')
+    assert.match(apply, /onApplySql\(script\)/, '唯一的出口是父组件注入的回调')
+    assert.match(apply, /if \(!script \|\| !onApplySql\)/, '没有内容/没有接线都不动作')
+    // 落到编辑器的动作归 db-session：与 AI 共用同一条插入通道，不另写一份
+    const s = readSession()
+    assert.match(s, /const applyDiffDdl = \(script\) => \{/, 'db-session 要有落编辑器入口')
+    const fn = blockOf(s, 'const applyDiffDdl = (script) => {')
+    assert.match(fn, /planSqlInsertion\(\{ text: script[\s\S]*strategy: 'cursor' \}\)/,
+      '用 cursor 策略追加，不能吞掉用户选区')
+    assert.match(fn, /sqlAiTarget\.insertSql\(plan\.text, plan\)/, '写 plan.text（含分隔换行），不是原文')
+    assert.match(s, /onApplySql=\{applyDiffDdl\}/, '回调要接到弹层')
+    assert.ok(!/dbStructDiffDdlInserted/.test(s), '提示复用 AI 的"已插入未执行"词条，不另造一份')
+  })
+
+  test('勾选以差异条目为单位，不支持的条目不给勾', () => {
+    const view = read(VIEW)
+    assert.match(view, /disabled=\{!item \|\| !item\.supported\}/, '生成不了的条目必须灰掉')
+    assert.match(view, /disabled=\{!script \|\| !onApplySql\}/, '没勾选就没有可落地的按钮')
+    assert.match(view, /generatable\.length \? e\('dbStructDiffDdlHint'\) : e\('dbStructDiffDdlNone'\)/,
+      '一条都生成不了时要说明，而不是留个死按钮')
+    assert.match(view, /reasonText\(item\.reason\)/, '不支持的条目要说明为什么')
+    // 换过一次对比就作废勾选：上一对的语句不能落进这一对的表
+    assert.match(view, /setPicked\(\[\]\)\s*\n\s*\}, \[diff\]\)/, 'diff 变了要清勾选')
   })
 
   test('差异与报告都来自纯函数，复制按钮只交付文本', () => {
@@ -142,6 +175,11 @@ describe('H4 结构对比：样式与词条', () => {
     assert.match(b, /color var\(--success\)/, '仅在 B 用成功色')
     assert.match(b, /color var\(--warn\)/, '有差异用警示色')
     assert.match(b, /font-family var\(--db-code-font, var\(--font-mono\)\)/, '表名/值走数据面字体链')
+    // N3a：勾选条与语句预览的样式必须在同一个块里（.db-ddl-pre 之前），别落到别人后面
+    assert.match(b, /\.db-diff-ddl-bar/, '生成条缺样式')
+    assert.match(b, /\.db-diff-ddl-sql\n\s+font-family var\(--db-code-font, var\(--font-mono\)\)/,
+      '候选语句走数据面字体')
+    assert.match(b, /\.db-diff-main\n\s+flex 1 1 auto\n\s+min-width 0/, '长语句要能自己收，不撑破行')
     assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(b), '样式块里不该出现写死的十六进制颜色')
   })
 
@@ -151,9 +189,14 @@ describe('H4 结构对比：样式与词条', () => {
     // 字段名那批（dbStructDiffField*）走 FIELD_KEY 映射，不经 e() 字面量，单独核对
     const fieldKeys = [...new Set([...view.matchAll(/'(dbStructDiffField[A-Za-z]+)'/g)].map(m => m[1]))]
     assert.ok(fieldKeys.length >= 13, `字段名词条应有 13+ 个，实际 ${fieldKeys.length} 个`)
+    // N3a 的"为什么不生成语句"走 REASON_KEY 映射，同样不经 e() 字面量
+    const ddlKeys = [...new Set([...view.matchAll(/'(dbStructDiffDdl[A-Za-z]+)'/g)].map(m => m[1]))]
+    assert.ok(ddlKeys.length >= 12, `DDL 词条应有 12+ 个，实际 ${ddlKeys.length} 个`)
+    assert.ok(/REASON_KEY\[reason\] \|\| 'dbStructDiffDdlReasonOther'/.test(view),
+      'reason 必须有兜底词条，不能让生成器新增机器码时屏面只剩机器码')
     assert.ok(keys.length >= 17, `dbStructDiff* 文案词条应有 17+ 个，实际 ${keys.length} 个`)
     const extra = require(LOCALES)
-    for (const k of new Set([...keys, ...fieldKeys])) {
+    for (const k of new Set([...keys, ...fieldKeys, ...ddlKeys])) {
       assert.equal(typeof extra.en[k], 'string', `${k} 缺英文词条`)
       assert.equal(typeof extra.zh_cn[k], 'string', `${k} 缺中文词条`)
     }

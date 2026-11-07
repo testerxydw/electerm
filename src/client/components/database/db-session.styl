@@ -761,6 +761,51 @@
   color var(--text-muted)
   font-family var(--db-code-font, var(--font-mono))
   word-break break-all
+// N3a：勾选列 + 每条差异下面的候选语句预览
+.db-diff-checkbox
+  flex none
+  margin-top 2px
+.db-diff-main
+  flex 1 1 auto
+  min-width 0
+.db-diff-line
+  display flex
+  align-items flex-start
+  gap 8px
+.db-diff-ddl
+  margin-top 3px
+  padding 3px 6px
+  border-left 2px solid var(--border)
+  border-radius var(--radius-xs)
+  background var(--main)
+  & + &
+    margin-top 2px
+.db-diff-ddl-sql
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  color var(--text)
+  word-break break-all
+.db-diff-ddl.is-blocked
+  border-left-color var(--warn)
+.db-diff-ddl-reason
+  font-size 12px
+  color var(--text-muted)
+.db-diff-ddl-bar
+  display flex
+  align-items center
+  gap 8px
+  margin-top 10px
+  padding 6px 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main)
+.db-diff-ddl-tip
+  flex 1 1 auto
+  font-size 12px
+  color var(--text-muted)
+.db-diff-ddl-why
+  font-size 12px
+  color var(--warn)
 // H6a：命名参数面板。参数名与值都走数据面字体，长名按省略号收
 .db-params
   display flex

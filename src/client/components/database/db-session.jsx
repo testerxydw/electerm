@@ -1565,6 +1565,18 @@ export default auto(function DbSession (props) {
     message.success(plan.willReplaceAll ? e('dbAiInsertedAll') : e('dbAiInserted'))
   }
 
+  // N3a：结构对比勾选后生成的候选 DDL 走同一条插入通道（不另写一份落编辑器逻辑）。
+  // 策略固定 'cursor'：对比弹层打开期间用户可能动过选区，替换选区会把用户正在写的
+  // 半句话吞掉；执行仍由用户按运行触发、过 confirmSqlRisk。
+  const applyDiffDdl = (script) => {
+    const editor = sqlEditorRef.current
+    const doc = editor ? editor.getValue() : sqlText
+    const plan = planSqlInsertion({ text: script, currentText: doc, strategy: 'cursor' })
+    sqlAiTarget.insertSql(plan.text, plan)
+    closeStructureDiff()
+    message.success(e('dbAiInserted'))
+  }
+
   // ---- B 批 SQL 查询收藏（B-1~B-6）拆到 use-db-sql-favorite（行为零变更）----
   const {
     favTab, favList, favFilter, setFavFilter, favEdit, setFavEdit, favSaving,
@@ -4604,6 +4616,7 @@ export default auto(function DbSession (props) {
               tables={diffTables}
               dialect={dialect}
               loadStructure={loadDiffStructure}
+              onApplySql={applyDiffDdl}
               onClose={closeStructureDiff}
             />
             )
