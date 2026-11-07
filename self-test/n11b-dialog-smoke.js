@@ -5,6 +5,8 @@
  * 覆盖：
  *   A. #28 SQL 文件打开 / 保存（use-db-sql-file.js）
  *   B. #29 掉线重连（reconnect）与初次失败重试（retryConnect）—— use-db-connection.js
+ *      正向：补上库文件后重试 → 进入正常界面
+ *      反向：不补文件再点一次 → 失败卡片必须原地不动（不许把错误态提前清掉）
  *   C. 三个弹层：ER 图 / 结构对比 / 值面板 —— use-db-redis-instance.js + 值面板入口
  *
  * 为什么不是「照抄 n11b-split-smoke」：
@@ -174,6 +176,17 @@ const PROBE = `(() => {
     added: window.__q('.db-diff-row.is-added'),
     changed: window.__q('.db-diff-row.is-changed'),
     rowText: window.__txtOf('.db-diff-row'),
+    // 按状态分组的行文本：三种差异要分别落到具体列名上，不能只看第一行
+    removedText: [...document.querySelectorAll('.db-diff-row.is-removed')].map(window.__txt).join(' | '),
+    addedText: [...document.querySelectorAll('.db-diff-row.is-added')].map(window.__txt).join(' | '),
+    changedText: [...document.querySelectorAll('.db-diff-row.is-changed')].map(window.__txt).join(' | '),
+    // summary 四个计数 Tag 的原文（如「仅在 B 1」）；单独读，避免整块文案混在一起
+    counts: {
+      removed: window.__txtOf('.db-diff-count.is-removed'),
+      added: window.__txtOf('.db-diff-count.is-added'),
+      changed: window.__txtOf('.db-diff-count.is-changed'),
+      equal: window.__txtOf('.db-diff-count.is-equal')
+    },
     err: window.__txtOf('.db-diff-err')
   })
   // 关弹层：优先右上角 ×，退化为底部「关闭」按钮
@@ -241,12 +254,13 @@ const writeFixture = () => {
     insert into orders values (4, 480, '2026-01-04');
     create table orders_copy (
       id integer primary key,
-      amount integer
+      amount text,
+      note text
     );
-    insert into orders_copy values (1, 100);
-    insert into orders_copy values (2, 250);
-    insert into orders_copy values (3, 375);
-    insert into orders_copy values (4, 480);
+    insert into orders_copy values (1, '100', 'n1');
+    insert into orders_copy values (2, '250', 'n2');
+    insert into orders_copy values (3, '375', 'n3');
+    insert into orders_copy values (4, '480', 'n4');
   `)
   db.close()
   fs.writeFileSync(Q_SQL, Q_TEXT)
@@ -290,6 +304,38 @@ const setDialogStub = (main, { open, save }) => main.eval(
     return JSON.stringify(global.__dlgStub)
   })()`
 )
+
+// 主进程 IPC 计数桩：只包一层 'async' 通道（pre.runGlobalAsync 走的就是它），
+// 记录方法名序列。作用是把「点了重试」与「按钮没点上、旧卡片还挂着」区分开 ——
+// 纯观测，不改变调用结果；拿不到 Electron 内部的 handler Map 时返回 no-map，
+// 判据本身不依赖它（只作为证据打出来）。
+const installIpcTap = main => main.eval(`(() => {
+  try {
+    const { ipcMain } = process.mainModule.require('electron')
+    const map = ipcMain && ipcMain._invokeHandlers
+    if (!map || typeof map.get !== 'function') return 'no-map'
+    if (global.__n11bIpcTapped) return 'already'
+    const orig = map.get('async')
+    if (typeof orig !== 'function') return 'no-handler'
+    global.__n11bIpc = []
+    map.set('async', function (event, payload) {
+      try {
+        (global.__n11bIpc = global.__n11bIpc || []).push(payload && payload.name)
+      } catch (e) {}
+      return orig.call(this, event, payload)
+    })
+    global.__n11bIpcTapped = true
+    return 'ok'
+  } catch (e) {
+    return 'err:' + String((e && e.message) || e)
+  }
+})()`)
+
+const ipcMark = async main => Number(await main.eval('(global.__n11bIpc || []).length')) || 0
+const ipcSince = async (main, mark) => {
+  const raw = await main.eval(`JSON.stringify((global.__n11bIpc || []).slice(${mark}))`)
+  try { return JSON.parse(raw) } catch (e) { return [] }
+}
 
 // 等磁盘文件出现且内容符合预期（保存是异步 fs 通道）
 const waitFile = async (file, expect, timeout = 6000) => {
@@ -418,6 +464,9 @@ async function main () {
 
   check('对话框桩安装成功（electron.dialog.showOpenDialogSync/showSaveDialog）',
     await installDialogStub(mainCdp) === 'ok')
+  // 重试链路的旁证：记录 runGlobalAsync 的方法名（拿不到内部 Map 时为 no-map，不影响判据）
+  const ipcTap = await installIpcTap(mainCdp)
+  console.log('主进程 IPC 计数桩: ' + ipcTap)
 
   // ---- 建连主 tab ----
   const tabId = await cdp.eval(`(() => {
@@ -516,8 +565,30 @@ async function main () {
       check('C2 选 B=orders_copy 后对比结果渲染（removed/changed/equal 任一）',
         sdDiff && (sdInfo.removed + sdInfo.added + sdInfo.changed) > 0,
         { ddOpen, optRet, info: sdInfo })
-      check('C2 差异定位到 created_at（orders 有、orders_copy 没有 → 仅在 A）',
-        /created_at/.test(sdInfo.rowText) && sdInfo.removed >= 1, sdInfo.rowText)
+      // 夹具口径（writeFixture）：
+      //   orders      = id, amount integer, created_at text
+      //   orders_copy = id, amount text,    note text
+      //   → created_at 仅在 A；note 仅在 B；amount 类型 integer→text 算「有差异」
+      const nOf = (s, re) => {
+        const m = String(s || '').match(re)
+        return m ? Number(m[m.length - 1]) : -1
+      }
+      check('C2 summary「仅在 A」=1（orders 的 created_at 在 B 里没有）',
+        nOf(sdInfo.counts.removed, /(?:仅在 A|only in A)\s*(\d+)/) === 1 && sdInfo.removed === 1,
+        { count: sdInfo.counts.removed, rows: sdInfo.removed, summary: sdInfo.summary })
+      check('C2 差异定位到 created_at（仅在 A 的行文本命中该列名）',
+        /(?:^|\n)created_at(?:$|\n)/.test(sdInfo.removedText) && sdInfo.removed >= 1,
+        sdInfo.removedText)
+      check('C2 summary「仅在 B」=1，且 added 行渲染出 note（added 分支）',
+        nOf(sdInfo.counts.added, /(?:仅在 B|only in B)\s*(\d+)/) === 1 &&
+        sdInfo.added === 1 && /(?:^|\n)note(?:$|\n)/.test(sdInfo.addedText),
+        { count: sdInfo.counts.added, rows: sdInfo.added, text: sdInfo.addedText })
+      check('C2 summary「有差异」=1，且 changed 行是 amount 的 INTEGER → TEXT（changed 分支）',
+        nOf(sdInfo.counts.changed, /(?:有差异|changed)\s*(\d+)/) === 1 &&
+        sdInfo.changed === 1 &&
+        /(?:^|\n)amount(?:$|\n)/.test(sdInfo.changedText) &&
+        /INTEGER[\s\S]*TEXT/.test(sdInfo.changedText),
+        { count: sdInfo.counts.changed, rows: sdInfo.changed, text: sdInfo.changedText })
       await shot('03-struct-diff-result.png')
       const sdClose = await cdp.eval('window.__closeModal(".db-struct-diff-modal")')
       const sdGone = await waitFor(cdp, 'window.__all(".db-struct-diff-modal").length === 0',
@@ -661,6 +732,47 @@ async function main () {
     /重连|reconnect/i.test(cardText), cardText)
   await shot('09-initial-fail.png')
 
+  // ---- B2 反向路径：不补库文件，直接再点一次「重连/重试」 ----
+  // 盯的是 doConnect 成功分支里新加的 setError('')：失败分支必须原样保留错误态，
+  // 不能出现「点一下卡片就消失、界面变空」这种过度清理。
+  const markBefore = await ipcMark(mainCdp)
+  const retryAgain = await cdp.eval(
+    'window.__btnRe(".db-session-error .db-conn-fail-actions button", "重连|reconnect|重试|retry")')
+  // 失败重试没有 loading 态可等：先等主进程侧真的收到 openDbTab 调用（拿不到计数桩时退化为定长等待），
+  // 再留 1.5s 让 reject 传回渲染层落成 setError。
+  let retryAttempts = -1
+  if (ipcTap === 'ok' || ipcTap === 'already') {
+    for (let i = 0; i < 48; i++) {
+      const names = await ipcSince(mainCdp, markBefore)
+      retryAttempts = names.filter(n => n === 'openDbTab').length
+      if (retryAttempts > 0) break
+      await sleep(250)
+    }
+  }
+  await sleep(1500)
+  const stillCard = await cdp.eval('window.__all(".db-session-error").length')
+  const stillText = await cdp.eval('window.__txtOf(".db-session-error .db-conn-fail")')
+  const stillPage = await cdp.jeval(`(() => JSON.stringify({
+    wrap: window.__q('.db-session-wrap'),
+    fail: window.__q('.db-session-error .db-conn-fail'),
+    head: window.__q('.db-session-error .db-conn-fail-head'),
+    raw: window.__q('.db-session-error .db-conn-fail-raw'),
+    retryBtn: window.__q('.db-session-error .db-conn-fail-actions button'),
+    containerKids: (document.getElementById('container') || { children: [] }).children.length
+  }))()`)
+  check('B2 反向：不补文件再点「重连/重试」→ 失败卡片仍在（stillCard === 1）',
+    retryAgain === 'ok' && stillCard === 1,
+    { ret: retryAgain, stillCard, openDbTabCalls: retryAttempts })
+  check('B2 反向：卡片原因仍是「SQLite 数据库文件不存在」（错误态没被提前清掉）',
+    /SQLite 数据库文件不存在|SQLite database file .*not exist/i.test(stillText) &&
+    /库文件打不开|database file cannot be opened/i.test(stillText),
+    stillText)
+  check('B2 反向：重试失败后页面没有白屏（卡片三行 + 原因 + 按钮 + 挂载点都在）',
+    stillPage.fail >= 1 && stillPage.head >= 1 && stillPage.raw >= 1 &&
+    stillPage.retryBtn >= 1 && stillPage.containerKids > 0,
+    stillPage)
+  await shot('09b-retry-still-fail.png')
+
   makeMissingDb()
   const retryClick = await cdp.eval(
     'window.__btnRe(".db-session-error .db-conn-fail-actions button", "重连|reconnect|重试|retry")')
@@ -668,9 +780,8 @@ async function main () {
     '重试后仍停留在失败卡片（30s）', 30000)
   // 卡片没消失时再补一刀：直接问主进程这个 tab 的连接在不在。
   // 在 → 说明重连其实成功了，只是 UI 被 error 状态钉住；不在 → 重连本身失败。
-  // 现状（本次验收实测）：这条是红的 —— 重试后连接已经建立（linkAlive 能取到元数据），
-  // 但 error 状态没有在成功分支被清掉，卡片一直挡着。等 use-db-connection 的
-  // retryConnect 补上成功路径后，这里应自然转绿；不要为了让脚本全绿而放宽判据。
+  // （这个诊断分支正是当初发现「连接已恢复、卡片不消失」用的；setError('') 补上后
+  // 正向路径已转绿，分支保留是为了下次回归时能一眼分辨是 UI 钉住还是重连真失败。）
   let linkAlive = null
   if (!recovered) {
     linkAlive = await cdp.eval(`(async () => {
