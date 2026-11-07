@@ -6,13 +6,11 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Button, Alert, Empty, Spin, Tabs, Input, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, InfoCircleOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, ColumnWidthOutlined, EyeOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import DbConnError, { cleanDbError } from './db-conn-error'
-import SessionBarActions from '../common/session-bar-actions'
-import SearchBar from '../common/search-bar'
 import DbSplitPane from './db-split-pane'
 import DbValuePane from './db-value-pane'
 import DbRefsPane from './db-refs-pane'
@@ -59,6 +57,7 @@ import { useDbInsert } from './use-db-insert'
 import { useDbCellEdit } from './use-db-cell-edit'
 import { useDbBulkEdit } from './use-db-bulk-edit'
 import { useDbGuard } from './use-db-guard'
+import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
 import { DbTreePanel } from './db-tree-panel'
@@ -106,14 +105,14 @@ import fs from '../../common/fs'
 import { dbTypeLabelMap } from '../../common/constants'
 import { dialectIdOf } from '../../common/sql-dialects'
 // N11a-#7：危险 SQL 分级（classifySql）与安全带判定（shouldConfirm/markAsked/
-// createGuardState/bypass*）随执行闸门迁入 use-db-guard；owner 只剩渲染侧要用的
-// muteLowWrite（弹窗"仍要执行并静音"）与 readOnlyHintKey（只读提示文案）
+// createGuardState/bypass*）随执行闸门迁入 use-db-guard；readOnlyHintKey 随 #16
+// 顶栏迁入 db-session-head-bar；owner 只剩渲染侧要用的 muteLowWrite（弹窗"仍要执行并静音"）
 // AI 第一批：提示词/落编辑器策略都是纯函数（db-sql-ai.js），回复解析在弹层里做；
 // 会话页只负责把编辑器句柄登记到目标表、把弹层的产出落到编辑器
 import { buildSqlAiPrompt, planSqlInsertion } from '../../common/db-sql-ai'
 import { buildDbAiSource } from '../ai/ai-source-context'
 import { resolveAiLanguage } from '../../common/ai-role'
-import { muteLowWrite, readOnlyHintKey } from '../../common/db-safe-guard'
+import { muteLowWrite } from '../../common/db-safe-guard'
 import DbDangerConfirm from './db-danger-confirm'
 import DbViewBar from './db-view-bar'
 // E2-3b 命令面板：打分/分组是纯函数层（db-quick-open.js），组件只管展示与键盘
@@ -5724,158 +5723,35 @@ export default auto(function DbSession (props) {
       />
       )
 
-  // 顶部工具条：数据库页专有（终端那条 SessionControl 对数据库 tab 已关闭）。
-  // 高度与 .terminal-control 一致(32px)，故高度口径不需要另加扣减。
+  // ---- #16 布局骨架：顶部工具条拆到 db-session-head-bar（行为零变更）----
+  // 纯展示组件，状态与回调全部注入；改顶栏不必再翻会话组件的六千行
   const headBar = (
-    <div className='db-head'>
-      <span className='db-head-engine'>{dbTypeLabelMap[tab.dbType] || tab.dbType}</span>
-      <span className='db-head-target elli' title={target}>{target}</span>
-      <span className='db-head-state'>
-        <i className={`db-head-dot ${connError ? 'err' : 'ok'}`} />
-        {connError ? e('disconnected') : e('connected')}
-      </span>
-      <span className='db-head-right'>
-        {/* U1：右侧按语义分三组，组间 1px 分隔线 —— 与左侧"引擎/目标/状态"的
-            连接信息分开，风险开关不再和刷新按钮混成一排 */}
-        <span className='db-tool-group'>
-          {
-            // E1 生产连接常驻标记：顶部工具条是唯一跨 tab（数据/SQL/结构）都可见的位置，
-            // 徽标放这里才算"常驻提醒"；临时解除生效期间按钮显示剩余分钟
-            isProduction
-              ? (
-                <Tooltip title={e('dbProductionHint')}>
-                  <span className='db-prod-flag'>{e('dbRiskProduction')}</span>
-                </Tooltip>
-                )
-              : null
-          }
-          {
-            isProduction
-              ? (
-                // 只读模式下这个按钮必须禁用：写操作本来就由主进程截断，
-                // 允许"临时解除 5 分钟"是纯误导 —— 用户点完以为放开了，实际什么都没变，
-                // 下次仍然被拦，于是连这个开关也不再被相信。
-                // Tooltip 挂在 span 上而不是 Button 上：disabled 的按钮不派发鼠标事件，
-                // 挂在按钮自己的 Tooltip 永远不触发（antd 的已知行为）。
-                <Tooltip title={isReadonly ? e('dbRiskBypassReadonly') : ''}>
-                  <span className='db-prod-bypass-wrap'>
-                    <Button
-                      className={'db-prod-bypass' + (bypassMinutes > 0 ? ' is-on' : '')}
-                      size='small'
-                      disabled={isReadonly}
-                      onClick={toggleProductionBypass}
-                    >
-                      {
-                        bypassMinutes > 0
-                          ? e('dbRiskBypassLeft').replace('{n}', String(bypassMinutes))
-                          : e('dbRiskBypass')
-                      }
-                    </Button>
-                  </span>
-                </Tooltip>
-                )
-              : null
-          }
-          {/* 只读开关常驻工具条：切换后主进程白名单同步生效（不用重开连接）。
-              它与生产标记同属"风险"组：一个说连接本身危险，一个说当前是否允许写。
-              文案与"系统库"同一个位置同一个样式，两个开关并排时不靠 tooltip 才分得清 */}
-          <Tooltip title={`${e('readOnly')} — ${e(readOnlyHintKey(tab.dbType))}`}>
-            <span className='db-sys-toggle'>
-              <span className='db-tool-label'>{e('readOnly')}</span>
-              <Switch
-                size='small'
-                checked={isReadonly}
-                onChange={toggleReadonly}
-                aria-label={e('readOnly')}
-              />
-            </span>
-          </Tooltip>
-        </span>
-        <span className='db-tool-sep' />
-        {/* 系统库显示开关：默认显示，关闭即隐藏 information_schema 等（偏好持久化 config） */}
-        <span className='db-tool-group'>
-          <Tooltip title={`${e('systemSchemas')} — ${e('systemSchemasHint')}`}>
-            <span className='db-sys-toggle'>
-              <span className='db-tool-label'>{e('systemSchemas')}</span>
-              <Switch
-                size='small'
-                checked={!hideSystemSchemas}
-                onChange={toggleSys}
-                aria-label={e('systemSchemas')}
-              />
-            </span>
-          </Tooltip>
-        </span>
-        <span className='db-tool-sep' />
-        <span className='db-tool-group'>
-          {
-            // H7a-4：Redis 独有入口，放顶栏而不是 Redis 工具条：弹层是"这个实例怎么样"，
-            // 与当前在看的键无关，且顶栏是唯一跨 tab 都可见的位置
-            isRedis
-              ? (
-                <Button
-                  size='small'
-                  icon={<InfoCircleOutlined />}
-                  loading={redisInfo.loading && redisInfo.open}
-                  onClick={openRedisInfo}
-                >
-                  {e('dbRedisInfo')}
-                </Button>
-                )
-              : null
-          }
-          {
-            connError
-              ? (
-                <Button
-                  size='small'
-                  icon={<ReloadOutlined />}
-                  onClick={reconnect}
-                >
-                  {e('reconnect')}
-                </Button>
-                )
-              : null
-          }
-          <Button
-            type='text'
-            size='small'
-            icon={<ReloadOutlined />}
-            loading={treeLoading}
-            title={e('refresh')}
-            aria-label={e('refresh')}
-            onClick={() => loadTree()}
-          />
-        </span>
-      </span>
-      {/* 窗口级动作：与终端顶栏（SessionControl 右侧）同口径——查找 + 全屏入口在这里，
-          退出全屏由页面内浮层 RemoteFloatControl 提供 */}
-      <span className='db-head-actions'>
-        {
-          searchOpen
-            ? (
-              // 统一查找条（common/search-bar）：计数 (i/n) + 上一个/下一个 + 关闭
-              <SearchBar
-                value={searchText}
-                onChange={ev => setSearchText(ev.target.value)}
-                onClose={closeSearch}
-                onPrev={() => goHit(-1)}
-                onNext={() => goHit(1)}
-                matchIndex={searchIndex}
-                matchCount={searchHits}
-                placeholder={e('search')}
-              />
-              )
-            : null
-        }
-        {/* S1：查找/全屏走共享动作组件，与终端顶栏同位置同口径 */}
-        <SessionBarActions
-          searchOpen={searchOpen}
-          onToggleSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          onFullscreen={() => window.store.toggleSessFullscreen(true)}
-        />
-      </span>
-    </div>
+    <DbSessionHeadBar
+      tab={tab}
+      target={target}
+      connError={connError}
+      isProduction={isProduction}
+      isReadonly={isReadonly}
+      bypassMinutes={bypassMinutes}
+      toggleProductionBypass={toggleProductionBypass}
+      toggleReadonly={toggleReadonly}
+      hideSystemSchemas={hideSystemSchemas}
+      toggleSys={toggleSys}
+      isRedis={isRedis}
+      redisInfo={redisInfo}
+      openRedisInfo={openRedisInfo}
+      reconnect={reconnect}
+      treeLoading={treeLoading}
+      loadTree={loadTree}
+      searchOpen={searchOpen}
+      setSearchOpen={setSearchOpen}
+      closeSearch={closeSearch}
+      searchText={searchText}
+      setSearchText={setSearchText}
+      goHit={goHit}
+      searchIndex={searchIndex}
+      searchHits={searchHits}
+    />
   )
 
   return (

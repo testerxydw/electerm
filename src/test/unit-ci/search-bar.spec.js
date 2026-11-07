@@ -29,7 +29,9 @@ const load = p => fs.readFileSync(p, 'utf8')
 const searchBarSrc = () => load(SEARCH_BAR)
 const termSearchSrc = () => load(TERM_SEARCH)
 const sessionControlSrc = () => load(SESSION_CONTROL)
-const dbSessionSrc = () => load(DB_SESSION)
+// N11a-#16：数据库页顶栏（含 SearchBar 接线）已迁到 db-session-head-bar.jsx
+const DB_HEAD_BAR = path.join(ROOT, 'src/client/components/database/db-session-head-bar.jsx')
+const dbSessionSrc = () => load(DB_SESSION) + '\n' + load(DB_HEAD_BAR)
 const dbPageSearchSrc = () => load(DB_PAGE_SEARCH)
 
 // 在 styl 里取某个顶级选择器的块（到下一个顶级选择器为止；文件可能是 CRLF 行尾）

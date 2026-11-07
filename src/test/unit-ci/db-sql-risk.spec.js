@@ -61,6 +61,9 @@ const SESSION_JSX = fs.readFileSync(
   path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
 ) + '\n' + fs.readFileSync(
   path.join(ROOT, 'src/client/components/database/use-db-guard.js'), 'utf8'
+) + '\n' + fs.readFileSync(
+  // N11a-#16：生产标记 / 临时解除 / 只读 Tooltip 已迁到顶栏组件
+  path.join(ROOT, 'src/client/components/database/db-session-head-bar.jsx'), 'utf8'
 )
 const CONFIRM_JSX = fs.readFileSync(
   path.join(ROOT, 'src/client/components/database/db-danger-confirm.jsx'), 'utf8'

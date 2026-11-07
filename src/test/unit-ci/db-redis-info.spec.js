@@ -308,7 +308,9 @@ const MODAL = path.join(ROOT, 'src/client/components/database/db-redis-info.jsx'
 const SESSION = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a 簇 C：INFO 取数 / 开关弹层已迁到 use-db-redis-keys.js（已接线）。
 const USE_DB_REDIS_KEYS = path.join(ROOT, 'src/client/components/database/use-db-redis-keys.js')
-const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8')
+// N11a-#16：Redis 信息入口按钮在顶部工具条里，已迁到 db-session-head-bar.jsx
+const HEAD_BAR = path.join(ROOT, 'src/client/components/database/db-session-head-bar.jsx')
+const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(USE_DB_REDIS_KEYS, 'utf8') + '\n' + fs.readFileSync(HEAD_BAR, 'utf8')
 const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 

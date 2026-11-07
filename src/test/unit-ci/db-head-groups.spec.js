@@ -12,14 +12,17 @@ const path = require('node:path')
 const ROOT = path.join(__dirname, '../../..')
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
+// N11a-#16：顶部工具条已迁到 db-session-head-bar.jsx（已接线），
+// 分组/aria/顺序断言改读「owner + 顶栏组件」组合源码
 const SESSION = 'src/client/components/database/db-session.jsx'
+const HEAD_BAR = 'src/client/components/database/db-session-head-bar.jsx'
 const STYL = 'src/client/components/database/db-session.styl'
 
 const codeOf = src => src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
 
 // 右侧工具区：从 .db-head-right 到窗口级动作 .db-head-actions 之前
 const headRightBody = () => {
-  const src = codeOf(read(SESSION))
+  const src = codeOf(read(SESSION) + "\n" + read(HEAD_BAR))
   const start = src.indexOf("<span className='db-head-right'>")
   const end = src.indexOf("<span className='db-head-actions'>")
   assert.ok(start !== -1 && end > start, '没找到 .db-head-right 区块')
@@ -57,7 +60,7 @@ describe('U1 顶部工具条右侧分组', () => {
   })
 
   test('系统库开关也有 aria-label（图标/开关类控件都要可被读屏点出来）', () => {
-    assert.match(codeOf(read(SESSION)), /onChange=\{toggleSys\}\s*aria-label=\{e\('systemSchemas'\)\}/)
+    assert.match(codeOf(read(SESSION) + "\n" + read(HEAD_BAR)), /onChange=\{toggleSys\}\s*aria-label=\{e\('systemSchemas'\)\}/)
   })
 
   test('连接组：重连（仅错误时）在刷新之前，刷新按钮带 aria-label', () => {
