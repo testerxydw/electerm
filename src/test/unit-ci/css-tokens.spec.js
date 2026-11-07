@@ -95,8 +95,11 @@ describe('css-tokens: var() 引用必须有定义', () => {
 describe('css-tokens: S6 数据面字体与终端统一（db-code-font）', () => {
   const dbStylPath = files.find(f => /database[\\/]db-session\.styl$/.test(f))
   const dbStyl = fs.readFileSync(dbStylPath, 'utf8')
+  // N11b-#24：treeData（.db-tree-name 的全部包装点）已迁到 use-db-tree-data.jsx
   const dbJsx = fs.readFileSync(
-    path.resolve(__dirname, '../../client/components/database/db-session.jsx'), 'utf8')
+    path.resolve(__dirname, '../../client/components/database/db-session.jsx'), 'utf8') +
+    fs.readFileSync(
+      path.resolve(__dirname, '../../client/components/database/use-db-tree-data.jsx'), 'utf8')
   // 数据面选择器（网格/键列表/SQL/错误信息/值预览/列聚合摘要/元数据树的对象名）
   // 必须走 --db-code-font，回落 --font-mono（tab/全局配置缺省时仍等宽）
   const dataFaceSelectors = [

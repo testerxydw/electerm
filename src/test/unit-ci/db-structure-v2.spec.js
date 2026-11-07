@@ -551,10 +551,13 @@ describe('F0 接线：op 注册与缓存', () => {
 // 这几条对应真机验证时暴露的两个缺口：视图在树里认不出来、视图上还能点"添加行"
 describe('视图在树里的呈现（源码守卫）', () => {
   // N11a 簇 C：树点击分支（openTable 调用）已迁到 use-db-tree.js（已接线）。
+  // N11b-#24：treeData（叶子 DataNode / 视图图标标记）已迁到 use-db-tree-data.jsx
   const jsx = fs.readFileSync(
     path.join(ROOT, 'src/client/components/database/db-session.jsx'), 'utf8'
   ) + '\n' + fs.readFileSync(
     path.join(ROOT, 'src/client/components/database/use-db-tree.js'), 'utf8'
+  ) + '\n' + fs.readFileSync(
+    path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx'), 'utf8'
   )
   const styl = fs.readFileSync(
     path.join(ROOT, 'src/client/components/database/db-session.styl'), 'utf8'

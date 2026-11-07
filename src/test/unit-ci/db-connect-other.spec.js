@@ -13,10 +13,13 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const read = p => fs.readFileSync(p, 'utf8')
+// N11b-#24：treeData 的「非当前 PG 库给连接入口」分支已迁到 use-db-tree-data.jsx
+const TREE_DATA = path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx')
+const readSession = () => read(JSX) + '\n' + read(TREE_DATA)
 
 describe('T4 postgres cross-database connect', () => {
   test('入口仅对非当前 PG 库显示', () => {
-    const src = read(JSX)
+    const src = readSession()
     // 引擎归属走 db-engine-family（PG 兼容引擎也算 PG 侧），所以这里钉的是"调用家族表"
     // 而不是某个字面量比较；import 一起钉，漏了 import 是运行时才炸的 undefined 调用
     assert.ok(src.includes("import { isPgFamily } from '../../common/db-engine-family'"), 'family import missing')
@@ -27,7 +30,7 @@ describe('T4 postgres cross-database connect', () => {
   })
 
   test('确认后新开临时 tab 并切换 dbName', () => {
-    const src = read(JSX)
+    const src = readSession()
     const block = src.match(/const connectOtherDb = \(\) => \{[\s\S]*?\n\s{2}\}/)
     assert.ok(block, 'connectOtherDb not found')
     const code = block[0]
@@ -38,7 +41,7 @@ describe('T4 postgres cross-database connect', () => {
   })
 
   test('弹窗不回显密码', () => {
-    const src = read(JSX)
+    const src = readSession()
     // 页面现有多处 Modal（B1 插入行等）：按标题锚定 T4 连接弹窗，而非首个 <Modal
     const modals = src.match(/<Modal[\s\S]*?<\/Modal>/g) || []
     const modal = modals.find(m => m.includes("{e('dbConnectOther')}"))

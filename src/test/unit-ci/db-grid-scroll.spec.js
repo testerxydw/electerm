@@ -17,7 +17,9 @@ const STYL = path.join(ROOT, 'src/client/components/database/db-session.styl')
 
 // N11b-#22：数据网格列定义已迁到 use-db-grid-columns.jsx（已接线）
 const GRID_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-grid-columns.jsx')
-const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8')
+const TREE_DATA = path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx')
+// N11b-#24：treeData 已迁到 use-db-tree-data.jsx
+const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8') + '\n' + fs.readFileSync(TREE_DATA, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')
 // H1a-4：数据页 / SQL 结果页列定义并入公共列工厂，单元格级契约跟着挪过去
 const COLS = path.join(ROOT, 'src/client/components/database/db-grid-columns.jsx')
@@ -201,7 +203,8 @@ describe('批次 C：数据库页渲染收口契约', () => {
       // 这里改为钉住 owner 侧的 hook 调用点（仍必须在早退之前）
       'const { quickOpen, setQuickOpen, quickItems } = useDbQuickOpen(',
       'const sqlTables = useMemo(',
-      'const treeData = useMemo(',
+      // N11b-#24：treeData 已迁到 use-db-tree-data.jsx，这里钉 owner 侧的 hook 调用点
+      '} = useDbTreeData({',
       // N11b-#22：columnWidths 已随列定义迁到 use-db-grid-columns.jsx，
       // 这里钉 owner 侧的 hook 调用点
       '} = useDbGridColumns({'

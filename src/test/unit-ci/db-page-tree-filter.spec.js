@@ -19,7 +19,9 @@ const LOCALES = path.join(ROOT, 'src/app/common/locales-extra.js')
 
 const GRID_COLUMNS = path.join(ROOT, 'src/client/components/database/use-db-grid-columns.jsx')
 // N11b-#22：visibleColumnNames / renderCell 已迁到 use-db-grid-columns.jsx（已接线）
-const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_TREE, 'utf8') + '\n' + fs.readFileSync(DB_TREE_PANEL, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8')
+const TREE_DATA = path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx')
+// N11b-#24：visibleMetadata / treeFilterNodeCount 已迁到 use-db-tree-data.jsx
+const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_TREE, 'utf8') + '\n' + fs.readFileSync(DB_TREE_PANEL, 'utf8') + '\n' + fs.readFileSync(GRID_COLUMNS, 'utf8') + '\n' + fs.readFileSync(TREE_DATA, 'utf8')
 const loadConst = () => fs.readFileSync(SESSION_CONST, 'utf8')
 const loadPageSearch = () => fs.readFileSync(DB_PAGE_SEARCH, 'utf8')
 const loadStyl = () => fs.readFileSync(STYL, 'utf8')

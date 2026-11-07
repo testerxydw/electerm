@@ -179,10 +179,21 @@ describe('批次 F：db-session 算法簇抽取', () => {
       assert.ok(search.includes('export function ' + name + ' ('), name + ' not exported')
     })
     const session = loadSrc(path.join(ROOT, 'src/client/components/database/db-session.jsx'))
-    assert.ok(session.includes("from './db-search'"), 'db-session must import the helper module')
-    ;['hlText', 'hlNode', 'scanTextHits', 'cycleIndex'].forEach(name => {
+    // N11b-#24：hlText / hlNode 的唯一消费点（treeTitle）随 treeData 迁到
+    // use-db-tree-data.jsx，owner 不再直接引用查找算法。契约不变的部分是
+    // "谁引用谁负责导入 + 任何一侧都不许重定义"，所以这里按实际引用面判定。
+    const OWNER_NAMES = ['hlText', 'hlNode', 'scanTextHits', 'cycleIndex']
+    const ownerRefs = OWNER_NAMES.filter(n => new RegExp('\\b' + n + '\\s*\\(').test(session))
+    if (ownerRefs.length) {
+      assert.ok(session.includes("from './db-search'"), 'db-session must import the helper module')
+    }
+    ;OWNER_NAMES.forEach(name => {
       assert.ok(!session.includes('function ' + name + ' ('), name + ' must not be redefined')
     })
+    // 迁移后的消费方同样要遵守：引用查找算法就必须从 db-search 导入
+    const treeData = loadSrc(path.join(
+      ROOT, 'src/client/components/database/use-db-tree-data.jsx'))
+    assert.ok(treeData.includes("from './db-search'"), 'tree-data hook must import the helper module')
   })
 })
 

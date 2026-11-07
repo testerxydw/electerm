@@ -159,7 +159,8 @@ describe('T11 exact row count', () => {
 
   test('前端点击才计数，切表/排序/页大小/刷新重置', async () => {
     const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
-    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8')
+    // N11b-#24：schema 节点的 S 标记已迁到 use-db-tree-data.jsx
+    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8') + '\n' + fs.readFileSync(path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx'), 'utf8')
     assert.ok(src.includes("dbClientOp', tabId, 'countRows'"), 'must call countRows op')
     const resets = src.match(/resetExactRows\(\)/g) || []
     assert.ok(resets.length >= 4, 'expected reset on table/sort/pageSize/refresh, got ' + resets.length)
@@ -180,7 +181,8 @@ describe('批次 E：MySQL 近似行数只在首页查询', () => {
 
   test('前端翻页沿用上一页的近似值', () => {
     const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
-    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8')
+    // N11b-#24：schema 节点的 S 标记已迁到 use-db-tree-data.jsx
+    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8') + '\n' + fs.readFileSync(path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx'), 'utf8')
     assert.ok(src.includes('page > 1 ? g.totalRows : undefined'), 'totalRows fallback missing')
   })
 })
@@ -247,7 +249,8 @@ describe('T3 postgres schema hierarchy', () => {
 
   test('渲染层传递 schema 并生成 S 标记 / schema.table 标题', async () => {
     const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
-    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8')
+    // N11b-#24：schema 节点的 S 标记已迁到 use-db-tree-data.jsx
+    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(USE_DB_VIEW, 'utf8') + '\n' + fs.readFileSync(path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx'), 'utf8')
     // N11a：nodeKey 随会话页纯常量段搬到 common/db-session-const.js
     const constSrc = fs.readFileSync(
       path.join(ROOT, 'src/client/common/db-session-const.js'), 'utf8')

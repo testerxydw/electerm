@@ -6,7 +6,7 @@
 
 import { lazy, Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { Button, Alert, Empty, Spin, Tabs, Input, Tag, Popconfirm, Switch, Tooltip, Select, Modal, Popover, Checkbox, Dropdown, AutoComplete, Progress } from 'antd'
-import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, EyeOutlined, RobotOutlined, BulbOutlined, BugOutlined, FunctionOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
+import { ReloadOutlined, RightOutlined, SearchOutlined, DownloadOutlined, HistoryOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, CloseOutlined, FormatPainterOutlined, DiffOutlined, SettingOutlined, MenuOutlined, UpOutlined, DownOutlined, UploadOutlined, EditOutlined, SwapOutlined, StarOutlined, CodeOutlined, NodeIndexOutlined, StarFilled, FolderOpenOutlined, FolderAddOutlined, ExportOutlined, ThunderboltOutlined, RobotOutlined, BulbOutlined, BugOutlined, ClockCircleOutlined, SaveOutlined, DownOutlined as DownOutlinedIcon } from '@ant-design/icons'
 import { auto } from 'manate/react'
 import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
@@ -41,7 +41,6 @@ import { buildRefItems } from './db-ref-utils'
 import { isBinEnvelope } from './value-renderers'
 import RemoteFloatControl from '../common/remote-float-control'
 import { useKeywordPatterns } from './db-highlight'
-import { hlText, hlNode } from './db-search'
 import { useDbPageSearch } from './use-db-page-search'
 import { useDbExport } from './use-db-export'
 import { useDbChanges } from './use-db-changes'
@@ -59,6 +58,7 @@ import { useDbBulkEdit } from './use-db-bulk-edit'
 import { useDbGuard } from './use-db-guard'
 import { useDbGridColumns } from './use-db-grid-columns'
 import { useDbSqlResultColumns } from './use-db-sql-result-columns'
+import { useDbTreeData } from './use-db-tree-data'
 import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
@@ -173,9 +173,6 @@ import {
   redisKeyPagesOf,
   SEL_COL_W,
   isLeafNode,
-  isDbObjectType,
-  countTreeLeaves,
-  DB_GROUP_LABEL,
   nodeKey,
   HOME_TABLES_MAX,
   EMPTY_STRUCTURE_V2,
@@ -189,24 +186,10 @@ const SqlCodeEditor = lazy(() => import('./db-sql-editor'))
 
 const e = window.translate
 // CELL_ELLIPSIS（截断列公共配置）随列工厂挪到 db-grid-columns.jsx，两页共用
-// N11a：以下两张图标表与两个芯片是本文件里仅剩的模块级定义（都带 JSX），
-// 纯常量/纯函数已搬到 common/db-session-const.js；isLeafNode、
-// countTreeLeaves 这些配套判据仍在那一边，这里只留形状与颜色无关的图标映射。
-// U4：非表对象改用形状图标（眼睛/代码/fx/闪电/时钟），颜色由 `.is-<type>` 走 token。
-// 单字母标记只留给命令面板的窄 hint 位置（树里已不再显示字母）。
-const DB_OBJECT_ICONS = {
-  view: <EyeOutlined />,
-  procedure: <CodeOutlined />,
-  function: <FunctionOutlined />,
-  trigger: <ThunderboltOutlined />,
-  event: <ClockCircleOutlined />
-}
-// 分组节点（过程与函数 / 触发器 / 事件）用同类图标，和组内叶子对得上
-const DB_GROUP_ICONS = {
-  routine: <CodeOutlined />,
-  trigger: <ThunderboltOutlined />,
-  event: <ClockCircleOutlined />
-}
+// N11a：纯常量/纯函数已搬到 common/db-session-const.js；isLeafNode、
+// countTreeLeaves 这些配套判据仍在那一边。
+// N11b-#24：DB_OBJECT_ICONS / DB_GROUP_ICONS 两张图标表随 treeData 迁到
+// use-db-tree-data.jsx（只被那边消费），本文件只剩两个芯片是模块级 JSX 定义。
 // U4：Redis 类型芯片 / TTL 芯片。键列表、键详情头部、string 值面板共用同一份，
 // 避免三处各写一遍颜色与文案。未知类型不着色，仍显示原文
 const REDIS_KEY_TYPES = ['string', 'hash', 'list', 'set', 'zset', 'stream']
@@ -2362,172 +2345,18 @@ export default auto(function DbSession (props) {
     themeConfig
   })
 
-  // T2/T3：树过滤只作用于已加载的 metadata，不重新请求后端。
-  // 递归支持 PG 的「库 → schema → 表」：节点自身命中时保留全部子节点，
-  // 仅子节点命中时只保留命中的分支。
-  const visibleMetadata = useMemo(() => {
-    if (!treeFilterKw) {
-      return metadata
-    }
-    const hit = name => String(name || '').toLowerCase().includes(treeFilterKw)
-    const filterNode = node => {
-      const nodeHit = hit(node.name)
-      if (isLeafNode(node)) {
-        return nodeHit ? node : null
-      }
-      const children = (node.children || []).map(filterNode).filter(Boolean)
-      if (!nodeHit && !children.length) {
-        return null
-      }
-      return { ...node, children: nodeHit ? (node.children || []) : children }
-    }
-    return metadata.map(db => (
-      isRedis
-        ? (hit(db.name) ? db : null)
-        : filterNode(db)
-    )).filter(Boolean)
-  }, [metadata, isRedis, treeFilterKw])
-  const countTreeNodes = nodes => (nodes || []).reduce(
-    (n, node) => n + 1 + countTreeNodes(node.children),
-    0
-  )
-  const treeFilterNodeCount = countTreeNodes(visibleMetadata)
-  // 树过滤命中用 db-tree-hit（不复用 db-kw-hit，避免顶栏查找计数误收）；
-  // 再套一层顶栏查找高亮，保留两套高亮叠加
-  const treeTitle = (text) => hlNode(
-    hlText(text, treeFilterKw, 'db-tree-hit'),
-    kw
-  )
-
-  // 树数据只在元数据/过滤/查找关键字变化时重建：
-  // 输入页筛选、编辑单元格等状态变化不再递归重建整棵树。
-  const treeData = useMemo(() => {
-    // 非 redis 树节点递归：MySQL 为「库 → 表」，PG 为「库 → schema → 表」
-    const toTreeChildren = (dbName, schema, nodes) => (nodes || []).map(node => {
-      if (isLeafNode(node)) {
-        // F0/U4：视图与表在树里同名同形；非表对象用形状图标标记（眼睛/代码/fx/闪电/时钟），
-        // 颜色由 .is-<type> 走 token。表本身不加图标，与对象区分开。
-        // 名字一律包进 .db-tree-name：那层是"这串是标识符 → 吃数据面字体"的标记，
-        // 分组标签/计数/图标这些 chrome 不包（P-1/P-2）
-        const icon = DB_OBJECT_ICONS[node.type]
-        return {
-          title: icon
-            ? (
-              <span className='db-tree-view'>
-                <span
-                  className={'db-tree-obj-icon is-' + node.type}
-                  aria-hidden='true'
-                >
-                  {icon}
-                </span>
-                <span className='db-tree-name'>{treeTitle(node.name)}</span>
-              </span>
-              )
-            : <span className='db-tree-name'>{treeTitle(node.name)}</span>,
-          key: nodeKey(dbName, schema, node.name),
-          isLeaf: true,
-          // 类型随节点走：后续按钮门控（视图不可插入行）要它
-          nodeType: node.type,
-          // B2：对象定位信息（PG 函数需签名区分重载、触发器需表名）——
-          // 只挂在树节点上，不进 metadata 契约之外的持久化
-          objMeta: isDbObjectType(node.type)
-            ? { signature: node.signature || '', table: node.table || '' }
-            : undefined
-        }
-      }
-      // B2：库内对象分组（过程与函数 / 触发器 / 事件）。分组本身不可选中，
-      // 只负责收起，避免几百个过程把表名挤出屏幕
-      if (node.type === 'group') {
-        return {
-          title: (
-            <span className='db-tree-schema'>
-              <span
-                className={'db-tree-obj-icon is-group-' + node.group}
-                aria-hidden='true'
-              >
-                {DB_GROUP_ICONS[node.group] || <CodeOutlined />}
-              </span>
-              {/* 分组标签是本地化界面词，不是标识符 → 故意不包 .db-tree-name */}
-              {treeTitle(e(DB_GROUP_LABEL[node.group] || 'dbRoutines'))}
-              <span className='db-tree-count'>{(node.children || []).length}</span>
-            </span>
-          ),
-          key: nodeKey(dbName, schema, node.name),
-          children: toTreeChildren(dbName, schema, node.children)
-        }
-      }
-      // PG schema 节点：S 标记便于与库 / 表区分；空 schema 也保留
-      return {
-        title: (
-          <span className='db-tree-schema'>
-            <span className='db-tree-schema-mark'>S</span>
-            <span className='db-tree-name'>{treeTitle(node.name)}</span>
-            <span className='db-tree-count'>{countTreeLeaves(node.children)}</span>
-          </span>
-        ),
-        key: nodeKey(dbName, node.name),
-        children: toTreeChildren(dbName, node.name, node.children)
-      }
-    })
-
-    if (isRedis) {
-      return visibleMetadata.map(db => {
-        const i = metadata.indexOf(db)
-        return {
-          // 键个数（来自 INFO keyspace）；空 db 显示 0，
-          // 受管实例禁用 INFO 时后端不回 count → 此处不显示数字
-          title: (
-            <span className='db-tree-db'>
-              <span className='db-tree-db-name db-tree-name'>{treeTitle(db.name)}</span>
-              {
-                typeof db.count === 'number'
-                  ? <span className='db-tree-db-count'>{db.count}</span>
-                  : null
-              }
-            </span>
-          ),
-          key: String(i),
-          isLeaf: false
-        }
-      })
-    }
-    return visibleMetadata.map(db => ({
-      // 不复用 .db-tree-db（space-between 供 redis 计数用），错误标记须紧邻库名
-      title: (
-        <span className='db-tree-db-title'>
-          <span className='db-tree-name'>{treeTitle(db.name)}</span>
-          {
-            // per-db 元数据降级标记：单库 SHOW TABLES 失败（权限等），
-            // 库名保留可重试（点顶栏刷新重拉）
-            db.error
-              ? <Tooltip title={db.error}><span className='db-tree-db-err'>!</span></Tooltip>
-              : null
-          }
-          {
-            // T4：PG 非当前库给「连接」入口，新开临时 tab（不写书签、不回显密码）
-            isPg && db.name !== currentDbName
-              ? (
-                <Button
-                  type='link'
-                  size='small'
-                  className='db-tree-connect'
-                  onClick={ev => {
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    setConnectDb(db.name)
-                  }}
-                >
-                  {e('dbConnect')}
-                </Button>
-                )
-              : null
-          }
-        </span>
-      ),
-      key: nodeKey(db.name),
-      children: toTreeChildren(db.name, '', db.children)
-    }))
-  }, [visibleMetadata, isRedis, metadata, treeFilterKw, kw, isPg, currentDbName])
+  // ---- #24 元数据树数据拆到 use-db-tree-data（行为零变更）----
+  // 过滤 / 计数 / 标题高亮 / treeData 四条分支装配整体搬到同目录 hook；
+  // 两张形状图标表随之迁走（只被 treeData 消费）
+  const { visibleMetadata, treeFilterNodeCount, treeData } = useDbTreeData({
+    metadata,
+    treeFilterKw,
+    kw,
+    isRedis,
+    isPg,
+    currentDbName,
+    setConnectDb
+  })
 
   // 拖拽调整左侧元数据树宽度（松手时持久化）
   const startResize = (ev) => {

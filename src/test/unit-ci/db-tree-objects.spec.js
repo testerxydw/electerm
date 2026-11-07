@@ -215,7 +215,9 @@ describe('B2 主进程契约', () => {
 })
 
 describe('B2 前端契约', () => {
-  const jsx = read(JSX) + '\n' + read(USE_DB_TREE) + '\n' + read(USE_DB_QUICK_OPEN)
+  // N11b-#24：DB_OBJECT_ICONS / DB_GROUP_ICONS 两张表与 treeData 一起迁到 use-db-tree-data.jsx
+  const TREE_DATA = path.join(ROOT, 'src/client/components/database/use-db-tree-data.jsx')
+  const jsx = read(JSX) + '\n' + read(USE_DB_TREE) + '\n' + read(USE_DB_QUICK_OPEN) + '\n' + read(TREE_DATA)
   const constSrc = read(SESSION_CONST)
 
   test('isLeafNode 认四类对象（跑真实源码行）', () => {
