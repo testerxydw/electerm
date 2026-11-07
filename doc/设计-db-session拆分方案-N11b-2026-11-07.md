@@ -184,7 +184,7 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 | #25b 形参收拢 | 改 `use-db-redis-keys.js` 签名 32→5 | 5466 → 5434 | `fd7e6ed6` | standard 零新增；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #28 SQL 文件读写 | `use-db-sql-file.js`（118） | 5434 → 5359 | `4069c05a` | 字节等价 78/78；standard 仅 6 条基线（连带清 5 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #29 连接生命周期 | `use-db-connection.js`（69） | 5359 → 5336 | `f698bb97` | 字节等价 39/39；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
-| #30 视图动作 | 并入 `use-db-view.js`（454→576） | 5336 → 5226 | `4e0468c8` | 字节等价 107/109（余 2 行 viewParts 注入形态）；standard 仅 6 条基线（连带清 4 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #30 视图动作 | 并入 `use-db-view.js`（454→576） | 5336 → 5228 | `4e0468c8` | 字节等价 107/109（余 2 行 viewParts 注入形态）；standard 仅 6 条基线（连带清 4 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #32 表结构区 | `db-structure-area.jsx`（105） | 5228 → 5179 | `d593eee0` | 字节等价 68/68；standard 仅 6 条基线（连带清死导入 SearchOutlined）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 
 ### #22 落地要点（供后续簇复用）
