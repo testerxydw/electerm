@@ -11,6 +11,12 @@
  *   applySemanticTier / setTierOn → activeKeywords → compileKeywords
  *   → buildScan + collectMatches → applyCoverageGate
  *
+ * 批次 F（V7 §6）追加 E 段：13 类真实输出逐行覆盖率复核（闸后每行 structure
+ * ≤ 35%；signal 永不闸）。批次 G 按用户裁决回表增补盲区家族，并给 marker 层
+ * （rank 0）与 fingerprint 开闸豁免——豁免命中不计入 35% 占比也不被丢弃；
+ * E 段的口径同步按「非豁免 structure」计算。实机截图由 kw-preset-merge-demo.js
+ * 那类 CDP 脚本承担。
+ *
  * 用法： node --experimental-detect-module self-test/keyword-density-demo.js
  */
 const assert = require('node:assert/strict')
@@ -82,7 +88,7 @@ const main = async () => {
   const full = prepare(true)
   const rawRatios = ratios(full.patterns, full.scan, false)
   const gatedRatios = ratios(full.patterns, full.scan, true)
-  console.log('B) 手动打开结构档（100 条全上）')
+  console.log(`B) 手动打开结构档（${activeKeywords(full.list).length} 条全上）`)
   console.log('   未过闸逐行:', rawRatios.map(r => (r * 100).toFixed(0) + '%').join(' '))
   console.log('   未过闸中位:', pct(median(rawRatios)))
   console.log('   过闸后逐行:', gatedRatios.map(r => (r * 100).toFixed(0) + '%').join(' '))
@@ -111,6 +117,44 @@ const main = async () => {
   assert.ok(errorLine.includes('\u001b[31mERROR'), 'error word must stay coloured')
   assert.ok(warnLine.includes('\u001b[33mWARNING'), 'warning word must stay coloured')
   console.log('D) 语义信号保底：ERROR → 红 / WARNING → 黄 ✓\n')
+
+  // ---- 批次 F/G：13 类真实输出（V7 §6 批次 F + 批次 G 回表）----
+  // 前 10 类是日常命令的冻结输出；后 3 类是批次 D「零命中删除」的语料盲区
+  // （git diff / ssh 首连 / git log --oneline），批次 G 已按用户裁决回表增补。
+  // 覆盖率口径：闸后每行 structure 染色占比 ≤ 35%（signal 永不闸；批次 G 起
+  // marker 层 rank 0 与 fingerprint 是闸豁免族，不计入此占比）。
+  const fCorpus = require('./keyword-f-corpus.js')
+  const gateCounted = h => h.tier === 'structure' && h.rank !== 0 && h.family !== 'fingerprint'
+
+  console.log('E) 批次 F/G · 13 类真实输出（结构档全开，发布实现链路）')
+  const fReport = []
+  for (const [label, lines] of fCorpus) {
+    const raw = []
+    const gated = []
+    let plain = 0
+    for (const line of lines) {
+      const hits = collectMatches(line, full.patterns, full.scan, 512)
+      const after = applyCoverageGate(line, hits)
+      const ratio = hs => hs.reduce((n, h) => n + (h.end - h.start), 0) / (line.length || 1)
+      const structRatio = hs => hs.filter(gateCounted)
+        .reduce((n, h) => n + (h.end - h.start), 0) / (line.length || 1)
+      // 闸后每行 structure 占比必须 ≤ 35%（闸的定义；signal/豁免族不计）
+      assert.ok(structRatio(after) <= 0.35 + 1e-9,
+        `${label} 闸后 structure 占比超 35%: ${line}`)
+      raw.push(ratio(hits))
+      gated.push(ratio(after))
+      if (after.length === 0) plain++
+    }
+    fReport.push({ label, lines: lines.length, plain, raw: median(raw), gated: median(gated) })
+    console.log(`   ${label}`)
+    console.log(`     未过闸中位 ${pct(median(raw))} → 闸后中位 ${pct(median(gated))} | 素色行 ${plain}/${lines.length}`)
+  }
+  const blind = fReport.slice(-3)
+  console.log('   盲区三场景（批次 G 回表增补后的着色复核）:')
+  for (const b of blind) {
+    console.log(`     ${b.label}: ${b.plain}/${b.lines} 行完全素色，闸后中位 ${pct(b.gated)}`)
+  }
+  console.log('   ✓ 13 类语料逐行 structure 覆盖率闸全部通过\n')
 
   // §9 硬门槛
   assert.ok(median(semanticRatios) <= 0.20, '默认全选中位染色率必须 ≤ 20%')
