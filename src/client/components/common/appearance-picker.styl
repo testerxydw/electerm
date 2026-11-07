@@ -1,0 +1,34 @@
+// the trigger sits in an input prefix, so keep the row as short as the
+// title/host field it decorates
+.appearance-picker-trigger
+  display inline-flex
+  align-items center
+  justify-content center
+  width 20px
+  height 20px
+  margin-right 6px
+  border-radius var(--radius-xs)
+  vertical-align middle
+  cursor pointer
+  &:hover
+    // 上游是 0 0 0 1px var(--primary)（外描边环）。按本仓 §6.10 的既有写法
+    // （footer / tabs 的 hover 环）改成 inset，视觉几乎一致且走白名单形式
+    box-shadow inset 0 0 0 1px var(--primary)
+  &:focus-visible
+    outline 2px solid var(--primary)
+    outline-offset 1px
+  &.is-disabled
+    cursor default
+    opacity .5
+    box-shadow none
+
+.appearance-picker-panel
+  width 392px
+  max-width calc(100vw - 40px)
+  .ant-tabs-nav
+    margin-bottom 8px
+  // the colour box is built for a popover of its own, here it has to fill the
+  // tab pane instead
+  .color-picker-box
+    width 100%
+    max-width none

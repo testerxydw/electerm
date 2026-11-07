@@ -7,6 +7,7 @@ import { createTitleTag } from '../../common/create-title'
 import { DbEngineMark, DbEngineBadge, isDbSession } from '../../common/db-engine-mark'
 import classnames from 'classnames'
 import highlight from '../common/highlight'
+import ItemIcon from '../common/item-icon'
 import uid from '../../common/uid'
 
 function areEqual (prevProps, nextProps) {
@@ -29,6 +30,7 @@ function areEqual (prevProps, nextProps) {
     prevProps.item.dbType === nextProps.item.dbType &&
     prevProps.itemLevel === nextProps.itemLevel &&
     prevProps.itemColor === nextProps.itemColor &&
+    prevProps.itemIcon === nextProps.itemIcon &&
     prevProps.itemDescription === nextProps.itemDescription &&
     // T5-5b 会话树状态点: 活跃态变化必须穿透 memo, 否则绿点不亮/不灭
     prevProps.hasActiveSession === nextProps.hasActiveSession &&
@@ -91,6 +93,18 @@ function TreeListItem (props) {
       />
       )
     : null
+  // a group shows its icon when it has one, and its colour square otherwise;
+  // bookmarks go through createTitleTag above
+  const groupTag = isGroup && (item.icon || item.color)
+    ? (
+      <ItemIcon
+        icon={item.icon}
+        color={item.color}
+        size={12}
+        fallback={colorTag}
+      />
+      )
+    : null
   const title = isGroup
     ? item.title
     : props.itemLabel
@@ -140,7 +154,7 @@ function TreeListItem (props) {
         {...titleProps}
       >
         {depthMark}{!isGroup && props.hasActiveSession && <span className='tree-session-dot' />}
-        {colorTag}{tag}{isDbSession(item) && <DbEngineMark dbType={item.dbType} />}{titleHighlight}
+        {isGroup ? groupTag : tag}{isDbSession(item) && <DbEngineMark dbType={item.dbType} />}{titleHighlight}
       </div>
       {isDbSession(item) && <DbEngineBadge dbType={item.dbType} />}
     </div>
