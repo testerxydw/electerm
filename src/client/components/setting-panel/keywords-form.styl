@@ -132,7 +132,7 @@
   &:hover
     background var(--surface-1)
   &.off
-    .kw-regex, .kw-regex-input, .kw-swatch
+    .kw-regex, .kw-regex-input, .kw-swatch, .kw-family
       opacity .45
 
 .kw-check
@@ -183,3 +183,58 @@
   display flex
   align-items center
   gap 8px
+
+// 预设规则的家族徽标：归属唯一对用户可见（悬停看色组说明）
+.kw-family
+  flex 0 0 auto
+  max-width 140px
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  font-family var(--font-mono, monospace)
+  font-size 11px
+  color var(--text-dark)
+  background var(--surface-1)
+  border 1px solid var(--border)
+  border-radius var(--radius-xs)
+  padding 0 5px
+
+// 色板体检：四条闸的实测值，纯展示
+.kw-health
+  padding 4px 10px 8px 26px
+
+.kw-health-row
+  display flex
+  align-items center
+  gap 10px
+  padding 2px 0
+  font-size 12px
+  &.bad
+    .kw-health-val, .kw-health-state
+      color var(--error)
+
+.kw-health-name
+  flex 0 0 110px
+  font-family var(--font-mono, monospace)
+  color var(--text)
+
+.kw-health-val
+  flex 0 0 44px
+  font-family var(--font-mono, monospace)
+  color var(--text)
+
+.kw-health-gate
+  flex 0 0 40px
+  color var(--text-dark)
+
+.kw-health-detail
+  flex 1 1 auto
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+  color var(--text-dark)
+
+.kw-health-state
+  flex 0 0 auto
+  color var(--success)

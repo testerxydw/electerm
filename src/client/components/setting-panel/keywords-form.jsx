@@ -13,8 +13,9 @@ import {
 } from '@ant-design/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import message from '../common/message'
-import { keywordPresets } from '../../common/keyword-presets'
+import { keywordPresets, FAMILY_GROUP, COLOR_GROUPS } from '../../common/keyword-presets'
 import { keywordPalette } from '../../common/keyword-compile'
+import { paletteHealth } from '../../common/keyword-palette-health'
 import {
   addUserRule,
   allPresetViews,
@@ -25,6 +26,7 @@ import {
   removeEntry,
   removeUserGroup,
   renameUserGroup,
+  ruleFamilyOf,
   setAllOff,
   setEntryOn,
   setPresetGroupOn,
@@ -120,6 +122,8 @@ function RuleRow (props) {
   }
 
   const isOn = checked === undefined ? isRuleOn(rule) : checked
+  // 家族按预设表只读派生：配置快照与未应用条目都不带 family 字段
+  const family = ruleFamilyOf(rule)
 
   return (
     <div className={'kw-rule' + (isOn ? '' : ' off')}>
@@ -162,6 +166,18 @@ function RuleRow (props) {
             )
       }
       {
+        !editable && family
+          ? (
+            <span
+              className='kw-family'
+              title={`${e('kwFamily')}: ${family} · ${e('kwColorGroup')}: ${(COLOR_GROUPS[FAMILY_GROUP[family]] || {}).label || ''}`}
+            >
+              {family}
+            </span>
+            )
+          : null
+      }
+      {
         dupPreset
           ? (
             <Tooltip title={`${e('kwSameAsPreset')}: ${dupPreset}`}>
@@ -194,7 +210,7 @@ export default function KeywordForm (props) {
   const list = formData.keywords || []
   const [q, setQ] = useState('')
   const [onlyOn, setOnlyOn] = useState(false)
-  const [openSec, setOpenSec] = useState({ preset: false, user: false })
+  const [openSec, setOpenSec] = useState({ preset: false, user: false, health: false })
   const [openGrp, setOpenGrp] = useState({})
   const [renaming, setRenaming] = useState(null)
   const [renameValue, setRenameValue] = useState('')
@@ -444,6 +460,19 @@ export default function KeywordForm (props) {
   const structureOn = isStructureTierOn(list)
   const setStructure = (on) => commit(setTierOn(list, 'structure', on))
 
+  // 色板体检（批次 F）：KU-6 四条闸的实测值，纯展示不参与裁决；
+  // 数字与 CI 闸同源（keyword-palette-health.js），换色板后两边一起变。
+  const health = useMemo(paletteHealth, [])
+  const gateRow = (name, measured, gateText, detail, ok) => (
+    <div className={'kw-health-row' + (ok ? '' : ' bad')} key={name}>
+      <span className='kw-health-name'>{name}</span>
+      <span className='kw-health-val'>{measured}</span>
+      <span className='kw-health-gate'>{gateText}</span>
+      <span className='kw-health-detail' title={detail}>{detail}</span>
+      <span className='kw-health-state'>{ok ? 'OK' : 'FAIL'}</span>
+    </div>
+  )
+
   return (
     <div className='kw-wrap'>
       <div className='kw-toolbar'>
@@ -564,6 +593,35 @@ export default function KeywordForm (props) {
                       </Button>
                     </div>
                     )}
+              </div>
+              )
+            : null
+        }
+      </div>
+
+      <div className='kw-section'>
+        <div className='kw-sec-head' onClick={() => toggleSec('health')}>
+          <span className={'kw-caret' + (openSec.health ? ' open' : '')} />
+          <span className='kw-sec-title'>{e('kwPaletteHealth')}</span>
+          <span className='kw-badge'>{health.groupCount} {e('kwColorGroup')}</span>
+        </div>
+        {
+          openSec.health
+            ? (
+              <div className='kw-sec-body'>
+                <div className='kw-health' title={e('kwPaletteHealthTip')}>
+                  {gateRow('G1 · ΔE(1976)', health.g1.min.toFixed(1), `≥ ${health.gates.pairDeltaE76}`,
+                    health.g1.pair.join(' ↔ '), health.g1.min >= health.gates.pairDeltaE76)}
+                  {gateRow('G2 · ΔE(2000)', health.g2.min.toFixed(1), `≥ ${health.gates.pairDeltaE00}`,
+                    health.g2.pair.join(' ↔ '), health.g2.min >= health.gates.pairDeltaE00)}
+                  {gateRow('G3 · theme', health.g3.min.toFixed(1), `≥ ${health.gates.themeDeltaE76}`,
+                    `${health.g3.group} ↔ ${health.g3.theme}`, health.g3.min >= health.gates.themeDeltaE76)}
+                  {gateRow('G4 · hue', health.g4.violations.length, '≤ 0',
+                    health.g4.violations.length
+                      ? health.g4.violations.map(v => `${v.group} ${v.hue.toFixed(0)}°`).join(' ')
+                      : `${health.structureCount}/${health.structureCount}`,
+                    health.g4.violations.length === 0)}
+                </div>
               </div>
               )
             : null
