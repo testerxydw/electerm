@@ -8,7 +8,7 @@
  * CDP 脚本承担；本脚本负责给出密度数字，并断言 §9 的两条硬门槛。
  *
  * 链路与线上完全一致：
- *   applySemanticTier / setTierOn → activeKeywords → compileKeywords
+ *   setTierOn(语义档 / 结构档) → activeKeywords → compileKeywords
  *   → buildScan + collectMatches → applyCoverageGate
  *
  * 批次 F（V7 §6）追加 E 段：13 类真实输出逐行覆盖率复核（闸后每行 structure
@@ -50,7 +50,7 @@ const pct = n => (n * 100).toFixed(1).padStart(5) + '%'
 const median = arr => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)]
 
 const main = async () => {
-  const { applySemanticTier, activeKeywords, setTierOn, isStructureTierOn } =
+  const { activeKeywords, setTierOn, isStructureTierOn } =
     await import('../src/client/common/keyword-groups.js')
   const { compileKeywords, clearKeywordCache } =
     await import('../src/client/common/keyword-compile.js')
@@ -59,9 +59,8 @@ const main = async () => {
 
   const prepare = withStructure => {
     clearKeywordCache()
-    const list = withStructure
-      ? setTierOn(applySemanticTier([]), 'structure', true)
-      : applySemanticTier([])
+    const semantic = setTierOn(setTierOn([], 'signal', true), 'structure', false)
+    const list = withStructure ? setTierOn(semantic, 'structure', true) : semantic
     const patterns = compileKeywords(activeKeywords(list))
     return { list, patterns, scan: buildScan(patterns) }
   }

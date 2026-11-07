@@ -155,13 +155,15 @@ const HEALTH_ROWS = `JSON.stringify([...document.querySelectorAll('.kw-health-ro
   bad: r.classList.contains('bad')
 })))`
 
-const clickToolbar = key => `(() => {
+const tickToolbar = (key, on = true) => `(() => {
   const want = window.translate('${key}')
-  const b = [...document.querySelectorAll('.kw-toolbar button')]
-    .find(x => x.textContent.trim() === want)
-  if (!b) return 'not-found:' + want
-  b.click()
-  return 'clicked:' + want
+  const label = [...document.querySelectorAll('.kw-toolbar label.kw-only-on')]
+    .find(x => x.textContent.includes(want))
+  if (!label) return 'no-label:' + want
+  const box = label.querySelector('input.kw-check')
+  if (!box) return 'no-check:' + want
+  for (let i = 0; i < 2 && box.checked !== ${on}; i++) box.click()
+  return 'ticked:' + want + '=' + box.checked
 })()`
 
 const TURN_STRUCTURE_ON = `(() => {
@@ -264,7 +266,7 @@ const main = async () => {
   await cdp.shot(path.join(SHOT_DIR, '02-palette-health.png'))
 
   // 结构档全开：语义档 + structure 开关 → 56 条全上
-  console.log(await ev(clickToolbar('kwApplySemantic')))
+  console.log(await ev(tickToolbar('kwSemanticTier', true)))
   await sleep(300)
   console.log(await ev(TURN_STRUCTURE_ON))
   const cfgFull = await waitFor(

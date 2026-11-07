@@ -10,8 +10,8 @@
  * kwStructureTier 开关单独按需打开。本脚本的分组数、规则总数、语义档条数、
  * 组级取消后的静音/生效数一律在运行时从 src/client/common/keyword-presets.js
  * 与 src/client/common/keyword-groups.js 现算，不再写死旧口径数字。
- * 工具栏 locale key 以 src/app/common/locales-extra.js 为准：kwApplySemantic、
- * kwUnapplyAll、kwStructureTier 均存在（en / zh_cn 双语）。
+ * 工具条三勾选 locale key 以 src/app/common/locales-extra.js 为准：kwSemanticTier、
+ * kwStructureTier、kwApplyAll 均存在（en / zh_cn 双语）。
  *
  * 钉的是合并/优化后的落地效果：
  *   A) 设置面板：分组数、规则总数与预设表一致；「应用语义档」后配置里只启用
@@ -131,7 +131,7 @@ const loadV2Baseline = async () => {
   const signalTotal = keywordPresets.reduce((n, p) =>
     n + p.keywords.filter(k => (k.tier || 'signal') === 'signal').length, 0)
   const structureTotal = ruleTotal - signalTotal
-  const semanticConfig = groups.applySemanticTier([])
+  const semanticConfig = groups.setTierOn(groups.setTierOn([], 'signal', true), 'structure', false)
   const semanticCount = groups.activeKeywords(semanticConfig).length
 
   // 组名必须是 V2 预设表里真实存在的组；条数按该组实算
@@ -141,7 +141,17 @@ const loadV2Baseline = async () => {
     throw new Error('V2 preset group not found: ' + groupName)
   }
   const groupRules = groupPreset.keywords.length
-  const mutedConfig = groups.setPresetGroupOn(semanticConfig, groupPreset, false)
+  // 该组在纯语义档下是否已经全中：含 structure 规则的业务组只会是 indeterminate，
+  // 面板点第一下是「补齐」而不是「静音」——期望值必须按 补齐 → 静音 → 再补齐 这条
+  // 真实点击链路现算，否则组级取消那段永远等不到目标状态。
+  const groupView = groups.presetGroupView(semanticConfig, groupPreset)
+  const groupFullyOn = groupView.checked
+  const completed = groupFullyOn
+    ? semanticConfig
+    : groups.setPresetGroupOn(semanticConfig, groupPreset, true)
+  const completedTotal = completed.length
+  const completedActive = groups.activeKeywords(completed).length
+  const mutedConfig = groups.setPresetGroupOn(completed, groupPreset, false)
   const mutedOff = mutedConfig.filter(r => r.off).length
   const mutedOn = mutedConfig.filter(r => r.keyword && !r.off).length
   // 重新勾选会按 requires 连带点亮通用档，生效数因此可能超过语义档条数
@@ -156,6 +166,9 @@ const loadV2Baseline = async () => {
     semanticCount,
     groupName,
     groupRules,
+    groupFullyOn,
+    completedTotal,
+    completedActive,
     mutedOff,
     mutedOn,
     restoredActive
@@ -217,14 +230,42 @@ const STAT_TEXTS = `JSON.stringify({
   badge: ((document.querySelector('.kw-section .kw-badge') || {}).textContent || '').trim()
 })`
 
-const clickToolbar = key => `(() => {
+// 工具条三勾选（语义档 / 结构档 / 应用全部）：按 locale 文案定位 label 里的复选框。
+// 注意 indeterminate 的坑：DOM 上 checked 仍是 false，若只看 checked，「关掉一个半开
+// 的档位」会被判定成已经关掉而一次都不点。所以状态查询与点击分开，由 Node 侧轮询：
+// indeterminate → 点一下补齐 → 再点一下才是全关。
+const tickFind = key => `(() => {
   const want = window.translate('${key}')
-  const b = [...document.querySelectorAll('.kw-toolbar button')]
-    .find(x => x.textContent.trim() === want)
-  if (!b) return 'not-found:' + want
-  b.click()
+  const label = [...document.querySelectorAll('.kw-toolbar label.kw-only-on')]
+    .find(x => x.textContent.includes(want))
+  const box = label && label.querySelector('input.kw-check')
+  return box ? { checked: box.checked, indeterminate: box.indeterminate } : null
+})()`
+
+const tickOnce = key => `(() => {
+  const want = window.translate('${key}')
+  const label = [...document.querySelectorAll('.kw-toolbar label.kw-only-on')]
+    .find(x => x.textContent.includes(want))
+  const box = label && label.querySelector('input.kw-check')
+  if (!box) return 'no-tick:' + want
+  box.click()
   return 'clicked:' + want
 })()`
+
+const tickUntil = async (cdp, key, on) => {
+  for (let i = 0; i < 4; i++) {
+    const st = await cdp.eval(tickFind(key))
+    if (!st) {
+      return { error: 'no-tick:' + key }
+    }
+    if (st.checked === on && !st.indeterminate) {
+      return st
+    }
+    console.log(await cdp.eval(tickOnce(key)) + ' <- ' + JSON.stringify(st))
+    await sleep(250)
+  }
+  return await cdp.eval(tickFind(key))
+}
 
 // 组级三态勾选：点预设分组头里的 checkbox（TriCheck 自己 stopPropagation，不会误展开）
 const toggleGroupCheck = name => `(() => {
@@ -484,7 +525,7 @@ const main = async () => {
     flat(t0.stat).includes(`0/${v2.ruleTotal}`) && flat(t0.badge).includes(`0/${v2.ruleTotal}`), t0)
   await cdp.shot(path.join(SHOT_DIR, '01-panel-empty.png'))
 
-  console.log(await ev(clickToolbar('kwApplySemantic')))
+  console.log(await tickUntil(cdp, 'kwSemanticTier', true))
   // 面板未填过的默认空规则也会留在配置里，所以按「带 keyword 的条数」判定
   const cfgApplied = JSON.parse(await waitFor(
     cdp,
@@ -502,7 +543,20 @@ const main = async () => {
     flat(t1.badge).includes(`${v2.semanticCount}/${v2.ruleTotal}`), t1)
   await cdp.shot(path.join(SHOT_DIR, '02-panel-applied.png'))
 
-  // 组级取消勾选：只静音，不丢规则；组名与期望条数均由 V2 预设表 / 纯函数现算
+  // 组级取消勾选：只静音，不丢规则；组名与期望条数均由 V2 预设表 / 纯函数现算。
+  // 该组在纯语义档下含 structure 规则 → 处于 indeterminate，面板第一下是「补齐」，
+  // 第二下才走到「静音」，所以期望值按 补齐 → 静音 这条链路算（见 loadV2Baseline）。
+  if (!v2.groupFullyOn) {
+    console.log(await ev(toggleGroupCheck(v2.groupName)))
+    const cfgCompleted = JSON.parse(await waitFor(
+      cdp,
+      `(() => { const a = (window.store._config.keywords || []).filter(x => x.keyword && !x.off).length; return a === ${v2.completedActive} ? ${CONFIG_STATS} : null })()`,
+      `complete ${v2.groupName} group (indeterminate -> fully on)`
+    ))
+    check(`组级第一下把 ${v2.groupName} 补齐为全中（生效 ${v2.completedActive} 条）`,
+      cfgCompleted.on === v2.completedActive, cfgCompleted)
+    await cdp.shot(path.join(SHOT_DIR, '02b-group-completed.png'))
+  }
   console.log(await ev(toggleGroupCheck(v2.groupName)))
   const cfgOff = JSON.parse(await waitFor(
     cdp,
@@ -510,7 +564,7 @@ const main = async () => {
     `mute ${v2.groupName} group`
   ))
   check(`取消 ${v2.groupName} 分组（共 ${v2.groupRules} 条）：${v2.mutedOff} 条静音、生效 ${v2.mutedOn} 条（规则保留不丢）`,
-    cfgOff.off === v2.mutedOff && cfgOff.on === v2.mutedOn && cfgOff.total === cfgApplied.total, cfgOff)
+    cfgOff.off === v2.mutedOff && cfgOff.on === v2.mutedOn && cfgOff.total > v2.mutedOn, cfgOff)
   console.log(await ev(toggleGroupCheck(v2.groupName)))
   const cfgOn = JSON.parse(await waitFor(
     cdp,
@@ -521,8 +575,9 @@ const main = async () => {
     cfgOn.off === 0 && cfgOn.activeDedup === v2.restoredActive, cfgOn)
 
   // 组级勾选会按 requires 连带点亮通用结构档；C/B 段必须在纯语义档下验收，
-  // 所以重新点「应用语义档」把 structure 关回去（规则只静音、不删除）。
-  console.log(await ev(clickToolbar('kwApplySemantic')))
+  // 所以取消「结构档」勾选把 structure 关回去（规则只静音、不删除）。此刻语义档已
+  // 全中，点它只会整档关掉，不是这里要的动作。
+  console.log(await tickUntil(cdp, 'kwStructureTier', false))
   await waitFor(
     cdp,
     `(() => { const r = (window.store._config.keywords || []); return r.filter(x => x.keyword && !x.off).length === ${v2.semanticCount} ? ${CONFIG_STATS} : null })()`,
@@ -623,7 +678,7 @@ const main = async () => {
   // 组级勾选会按 requires 补入结构档规则，配置总条数已不再是「应用语义档」时的
   // 条数；「规则保留只静音」以取消前的配置总数为基准，而不是 cfgApplied.total。
   const cfgBeforeCleared = JSON.parse(await ev(CONFIG_STATS))
-  console.log(await ev(clickToolbar('kwUnapplyAll')))
+  console.log(await tickUntil(cdp, 'kwApplyAll', false))
   const cfgCleared = JSON.parse(await waitFor(
     cdp,
     `(() => { const r = (window.store._config.keywords || []); return r.filter(x => !x.off && x.keyword).length === 0 ? ${CONFIG_STATS} : null })()`,
