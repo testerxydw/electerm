@@ -19,6 +19,7 @@ chmod +x run-bdebfast.sh
 | 5 | compile silently fail, 实际无 css 产物 | 脚本里实查 `work/app/assets/css/style-*.css` |
 | 6 | Electron 42 缓存 chunk, 换 asar 仍读旧版本 | 清 Cache + GPUCache + Code Cache |
 | 7 | postinstall 自动 patch 但 work/app 重建后没跑 | bdebfast 内部 `npm i` 完 postinstall 会触发, 脚本开头主动再跑一次 |
+| 8 | `[0/5]` 的 `npm install --legacy-peer-deps` 会把解析结果回写 `package-lock.json`（剔掉 17 条 peer 派生项 / 261 行）→ 每次打包弄脏上游受控文件；一旦 `git checkout` 恢复 lock，指纹又变、再触发一次全量重装 | 两条 `npm install` 都加 `--no-save`，只动 `node_modules`，lock 保持不变 |
 
 ## 清缓存范围
 

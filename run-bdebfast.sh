@@ -26,7 +26,12 @@
 #   - 合并上游会把 package.json/lockfile 里的依赖版本抬上去, 但根 node_modules 不会
 #     自动跟着变(--prepare 只管 work/app 生产依赖) → vite 报 MISSING_EXPORT。
 #     [0/5] 现在按 package.json+lockfile 的指纹比对, 变了就重装根依赖
-#     (指纹存 node_modules/.deps-stamp, 装完再写以免 npm 改 lockfile 造成反复重装)
+#     (指纹存 node_modules/.deps-stamp)
+#   - 根依赖安装必须带 --no-save: 否则 npm 会把 --legacy-peer-deps 的解析结果回写
+#     package-lock.json(剔掉 17 条 peer 派生项, 约 260 行), 让上游维护的受控文件每次
+#     打包都变脏, 合并上游必冲突; 且一旦有人 git checkout 恢复 lockfile, 指纹变化又
+#     触发一次全量重装 → 改了又恢复的死循环。--no-save 只动 node_modules, lock 保持不变
+#     (lock 里留有 Windows-only 可选依赖和 peer 项属正常, 同 mac 专属依赖在 Linux 不装)
 
 set -euo pipefail
 
@@ -164,12 +169,12 @@ deps_fingerprint () {
 if [ ! -d node_modules ] || [ ! -d node_modules/shelljs ]; then
   echo "========== [0/5] 依赖缺失, 恢复 node_modules =========="
   # 上游 @types/node 与 vite8 peer 冲突, 仓库约定用 --legacy-peer-deps
-  npm install --legacy-peer-deps --no-audit --no-fund
+  # --no-save: 不让 npm 回写 package-lock.json(否则每次打包都改脏上游受控文件)
+  npm install --legacy-peer-deps --no-save --no-audit --no-fund
   deps_fingerprint > "$DEPS_STAMP"
 elif [ ! -f "$DEPS_STAMP" ] || [ "$(cat "$DEPS_STAMP")" != "$(deps_fingerprint)" ]; then
   echo "========== [0/5] 依赖清单有变化(常见于合并上游), 同步根 node_modules =========="
-  npm install --legacy-peer-deps --no-audit --no-fund
-  # npm 可能顺手改写 lockfile, 指纹必须在装完之后再取
+  npm install --legacy-peer-deps --no-save --no-audit --no-fund
   deps_fingerprint > "$DEPS_STAMP"
 fi
 if [ ! -d node_modules/electron/dist ]; then
