@@ -173,7 +173,9 @@ describe('T5 cell update: postgres', () => {
 describe('T5 wiring: renderer no longer builds SQL', () => {
   test('前端走 updateCell op 并传主键值', async () => {
     const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
-    const src = fs.readFileSync(JSX, 'utf8')
+    // N11a-#4：单格编辑闭环已迁到 use-db-cell-edit.js（已接线），组合读取
+    const CELL_EDIT = path.join(ROOT, 'src/client/components/database/use-db-cell-edit.js')
+    const src = fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(CELL_EDIT, 'utf8')
     assert.ok(src.includes("dbClientOp', tabId, 'updateCell'"), 'must call updateCell op')
     assert.ok(src.includes('pkValue: row[pkColumn]'), 'must send primary key value')
     assert.ok(!src.includes('quoteVal'), 'front-end value quoting must be removed')

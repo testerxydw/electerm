@@ -56,6 +56,7 @@ import { useDbSqlHistory } from './use-db-sql-history'
 import { useDbExplain } from './use-db-explain'
 import { useDbRedisWrite } from './use-db-redis-write'
 import { useDbInsert } from './use-db-insert'
+import { useDbCellEdit } from './use-db-cell-edit'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
 import { DbTreePanel } from './db-tree-panel'
@@ -76,7 +77,6 @@ import {
 } from '../../common/db-grid-replace'
 // N2：写操作预览语句（确认弹窗与变更面板共用）+ 变更集模型（暂存/合并/应用计划）
 import {
-  updateCellPreview,
   bulkUpdatePreview,
   replacePreview
 } from '../../common/db-change-preview'
@@ -1451,72 +1451,6 @@ export default auto(function DbSession (props) {
     }
   }, [txSupported, tabId, txActive, txPending, sqlFile, sqlFileDirty, changes.hasStaged, changes.count])
 
-  const startEdit = (row, col) => {
-    if (!canEditCell) {
-      message.error(e('dbNoPrimaryKey'))
-      return
-    }
-    setEditing({ rowKey: row.__rowKey, col })
-    setEditValue(row[col] === null || row[col] === undefined ? '' : String(row[col]))
-  }
-
-  const cancelEdit = () => {
-    setEditing(null)
-  }
-
-  // 单元格 UPDATE（行内双击编辑与预览面板共用）：主进程按引擎参数化构造 UPDATE，
-  // 前端只传主键值定位，不拼接 SQL
-  const runCellUpdate = async (rowKey, col, value) => {
-    const row = grid.rows[rowKey]
-    if (!row || !sel) {
-      return
-    }
-    // N2：暂存开着时这条改动进变更集，一个 op 都不发（数据库此刻没被改过）。
-    // 返回值就是"我消费掉了"，所以即时执行路径保持原样不动
-    if (changes.stageCellEdit({ pkValue: row[pkColumn], column: col, value })) {
-      return
-    }
-    // E1：production 连接上改数据要二次确认（带表名/列名/主键定位与影响行数）
-    const ok = await confirmRowWrite({
-      level: 'write',
-      text: updateCellPreview({
-        sel,
-        pkColumn,
-        pkValue: row[pkColumn],
-        column: col,
-        value
-      }),
-      note: e('dbAffectedRows').replace('{n}', '1')
-    })
-    if (!ok) {
-      return
-    }
-    setGrid(g => ({ ...g, loading: true }))
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'updateCell', {
-      database: sel.database,
-      schema: sel.schema || '',
-      table: sel.table,
-      pkColumn,
-      pkValue: row[pkColumn],
-      column: col,
-      value
-    })
-      .then(() => loadQuery(sel, grid.page))
-      .catch(err => {
-        setGrid(g => ({ ...g, loading: false }))
-        onOpError(err)
-      })
-  }
-
-  const submitEdit = () => {
-    const target = editing
-    setEditing(null)
-    if (!target || !sel) {
-      return
-    }
-    runCellUpdate(target.rowKey, target.col, editValue)
-  }
-
   // A2 DDL 查看：mysql 系走 SHOW CREATE TABLE 兼容视图（零后端改动）；
   // sqlite 走主进程 getObjectDdl（sqlite_master 原文）；PG 隐藏入口（无对应等价语句，用户拍板）
   const [ddl, setDdl] = useState({ open: false, loading: false, title: '', text: '' })
@@ -1838,6 +1772,26 @@ export default auto(function DbSession (props) {
     onOpError,
     pkColumn,
     filteredRows
+  })
+
+  // ---- #4 单元格编辑拆到 use-db-cell-edit（行为零变更）----
+  // ⚠️ 必须在 confirmRowWrite（E1 执行闸门）定义之后调用：hook 形参是即时取值，
+  // 放到闸门前面会 TDZ 抛 ReferenceError
+  const { startEdit, cancelEdit, runCellUpdate, submitEdit } = useDbCellEdit({
+    canEditCell,
+    editing,
+    setEditing,
+    editValue,
+    setEditValue,
+    grid,
+    sel,
+    pkColumn,
+    tabId,
+    changes,
+    confirmRowWrite,
+    setGrid,
+    loadQuery,
+    onOpError
   })
 
   // Redis 类型化写 / 删除 / 改名 / 过期，在 production 连接上再过一道确认。
