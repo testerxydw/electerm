@@ -372,7 +372,7 @@ editFavorite, removeOneFavorite。两个清单**交集只有 `favGroups`**，且
 
 | 脚本 | 桩 | 结果 | 覆盖到的判据 |
 |---|---|---|---|
-| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **37/37**（首轮 36/37，唯一 FAIL 是真 bug；修复后由一个与写脚本无关的成员独立复跑，`stillCard` 1→0） | #28 打开/保存/另存/取消/覆盖确认/扩展名补全 + #29 掉线横幅/重连按钮/重试卡片 + 三个弹层开关 |
+| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **43/43**（首轮 36/37，唯一 FAIL 是真 bug；修复后先 37/37，再补 added/changed 与重试反向两条线到 43/43） | #28 打开/保存/另存/取消/覆盖确认/扩展名补全 + #29 掉线横幅/重连按钮/重试正向与反向 + 三个弹层 + 结构对比三分支 |
 | `self-test/fake-redis.js` + `n11b-redis-smoke.js` | 自写 RESP2 最小服务端（869 行，18 种命令） | **38/38** | Redis 翻页/跳页/越界钳制/树视图/过滤/五种类型详情/INFO/慢日志/批量删键/TTL/SELECT 切库 |
 
 Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回到服务端对账**（`fake-redis`
@@ -394,12 +394,29 @@ Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回�
 | `mcp-keepalive.spec.js` | `EADDRINUSE 127.0.0.1:30854`（hookFailed，连带 4 条子用例 cancelledByParent） | 端口被占；**单独跑 4/4 PASS**。基线的 10 cancelled 全是下一条，本轮的 14 = 10 + 这 4 条 |
 | `widget-protocol.spec.js` | `EISDIR ... copyfile '<tmp>/node_modules' -> '~/.local/share/Trash/files/node_modules'` | 环境里 `NODE_OPTIONS` 预载了 `node-safe-delete-shim.cjs`，把 `fs.unlinkSync` 重定向成「移入回收站」，对目录必然 EISDIR；与本仓代码无关 |
 
+**补完之后又收掉两个盲区**（`93ed5fbc`，37 → 43 条）：
+
+- **结构对比的三个分支都有实测值了**。夹具 `orders_copy` 从「少一列」改成
+  `(id integer primary key, amount text, note text)` —— 同时制造 `added`（`note` 只在 B）、
+  `changed`（`amount` 类型 INTEGER → TEXT）、`removed`（`created_at` 只在 A）。
+  实测 `仅在 A 1 / 仅在 B 1 / 有差异 1 / 相同 2`，三种行文本分别是
+  `仅在 A\ncreated_at\nTEXT · NULL`、`仅在 B\nnote\nTEXT · NULL`、
+  `有差异\namount\n类型\nINTEGER\n→\nTEXT`。
+  顺带把原来那条 `rowText` 判据收紧了：`rowText` 是**所有差异行拼在一起**的文本，
+  原判据 `/created_at/.test(rowText)` 只要该列出现就绿，行序一变就假绿；改成按
+  `.db-diff-row.is-removed` 单独取文本、整行锚定列名。
+- **`setError('')` 有了反向断言**。新用例「不补文件再点一次重试」实测
+  `{"stillCard":1,"openDbTabCalls":1}` —— 卡片原地不动、原因文本不变、页面不白屏。
+  `openDbTabCalls` 是主进程侧给 `async` 通道包的一层计数（纯观测，不改调用结果），
+  用来排掉「卡片还在是因为按钮根本没点上」这种假绿。
+  这一条解释了为什么修复要放在**成功分支**而不是「点重试时先清 error」：
+  后者会让失败路径出现「卡片闪一下又回来」甚至空白页。
+
 **这次没覆盖到、且短期也没法用 CDP 覆盖的**：
 
 - **跨库连接**（`connectOtherDb`）—— 需要 PG 实例；本环境只有 SQLite。
-- **`reconnect` / `retryConnect` 的失败分支**（重试仍失败 → 卡片应当保留）—— 需要「连接先坏后好再坏」的三段状态机，脚本只做了两段。
-- **ER 图外键连线的几何**（线有没有连对节点）—— 脚本只验了弹层打开、节点数、无硬错误，没验 SVG `path` 的端点坐标。
-- **结构对比的 added / changed 分支** —— 脚本只跑了「完全相同」这一种输入。
+- **ER 图外键连线的几何**（线有没有连对节点）—— 夹具是 SQLite 且没建外键，实测 `edges: 0`；
+  脚本只验了「没外键时仍画表 + 给说明文案」，没验有外键时 SVG `path` 的端点坐标。
 - **SQL 覆盖确认 Modal 的「取消」分支** —— 只验了「确认」路径。
 - **值面板从 SQL 结果进入的路径** —— 只验了从数据网格进。
 
