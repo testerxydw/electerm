@@ -73,7 +73,10 @@ describe('H6c 查询文件：路径与脏标记的纯计算', () => {
 })
 
 describe('H6c 接线契约（真实源码抽取）', () => {
-  const sessionSrc = () => fs.readFileSync(SESSION, 'utf8')
+  // N11b-#28：sqlFile / 脏标记 / 打开 / 保存已迁到 use-db-sql-file.js，
+  // 组合读取源拼上该 hook（否则这几条契约读到 air）
+  const SQL_FILE_HOOK = path.join(ROOT, 'src/client/components/database/use-db-sql-file.js')
+  const sessionSrc = () => fs.readFileSync(SESSION, 'utf8') + '\n' + fs.readFileSync(SQL_FILE_HOOK, 'utf8')
   const editorSrc = () => fs.readFileSync(EDITOR, 'utf8')
   const locales = () => fs.readFileSync(LOCALES, 'utf8')
 

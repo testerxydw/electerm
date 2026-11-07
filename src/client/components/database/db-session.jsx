@@ -61,6 +61,7 @@ import { useDbTreeData } from './use-db-tree-data'
 import { useDbRedisInstance } from './use-db-redis-instance'
 import { useDbForeignRefs } from './use-db-foreign-refs'
 import { useDbRedisBrowse } from './use-db-redis-browse'
+import { useDbSqlFile } from './use-db-sql-file'
 import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
 import { useDbQuickOpen } from './use-db-quick-open'
@@ -99,13 +100,8 @@ import { flattenTables, indexColumns } from '../../common/db-sql-complete'
 import { SQL_EDITOR_OPTIONS, readSqlEditorOpts, toggleSqlEditorOpt } from '../../common/db-sql-opts'
 import {
   sqlFileBaseName,
-  isSqlFileDirty,
-  sqlFileTabLabel,
-  sqlOpenDialogOptions,
-  sqlSaveDialogOptions,
-  withSqlExt
+  sqlFileTabLabel
 } from '../../common/sql-file'
-import fs from '../../common/fs'
 import { dbTypeLabelMap } from '../../common/constants'
 import { dialectIdOf } from '../../common/sql-dialects'
 // N11a-#7：危险 SQL 分级（classifySql）与安全带判定（shouldConfirm/markAsked/
@@ -412,10 +408,13 @@ export default auto(function DbSession (props) {
 
   // SQL 编辑器状态（MVP：textarea + Ctrl/Cmd+Enter 执行）
   const [sqlText, setSqlText] = useState('')
-  // H6c：当前编辑器绑定的 .sql 文件。null = 尚未落盘的草稿；
-  // savedText 是上次读写时的原文，脏标记按它原样比较（判断在 common/sql-file）
-  const [sqlFile, setSqlFile] = useState(null)
-  const sqlFileDirty = !!sqlFile && isSqlFileDirty(sqlText, sqlFile.savedText)
+  // ---- #28 SQL 文件读写拆到 use-db-sql-file（行为零变更）----
+  // sqlFile / 脏标记 / 打开 / 保存 整体搬到同目录 hook；sqlText 仍归本文件（属编辑器核心）
+  const { sqlFile, sqlFileDirty, openSqlFile, saveSqlFile } = useDbSqlFile({
+    sqlText,
+    setSqlText
+  })
+
   // U3：编辑器选区字符数（无选区为 0），底部状态栏显示
   const [sqlSelChars, setSqlSelChars] = useState(0)
   // A-7：补全关键字大小写。照 dbPageSize 的先例走客户端 config，
@@ -1860,80 +1859,6 @@ export default auto(function DbSession (props) {
     const formatted = formatSql(sqlText)
     if (formatted) {
       setSqlText(formatted)
-    }
-  }
-
-  // H6c：当前缓冲是否已有"会被打开动作覆盖"的内容。
-  // 绑定文件且没改过 → 覆盖等于重读同一份，不必问；草稿非空或已脏 → 问一声
-  const sqlBufferReplacable = () => (
-    sqlFile ? !sqlFileDirty : !sqlText.trim()
-  )
-
-  const confirmReplaceBuffer = () => new Promise(resolve => {
-    if (sqlBufferReplacable()) {
-      resolve(true)
-      return
-    }
-    Modal.confirm({
-      title: e('dbSqlFileReplaceTitle'),
-      content: e('dbSqlFileReplaceWarn'),
-      okText: e('dbSqlFileReplaceOk'),
-      cancelText: e('cancel'),
-      onOk: () => resolve(true),
-      onCancel: () => resolve(false)
-    })
-  })
-
-  // H6c：打开 .sql。对话框走主进程（preload 的 openDialog 已带上次目录记忆），
-  // 读文件走统一的 ws fs 通道（utf8）
-  const openSqlFile = async () => {
-    if (!(await confirmReplaceBuffer())) {
-      return
-    }
-    let files
-    try {
-      files = await window.api.openDialog(sqlOpenDialogOptions())
-    } catch (err) {
-      message.error(e('dbSqlFileReadErr') + ' ' + (err && err.message ? err.message : err))
-      return
-    }
-    if (!files || !files.length) {
-      return
-    }
-    const filePath = files[0]
-    try {
-      const text = await fs.readFile(filePath)
-      setSqlText(text)
-      setSqlFile({ path: filePath, savedText: text })
-      message.success(e('dbSqlFileOpened').replace('{file}', sqlFileBaseName(filePath)))
-    } catch (err) {
-      message.error(e('dbSqlFileReadErr') + ' ' + (err && err.message ? err.message : err))
-    }
-  }
-
-  // H6c：保存 .sql。没有绑定路径时弹保存对话框；保存成功后 savedText 跟上，
-  // 脏标记自然消失
-  const saveSqlFile = async () => {
-    let filePath = sqlFile && sqlFile.path
-    if (!filePath) {
-      let res
-      try {
-        res = await window.api.saveDialog(sqlSaveDialogOptions(''))
-      } catch (err) {
-        message.error(e('dbSqlFileWriteErr') + ' ' + (err && err.message ? err.message : err))
-        return
-      }
-      if (!res || res.canceled || !res.filePath) {
-        return
-      }
-      filePath = withSqlExt(res.filePath)
-    }
-    try {
-      await fs.writeFile(filePath, sqlText)
-      setSqlFile({ path: filePath, savedText: sqlText })
-      message.success(e('dbSqlFileSaved').replace('{file}', sqlFileBaseName(filePath)))
-    } catch (err) {
-      message.error(e('dbSqlFileWriteErr') + ' ' + (err && err.message ? err.message : err))
     }
   }
 
