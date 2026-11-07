@@ -127,12 +127,16 @@ L2 小计：**约 1280 行**，owner 降到 **约 3600 行**。
 按「收益 / 风险」从小到大：
 
 **第一批（纯派生逻辑，无副作用，风险最低）**
-`#22 use-db-grid-columns` → `#23 use-db-sql-result-columns` → `#24 use-db-tree-data`
+`#22 use-db-grid-columns` ✅ → `#23 use-db-sql-result-columns` ✅ → `#24 use-db-tree-data` ✅
+
+> 编号说明：`#22–#34` 是本方案给簇编的执行序号，`§3 L1/L2 表格`用的是清单序（1–9 / 1–4），
+> 两者**不是一回事**。对应关系：#22=L1-1、#23=L1-2、#24=L1-3、#25=L1-4、#26=L1-5、
+> #27=L1-9（外键引用侧栏，已随第二批一起做完）、#28=L1-6、#29=L1-7、#30=L1-8。
 
 这三块都是 `useMemo` + 纯函数，搬走后 owner 只剩「把返回值传给渲染组件」，出问题也只影响显示不影响数据。
 
 **第二批（有副作用，但契约面小）**
-`#26 use-db-redis-instance` → `#27 use-db-foreign-refs` → `#25 use-db-redis-browse`
+`#26 use-db-redis-instance` ✅ → `#27 use-db-foreign-refs` ✅（= §3 L1 第 9 项）→ `#25 use-db-redis-browse`
 
 Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无交集、无循环依赖，先做它验证手感；`use-db-redis-browse` 涉及 state 与 `useDbRedisKeys` 的双向依赖，放本批最后，做完后 `useDbRedisKeys` 的 33 个注入参数应缩到 5 个以内。
 
