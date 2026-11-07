@@ -286,6 +286,8 @@ async function main () {
   const srv = await startFakeRedis(REDIS_PORT)
   let tabId = ''
   let cdp = null
+  // 分区比例是用户偏好（localStorage）：跑之前记下原值，收尾还原，别把测试偏好留在用户配置里
+  let prevSplit = null
 
   try {
     const targets = await getJson(`http://127.0.0.1:${PORT}/json/list`)
@@ -311,8 +313,9 @@ async function main () {
     check('前置：页大小固定为 20（夹具 64 键 = 4 页）',
       await cdp.eval('window.store._config.dbPageSize') === 20,
       await cdp.eval('window.store._config.dbPageSize'))
-    // 键列表的顶部分区拉高到 85%：20 行全部落在可视区，判据读的是「这一页有几条」
-    // 而不是「虚拟滚动这一帧渲染了几条」（后者会让 20/18/4 这些数字变成环境噪声）
+    // 键列表的顶部分区拉高到 85%：让可视区尽量装下整页，减少「虚拟滚动只渲染了一部分」
+    // 对判据的干扰（精确条数仍以服务端 SCAN 与逻辑行数为准，DOM 只作下界）
+    prevSplit = await cdp.eval("window.localStorage.getItem('electerm-db-redis-split')")
     await cdp.eval("window.localStorage.setItem('electerm-db-redis-split', '85')")
 
     const stub = await preStubState(cdp)
@@ -611,6 +614,20 @@ async function main () {
 
     return finish()
   } finally {
+    try {
+      if (cdp) {
+        // 还原分区比例（null = 原先没有这个键 → 删掉，回到默认 50%）
+        await cdp.eval(`(() => {
+          const v = ${JSON.stringify(prevSplit)}
+          if (v === null) {
+            window.localStorage.removeItem('electerm-db-redis-split')
+          } else {
+            window.localStorage.setItem('electerm-db-redis-split', v)
+          }
+          return 'ok'
+        })()`)
+      }
+    } catch (e) { /* ignore */ }
     try {
       if (cdp && tabId) {
         await cdp.eval(`window.store.delTab(${J(tabId)})`)
