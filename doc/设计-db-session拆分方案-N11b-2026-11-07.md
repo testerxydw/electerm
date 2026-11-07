@@ -171,7 +171,7 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 
 ## 7. 进度记录
 
-基线：**6290 行**（N11a 全部收口后）。当前：**5434 行**（−856，−13.6%）。
+基线：**6290 行**（N11a 全部收口后）。当前：**5226 行**（−1064，−16.9%）。
 
 | 簇 | 目标文件 | owner 行数 | 提交 | 验证 |
 |---|---|---|---|---|
@@ -182,6 +182,9 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 | #9 外键引用侧栏 | `use-db-foreign-refs.js`（99） | 5624 → 5567 | `d46fee30` | 字节等价 68/68；standard 仅 6 条基线（连带清 buildRefItems 死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #25 Redis 键浏览 | `use-db-redis-browse.js`（234） | 5567 → 5466 | `59929b86` | 字节等价 152/152；standard 仅 6 条基线（连带清 2 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #25b 形参收拢 | 改 `use-db-redis-keys.js` 签名 32→5 | 5466 → 5434 | `fd7e6ed6` | standard 零新增；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #28 SQL 文件读写 | `use-db-sql-file.js`（118） | 5434 → 5359 | `4069c05a` | 字节等价 78/78；standard 仅 6 条基线（连带清 5 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #29 连接生命周期 | `use-db-connection.js`（69） | 5359 → 5336 | `f698bb97` | 字节等价 39/39；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #30 视图动作 | 并入 `use-db-view.js`（454→576） | 5336 → 5226 | `4e0468c8` | 字节等价 107/109（余 2 行 viewParts 注入形态）；standard 仅 6 条基线（连带清 4 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 
 ### #22 落地要点（供后续簇复用）
 
@@ -246,3 +249,37 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 - **`useDbRedisWrite` 这次没动**：它 17 个形参里 7 个是 `redisAdd` / `redisEdit` /
   `renameInput` 这类**写状态**，不在 browse 里（属 D 批 T12），硬塞进去会让 browse
   变成「Redis 大杂烩」。留待后续单独一簇。
+
+### 第三批落地要点（#28 / #29 / #30）
+
+- **`sqlText` 不搬是 #28 的关键判断**。`sqlFile` 与编辑器文本看起来是一对，但 `sqlText`
+  全文件几十处在读（补全/执行/导出/历史/收藏），它是编辑器核心状态；`sqlFile` 只是
+  「这份缓冲绑在哪个磁盘文件上」。所以 hook 只拿 `{ sqlText, setSqlText }` 两个形参，
+  不拥有它。判据：**同一对变量，谁被更多职责域消费，谁就留在上层**。
+- **`setSqlFile` 不回流**。#23 的教训是「重置是业务动作，该有名字」；这里是反面 ——
+  owner 侧对 `setSqlFile` 一个写点都没有，回流出去只会变成裸 setter。**没有消费者的
+  东西不进返回对象**，`standard` 也会立刻报 `no-unused-vars`。
+- **#29 对方案做了范围收窄，理由要留在代码里**。原计划带上「挂载建连 effect」，实际它
+  除了建连还要复位视角/草稿/列清单，需要 12 个参数，与 `useDbView` 的入参逐项重叠。
+  硬搬等于造第二份 `useDbView` 的形参表 —— 那是复制不是拆分。收窄为四个建连动作
+  （39 行），effect 留在 owner，并在调用点上方写明分界原因。**收窄必须写在两处：
+  提交信息 + 代码注释**，否则下一个人会以为是漏搬。
+- **#30 没有新开文件，而是并进 `use-db-view.js`**。五个视图动作要的 10 个 ref/setter
+  正是 `useDbView` 已有的形参；新开 `use-db-view-actions.js` 要抄 21 个形参，其中 10 个
+  重复。并进去只新增 `viewMode` / `whereDraft` 两个纯 UI 状态。判据：**拆分的产物是
+  「职责更清楚」，不是「文件更多」；当一个新文件的形参表有一半是另一个 hook 的形参，
+  它该并进去。**
+- **并进已有 hook 时要接受「不再 100% 字节等价」**。`viewParts` 在 owner 侧是注入的
+  wrapper（`(v) => viewParts(v, cols, dialect)`），hook 内必须写成三参调用，与
+  `loadPage` / `loadWithCount` 里既有写法一致。109 行里 2 行因此改写，其余 107 行
+  逐字一致 —— 这种「已知差异」要在提交信息里点明，而不是含糊地说「已校验字节等价」。
+- **脚本切片必须先断言边界**。#29 / #30 的抽取脚本都在切之前 `assertAt()` 校验每一段
+  的起始行内容（`'const onViewApply = () => {'` 这种），一旦上游行号漂移立即中止而不是
+  切错位置。#30 首轮还踩了另一个坑：用 `findIndex(l => l === '  return {')` 找插入点时，
+  命中了模块级纯函数 `viewParts` 内部的 `return {`（缩进同为 2 空格），整块被插进了
+  错误函数 —— 改用带后续注释行的复合锚点后修正。**「找个像样的行」不够，锚点必须有
+  唯一性。**
+- **死导入要按「谁引用谁导入」清**：#28 清 5 个（`isSqlFileDirty` / 三个 dialog 选项 /
+  `withSqlExt` / `fs`）、#29 零个（`clone` 在挂载 effect 里仍在用）、#30 清 4 个
+  （`nextSortOrder` / `parseClause` / `findClauseProblem` / `removeGridView`）。
+  每次清完必须跑全量 —— 这几个都可能被非 db 前缀的 spec 钉着（#24 的 `perf-guard` 就是）。
