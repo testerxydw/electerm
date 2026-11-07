@@ -187,7 +187,7 @@ Redis 实例视图（**实际只搬了 ER 图 + 结构对比**，INFO / 慢日�
 | #25 Redis 键浏览 | `use-db-redis-browse.js`（234） | 5567 → 5466 | `59929b86` | 字节等价 152/152；standard 仅 6 条基线（连带清 2 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #25b 形参收拢 | 改 `use-db-redis-keys.js` 签名 32→5 | 5466 → 5434 | `fd7e6ed6` | standard 零新增；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #28 SQL 文件读写 | `use-db-sql-file.js`（118） | 5434 → 5359 | `4069c05a` | 字节等价 78/78；standard 仅 6 条基线（连带清 5 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
-| #29 连接生命周期 | `use-db-connection.js`（69） | 5359 → 5336 | `f698bb97` | 字节等价 39/39；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
+| #29 连接生命周期 | `use-db-connection.js`（69 → 75，补验证修 bug 加 5 行 + 1 行 `setError('')`） | 5359 → 5336 | `f698bb97` + 修复 `392d7e9b` | 字节等价 39/39；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #30 视图动作 | 并入 `use-db-view.js`（454→576） | 5336 → 5228 | `4e0468c8` | 字节等价 107/109（余 2 行 viewParts 注入形态）；standard 仅 6 条基线（连带清 4 个死导入）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #32 表结构区 | `db-structure-area.jsx`（105） | 5228 → 5179 | `d593eee0` | 字节等价 68/68；standard 仅 6 条基线（连带清死导入 SearchOutlined）；db-* 2199/2199；全量 fail 0；compile RC=0 |
 | #31a SQL 历史面板 | `db-sql-history-panel.jsx`（272） | 5179 → 4982 | `203c7f08` | 字节等价 220/220；standard 仅 6 条基线（连带清 CloseOutlined / SQL_HISTORY_MAX）；db-* 2199/2199；全量 fail 0；compile RC=0；CDP 实机 PASS |
@@ -372,7 +372,7 @@ editFavorite, removeOneFavorite。两个清单**交集只有 `favGroups`**，且
 
 | 脚本 | 桩 | 结果 | 覆盖到的判据 |
 |---|---|---|---|
-| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **36/37**（唯一 FAIL 已修真 bug，见下） | #28 打开/保存/另存/取消/覆盖确认/扩展名补全 + #29 掉线横幅/重连按钮/重试卡片 + 三个弹层开关 |
+| `self-test/n11b-dialog-smoke.js` | 主进程 `--inspect=9229`，CDP 改 `electron.dialog` 返回值 | **37/37**（首轮 36/37，唯一 FAIL 是真 bug；修复后由一个与写脚本无关的成员独立复跑，`stillCard` 1→0） | #28 打开/保存/另存/取消/覆盖确认/扩展名补全 + #29 掉线横幅/重连按钮/重试卡片 + 三个弹层开关 |
 | `self-test/fake-redis.js` + `n11b-redis-smoke.js` | 自写 RESP2 最小服务端（869 行，18 种命令） | **38/38** | Redis 翻页/跳页/越界钳制/树视图/过滤/五种类型详情/INFO/慢日志/批量删键/TTL/SELECT 切库 |
 
 Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回到服务端对账**（`fake-redis`
@@ -385,6 +385,14 @@ Redis 那套的关键点：`UNLINK` 是异步的，脚本删 64 个键后**回�
 的判据。表现是「掉线 → 补好连接 → 点重试 → 连上了，但失败卡片永远不消失，用户只能关页签重开」。
 冒烟里 `{"stillCard":1,"linkAlive":"meta:1"}` 就是这个状态：链路活的、界面死的。
 修法是在成功分支补一句 `setError('')`（`use-db-connection.js:41`）。
+
+**全量回归（修复后）**：`npm run test-unit-ci` → **tests 5093 / pass 5079 / fail 0 / cancelled 14**。
+两条 `not ok` 都是**环境性的**，不是代码问题，判据如下（别把它当成「有过一次失败」草草带过）：
+
+| 用例 | 报错 | 判定 |
+|---|---|---|
+| `mcp-keepalive.spec.js` | `EADDRINUSE 127.0.0.1:30854`（hookFailed，连带 4 条子用例 cancelledByParent） | 端口被占；**单独跑 4/4 PASS**。基线的 10 cancelled 全是下一条，本轮的 14 = 10 + 这 4 条 |
+| `widget-protocol.spec.js` | `EISDIR ... copyfile '<tmp>/node_modules' -> '~/.local/share/Trash/files/node_modules'` | 环境里 `NODE_OPTIONS` 预载了 `node-safe-delete-shim.cjs`，把 `fs.unlinkSync` 重定向成「移入回收站」，对目录必然 EISDIR；与本仓代码无关 |
 
 **这次没覆盖到、且短期也没法用 CDP 覆盖的**：
 
