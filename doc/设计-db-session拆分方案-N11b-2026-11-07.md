@@ -1,7 +1,8 @@
 # db-session.jsx 继续拆分方案（N11b）
 
-> 状态：**分析与方案**（2026-11-07）。N11a 的 §2 队列已全部收口（`db-session.jsx` 9970 → 6290 行）。
-> 本文回答一个问题：**还能不能继续拆、值不值得拆、按什么顺序拆**。
+> 状态：**执行中**（2026-11-07）。N11a 的 §2 队列已全部收口（`db-session.jsx` 9970 → 6290 行）；
+> N11b-#22 已收口（6290 → 6015 行）。
+> 本文回答一个问题：**还能不能继续拆、值不值得拆、按什么顺序拆**。执行进度见 §7。
 
 ---
 
@@ -60,7 +61,7 @@
 
 | # | 簇 | 现状位置 | 行数 | 目标文件 | 契约跟迁 |
 |---|---|---|---|---|---|
-| 1 | 网格列定义（`renderCell` / `colMenu` / `columnWidths` / `colTypeByName` / `colCommentByName` / `orderedColumnNames` / `hiddenColumnSet` / `visibleColumnNames` / `rowColumnNames` / `openDataCellMenu` / `dataWidths` / `colFitAllBtn` / `toggleColumnVisible` / `moveColumn` / `columns`） | 2275–2614 | ~340 | `use-db-grid-columns.js` | 5–8 份 |
+| 1 | ✅ 网格列定义（`renderCell` / `colMenu` / `columnWidths` / `colTypeByName` / `colCommentByName` / `orderedColumnNames` / `hiddenColumnSet` / `visibleColumnNames` / `rowColumnNames` / `openDataCellMenu` / `dataWidths` / `colFitAllBtn` / `toggleColumnVisible` / `moveColumn` / `columns`） | 2275–2614 | 实测 owner −275 / hook 407 | `use-db-grid-columns.jsx` ✅ 已建 | 5 份（已跟迁） |
 | 2 | SQL 结果列定义（`sqlColumnKeys` / `sqlColWidths` / `sqlFitted` / `sqlWidths` / `sqlColTypeMaps` / `sqlResultColumns` / `sqlSortNumeric` / `sqlResultViews` / `sqlCellInfo` / `sqlValuePane` / `sqlPaneShown`） | 2616–2802 | ~187 | `use-db-sql-result-columns.js` | 3–5 份 |
 | 3 | 树数据（`visibleMetadata` / `countTreeNodes` / `treeFilterNodeCount` / `treeTitle` / `treeData`） | 2804–2969 | ~166 | `use-db-tree-data.js` | 2–3 份 |
 | 4 | Redis 键浏览（键列表/键树/选中/详情/TTL：`redisDb` 起 24 个 state 中的浏览类 + `selectRedisKey` / `applyTtl` / `delSelectedKey`） | 620–696 + 2142–2233 | ~230 | `use-db-redis-browse.js` | 3–4 份 |
@@ -161,3 +162,21 @@ Redis 实例视图（INFO / 慢日志 / ER 图 / 结构对比）与浏览类无�
 - 不要为了行数把 24 个 Redis state 塞进一个 hook 再返回 30 个名字。那样 owner 侧会有一大片无人使用的解构，`standard` 报一串 `no-unused-vars`，可读性反而更差。**按子功能分两个 hook，各自内聚。**
 - 不要拆 `dataArea`。40+ props 的组件比 773 行的内联 JSX 更难改。
 - 不要在同一个提交里既搬代码又改行为。行为变更走独立提交。
+
+---
+
+## 7. 进度记录
+
+基线：**6290 行**（N11a 全部收口后）。当前：**6015 行**（−275，−4.4%）。
+
+| 簇 | 目标文件 | owner 行数 | 提交 | 验证 |
+|---|---|---|---|---|
+| #22 网格列定义 | `use-db-grid-columns.jsx`（407） | 6290 → 6015 | `e7a9e4b4` | 字节等价 326/326；standard 仅 6 条基线；db-* 2199/2199；全量 fail 0 / pass 5083 / cancelled 10；compile RC=0 |
+
+### #22 落地要点（供后续簇复用）
+
+- **三段切片**：原 2275–2399（`renderCell` + colMenu）、2415–2420（`rowColumnNames`）、2422–2614（列模型 + `columns` 装配）。中间 2400–2414 是 `useDbExport` 接线，属另一职责，**原地保留**。
+- **后缀必须是 `.jsx`**：`renderCell` 返回 `<span>` / `<Tooltip>`，`vite` 对 `.js` 不启用 JSX 解析，首轮 `compile` 在 `use-db-grid-columns.js:78` 直接报 `Unexpected JSX expression`。纯逻辑 hook 才用 `.js`。
+- **最小化返回值**：只回流 owner 消费的 13 个符号；`columnWidths` / `colCommentByName` / `hiddenColumnSet` / `sortOrderOf` / `openDataCellMenu` / `dataLive` 保持私有，否则 owner 侧会多出 6 条 `no-unused-vars`。
+- **契约正则的隐形锚点**：`db-column-width.spec.js` 的 `colFitAllBtn` 原正则靠「非贪婪扩到后面某个 `  })`」终止，定义迁出后其后已无该锚点 → 改为按函数体自身 `\n  }\n` 收口。迁出 `useMemo`/`useCallback` 大块时先检查 spec 正则的终止锚点是否依赖后续代码。
+- **hooks 顺序守卫**：`db-grid-scroll.spec.js` 的 `markers` 要换钉 owner 侧调用点 `} = useDbGridColumns({`，不能留着旧定义名，否则守卫形同虚设。
