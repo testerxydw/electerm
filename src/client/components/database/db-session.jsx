@@ -1042,7 +1042,7 @@ export default auto(function DbSession (props) {
   // tab 变更后不会重渲染，开关会停留在旧状态。
   const [isReadonly, setIsReadonly] = useState(tab.readOnly !== false)
 
-  // 页码跳转输入（MySQL 网格；redis 为游标模式，不支持任意跳页）
+  // MySQL 网格的页码跳转输入；redis 键列表的跳页值由 db-redis-key-space.jsx 自己持有
   const [jumpPage, setJumpPage] = useState(null)
   // redis 键详情分批渲染：每批 200，换键重置；行内编辑/添加输入随键切换作废
   const [detailLimit, setDetailLimit] = useState(200)

@@ -1,7 +1,7 @@
 // A5 快速连接 URI 解析（设计 §3.2）
 // mysql://user:pass@host:3306/db
 // postgres://...  postgresql://...
-// redis://:pass@host:6379/0   rediss 暂不支持（表单无 ssl 字段）
+// redis://:pass@host:6379/0   rediss 不解析：SCHEME_MAP 未收录该 scheme，TLS 走表单的 dbSsl 字段
 // 密码含特殊字符须 percent-encoding；URI 解析错误一律显式报错，不产生半成品 tab
 
 import { dbDefaultPortMap } from './constants'
