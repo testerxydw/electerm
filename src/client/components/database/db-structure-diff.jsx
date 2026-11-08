@@ -20,6 +20,7 @@ import { Modal, Button, Select, Alert, Spin, Tag, Checkbox } from 'antd'
 import { SwapOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons'
 import { diffTableStructure, diffToMarkdown } from '../../common/db-structure-diff'
 import { diffToDdl, buildScript } from '../../common/db-ddl-generate'
+import { ddlReasonKey } from '../../common/db-ddl-reason'
 import { copy } from '../../common/clipboard'
 import { cleanDbError } from './db-conn-error'
 
@@ -50,20 +51,9 @@ const FIELD_KEY = {
   onUpdate: 'dbStructDiffFieldOnUpdate'
 }
 
-// 不生成语句的原因（生成器的机器码 → 人话）。宁可写明"为什么这条没有勾可选"，
-// 也不要让用户以为功能坏了
-const REASON_KEY = {
-  'type-whitelist': 'dbStructDiffDdlReasonType',
-  'default-expression': 'dbStructDiffDdlReasonDefault',
-  'sqlite-limited': 'dbStructDiffDdlReasonSqlite',
-  'index-changed': 'dbStructDiffDdlReasonIndex',
-  'primary-index': 'dbStructDiffDdlReasonPrimary',
-  'fk-not-generated': 'dbStructDiffDdlReasonFk',
-  'unknown-dialect': 'dbStructDiffDdlReasonDialect',
-  'missing-target-loc': 'dbStructDiffDdlReasonLoc'
-}
-
-const reasonText = reason => e(REASON_KEY[reason] || 'dbStructDiffDdlReasonOther')
+// 不生成语句的原因（生成器的机器码 → 人话）：映射表在 common/db-ddl-reason.js，
+// 与表设计器共用一份。宁可写明"为什么这条没有勾可选"，也不要让用户以为功能坏了
+const reasonText = reason => e(ddlReasonKey(reason))
 
 function fmt (v) {
   if (v === null || v === undefined) {

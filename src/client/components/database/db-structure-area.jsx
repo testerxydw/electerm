@@ -11,6 +11,7 @@ import {
   SearchOutlined,
   NodeIndexOutlined,
   DiffOutlined,
+  BuildOutlined,
   DownloadOutlined
 } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
@@ -27,6 +28,7 @@ export default function DbStructureArea ({
   er,
   openErGraph,
   openStructureDiff,
+  openTableDesign,
   structureV2,
   exportDictionary,
   structColumns,
@@ -73,6 +75,20 @@ export default function DbStructureArea ({
               >
                 {e('dbStructDiff')}
               </Button>
+              {/* N3b：受限表设计器。视图没有可 ALTER 的列与索引，入口只给表 */}
+              {
+                structureV2.type !== 'view'
+                  ? (
+                    <Button
+                      size='small'
+                      icon={<BuildOutlined />}
+                      onClick={openTableDesign}
+                    >
+                      {e('dbDesign')}
+                    </Button>
+                    )
+                  : null
+              }
               <Dropdown
                 trigger='click'
                 disabled={!structureV2.columns.length}

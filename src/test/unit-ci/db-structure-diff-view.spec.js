@@ -22,6 +22,8 @@ const read = p => fs.readFileSync(p, 'utf8')
 const REDIS_INSTANCE = path.join(ROOT, 'src/client/components/database/use-db-redis-instance.js')
 // N11b-#32：结构对比入口按钮（openStructureDiff）随工具行迁到 db-structure-area.jsx
 const STRUCT_AREA = path.join(ROOT, 'src/client/components/database/db-structure-area.jsx')
+// N3b：reason -> 词条的映射从弹层里抽出来共用，钉它仍然覆盖到（别变成没主儿的表）
+const DDL_REASON = path.join(ROOT, 'src/client/common/db-ddl-reason.js')
 const readSession = () => read(SESSION) + '\n' + read(REDIS_INSTANCE) + '\n' + read(STRUCT_AREA)
 
 function blockOf (src, anchor) {
@@ -38,7 +40,7 @@ describe('H4 结构对比：入口与表清单', () => {
     assert.match(s, /e\('dbStructDiff'\)/, '工具条按钮文案缺失')
     assert.match(s, /onClick=\{openStructureDiff\}/, '工具条按钮没接到 openStructureDiff')
     assert.match(s, /<DbStructureDiff[\s\S]{0,500}tables=\{diffTables\}/, '弹层没接表清单')
-    assert.match(s, /<DbStructureDiff[\s\S]{0,500}loadStructure=\{loadDiffStructure\}/, '弹层没接取数通道')
+    assert.match(s, /<DbStructureDiff[\s\S]{0,500}loadStructure=\{loadFreshStructure\}/, '弹层没接取数通道')
     assert.match(s, /!isRedis\s*\?\s*\(\s*<DbStructureDiff/, 'DbStructureDiff 没有 isRedis 守卫')
   })
 
@@ -66,7 +68,7 @@ describe('H4 结构对比：入口与表清单', () => {
 describe('H4 结构对比：取数口径', () => {
   test('两边结构走 getTableStructure + refresh（绕过 60s 缓存）', () => {
     const s = readSession()
-    const fn = blockOf(s, 'const loadDiffStructure = useCallback(target => window.pre.runGlobalAsync(')
+    const fn = blockOf(s, 'const loadFreshStructure = useCallback(target => window.pre.runGlobalAsync(')
     assert.match(fn, /'dbClientOp', tabId, 'getTableStructure'/)
     assert.match(fn, /refresh: true/, '对比必须取当下这一版结构')
     assert.match(fn, /schema: target\.schema \|\| ''/, 'schema 缺省要补空串')
@@ -117,12 +119,15 @@ describe('H4 结构对比：只读边界与报告', () => {
     assert.match(apply, /if \(!script \|\| !onApplySql\)/, '没有内容/没有接线都不动作')
     // 落到编辑器的动作归 db-session：与 AI 共用同一条插入通道，不另写一份
     const s = readSession()
-    assert.match(s, /const applyDiffDdl = \(script\) => \{/, 'db-session 要有落编辑器入口')
-    const fn = blockOf(s, 'const applyDiffDdl = (script) => {')
+    assert.match(s, /const applyGeneratedSql = \(script, close\) => \{/, 'db-session 要有落编辑器入口')
+    const fn = blockOf(s, 'const applyGeneratedSql = (script, close) => {')
     assert.match(fn, /planSqlInsertion\(\{ text: script[\s\S]*strategy: 'cursor' \}\)/,
       '用 cursor 策略追加，不能吞掉用户选区')
     assert.match(fn, /sqlAiTarget\.insertSql\(plan\.text, plan\)/, '写 plan.text（含分隔换行），不是原文')
-    assert.match(s, /onApplySql=\{applyDiffDdl\}/, '回调要接到弹层')
+    // N3b：表设计器与结构对比共用这一个入口（各自传自己的 close）。
+    // 定义 1 处 + 调用 2 处 = 3，少于这个数就说明有人又另起炉灶写了一份落编辑器逻辑
+    assert.equal((s.match(/applyGeneratedSql\b/g) || []).length === 3, true,
+      '插入入口应被两个弹层共用')
     assert.ok(!/dbStructDiffDdlInserted/.test(s), '提示复用 AI 的"已插入未执行"词条，不另造一份')
   })
 
@@ -189,11 +194,16 @@ describe('H4 结构对比：样式与词条', () => {
     // 字段名那批（dbStructDiffField*）走 FIELD_KEY 映射，不经 e() 字面量，单独核对
     const fieldKeys = [...new Set([...view.matchAll(/'(dbStructDiffField[A-Za-z]+)'/g)].map(m => m[1]))]
     assert.ok(fieldKeys.length >= 13, `字段名词条应有 13+ 个，实际 ${fieldKeys.length} 个`)
-    // N3a 的"为什么不生成语句"走 REASON_KEY 映射，同样不经 e() 字面量
-    const ddlKeys = [...new Set([...view.matchAll(/'(dbStructDiffDdl[A-Za-z]+)'/g)].map(m => m[1]))]
+    // N3a 的"为什么不生成语句"走共用映射表，不经 e() 字面量，所以要连模块一起扫
+    const withReason = view + read(DDL_REASON)
+    const ddlKeys = [...new Set([...withReason.matchAll(/'(dbStructDiffDdl[A-Za-z]+)'/g)].map(m => m[1]))]
     assert.ok(ddlKeys.length >= 12, `DDL 词条应有 12+ 个，实际 ${ddlKeys.length} 个`)
-    assert.ok(/REASON_KEY\[reason\] \|\| 'dbStructDiffDdlReasonOther'/.test(view),
+    const reason = read(DDL_REASON)
+    assert.ok(/other: 'dbStructDiffDdlReasonOther'/.test(reason),
       'reason 必须有兜底词条，不能让生成器新增机器码时屏面只剩机器码')
+    assert.ok(/export const ddlReasonKey = reason => DdlReasonKey\[reason\] \|\| DdlReasonKey\.other/.test(reason),
+      '兜底要写在映射函数里，两个弹层才不会各抄一份')
+    assert.ok(/e\(ddlReasonKey\(reason\)\)/.test(view), '弹层要用共用映射出文案')
     assert.ok(keys.length >= 17, `dbStructDiff* 文案词条应有 17+ 个，实际 ${keys.length} 个`)
     const extra = require(LOCALES)
     for (const k of new Set([...keys, ...fieldKeys, ...ddlKeys])) {

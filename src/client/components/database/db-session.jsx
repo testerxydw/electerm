@@ -19,6 +19,8 @@ import DbRedisInfoModal from './db-redis-info'
 // H3b-3：ER 图（结构页工具条 → 全屏弹层；只读）
 import DbErView from './db-er-view'
 import DbStructureDiff from './db-structure-diff'
+// N3b：受限表设计器（列 / 索引 / 表注释 → 候选 DDL，只落编辑器不执行）
+import DbTableDesign from './db-table-design'
 // H6a：命名参数（:name）填写面板。值以参数绑定发送，不拼进 SQL
 import DbSqlParamsModal from './db-sql-params-modal'
 import { ColHead, DbColMenu, useColWidths } from './db-col-resize'
@@ -594,9 +596,12 @@ export default auto(function DbSession (props) {
     openErGraph,
     closeErGraph,
     structDiff,
-    loadDiffStructure,
+    structDesign,
+    loadFreshStructure,
     openStructureDiff,
-    closeStructureDiff
+    closeStructureDiff,
+    openTableDesign,
+    closeTableDesign
   } = useDbRedisInstance({ tabId, sel })
 
   // D 批：EXPLAIN 弹窗（对当前选区/整段语句做只读计划分析）
@@ -1565,15 +1570,16 @@ export default auto(function DbSession (props) {
     message.success(plan.willReplaceAll ? e('dbAiInsertedAll') : e('dbAiInserted'))
   }
 
-  // N3a：结构对比勾选后生成的候选 DDL 走同一条插入通道（不另写一份落编辑器逻辑）。
-  // 策略固定 'cursor'：对比弹层打开期间用户可能动过选区，替换选区会把用户正在写的
-  // 半句话吞掉；执行仍由用户按运行触发、过 confirmSqlRisk。
-  const applyDiffDdl = (script) => {
+  // N3a + N3b：结构对比与表设计器勾选出来的候选 DDL 共用这一个落编辑器入口
+  // （连"插入但未执行"的提示也只有一份），两个弹层各写一遍迟早会漂。
+  // 策略固定 'cursor'：弹层打开期间用户可能动过选区，替换选区会把正在写的半句吞掉；
+  // 执行仍由用户按运行触发、过 confirmSqlRisk。关掉哪个弹层由调用方把 close 传进来。
+  const applyGeneratedSql = (script, close) => {
     const editor = sqlEditorRef.current
     const doc = editor ? editor.getValue() : sqlText
     const plan = planSqlInsertion({ text: script, currentText: doc, strategy: 'cursor' })
     sqlAiTarget.insertSql(plan.text, plan)
-    closeStructureDiff()
+    close()
     message.success(e('dbAiInserted'))
   }
 
@@ -4016,6 +4022,7 @@ export default auto(function DbSession (props) {
       er={er}
       openErGraph={openErGraph}
       openStructureDiff={openStructureDiff}
+      openTableDesign={openTableDesign}
       structureV2={structureV2}
       exportDictionary={exportDictionary}
       structColumns={structColumns}
@@ -4617,9 +4624,24 @@ export default auto(function DbSession (props) {
               base={structDiff.base}
               tables={diffTables}
               dialect={dialect}
-              loadStructure={loadDiffStructure}
-              onApplySql={applyDiffDdl}
+              loadStructure={loadFreshStructure}
+              onApplySql={s => applyGeneratedSql(s, closeStructureDiff)}
               onClose={closeStructureDiff}
+            />
+            )
+          : null
+      }
+      {/* N3b：受限表设计器。只生成语句，执行仍归用户按运行 */}
+      {
+        !isRedis
+          ? (
+            <DbTableDesign
+              open={structDesign.open}
+              loc={structDesign.loc}
+              dialect={dialect}
+              loadStructure={loadFreshStructure}
+              onApplySql={s => applyGeneratedSql(s, closeTableDesign)}
+              onClose={closeTableDesign}
             />
             )
           : null

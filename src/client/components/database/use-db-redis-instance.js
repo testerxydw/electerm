@@ -4,7 +4,9 @@
 // 打开时按当前库/schema 拉一次，关掉就作废在途请求：
 //   ER 图      er / erTokenRef / loadErGraph / openErGraph / closeErGraph
 //              取数走 listForeignKeys（MySQL information_schema / PG pg_constraint）
-//   结构对比   structDiff / loadDiffStructure / openStructureDiff / closeStructureDiff
+//   结构对比   structDiff / openStructureDiff / closeStructureDiff
+//   表设计器   structDesign / openTableDesign / closeTableDesign   （N3b，同一张表）
+//              两个弹层的取数共用 loadFreshStructure（都是 getTableStructure + refresh）
 //              取数走 getTableStructure + refresh:true（跳过 60s 结构缓存，否则刚
 //              ALTER 过的表会拿旧结构对比，得出看不出来的错误结论）
 //
@@ -30,6 +32,8 @@ export function useDbRedisInstance ({ tabId, sel }) {
   // H4：结构对比。两张表的选择、取数与差异状态都在弹层里；这里只提供表清单、
   // 取数通道和"从哪张表开始比"
   const [structDiff, setStructDiff] = useState({ open: false, base: null })
+  // N3b：表设计器。这里只记"在给哪张表做设计"，草稿、预览、勾选全在弹层内部
+  const [structDesign, setStructDesign] = useState({ open: false, loc: null })
 
   // H3b-3：ER 图取数。只发 listForeignKeys（MySQL 走 information_schema，
   // PG 走 pg_constraint），范围是当前库/schema —— 图里的表与本页选中的表无关，
@@ -73,9 +77,10 @@ export function useDbRedisInstance ({ tabId, sel }) {
     setEr({ open: false, loading: false, error: '', graph: null })
   }
 
-  // H4：结构对比取数。refresh 让主进程跳过结构缓存 —— 刚 ALTER 过的表在 60s
-  // TTL 内还会返回旧结构，拿它对比会得出看不出来的错误结论
-  const loadDiffStructure = useCallback(target => window.pre.runGlobalAsync(
+  // H4 / N3b：结构对比与表设计器共用的取数。refresh 让主进程跳过结构缓存 ——
+  // 刚 ALTER 过的表在 60s TTL 内还会返回旧结构，拿它当基准会得出看不出来的错误结论
+  // （设计器尤其吃这一条：基准错了，生成的 ALTER 就是照着旧表写的）
+  const loadFreshStructure = useCallback(target => window.pre.runGlobalAsync(
     'dbClientOp', tabId, 'getTableStructure', {
       database: target.database,
       schema: target.schema || '',
@@ -94,14 +99,28 @@ export function useDbRedisInstance ({ tabId, sel }) {
   const closeStructureDiff = () => {
     setStructDiff({ open: false, base: null })
   }
+
+  const openTableDesign = () => {
+    setStructDesign({
+      open: true,
+      loc: sel ? { database: sel.database, schema: sel.schema || '', table: sel.table } : null
+    })
+  }
+
+  const closeTableDesign = () => {
+    setStructDesign({ open: false, loc: null })
+  }
   return {
     er,
     loadErGraph,
     openErGraph,
     closeErGraph,
     structDiff,
-    loadDiffStructure,
+    structDesign,
+    loadFreshStructure,
     openStructureDiff,
-    closeStructureDiff
+    closeStructureDiff,
+    openTableDesign,
+    closeTableDesign
   }
 }

@@ -218,7 +218,10 @@ export const dialectMap = {
       // 元数据树深度：2=schema.table / 1=仅 database.table
       treeDepth: 2,
       // 可否暂存编辑（N2 变更集：改格不落库，统一提交）
-      editableStaging: true
+      editableStaging: true,
+      // 逐列/逐索引 ALTER 能否安全回写（N3b 表设计器入口）。MySQL 的 ALTER TABLE
+      // 什么都能改，PG 分动作改，SQLite 只有四形（删列/改类型要重建整表）→ 只读预览。
+      alterDdl: true
     },
     // 族间类型改写（N8）：从另一家族读到某类型时，映射到本方言的口径。
     // 场景：结构对比 / 跨引擎 DDL 时，PG 的 UUID ↔ MySQL 的 CHAR(36) 这类翻译。
@@ -261,7 +264,9 @@ export const dialectMap = {
       // PG 主进程走 LIMIT 分块（pgAdmin 的 cursor 手法未采用）
       serverCursor: false,
       treeDepth: 2,
-      editableStaging: true
+      editableStaging: true,
+      // 见 mysql 条：逐列 ALTER 分动作发，形状齐全
+      alterDdl: true
     },
     typeRewrite: {
       // 反方向：PG 视角的通用类型已属本族，一般不改写；保留空映射以示对称
@@ -303,7 +308,10 @@ export const dialectMap = {
       serverCursor: false,
       // SQLite 元数据树只有 database → table（无 schema 层）
       treeDepth: 1,
-      editableStaging: true
+      editableStaging: true,
+      // ALTER 只有 ADD/RENAME/DROP COLUMN 与 RENAME TO 四形：改类型/注释得重建整表
+      // 搬数据，盲生成的风险不对等 → 设计器整体只读预览（与 db-ddl-generate 同口径）
+      alterDdl: false
     },
     // SQLite 类型改写：PG 视角类型落到本族后的存储/展示口径
     typeRewrite: {
@@ -431,7 +439,8 @@ export function getCapabilities (dbType) {
     serverCursor: false,
     // treeDepth 是数字（元数据树层数），缺省 0 = 无树；与其它布尔位不同
     treeDepth: 0,
-    editableStaging: false
+    editableStaging: false,
+    alterDdl: false
   }
 }
 

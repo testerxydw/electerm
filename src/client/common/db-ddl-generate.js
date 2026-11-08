@@ -10,8 +10,9 @@
  *   由用户按运行触发、过 E1 危险分级 + 生产确认。
  * - **首版只放类型白名单**：列类型变更落在白名单外时只报差异、不给语句
  *   （supported=false）。类型映射不全会生成错 DDL，宁可少给。
- * - **SQLite 本轮不覆盖**：它的 ALTER 只有四形，删列/改类型要重建整表
- *   （SQLiteStudio 手法），盲生成的风险不对等 → 一律只读预览。
+ * - **逐列回写按能力位放行**：`alterDdl` 没声明成 true 的方言一律只读预览。
+ *   SQLite 是这里的主要用户（它的 ALTER 只有四形，删列/改类型要重建整表搬数据，
+ *   盲生成的风险不对等），但判定看声明而不是认引擎名。
  *
  * 方向固定：A(base) 是基准、B(target) 是对比。生成的语句**作用在 A 表上**，把 A
  * 对齐成 B；表名取 A 的定位 —— 改哪张表由用户的选择决定，不能写成 B 的名字。
@@ -20,7 +21,7 @@
  * ALTER TABLE），所以 entryToDdl 返回 sqls 数组；勾选以"差异条目"为单位，
  * 勾 1 条得它的全部语句。
  */
-import { getDialect } from './sql-dialects.js'
+import { getDialect, capabilityOf } from './sql-dialects.js'
 import { normalizeType, normalizeDefault } from './db-structure-diff.js'
 
 // 首版放行的基类型白名单（normalizeType 归一、去括号、小写后比对）。
@@ -35,6 +36,9 @@ const COLUMN_TYPE_WHITELIST = new Set([
   'json', 'jsonb',
   'uuid'
 ])
+
+// 统一的"这条差异只报不给语句"形状：reason 是机器码，界面按码出文案
+const unsupported = reason => ({ sqls: [], supported: false, reason })
 
 const strLit = v => "'" + String(v).replace(/'/g, "''") + "'"
 
@@ -196,28 +200,28 @@ function pgAddIndex (tbl, ix) {
  * @param {object} baseLoc 基准表定位 { database, schema, table }
  * @returns {{sqls: string[], supported: boolean, reason: string}}
  *   supported=false 表示"只报差异不给语句"，reason 说明原因（type-whitelist /
- *   sqlite-limited / missing-target-loc / index-changed / fk-not-generated …）。
+ *   alter-unsupported / missing-target-loc / index-changed / fk-not-generated …）。
  *   sqls 为空时 supported 必为 false。
  */
 export function entryToDdl (entry, dialect, baseLoc) {
-  const empty = reason => ({ sqls: [], supported: false, reason })
   const kind = entry && entry.kind
   if (!entry || !kind) {
-    return empty('no-entry')
+    return unsupported('no-entry')
   }
   if (entry.status === 'equal') {
-    return empty('equal')
-  }
-  // SQLite ALTER 限制：本轮只读预览，不生成
-  if (String(dialect).toLowerCase() === 'sqlite') {
-    return empty('sqlite-limited')
+    return unsupported('equal')
   }
   const d = getDialect(dialect)
   if (!d) {
-    return empty('unknown-dialect')
+    return unsupported('unknown-dialect')
+  }
+  // 能力位闸而不是引擎名闸：新方言只要在 dialectMap 里声明 alterDdl 就能进来，
+  // 不用回来加 if；没声明的一律只读预览（保守降级）。
+  if (!capabilityOf(d.id, 'alterDdl')) {
+    return unsupported('alter-unsupported')
   }
   if (!baseLoc || !baseLoc.table) {
-    return empty('missing-target-loc')
+    return unsupported('missing-target-loc')
   }
   const isPg = d.id === 'postgres'
   const tbl = tableRef(baseLoc, d.id)
@@ -243,12 +247,12 @@ export function entryToDdl (entry, dialect, baseLoc) {
     if (entry.status === 'added') {
       const blocked = guardColumn(entry.target, null)
       if (blocked) {
-        return empty(blocked)
+        return unsupported(blocked)
       }
       const sqls = isPg
         ? pgAddColumn(tbl, name, entry.target)
         : mysqlAddColumn(tbl, name, entry.target)
-      return sqls.length ? { sqls, supported: true, reason: '' } : empty('nothing-to-generate')
+      return sqls.length ? { sqls, supported: true, reason: '' } : unsupported('nothing-to-generate')
     }
     if (entry.status === 'removed') {
       return { sqls: ['ALTER TABLE ' + tbl + ' DROP COLUMN ' + name], supported: true, reason: '' }
@@ -256,32 +260,37 @@ export function entryToDdl (entry, dialect, baseLoc) {
     // changed：MySQL 的 MODIFY 是全定义重写（碰类型也碰默认），PG 按变化字段逐条发
     const blocked = guardColumn(entry.target, isPg ? changedKeys(entry) : null)
     if (blocked) {
-      return empty(blocked)
+      return unsupported(blocked)
     }
     const sqls = isPg
       ? pgColumnChange(entry, tbl, name)
       : mysqlColumnChange(entry, tbl, name)
-    return sqls.length ? { sqls, supported: true, reason: '' } : empty('nothing-to-generate')
+    return sqls.length ? { sqls, supported: true, reason: '' } : unsupported('nothing-to-generate')
   }
 
   if (kind === 'index') {
     if (entry.status === 'changed') {
       // 列序/唯一性变更难以安全表达（PG 的 CREATE INDEX 不能原地改），只报差异
-      return empty('index-changed')
+      return unsupported('index-changed')
     }
     if (entry.status === 'added') {
       const ix = entry.target
       if (ix.primary) {
         // 主键变更涉及既有数据唯一性，不给盲生成语句
-        return empty('primary-index')
+        return unsupported('primary-index')
       }
       if (!Array.isArray(ix.columns) || !ix.columns.length) {
-        return empty('index-no-columns')
+        return unsupported('index-no-columns')
       }
       const sqls = isPg ? pgAddIndex(tbl, ix) : mysqlAddIndex(tbl, ix)
       return { sqls, supported: true, reason: '' }
     }
-    // removed：索引名即条目名（MySQL 从表上删，PG 的索引是独立对象、不带表名）
+    // removed：索引名即条目名（MySQL 从表上删，PG 的索引是独立对象、不带表名）。
+    // 主键不给删：MySQL 的 DROP INDEX 碰 PRIMARY 直接报错，PG 的主键是约束不是索引，
+    // 真删掉等于摘走整张表的唯一性标识 —— 只报差异。
+    if (entry.base && entry.base.primary) {
+      return unsupported('primary-index')
+    }
     return {
       sqls: [isPg ? 'DROP INDEX IF EXISTS ' + name : 'ALTER TABLE ' + tbl + ' DROP INDEX ' + name],
       supported: true,
@@ -291,10 +300,10 @@ export function entryToDdl (entry, dialect, baseLoc) {
 
   if (kind === 'foreignKey') {
     // 外键变更：本轮不生成（级联动作/引用列差异盲生成风险高），只报差异
-    return empty('fk-not-generated')
+    return unsupported('fk-not-generated')
   }
 
-  return empty('unknown-kind')
+  return unsupported('unknown-kind')
 }
 
 /**
@@ -319,6 +328,54 @@ export function diffToDdl (diff, dialect, baseLoc) {
       entry,
       ...entryToDdl(entry, dialect, baseLoc)
     }))
+}
+
+// 表注释：MySQL 有内联 COMMENT（清空写 ''），PG 没有内联形态、只能 COMMENT ON（清空写 NULL）
+function tableCommentSql (tbl, comment, isPg) {
+  if (isPg) {
+    return ['COMMENT ON TABLE ' + tbl + ' IS ' + (comment ? strLit(comment) : 'NULL')]
+  }
+  return ['ALTER TABLE ' + tbl + ' COMMENT ' + (comment ? strLit(comment) : "''")]
+}
+
+/**
+ * 表注释变更 → 候选语句（N3b 表设计器用）。
+ *
+ * 为什么不并进 diffToDdl：db-structure-diff 只比列/索引/外键三段，表注释是个标量，
+ * 塞进那套按名字配对的机器里只会让它多一个特例。这里单独出一条、返回和 entryToDdl
+ * 同形状的结果，调用方拼进同一份勾选列表即可 —— 拼串仍然只在本模块，设计器不碰方言。
+ *
+ * @param {string} draftComment 草稿里的表注释
+ * @param {string} currentComment 当前库里的表注释
+ * @param {string} dialect 引擎名（mysql / postgres / …）
+ * @param {object} baseLoc 表定位 { database, schema, table }，语句作用在它上面
+ * @returns {{sqls: string[], supported: boolean, reason: string}}
+ *   两边注释相同（含都为空）时 reason='equal'、supported=false，调用方不入列表。
+ */
+export function tableCommentDdl (draftComment, currentComment, dialect, baseLoc) {
+  // 空注释与无注释同一个意思，首尾空白也不算改过：否则设计器只是焦点进出一次输入框，
+  // 预览里就冒出一条假变更
+  const norm = v => String(v === null || v === undefined ? '' : v).trim()
+  const next = norm(draftComment)
+  if (next === norm(currentComment)) {
+    return unsupported('equal')
+  }
+  // 三道闸与 entryToDdl 同序：认不出的方言、没能力的方言、不知道改哪张表
+  const d = getDialect(dialect)
+  if (!d) {
+    return unsupported('unknown-dialect')
+  }
+  if (!capabilityOf(d.id, 'alterDdl')) {
+    return unsupported('alter-unsupported')
+  }
+  if (!baseLoc || !baseLoc.table) {
+    return unsupported('missing-target-loc')
+  }
+  return {
+    sqls: tableCommentSql(tableRef(baseLoc, d.id), next, d.id === 'postgres'),
+    supported: true,
+    reason: ''
+  }
 }
 
 /**

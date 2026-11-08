@@ -306,7 +306,8 @@ describe('SQLite 与非法输入：宁可不出语句', () => {
     const items = itemsOf(a, b, 'sqlite')
     assert.equal(items.length > 0, true)
     assert.equal(items.every(i => i.supported === false), true)
-    assert.equal(items.every(i => i.reason === 'sqlite-limited'), true)
+    // 拦它的是一张能力位（alterDdl=false），不是"认得这是 SQLite"这个名字
+    assert.equal(items.every(i => i.reason === 'alter-unsupported'), true)
     assert.equal(G.buildScript(items, ids(items)), '')
   })
 

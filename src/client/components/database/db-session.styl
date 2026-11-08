@@ -843,6 +843,114 @@
   white-space pre
   color var(--text)
 
+// N3b：受限表设计器。列/索引两块各一行一控件，宽度只在这里定死一次 ——
+// 表头行与数据行共用同一组 is-* 修饰类，改一格宽度不会让两行错位
+.db-table-design-modal
+  .ant-modal-body
+    max-height calc(100vh - 300px)
+    overflow auto
+.db-design
+  display flex
+  flex-direction column
+  gap 10px
+.db-design-alert
+  margin 0
+.db-design-hint
+  font-size 12px
+  color var(--text-muted)
+.db-design-comment
+  display flex
+  align-items center
+  gap 8px
+.db-design-label
+  flex none
+  font-size 12px
+  color var(--text-muted)
+.db-design-block
+  padding 8px
+  border 1px solid var(--border)
+  border-radius var(--radius-sm)
+  background var(--main)
+.db-design-block-head
+  display flex
+  align-items center
+  justify-content space-between
+  gap 8px
+  margin-bottom 6px
+.db-design-block-title
+  font-size 12px
+  font-weight 600
+  color var(--text)
+.db-design-row
+  display flex
+  align-items center
+  gap 6px
+  & + &
+    margin-top 4px
+.db-design-head
+  color var(--text-muted)
+  font-size 12px
+  & .db-design-cell
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
+.db-design-cell
+  min-width 0
+  &.is-name
+    flex none
+    width 168px
+  &.is-type
+    flex none
+    width 150px
+  &.is-bool
+    flex none
+    width 78px
+    text-align center
+  &.is-default
+    flex none
+    width 138px
+  &.is-comment
+    flex 1 1 auto
+  &.is-cols
+    flex 1 1 auto
+  &.is-del
+    flex none
+    width 40px
+    text-align center
+  &.is-pk
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
+.db-design-fks
+  font-size 12px
+  color var(--text-muted)
+.db-design-fk-line
+  font-family var(--db-code-font, var(--font-mono))
+  word-break break-all
+.db-design-change
+  display flex
+  align-items flex-start
+  gap 8px
+  padding 4px 0
+  & + &
+    border-top 1px solid var(--border)
+.db-design-change-main
+  flex 1 1 auto
+  min-width 0
+.db-design-change-name
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  color var(--text)
+  word-break break-all
+.db-design-sql
+  font-family var(--db-code-font, var(--font-mono))
+  font-size 12px
+  color var(--text)
+  word-break break-all
+.db-design-reason
+  font-size 12px
+  color var(--warn)
+
 // AI 第一批：生成/修复/优化弹层 + 错误条动作
 .db-sql-ai
   display flex
