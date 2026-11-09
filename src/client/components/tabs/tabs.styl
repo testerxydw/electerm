@@ -56,7 +56,7 @@
   // 滚动范围一帧偏差, 由 measureWrapWidth 校准自愈
   white-space nowrap
 .tab
-  // 对齐草图 .tab：flex 行内布局（状态圆点 → 标题 → 关闭）
+  // flex 行内布局（编号徽标 → 标题 → 关闭）；状态点绝对定位左上角，不占行内宽度
   display inline-flex
   align-items center
   justify-content center
@@ -140,22 +140,6 @@
   &.processing
     background-color var(--primary)
 
-// 对齐草图 .tab .dot：状态圆点为 7px 圆点 + 光晕，位于标题之前（flex 行内，覆盖上面的 absolute 定位）
-.tab-status
-  position static
-  flex none
-  width 7px
-  height 7px
-  border-radius 50%
-  &.success
-    background-color var(--success)
-    box-shadow 0 0 6px unquote('color-mix(in srgb, var(--success) 60%, transparent)')
-  &.error
-    background-color var(--error)
-    box-shadow 0 0 6px unquote('color-mix(in srgb, var(--error) 60%, transparent)')
-  &.processing
-    background-color var(--primary)
-    box-shadow 0 0 6px unquote('color-mix(in srgb, var(--primary) 60%, transparent)')
 .tab-traffic
   left 10px
   width 5px

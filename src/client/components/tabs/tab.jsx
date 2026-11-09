@@ -771,7 +771,7 @@ class Tab extends Component {
             'onDragEnd'
           ])}
         >
-          {/* 状态圆点置于标题前（对齐重设计草图 .tab .dot） */}
+          {/* 状态点绝对定位左上角（对齐上游 .tab-status），不占行内宽度 */}
           <div className={'tab-status ' + status} />
           <Dropdown {...dropdownProps}>
             <div
@@ -795,7 +795,7 @@ class Tab extends Component {
                     )
                   : null}
                 {tab.isPinned && <PushpinFilled className='tab-pin' />}
-                {(tab.color || tab.icon) && <span className='mg1r'>{createTitleTag(tab)}</span>}
+                {tab.icon && <span className='mg1r'>{createTitleTag(tab)}</span>}
                 {isDbSession(tab) && <DbEngineMark dbType={tab.dbType} />}
                 {
                   runningQm && (
