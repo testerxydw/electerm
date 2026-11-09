@@ -546,9 +546,12 @@ async function main () {
         sent
       })
       samples.push({
-        t: s * 5, heapMB: snap.heapMB,
+        t: s * 5,
+        heapMB: snap.heapMB,
         domRows: st ? st.domRows : -1,
-        dsLen: ds ? ds.len : 0, dsLast: ds ? ds.last : 0, sent
+        dsLen: ds ? ds.len : 0,
+        dsLast: ds ? ds.last : 0,
+        sent
       })
       await cdp.shot(path.join(SHOT_DIR, 'S3-profiler-' + (s * 5) + 's.png'))
     }
@@ -562,7 +565,8 @@ async function main () {
       ? await cdp.eval(`window.pre.runGlobalAsync('dbClientOp', ${J(tabId)}, 'getRedisProfilerData', { handleId: ${uiHandle}, lastSeq: -1 })`)
       : null
     console.log('UI PULL DIAG:', JSON.stringify({
-      dsEnd, stEnd,
+      dsEnd,
+      stEnd,
       uiRows: uiPull && (uiPull.rows || []).length,
       uiLast: uiPull && uiPull.rows && uiPull.rows[uiPull.rows.length - 1]
     }))
