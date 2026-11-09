@@ -4,12 +4,18 @@
 // ResizeObserver 挂载时创建一次；数据/加载态变化时补测一次。
 // 测量未就绪时不传 y，保持原有的外层容器滚动行为（优雅降级）
 //
+// 弹层（Modal）等"外层容器没有确定高度"的场景传 height 给 wrap 定高：
+// ResizeObserver 量到确定高度后走的是同一条 y 推导 → 表体内部滚动 / 表头吸顶 /
+// virtual，弹层不必另写 scroll.y 或 virtual（SSOT：滚动能力只此一处）。
+//
 // N11a 提取：原函数位于 db-session.jsx（顶层、零 DbSession 闭包依赖），按单一职责迁出为独立组件。
 import React, { useRef, useState, useEffect } from 'react'
 import { Table } from 'antd'
 
 export default function DbGridTable (props) {
-  const { className = '', style, ...rest } = props
+  // height：弹层场景给 wrap 一个确定高度（数字 px 或字符串），普通页面不传，
+  // 仍由 flex 定高容器 + ResizeObserver 实测。两条路径共用下面同一套 y 推导。
+  const { className = '', style, height, ...rest } = props
   const wrapRef = useRef(null)
   const measureRef = useRef(() => {})
   const [wrapH, setWrapH] = useState(0)
@@ -73,7 +79,7 @@ export default function DbGridTable (props) {
   }, [rest.dataSource, rest.loading])
   const y = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0
   return (
-    <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={style}>
+    <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={height != null ? { ...style, height } : style}>
       <Table
         {...rest}
         className='db-grid-table'

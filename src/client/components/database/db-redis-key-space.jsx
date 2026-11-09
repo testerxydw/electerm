@@ -18,7 +18,7 @@
  * 详情渲染走 renderDetail() 回调；JSX 与原内联块逐字等价（仅此一处差异）。
  */
 import React, { useState, useEffect, useRef } from 'react'
-import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Table, Alert, Space } from 'antd'
+import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Alert, Space } from 'antd'
 import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCircleOutlined, PauseCircleOutlined, CopyOutlined } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
@@ -491,19 +491,19 @@ export function DbRedisKeySpace ({
                     {bigKeyModal.truncated ? ` · ${e('dbRedisBigKeysTruncated')}` : ''}
                     {bigKeyModal.cancelled ? ` · ${e('dbRedisBigKeysCancelled')}` : ''}
                   </div>
-                  <Table
+                  {/* 统一滚动通道：弹层表格区定高，表头吸顶 / 表体内部滚 / virtual
+                      全由 DbGridTable 承担，弹层不再手写 scroll.y */}
+                  <DbGridTable
+                    height={460}
                     size='small'
                     pagination={false}
                     rowKey='name'
                     columns={[
-                      // scroll.y 让表头独立钉住、行在内部滚 —— 弹层正文不能整体滚动
-                      // （整体滚动会把表头滚走，全局约定：弹层滚动必须固定表头/标题栏）
                       { title: e('dbRedisBigKeysColName'), dataIndex: 'name', width: 420, ellipsis: true, copyable: true },
                       { title: e('dbRedisBigKeysColType'), dataIndex: 'type', width: 100 },
                       { title: e('dbRedisBigKeysColSize'), dataIndex: 'size', width: 140, render: v => Number(v).toLocaleString() }
                     ]}
                     dataSource={bigKeyModal.rows}
-                    scroll={{ y: 420 }}
                     onRow={r => ({ onClick: () => { selectRedisKey(r.name); closeBigKeyModal() } })}
                   />
                 </>
@@ -550,12 +550,12 @@ export function DbRedisKeySpace ({
           />
         </Space>
         {profiler.error && <div className='db-redis-profiler-error'>{profiler.error}</div>}
-        {/* virtual：MONITOR 高频流不设虚拟滚动会把可视外几万行也塞进 DOM
-            （CDP 实机实测 20s 就 17 万节点）；列宽固定以满足 virtual 前提 */}
+        {/* 统一滚动通道：MONITOR 高频流的定高 / 表头吸顶 / virtual 全由 DbGridTable
+            承担（不虚拟化 20s 就 17 万节点，CDP 实机实测）；列宽固定以满足 virtual 前提 */}
         {profiler.running
-          ? <Table
+          ? <DbGridTable
+              height={400}
               size='small'
-              virtual
               pagination={false}
               rowKey='id'
               columns={[
@@ -563,12 +563,11 @@ export function DbRedisKeySpace ({
                 { title: e('dbRedisProfilerFilter'), dataIndex: 'text', width: 560, ellipsis: true }
               ]}
               dataSource={profiler.rows}
-              scroll={{ x: 620, y: 360 }}
             />
           : profiler.rows.length
-            ? <Table
+            ? <DbGridTable
+                height={400}
                 size='small'
-                virtual
                 pagination={false}
                 rowKey='id'
                 columns={[
@@ -576,7 +575,6 @@ export function DbRedisKeySpace ({
                   { title: e('dbRedisProfilerFilter'), dataIndex: 'text', width: 560, ellipsis: true }
                 ]}
                 dataSource={profiler.rows}
-                scroll={{ x: 620, y: 360 }}
               />
             : <Empty description={e('dbRedisProfilerEmpty')} />}
       </Modal>

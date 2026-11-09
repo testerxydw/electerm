@@ -1,0 +1,98 @@
+// ---------------------------------------------------------------------------
+// 弹层滚动通道 · 唯一真源（SSOT）
+//
+// 契约（用户硬指标 ①）：所有 Modal（自定义 components/common/modal + antd Modal）
+// 与所有滚动容器，滚动条只出现在「弹框/容器内部」；标题栏 / 表头 / Tab 栏 /
+// footer 常驻；内容不溢出弹框边框；无全屏滚动条、无双滚动条。
+// 本文件是「弹层怎么滚」的唯一真源：组件级样式不得再写 content 限高、
+// body 的 overflow / flex 链，将来改滚动只改这里（AGENTS.md §5.2.2）。
+//
+// 为什么必须集中修（真实缺陷）：
+//   - 自定义 Modal 的 .custom-modal-wrap 原本 overflow auto（modal.styl），
+//     由最外层 fixed 包裹层承担滚动 → 滚动条贴在视口边缘（弹框外），
+//     header/footer 一起被滚走。DOM：wrap > mask(fixed) + container
+//     (min-height 100%, padding 24px, align-items flex-start) > content
+//     (margin-top 50px) > header + body + footer（modal.jsx:101-128）。
+//   - antd Modal 默认 .ant-modal-wrap{position:fixed;overflow:auto}，
+//     .ant-modal-container / .ant-modal-body 默认无限高、无 overflow
+//     （node_modules/antd/es/modal/style/index.js:46-51 / :122 / :180）；
+//     DOM 由 @rc-component/dialog/es/Dialog/Content/Panel.js:59-110 生成：
+//     container > [close, header, body, footer]。27+ 处直接用 antd Modal。
+//   - antd 样式是运行时 CSS-in-JS 注入，晚于本仓静态 style-*.css 产物。
+//     上一轮 .db-sticky-thead 的 position sticky 被
+//     .ant-table-wrapper .ant-table-thead>tr>th{position:relative} 压过，
+//     最后靠 !important 才生效。因此下面每条对 antd 选择器的覆盖都带
+//     !important，否则「CSS 写了但运行时不生效」。
+//
+// 限高推导（数值来自上面真实源码，改 antd 版本须重新核对）：
+//   [自定义 Modal] wrap = fixed inset 0 → container 上下 padding 24px*2，
+//     content margin-top 50px。content 底部不越过视口需要：
+//       max-height = 100vh - 24*2 - 50 = calc(100vh - 98px)
+//   [antd Modal]   .ant-modal{position:relative; top:100px; margin:0 auto}
+//     （index.js:105-109）是相对定位的视觉位移，不占布局高度；wrap 改 hidden
+//     后 container 底部位置 = 100px + container 高度。留 48px 安全边距：
+//       max-height = 100vh - 100px - 48px = calc(100vh - 148px)
+//     centered 变体把 top 归 0（index.js:80 + margin 8px auto :90），
+//     该限高只会更保守，不溢出。
+//   [移动端]       mobile.styl:137-144 把 content 铺成 min-height 100vh，
+//     container padding 0 / content margin-top 0。全局 max-height(100vh-98px)
+//     小于 min-height 100vh → 按 CSS 规范 min-height 胜出、max-height 被忽略，
+//     content 隐式变成 100vh；wrap 一旦 hidden，必须靠 body 内滚才能不裁内容。
+//     下面 .is-mobile 子规则把 height/min-height/max-height 三值显式写死为
+//     100vh，消除隐式行为，并把滚动明确交给 .custom-modal-body。
+//
+// 已收敛的局部补丁（不再各自为政）：
+//   tree-list.styl 的 .dup-bookmarks-modal、db-session.styl 的
+//   .db-table-design-modal 去掉了各自的 max-height/overflow，仅留 padding；
+//   .db-er-modal 的 height 85vh + 画布 flex 链是「自定义画布高度」，不属于
+//   滚动通道，保留。file-preview-modal.styl / mobile.styl 的 padding 规则
+//   不参与滚动，保留。
+// ---------------------------------------------------------------------------
+
+// ---- 1. 自定义 Modal（components/common/modal）-----------------------------
+// wrap 只承载定位与遮罩，绝不滚动；mask 是 position fixed，不受影响。
+.custom-modal-wrap
+  overflow hidden
+
+// content 是唯一的高度上限；短内容时 max-height 不生效，视觉零变更。
+.custom-modal-content
+  display flex
+  flex-direction column
+  max-height calc(100vh - 98px)
+
+.custom-modal-header, .custom-modal-footer
+  flex none
+
+// 正文是唯一的滚动区。overflow-x auto 保留原有「超长行可横向查看」的能力
+// （如命令行帮助），但滚动条落在弹框内，不再是 wrap 层的视口边缘滚动条。
+.custom-modal-body
+  flex 1 1 auto
+  min-height 0
+  overflow-y auto
+  overflow-x auto
+
+// ---- 2. antd Modal（覆盖运行时 CSS-in-JS，逐条 !important）----------------
+.ant-modal-wrap
+  overflow hidden !important
+
+.ant-modal-container
+  display flex !important
+  flex-direction column !important
+  max-height calc(100vh - 148px) !important
+
+.ant-modal-header, .ant-modal-footer
+  flex none !important
+
+.ant-modal-body
+  flex 1 1 auto !important
+  min-height 0 !important
+  overflow-y auto !important
+
+// ---- 3. 移动端全屏弹层 -----------------------------------------------------
+// 与 mobile.styl:139-144 的 width/max-width/margin-top/min-height 互补：
+// 这里只补高度链，使「min-height 100vh 压过全局 max-height」变成显式契约。
+.is-mobile
+  .custom-modal-content
+    height 100vh
+    min-height 100vh
+    max-height 100vh

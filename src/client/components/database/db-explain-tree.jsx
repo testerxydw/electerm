@@ -12,6 +12,18 @@
  * 能力位 explainAnalyze（sqlite 无）才显示开关；只读连接禁用；每次实测前过
  * confirmSqlRisk 二次确认，取消则开关弹回关。MySQL 实测返回 TREE 文本（root=null），
  * PG 返回带 actualRows 的计划树（事务内跑完即回滚，见后端 explainQuery）。
+ *
+ * 统一滚动通道（非虚拟分支）：本弹层树视图是 antd 树形表格（defaultExpandAllRows），
+ * 走不了 DbGridTable —— antd 6.5.1 的 virtual 会切到 @rc-component/table 的
+ * genVirtualTable（antd/lib/table/InternalTable.js:430），而虚拟表格①要求每列有数值
+ * width（VirtualTable/BodyGrid.js 用 width||0 累加，本表 Extra 列无 width）、
+ * ②展开层级缩进明确未实现（VirtualTable/VirtualCell.js:51 的
+ * `TODO: support expandableRowOffset`）、③ scroll.x 必须是 number 而 DbGridTable 写死
+ * 'max-content'（虚拟表格会把非 number 的 x 退化成 1）。且 .db-explain-body 是
+ * 树/图/JSON 三视图共用的 max-height:60vh 滚动容器，改成 wrap 定高会连累另两个视图。
+ * 因此这里只挂 db-session.styl 的共用 class .db-sticky-thead（非虚拟分支唯一真源），
+ * 由滚动容器自身承担滚动、表头 sticky 吸顶；组件层不写任何 scroll.y / virtual /
+ * position:sticky，不与 DbGridTable 形成第三套分叉。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -338,7 +350,7 @@ export default function DbExplainDialog ({
     return (
       <Table
         size='small'
-        className='db-explain-tree'
+        className='db-explain-tree db-sticky-thead'
         columns={treeColumns}
         dataSource={treeRows}
         rowKey='__key'

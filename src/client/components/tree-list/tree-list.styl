@@ -311,8 +311,8 @@
 // 让"这条要被删"在扫一眼时就能看出来，而不必逐个去读勾选框
 .dup-bookmarks-modal
   .ant-modal-body
-    max-height 60vh
-    overflow auto
+    // 正文限高/内滚已收敛到 css/includes/modal-scroll.styl（SSOT）；
+    // 局部 max-height/overflow 会与全局 flex+overflow-y 叠加出留白/双滚动条
     padding-top var(--sp-2)
 .dup-group
   margin-bottom var(--sp-4)

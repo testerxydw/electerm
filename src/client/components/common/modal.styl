@@ -4,7 +4,9 @@
   left 0
   right 0
   bottom 0
-  overflow auto
+  // 滚动条归属由 css/includes/modal-scroll.styl（SSOT）统一定义：
+  // wrap 只承载定位/遮罩，绝不滚动，否则滚动条贴在视口边缘且 header/footer 被滚走
+  overflow hidden
   outline 0
 
 .custom-modal-mask

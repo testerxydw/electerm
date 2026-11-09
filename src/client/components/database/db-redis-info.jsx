@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react'
 import { Modal, Tabs, Table, Spin, Alert, Button } from 'antd'
+import DbGridTable from './db-grid-table'
 import { parseRedisInfo, redisOverview, keyspaceRows, formatPercent } from '../../common/db-redis-info'
 import { parseRedisSlowlog, slowlogStats, slowlogTsv, formatSlowDuration, formatSlowTime } from '../../common/db-redis-slowlog'
 import { formatBytes, formatDuration } from '../remote-monitor/monitor-model'
@@ -401,13 +402,12 @@ export default function DbRedisInfoModal (props) {
                                   // 再让表格重复一遍只是让弹层多一块空白
                                   slStats.count
                                     ? (
-                                      <Table
+                                      <DbGridTable
+                                        height={380}
                                         size='small'
                                         rowKey={(r, i) => `${r.id}-${i}`}
                                         columns={slowlogColumns}
                                         dataSource={slRows}
-                                        // 慢日志上限 512 条：一屏滚不到底，给个内部滚动而不是把弹层撑高
-                                        scroll={{ y: 340 }}
                                         pagination={false}
                                       />
                                       )

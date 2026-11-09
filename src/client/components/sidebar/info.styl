@@ -32,23 +32,43 @@
 .about-row-sub
   color var(--text-light)
 
-// 关于弹层：Tab 栏钉住、正文独立滚动 —— deps 一两百行 / 命令行帮助超长，
-// 整体滚动会把 Tab 栏滚走，切页就找不到了
-// （全局约定：弹层滚动必须固定表头/标题栏）
+// 关于弹层：Tab 栏钉住、正文在弹框内滚动 —— deps 一两百行 / 命令行帮助超长，
+// 整体滚动会把 Tab 栏滚走，切页就找不到了。
+//
+// 【本页不自建滚动 / 定高链】滚动由 css/includes/modal-scroll.styl（SSOT）的
+// .custom-modal-body{flex 1 1 auto;min-height 0;overflow-y auto} 承担，由
+// .custom-modal-content 的 max-height 自动约束；.about-wrap / .ant-tabs /
+// body-holder / body / content 一律回到自然高度（antd6 默认
+// body-holder{flex:auto;min-height:0} 以内容高为 basis，整链自然撑开）。
+//
+// 曾踩的坑（QA 真 Electron + Xvfb + CDP 实机发现，判 NoGo）：
+//   本页曾写 .ant-tabs{flex 1 1 0;height 100%} +
+//   > .ant-tabs-body-holder{flex 1 1 0;min-height 0;overflow hidden} +
+//   > .ant-tabs-body{height 100%;overflow auto}，并覆盖
+//   .custom-modal-body{display:flex;overflow hidden}。祖先 .custom-modal-content
+//   只有 max-height、没有确定 height 时，flex-basis 0 + min-height 0 取消了
+//   min-content 保护 → 全链坍缩成 0 高；content 因「内容高度=0」永远够不到
+//   max-height，形成鸡生蛋死锁：.ant-tabs-body clientHeight=0、deps/cmd 完全
+//   不可见、无滚动条。对照实验：摘掉 info-modal 类回到全局 SSOT 后
+//   content.height=556、body 491px 内滚、scrollTop 0→582 → 证明 SSOT 本体
+//   没问题，问题只在本页局部链。移动端因 is-mobile 显式 height:100vh 提供
+//   确定高度才没坍缩，反证「祖先只有 max-height」是根因。
+//
+// antd 6.5.1 默认样式（node_modules/antd/es/tabs/style/index.js）：
+//   :716 [componentCls]{display:flex}、:237 top/bottom 时 flexDirection:'column'
+//   :719 > nav{position:relative;display:flex;flex:none} ← nav 默认 relative，
+//        钉住必须 !important（同 .db-sticky-thead 的 CSS-in-JS 优先级教训）
+//   :818-821 body-holder{flex:'auto';minWidth:0;minHeight:0} ← basis auto 内容高
+//   :815-817 body{position:relative;width:100%}、:823 content 无默认高度
+// antd5 的 .ant-tabs-content-holder 已不存在，绝不能回退（护栏会立即红）。
+// nav 与 body-holder 并列、都在滚动容器 .custom-modal-body 内，故用 sticky 钉住；
+// background var(--main) 与 .custom-modal-content（modal.styl:29）同色，
+// 保证不透明、滚动时行不穿透；sticky 是 positioned element，ink-bar 的绝对
+// 定位参照不变。
 .info-modal
-  .about-wrap
-    display flex
-    flex-direction column
-    max-height calc(100vh - 220px)
-  .ant-tabs
-    display flex
-    flex-direction column
-    flex 1
-    min-height 0
   .ant-tabs-nav
-    flex none
+    position sticky !important
+    top 0
+    z-index 2
+    background var(--main)
     margin-bottom 8px
-  .ant-tabs-content-holder
-    flex 1
-    min-height 0
-    overflow auto

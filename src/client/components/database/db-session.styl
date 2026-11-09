@@ -845,10 +845,9 @@
 
 // N3b：受限表设计器。列/索引两块各一行一控件，宽度只在这里定死一次 ——
 // 表头行与数据行共用同一组 is-* 修饰类，改一格宽度不会让两行错位
-.db-table-design-modal
-  .ant-modal-body
-    max-height calc(100vh - 300px)
-    overflow auto
+// 正文限高/内滚已收敛到 css/includes/modal-scroll.styl（SSOT）：原
+// .db-table-design-modal .ant-modal-body 的 max-height calc(100vh - 300px)
+// / overflow auto 会与全局 flex 1 1 auto + overflow-y auto 叠加出留白，故移除。
 .db-design
   display flex
   flex-direction column
@@ -1177,6 +1176,23 @@
   .ant-spin,
   .ant-table
     font-family var(--db-code-font, var(--font-mono))
+
+// ---- 统一滚动通道：非虚拟表格分支（表头吸顶的唯一真源）----
+// 可虚拟化的大数据网格走 db-grid-table.jsx 的 DbGridTable（scroll.y + virtual）；
+// 树形 / expandable 且不虚拟化的表格走不了那条路（依据见 db-explain-tree.jsx 文件头），
+// 但它们的外层容器（如 .db-explain-body 的 max-height + overflow:auto）本身就是滚动区，
+// 表头只要 position sticky 就能在同一滚动容器内吸顶。
+// 这个 class 是「滚动容器内 antd Table 表头吸顶」的唯一定义：任何同类非虚拟表格
+// 都复用它，组件里不许再写 position:sticky / scroll.y / virtual
+// （契约见 src/test/unit-ci/db-grid-scroll-unified.spec.js）。
+// 注：.db-tx-row-head 是既存的「自定义 div grid 表头行」吸顶（db-session.jsx:4430），
+// 选择器与 antd thead 不同、适用范围不同，不在此合并，避免改动无关模块。
+.db-sticky-thead
+  .ant-table-thead th
+    position sticky !important
+    top 0
+    z-index 2
+    background var(--surface-1)
 
 // B1 行选择列：scroll.y 生效后表头/表体是两个独立 table，列宽由 colgroup 决定，
 // 而 colgroup 的宽度来自 antd rowSelection.columnWidth（见 db-session.jsx SEL_COL_W）。

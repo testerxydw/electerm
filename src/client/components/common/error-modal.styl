@@ -71,6 +71,11 @@
 
 .error-modal-body
   padding 16px 20px 20px 20px
+  // .error-modal-box 已 max-height 80vh + flex column + overflow hidden，
+  // 正文必须是唯一可收缩弹性区，否则 min-height:auto 会撑破 box、
+  // footer 被挤出且滚不动（滚动条必须留在弹框内）
+  flex 1 1 auto
+  min-height 0
   overflow auto
   color var(--text)
 

@@ -385,13 +385,20 @@ describe('H7b-2 弹层慢日志页签（db-redis-info.jsx）', () => {
     assert.match(src, /const refreshLoading = slowlogOn \? !!sl\.loading : loading/)
   })
 
-  test('表格不分页（最多 512 条，交给内部滚动）、行键带下标兜底', () => {
+  test('表格不分页（最多 512 条，交给统一滚动通道）、行键带下标兜底', () => {
     const src = fs.readFileSync(MODAL, 'utf8')
     assert.match(src, /columns=\{slowlogColumns\}\s*\n\s*dataSource=\{slRows\}/)
-    assert.match(src, /scroll=\{\{ y: 340 \}\}\s*\n\s*pagination=\{false\}/)
+    // 统一通道：慢日志表走 DbGridTable 定高，弹层里不再手写 scroll.y
+    assert.match(src, /<DbGridTable\s*\n\s*height=\{380\}/)
+    assert.doesNotMatch(src, /scroll=\{\{ y: 340 \}\}/)
     assert.match(src, /rowKey=\{\(r, i\) => `\$\{r\.id\}-\$\{i\}`\}/)
+    // 慢日志段不得再裸用 antd Table。keyspace 静态小表仍保留裸 Table，
+    // 故只切慢日志段判定，不整文件否定（行首正则抽取口径保持不变）
+    const slowlogSeg = src.slice(src.indexOf("className='db-redis-slowlog'"))
+    assert.ok(slowlogSeg, 'slowlog segment not found')
+    assert.doesNotMatch(slowlogSeg, /<Table\b/, 'slowlog table must go through DbGridTable')
     // 0 条时不摆表和表头：状态行已经说过"没有"，表格再重复一遍只是多一块空白
-    assert.match(src, /slStats\.count\s*\n\s*\? \(\s*\n\s*<Table/)
+    assert.match(src, /slStats\.count\s*\n\s*\? \(\s*\n\s*<DbGridTable/)
   })
 
   test('首帧转圈、带旧数据刷新不闪空板（与概览同一口径）', () => {
