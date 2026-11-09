@@ -1826,6 +1826,13 @@
   .db-redis-del-err
     margin-top 10px
 
+// N5b 大 Key 弹窗：正文随视口限高后整体滚动（与 .db-table-design-modal 同款）。
+// 表格行数不定，不用 scroll.y 钉死行数 —— 那是定行高容器才适合的方式
+.db-redis-bigkeys-modal
+  .ant-modal-body
+    max-height calc(100vh - 220px)
+    overflow auto
+
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane
   flex 1 1 0
@@ -2072,6 +2079,23 @@
 .db-redis-stream-note
   font-size 12px
   color var(--text-muted)
+
+// 会话页（N6）：工具条钉住，表格区撑满后内部滚动 —— 与数据/结构页同款撑满链路；
+// 不写这条时 wrap 无高度约束，超高内容被 .ant-tabs-body-holder 的 hidden 裁掉，表格滚不动
+.db-sessions-wrap
+  height 100%
+  min-height 0
+  display flex
+  flex-direction column
+  overflow hidden
+  > .pd1x
+    flex none
+  > .ant-alert
+    flex none
+  > .ant-spin-nested-loading
+    flex 1 1 0
+    min-height 0
+    overflow auto
 
 // 表结构区（列定义网格）：撑满 tabpane（块级父级里 flex-basis 不生效，必须 height 100%），
 // flex 列布局让 .db-grid-table-wrap 拿到确定高度并内部滚动

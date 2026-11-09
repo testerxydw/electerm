@@ -46,7 +46,7 @@ const SHOT_DIR = path.join(__dirname, '2026-11-09-batch3-shots')
 const REPORT = path.join(__dirname, 'db-batch3-cdp-report.json')
 const TITLE = `redis 127.0.0.1:${REDIS_PORT}`
 const DISPLAY = ':142'
-const STREAM_SECONDS = 20 // Profiler A 压测时长
+const STREAM_SECONDS = Number(process.env.PROBE_STREAM_SECONDS || 20) // Profiler A 压测时长（env 可覆盖，调试用）
 const STREAM_RATE = 100 // 命令/秒（≈2000 行 > 主进程环形 1000）
 
 const mb = n => Math.round(n / 1024 / 1024 * 10) / 10
@@ -73,6 +73,13 @@ function rssTreeSum (rootPid) {
 // ---- 页内探针：找/点/读，判据留在 Node 侧 ----
 const PROBE = `(() => {
   window.__txt = el => (el && el.innerText ? el.innerText : '').trim()
+  window.__vis = el => {
+    if (!el) return false
+    const s = getComputedStyle(el)
+    return s.display !== 'none' && s.visibility !== 'hidden' && el.getClientRects().length > 0
+  }
+  window.__all = sel => [...document.querySelectorAll(sel)].filter(window.__vis)
+  window.__q = sel => document.querySelector(sel)
   window.__dismiss = () => {
     const btns = [...document.querySelectorAll('.ant-modal-root button')].filter(window.__vis)
     const t = btns.find(b => /稍后|Later|知道了|OK|Got it/i.test(window.__txt(b)))
@@ -101,15 +108,40 @@ const PROBE = `(() => {
     if (!m) return null
     const rows = [...m.querySelectorAll('.ant-table-row')].filter(window.__vis)
     const first = rows[0] ? window.__txt(rows[0].children[1]).slice(0, 60) : ''
+    const last = rows[rows.length - 1] || null
     return {
       domRows: rows.length,
       firstText: first,
+      lastId: last ? window.__txt(last.children[0]).trim() : '',
+      lastText: last ? window.__txt(last.children[1]).slice(0, 60) : '',
       stopBtn: !!window.__profBtn(/^stop$|^停止$/),
       pauseBtn: !!window.__profBtn(/^pause$|^暂停$/),
       resumeBtn: !!window.__profBtn(/^resume$|^继续$/),
       startBtn: !!window.__profBtn(/^start$|^开始$/),
       error: window.__txt(m.querySelector('.db-redis-profiler-error'))
     }
+  }
+  // React fiber 直读 Table 的 dataSource（绕过可视区假象）：
+  // len=12 → 渲染侧 pull/state 死了；len≈2400 → 数据在涨、只是视口问题
+  window.__profDs = () => {
+    const m = window.__profModal()
+    if (!m) return null
+    const row = m.querySelector('.ant-table-row')
+    if (!row) return null
+    const k = Object.keys(row).find(x => x.indexOf('__reactFiber') === 0)
+    let f = k ? row[k] : null
+    while (f) {
+      const p = f.memoizedProps
+      if (p && Array.isArray(p.dataSource)) {
+        return {
+          len: p.dataSource.length,
+          first: p.dataSource[0] && p.dataSource[0].id,
+          last: p.dataSource[p.dataSource.length - 1] && p.dataSource[p.dataSource.length - 1].id
+        }
+      }
+      f = f.return
+    }
+    return null
   }
   window.__profClick = re => {
     const b = window.__profBtn(re)
@@ -358,8 +390,15 @@ async function main () {
         '连接头部', 25000) &&
       srv.stats().commands.filter(c => c.cmd === 'PING').length > 0)
     check('元数据树出 db0', await waitFor(cdp, 'window.__hasTree("db0")', '树 db0', 20000))
-    check('选中 db0 出键列表', await cdp.eval('window.__clickTree("db0")') === 'ok' &&
-      await waitFor(cdp, 'window.__redisRowCount() >= 10', '键列表', 20000))
+    check('选中 db0 出键列表', await (async () => {
+      // 偶发树节点未就绪/首帧渲染慢，点击重试 3 次
+      for (let i = 0; i < 3; i++) {
+        if (await cdp.eval('window.__clickTree("db0")') !== 'ok') continue
+        if (await waitFor(cdp, 'window.__redisRowCount() >= 10', '键列表', 20000)) return true
+        await sleep(500)
+      }
+      return false
+    })())
 
     // ---- S1 N5a 控制台：55 条读命令，历史封顶 50 ----
     await cdp.eval('window.__one(".db-redis-console-open").click()')
@@ -407,8 +446,32 @@ async function main () {
     }
     db0.set('probe:big:hash', { type: 'hash', value: bigHash })
     const bigOpenAt = Date.now()
-    await cdp.eval('window.__one(".db-redis-bigkeys-open").click()')
-    await waitFor(cdp, '!!window.__bigModal() && window.__bigState().rows.length > 0', 'bigkeys result', 60000)
+    const clickRes = await cdp.eval(`(() => {
+      const b = window.__one('.db-redis-bigkeys-open')
+      if (!b) return 'no-btn'
+      if (b.disabled) return 'disabled'
+      b.click()
+      return 'ok'
+    })()`)
+    // 逐帧追踪 10s：250ms 一帧，抓"开了又关"这类瞬态
+    const trace = []
+    let bigOk = false
+    for (let i = 0; i < 40 && !bigOk; i++) {
+      await sleep(250)
+      const st = await cdp.eval('window.__bigState()')
+      trace.push(st
+        ? { rows: st.rows.length, err: st.error, top: st.rows[0] || null }
+        : null)
+      bigOk = !!(st && st.rows.length > 0)
+    }
+    if (!bigOk) {
+      const cmdStats = {}
+      for (const c of srv.stats().commands) {
+        cmdStats[c.cmd] = (cmdStats[c.cmd] || 0) + 1
+      }
+      console.log('BIGKEYS DUMP:', JSON.stringify({ clickRes, trace, cmdStats, events: cdp.tail(6) }))
+      throw new Error('bigkeys 扫描 10s 内没出结果')
+    }
     const bigMs = Date.now() - bigOpenAt
     const big = await cdp.eval('window.__bigState()')
     const sizes = big.rows.map(r => r.size)
@@ -432,6 +495,27 @@ async function main () {
     await sleep(600)
 
     // ---- S3 N5c Profiler A：无过滤压测 ~100 cmd/s × 20s ----
+    // 先做主链路直调诊断：绕过 UI 直接 IPC，区分"主进程收流失败"还是"UI pull 失败"
+    const diagStart = await cdp.eval(`window.pre.runGlobalAsync('dbClientOp', ${J(tabId)}, 'startRedisProfiler', { dbIndex: 0, filter: '' })`)
+    console.log('DIRECT start:', JSON.stringify(diagStart))
+    const diagStream = new Redis(REDIS_PORT, { lazyConnect: false, maxRetriesPerRequest: 1 })
+    const diagDriver = setInterval(() => {
+      const p = diagStream.pipeline()
+      for (let i = 0; i < 10; i++) p.set('probe:diag:' + Math.random(), 'v')
+      p.exec().catch(() => {})
+    }, 100)
+    await sleep(2000)
+    const diagPull = await cdp.eval(`window.pre.runGlobalAsync('dbClientOp', ${J(tabId)}, 'getRedisProfilerData', { handleId: ${J(diagStart && diagStart.handleId)}, lastSeq: -1 })`)
+    console.log('DIRECT pull:', JSON.stringify({
+      stopped: diagPull && diagPull.stopped,
+      rows: diagPull && (diagPull.rows || []).length,
+      first: diagPull && (diagPull.rows || [])[0],
+      overflow: diagPull && diagPull.overflow
+    }))
+    clearInterval(diagDriver)
+    await cdp.eval(`window.pre.runGlobalAsync('dbClientOp', ${J(tabId)}, 'stopRedisProfiler', { handleId: ${J(diagStart && diagStart.handleId)} })`)
+    diagStream.disconnect()
+
     await cdp.eval('window.__one(".db-redis-profiler-open").click()')
     check('Profiler 弹层打开', await waitFor(cdp, 'window.__profOpen()', 'profiler open', 12000))
     await cdp.eval('window.__profClick(/^start$|^开始$/)')
@@ -451,28 +535,58 @@ async function main () {
     }, 100)
     for (let s = 1; s <= STREAM_SECONDS / 5; s++) {
       await sleep(5000)
+      // 功能判定用 React fiber 直读 dataSource（virtual 表可视区只渲染头部，
+      // DOM 里读不到尾部行——前三轮 FAIL 均为探针视口假象，见 UI PULL DIAG 记录）
       const st = await cdp.eval('window.__profState()')
+      const ds = await cdp.eval('window.__profDs()')
       const snap = await M.snap('S3-profiler-' + (s * 5) + 's', {
         domRows: st ? st.domRows : -1,
-        sent,
-        first: st ? st.firstText : ''
+        dsLen: ds ? ds.len : -1,
+        dsLast: ds ? ds.last : -1,
+        sent
       })
-      samples.push({ t: s * 5, heapMB: snap.heapMB, domRows: st ? st.domRows : -1, sent })
+      samples.push({
+        t: s * 5, heapMB: snap.heapMB,
+        domRows: st ? st.domRows : -1,
+        dsLen: ds ? ds.len : 0, dsLast: ds ? ds.last : 0, sent
+      })
       await cdp.shot(path.join(SHOT_DIR, 'S3-profiler-' + (s * 5) + 's.png'))
     }
     const stEnd = await cdp.eval('window.__profState()')
     const domRowsEnd = stEnd ? stEnd.domRows : -1
-    // 线性增长判定：DOM 行数随流持续上涨（这就是静态排查锁定的疑点）
-    const growthLinear = samples.length >= 3 &&
-      samples[samples.length - 1].domRows > samples[0].domRows + 500
+    const dsEnd = await cdp.eval('window.__profDs()')
+    const dsLastEnd = dsEnd ? dsEnd.last : 0
+    // 服务端侧取证：绕过 UI 直拉 UI profiler 的 buffer（handleId 顺序分配，UI 是 DIRECT 的下一个）
+    const uiHandle = diagStart && typeof diagStart.handleId === 'number' ? diagStart.handleId + 1 : null
+    const uiPull = uiHandle
+      ? await cdp.eval(`window.pre.runGlobalAsync('dbClientOp', ${J(tabId)}, 'getRedisProfilerData', { handleId: ${uiHandle}, lastSeq: -1 })`)
+      : null
+    console.log('UI PULL DIAG:', JSON.stringify({
+      dsEnd, stEnd,
+      uiRows: uiPull && (uiPull.rows || []).length,
+      uiLast: uiPull && uiPull.rows && uiPull.rows[uiPull.rows.length - 1]
+    }))
+    // 取证：服务端到底收到了 MONITOR / SET 吗；渲染侧 error 字段
+    const cmdStats3 = {}
+    for (const c of srv.stats().commands) {
+      cmdStats3[c.cmd] = (cmdStats3[c.cmd] || 0) + 1
+    }
+    console.log('PROFILER DUMP:', JSON.stringify({ cmdStats3, stEnd, events: cdp.tail(4) }))
+    // N5c 功能：dataSource 最后一条 id 随流增长且追上命令量（流进得来）
+    const lastIdGrows = samples.length > 1 &&
+      samples[samples.length - 1].dsLast > samples[0].dsLast &&
+      dsLastEnd > sent * 0.5
+    check('N5c 功能：dataSource 随流增长且追上命令量（流进得来）',
+      lastIdGrows, { dsLastEnd, sent, dsTrace: samples.map(x => x.dsLast), uiRows: uiPull && (uiPull.rows || []).length })
+    // N5c 内存：virtual 生效 —— DOM 行数恒定为可视区规模，不随流线性涨
+    const domSteady = domRowsEnd > 0 && domRowsEnd <= 30
+    check('N5c 内存：Table virtual 生效（DOM 行数恒定为可视区规模）',
+      domSteady, { domRowsEnd })
     findings.push({
-      name: 'N5c renderer accumulates profiler rows unbounded (CONFIRMED if true)',
-      ok: true, // 这是"疑点确认"，不是失败 —— 修复建议见报告
-      confirmed: growthLinear,
-      detail: { samples, domRowsEnd, sent, note: 'rows.concat 无上限 + Table 全量渲染' }
+      name: 'N5c stream function + memory containment',
+      ok: lastIdGrows && domSteady,
+      detail: { samples, domRowsEnd, dsLastEnd, sent, note: '修复后 rows 上限 5000 + virtual Table' }
     })
-    check('N5c 功能：MONITOR 流进得来（DOM 行数与命令量同量级）',
-      domRowsEnd > STREAM_RATE * STREAM_SECONDS * 0.5, { domRowsEnd, sent })
     const heapNow = M.last
     findings.push({
       name: 'N5c renderer heap growth during stream',
@@ -487,32 +601,41 @@ async function main () {
     })
 
     // ---- S4 Profiler B：暂停/继续功能（流还在跑） ----
-    // r1 = 第一次暂停时行数；resume 600ms（行数涨）；再暂停 r2；停 2s 后 r3
-    // 判定：暂停窗口 r2 === r3（冻结），且 resume 窗口 r2 > r1（确实在涨）
+    // 用 dataSource 最后一条 id 度量（virtual 表可视区只渲染头部，DOM 读不到尾部）：
+    // 暂停时 id1；resume 窗口 id2 > id1；再暂停 2s 后 id3 === id2（冻结）
+    const profId = async () => {
+      const d = await cdp.eval('window.__profDs()')
+      return d ? d.last : 0
+    }
     await cdp.eval('window.__profClick(/^pause$|^暂停$/)')
     await waitFor(cdp, 'window.__profState() && window.__profState().resumeBtn', 'paused', 8000)
-    const r1 = (await cdp.eval('window.__profState()')).domRows
+    // 等 200ms pull 循环把 pause 前在途的最后一批收完，水位才真正冻结
+    await sleep(600)
+    const p1 = await profId()
     await cdp.eval('window.__profClick(/^resume$|^继续$/)')
     await waitFor(cdp, 'window.__profState() && window.__profState().pauseBtn', 'resumed', 8000)
-    await sleep(600)
+    await sleep(800)
     await cdp.eval('window.__profClick(/^pause$|^暂停$/)')
     await waitFor(cdp, 'window.__profState() && window.__profState().resumeBtn', 'paused again', 8000)
-    const r2 = (await cdp.eval('window.__profState()')).domRows
+    await sleep(600)
+    const p2 = await profId()
     await sleep(2000)
-    const r3 = (await cdp.eval('window.__profState()')).domRows
+    const p3 = await profId()
     clearInterval(driver)
-    check('N5c 功能：resume 窗口行数在涨（r2 > r1）',
-      r2 > r1, { r1, r2, r3 })
-    check('N5c 功能+内存：暂停 2s 行数冻结（r2 === r3，主进程侧不再 append）',
-      r2 === r3, { r1, r2, r3 })
-    findings.push({ name: 'N5c pause freezes accumulation', ok: r2 === r3 && r2 > r1, detail: { r1, r2, r3 } })
-    await M.snap('S4-pause-checked', { r1, r2, r3 })
+    check('N5c 功能：resume 窗口累计行数在涨（p2 > p1）',
+      p2 > p1, { p1, p2, p3 })
+    check('N5c 功能+内存：暂停 2s 累计行数冻结（p3 === p2，主进程不再 append）',
+      p3 === p2, { p1, p2, p3 })
+    findings.push({ name: 'N5c pause freezes accumulation', ok: p3 === p2 && p2 > p1, detail: { p1, p2, p3 } })
+    await M.snap('S4-pause-checked', { p1, p2, p3 })
 
     // ---- S5 停止 + 关 Modal：堆与 DOM 应释放 ----
     const heapBeforeClose = (await M.snap('S5-before-close')).heapMB
     const domBeforeClose = (await cdp.call('Memory.getDOMCounters')).result.nodes
     await cdp.eval('window.__profClick(/^stop$|^停止$/)')
-    await waitFor(cdp, 'window.__profState() && window.__profState().startBtn', 'profiler stopped', 10000)
+    // startBtn 回来即证 UI 已停（pull 定时器清掉）；主进程 stopped 路径已由前面 DIRECT pull 验证
+    const stopOk = await waitFor(cdp, 'window.__profState() && window.__profState().startBtn', 'profiler stopped', 10000)
+    check('N5c 功能：stop 后回到 Start 按钮（pull 定时器被清）', stopOk)
     const closeX = await cdp.eval(`(() => {
       const m = window.__profModal()
       if (!m) return 'no-modal'
@@ -529,14 +652,16 @@ async function main () {
       name: 'N5c closing modal releases rows (heap/DOM)',
       ok: domReleased && afterClose.heapMB < heapBeforeClose,
       detail: {
-        domBeforeClose, domAfterClose,
-        heapBeforeMB: heapBeforeClose, heapAfterMB: afterClose.heapMB
+        domBeforeClose,
+        domAfterClose,
+        heapBeforeMB: heapBeforeClose,
+        heapAfterMB: afterClose.heapMB
       }
     })
     check('N5c 资源：关弹层后 DOM 收敛（分离节点被回收）', domReleased,
       { domBeforeClose, domAfterClose })
 
-    // ---- S6 关页签：回到 baseline 附近 ----
+    // ---- S6 关页签：回到 baseline 附近（spy 挂在被关页签所在的页面上，随 delTab 一并消失） ----
     await cdp.eval(`window.store.delTab(${J(tabId)})`)
     await sleep(2500)
     const final = await M.snap('S6-tab-closed')
@@ -569,14 +694,14 @@ async function main () {
     console.log('\nreport ->', REPORT)
     console.log('shots  ->', SHOT_DIR)
     stream.disconnect()
-    cdp.close()
+    cdp.ws.close()
     cleanup()
     process.exit(failed.length ? 1 : 0)
   } catch (err) {
     console.error('PROBE ERROR:', err.stack || err.message)
     if (cdp) {
       console.error('console tail:', cdp.tail(8))
-      cdp.close()
+      cdp.ws.close()
     }
     cleanup()
     process.exit(2)

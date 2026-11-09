@@ -92,6 +92,11 @@ const REDIS_TREE_SCAN_COUNT = 1000
 // antd Tree 不传 height 时不是虚拟列表 —— 展开一个目录 = 把它的全部子节点一次性塞进 DOM，
 // 而"整库只共享一个业务前缀、前缀下面挂上万键"正是最常见的键空间形状。
 const REDIS_TREE_AUTO_EXPAND_KEYS = 500
+// Profiler 渲染侧展示行数上限。主进程环形缓冲（redis.js PROFILER_RING_MAX=1000）
+// 守恒，但渲染侧是"自己累计的完整流"—— 不设上限时 MONITOR 跑几分钟堆和
+// DOM 都线性膨胀（CDP 实机实测 20s 100 命令/秒 → 渲染堆 +700MB、DOM 17 万节点）。
+// 5000 行够回看最近命令流；配合 Table virtual，DOM 只渲染可视区。
+const REDIS_PROFILER_VIEW_MAX = 5000
 // 键名 → 树节点路径。选中态在列表/树两边是同一个 `redisKey`（按名字，不按行下标），
 // 树这边要知道"这个名字落在哪个节点"才能打勾并展开它那一支。
 // 一次遍历建索引，比每次渲染都走树便宜（1 万键时是每次点击都走一遍的区别）。
@@ -238,6 +243,7 @@ export {
   REDIS_TREE_MAX_KEYS,
   REDIS_TREE_SCAN_COUNT,
   REDIS_TREE_AUTO_EXPAND_KEYS,
+  REDIS_PROFILER_VIEW_MAX,
   buildKeyPathIndex,
   redisKeyPagesOf,
   SEL_COL_W,

@@ -1,0 +1,513 @@
+{
+  "at": "2026-11-09T09:27:33.651Z",
+  "app": "electerm db-batch3 cdp probe (N5a/N5b/N5c function+perf+memory)",
+  "env": {
+    "cdpPort": "9392",
+    "redisPort": 6392,
+    "streamRate": 100,
+    "streamSeconds": 20
+  },
+  "snaps": [
+    {
+      "label": "S0-baseline",
+      "heapMB": 18.9,
+      "nodes": 762,
+      "listeners": 319,
+      "domNodes": 762,
+      "taskMs": 2284,
+      "scriptMs": 841,
+      "layout": 27,
+      "recalc": 50,
+      "appRSSMB": 1070.2,
+      "extra": {},
+      "at": 1794216398956,
+      "delta": null
+    },
+    {
+      "label": "S1-console-open",
+      "heapMB": 25.9,
+      "nodes": 1860,
+      "listeners": 768,
+      "domNodes": 1860,
+      "taskMs": 3577,
+      "scriptMs": 1452,
+      "layout": 47,
+      "recalc": 143,
+      "appRSSMB": 1099.7,
+      "extra": {},
+      "at": 1794216400903,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 1293,
+        "layout": 20,
+        "recalc": 93
+      }
+    },
+    {
+      "label": "S1-console-55-cmds",
+      "heapMB": 30.5,
+      "nodes": 2750,
+      "listeners": 1525,
+      "domNodes": 2750,
+      "taskMs": 12690,
+      "scriptMs": 6804,
+      "layout": 366,
+      "recalc": 1038,
+      "appRSSMB": 1111.1,
+      "extra": {
+        "historyCount": 50
+      },
+      "at": 1794216413799,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 9113,
+        "layout": 319,
+        "recalc": 895
+      }
+    },
+    {
+      "label": "S2-bigkeys-done",
+      "heapMB": 31.8,
+      "nodes": 3409,
+      "listeners": 1060,
+      "domNodes": 3409,
+      "taskMs": 13166,
+      "scriptMs": 6889,
+      "layout": 380,
+      "recalc": 1105,
+      "appRSSMB": 1136,
+      "extra": {
+        "scanMs": 283,
+        "topN": 89
+      },
+      "at": 1794216415665,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 476,
+        "layout": 14,
+        "recalc": 67
+      }
+    },
+    {
+      "label": "S3-profiler-5s",
+      "heapMB": 32.5,
+      "nodes": 3564,
+      "listeners": 1030,
+      "domNodes": 3564,
+      "taskMs": 14711,
+      "scriptMs": 7708,
+      "layout": 428,
+      "recalc": 1247,
+      "appRSSMB": 1111.3,
+      "extra": {
+        "domRows": 11,
+        "dsLen": 486,
+        "dsLast": 485,
+        "sent": 490
+      },
+      "at": 1794216424506,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 1545,
+        "layout": 48,
+        "recalc": 142
+      }
+    },
+    {
+      "label": "S3-profiler-10s",
+      "heapMB": 32.7,
+      "nodes": 3564,
+      "listeners": 1030,
+      "domNodes": 3564,
+      "taskMs": 15826,
+      "scriptMs": 8442,
+      "layout": 457,
+      "recalc": 1276,
+      "appRSSMB": 1097,
+      "extra": {
+        "domRows": 11,
+        "dsLen": 1056,
+        "dsLast": 1055,
+        "sent": 1070
+      },
+      "at": 1794216430280,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 1115,
+        "layout": 29,
+        "recalc": 29
+      }
+    },
+    {
+      "label": "S3-profiler-15s",
+      "heapMB": 34.5,
+      "nodes": 3564,
+      "listeners": 1095,
+      "domNodes": 3564,
+      "taskMs": 17179,
+      "scriptMs": 9339,
+      "layout": 487,
+      "recalc": 1306,
+      "appRSSMB": 1099.3,
+      "extra": {
+        "domRows": 11,
+        "dsLen": 1636,
+        "dsLast": 1635,
+        "sent": 1650
+      },
+      "at": 1794216436211,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 1353,
+        "layout": 30,
+        "recalc": 30
+      }
+    },
+    {
+      "label": "S3-profiler-20s",
+      "heapMB": 33.8,
+      "nodes": 3564,
+      "listeners": 1030,
+      "domNodes": 3564,
+      "taskMs": 18377,
+      "scriptMs": 10115,
+      "layout": 516,
+      "recalc": 1335,
+      "appRSSMB": 1095.7,
+      "extra": {
+        "domRows": 11,
+        "dsLen": 2236,
+        "dsLast": 2235,
+        "sent": 2240
+      },
+      "at": 1794216442112,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 1198,
+        "layout": 29,
+        "recalc": 29
+      }
+    },
+    {
+      "label": "S4-pause-checked",
+      "heapMB": 33.3,
+      "nodes": 3566,
+      "listeners": 1169,
+      "domNodes": 3566,
+      "taskMs": 20004,
+      "scriptMs": 11087,
+      "layout": 536,
+      "recalc": 1475,
+      "appRSSMB": 1098.6,
+      "extra": {
+        "p1": 2335,
+        "p2": 2435,
+        "p3": 2435
+      },
+      "at": 1794216447327,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 1627,
+        "layout": 20,
+        "recalc": 140
+      }
+    },
+    {
+      "label": "S5-before-close",
+      "heapMB": 34.5,
+      "nodes": 3566,
+      "listeners": 1245,
+      "domNodes": 3566,
+      "taskMs": 20364,
+      "scriptMs": 11227,
+      "layout": 536,
+      "recalc": 1475,
+      "appRSSMB": 1099.4,
+      "extra": {},
+      "at": 1794216448002,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 360,
+        "layout": 0,
+        "recalc": 0
+      }
+    },
+    {
+      "label": "S5-after-modal-close",
+      "heapMB": 30.8,
+      "nodes": 3542,
+      "listeners": 1068,
+      "domNodes": 3542,
+      "taskMs": 20828,
+      "scriptMs": 11299,
+      "layout": 543,
+      "recalc": 1526,
+      "appRSSMB": 1097.5,
+      "extra": {
+        "closeX": "ok"
+      },
+      "at": 1794216450395,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 464,
+        "layout": 7,
+        "recalc": 51
+      }
+    },
+    {
+      "label": "S6-tab-closed",
+      "heapMB": 25.1,
+      "nodes": 2578,
+      "listeners": 488,
+      "domNodes": 2578,
+      "taskMs": 21173,
+      "scriptMs": 11382,
+      "layout": 550,
+      "recalc": 1543,
+      "appRSSMB": 1087.2,
+      "extra": {},
+      "at": 1794216453522,
+      "delta": {
+        "heapMB": 0,
+        "taskMs": 345,
+        "layout": 7,
+        "recalc": 17
+      }
+    }
+  ],
+  "findings": [
+    {
+      "name": "N5a console history bounded",
+      "ok": true,
+      "detail": {
+        "historyCount": 50
+      }
+    },
+    {
+      "name": "N5b bigkey scan function + perf",
+      "ok": true,
+      "detail": {
+        "top1": {
+          "name": "probe:big:hash",
+          "type": "hash",
+          "size": 267844
+        },
+        "scanMs": 283,
+        "rows": 89
+      }
+    },
+    {
+      "name": "N5c stream function + memory containment",
+      "ok": true,
+      "detail": {
+        "samples": [
+          {
+            "t": 5,
+            "heapMB": 32.5,
+            "domRows": 11,
+            "dsLen": 486,
+            "dsLast": 485,
+            "sent": 550
+          },
+          {
+            "t": 10,
+            "heapMB": 32.7,
+            "domRows": 11,
+            "dsLen": 1056,
+            "dsLast": 1055,
+            "sent": 1130
+          },
+          {
+            "t": 15,
+            "heapMB": 34.5,
+            "domRows": 11,
+            "dsLen": 1636,
+            "dsLast": 1635,
+            "sent": 1720
+          },
+          {
+            "t": 20,
+            "heapMB": 33.8,
+            "domRows": 11,
+            "dsLen": 2236,
+            "dsLast": 2235,
+            "sent": 2310
+          }
+        ],
+        "domRowsEnd": 11,
+        "dsLastEnd": 2335,
+        "sent": 2330,
+        "note": "修复后 rows 上限 5000 + virtual Table"
+      }
+    },
+    {
+      "name": "N5c renderer heap growth during stream",
+      "ok": true,
+      "detail": {
+        "heapStartMB": 32.5,
+        "heapEndMB": 33.8,
+        "growthMB": 0,
+        "taskMsDelta": 1198,
+        "layoutDelta": 29
+      }
+    },
+    {
+      "name": "N5c pause freezes accumulation",
+      "ok": true,
+      "detail": {
+        "p1": 2335,
+        "p2": 2435,
+        "p3": 2435
+      }
+    },
+    {
+      "name": "N5c closing modal releases rows (heap/DOM)",
+      "ok": true,
+      "detail": {
+        "domBeforeClose": 3566,
+        "domAfterClose": 3542,
+        "heapBeforeMB": 34.5,
+        "heapAfterMB": 30.8
+      }
+    },
+    {
+      "name": "final heap vs baseline after tab close",
+      "ok": true,
+      "detail": {
+        "baseMB": 18.9,
+        "finalMB": 25.1
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "渲染进程可用（store / pre / translate 都在）",
+      "ok": true
+    },
+    {
+      "name": "桥接层是原装的（没被别的 demo 的桩覆盖）",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "页签建连（PING/INFO 到达 fake-redis）",
+      "ok": true
+    },
+    {
+      "name": "元数据树出 db0",
+      "ok": true
+    },
+    {
+      "name": "选中 db0 出键列表",
+      "ok": true
+    },
+    {
+      "name": "控制台弹层打开",
+      "ok": true
+    },
+    {
+      "name": "打开即取命令表（COMMAND 到达服务端）",
+      "ok": true
+    },
+    {
+      "name": "N5a 功能：55 条命令执行成功，最后一条 GET 回值正确",
+      "ok": true,
+      "detail": {
+        "lastEntry": {
+          "pending": false,
+          "text": "get smoke:key:054\n1 ms\n(string)\nvalue:054"
+        }
+      }
+    },
+    {
+      "name": "N5a 内存：历史封顶 HISTORY_MAX=50（不发一条涨一条）",
+      "ok": true,
+      "detail": {
+        "historyCount": 50
+      }
+    },
+    {
+      "name": "N5b 功能：扫描出 TOP-N 结果且按 size 降序",
+      "ok": true,
+      "detail": {
+        "n": 89,
+        "bigMs": 283
+      }
+    },
+    {
+      "name": "N5b 正确性：TOP1 是 2000 字段的大 hash（MEMORY USAGE 路径）",
+      "ok": true,
+      "detail": {
+        "name": "probe:big:hash",
+        "type": "hash",
+        "size": 267844
+      }
+    },
+    {
+      "name": "N5b 覆盖：夹具大键（24 条 probe:big string + 大 hash）都在 TOP-N 里",
+      "ok": true,
+      "detail": {
+        "probeRows": 25
+      }
+    },
+    {
+      "name": "Profiler 弹层打开",
+      "ok": true
+    },
+    {
+      "name": "N5c 功能：dataSource 随流增长且追上命令量（流进得来）",
+      "ok": true,
+      "detail": {
+        "dsLastEnd": 2335,
+        "sent": 2330,
+        "dsTrace": [
+          485,
+          1055,
+          1635,
+          2235
+        ],
+        "uiRows": 1000
+      }
+    },
+    {
+      "name": "N5c 内存：Table virtual 生效（DOM 行数恒定为可视区规模）",
+      "ok": true,
+      "detail": {
+        "domRowsEnd": 11
+      }
+    },
+    {
+      "name": "N5c 功能：resume 窗口累计行数在涨（p2 > p1）",
+      "ok": true,
+      "detail": {
+        "p1": 2335,
+        "p2": 2435,
+        "p3": 2435
+      }
+    },
+    {
+      "name": "N5c 功能+内存：暂停 2s 累计行数冻结（p3 === p2，主进程不再 append）",
+      "ok": true,
+      "detail": {
+        "p1": 2335,
+        "p2": 2435,
+        "p3": 2435
+      }
+    },
+    {
+      "name": "N5c 功能：stop 后回到 Start 按钮（pull 定时器被清）",
+      "ok": true
+    },
+    {
+      "name": "N5c 资源：关弹层后 DOM 收敛（分离节点被回收）",
+      "ok": true,
+      "detail": {
+        "domBeforeClose": 3566,
+        "domAfterClose": 3542
+      }
+    }
+  ],
+  "consoleEvents": [
+    "WARNING %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app"
+  ]
+}

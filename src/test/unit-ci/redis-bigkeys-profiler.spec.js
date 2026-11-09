@@ -56,15 +56,31 @@ class FakeRedis extends EventEmitter {
     }
   }
 
-  // monitor：ioredis 签名 monitor(cb) → Promise。fatal 用 script.monitorReject 模拟
-  async monitor (cb) {
-    this.monitorCb = cb
+  // monitor：ioredis 真实签名 monitor() → Promise<monitorInstance>（duplicate 出来的
+  // 新实例，'monitor' 事件挂它上面）。fatal 用 script.monitorReject 模拟
+  async monitor () {
     if (this.script.monitorReject) {
       throw new Error(this.script.monitorReject)
     }
-    return null
+    const inst = new FakeMonitorInstance()
+    FakeMonitorInstance.instances.push(inst)
+    return inst
   }
 }
+
+// monitor() resolve 出来的实例：事件源 + disconnect
+class FakeMonitorInstance extends EventEmitter {
+  constructor () {
+    super()
+    this.disconnected = false
+  }
+
+  disconnect () {
+    this.disconnected = true
+  }
+}
+
+FakeMonitorInstance.instances = []
 
 FakeRedis.instances = []
 
@@ -94,6 +110,7 @@ const conn = { dbHost: '127.0.0.1', dbPort: 6379 }
 
 function fresh (script = {}) {
   FakeRedis.instances = []
+  FakeMonitorInstance.instances = []
   FakeRedis.script = script
 }
 
@@ -182,99 +199,119 @@ test('N5b scanBigKeys: TYPE 出错 → unknown + size 0，不炸整轮', async (
 
 // ---- N5c Profiler（MONITOR）----
 
-test('N5c profiler: start → cb 推行 → pull 增量 diff（lastSeq 之后才有）', async () => {
+// start 后等 monitor() 的 .then 换绑完成（微任务）
+async function startProfiler (db, opts) {
+  const { handleId } = await db.startRedisProfiler(conn, opts)
+  await new Promise(resolve => setImmediate(resolve))
+  return handleId
+}
+
+// ---- 转发层协议回归：index.js 对所有 op 统一 adapter[method](conn, args) 调用 ----
+// 教训（2026-11-09 CDP 实机抓到）：getRedisProfilerData/toggle/stop 曾写成
+// (handleId, ...) 签名，Contract 直接调函数没暴露错位，实机 pull 永远 stopped。
+// 这里断言签名必须是 (conn, { ... }) 形态，与转发层协议对齐。
+test('N5c profiler: Profiler 四个 op 的签名必须是 (conn, args) —— 与 dbClientOp 转发协议一致', () => {
+  for (const name of ['startRedisProfiler', 'getRedisProfilerData', 'toggleRedisProfilerPause', 'stopRedisProfiler']) {
+    const re = new RegExp('function ' + name + '\\s*\\(\\s*conn\\s*,\\s*\\{')
+    assert.ok(re.test(src), `${name} 签名应为 (conn, { ... })，实机转发层统一按 (conn, args) 调用`)
+  }
+})
+
+test('N5c profiler: monitor 实例挂事件 → 推行 → pull 增量 diff（lastSeq 之后才有）', async () => {
   fresh({})
   const db = loadModule()
-  const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0 })
-  const c = FakeRedis.instances[0]
-  assert.equal(typeof c.monitorCb, 'function', 'monitor 回调应已挂上')
+  const handleId = await startProfiler(db, { dbIndex: 0 })
+  const inst = FakeMonitorInstance.instances[0]
+  assert.ok(inst, 'monitor() 应 resolve 出实例且事件挂实例上')
+  assert.equal(FakeRedis.instances[0].disconnected, true, '原连接 resolve 后应立即断开')
 
-  // 推 3 行
-  c.monitorCb('1731.1', ['set', 'a'], 'raw set a')
-  c.monitorCb('1731.2', ['get', 'b'], 'raw get b')
-  c.monitorCb('1731.3', ['del', 'c'], 'raw del c')
+  // 推 3 行（ioredis 'monitor' 事件签名：time, args, source, db）
+  inst.emit('monitor', '1731.1', ['set', 'a'], '127.0.0.1:1', 0)
+  inst.emit('monitor', '1731.2', ['get', 'b'], '127.0.0.1:1', 0)
+  inst.emit('monitor', '1731.3', ['del', 'c'], '127.0.0.1:1', 0)
 
-  const first = db.getRedisProfilerData(handleId, -1)
+  const first = db.getRedisProfilerData(null, { handleId, lastSeq: -1 })
   assert.equal(first.rows.length, 3)
   assert.equal(first.overflow, false)
-  assert.deepEqual(first.rows.map(r => r.text), ['raw set a', 'raw get b', 'raw del c'])
+  assert.deepEqual(first.rows.map(r => r.text), ['set a', 'get b', 'del c'])
   const maxSeq = first.rows[2].id
 
   // 再推 2 行，按 lastSeq 增量拉 → 只回新的
-  c.monitorCb('1731.4', ['ping'], 'raw ping')
-  c.monitorCb('1731.5', ['echo'], 'raw echo')
-  const inc = db.getRedisProfilerData(handleId, maxSeq)
-  assert.deepEqual(inc.rows.map(r => r.text), ['raw ping', 'raw echo'])
+  inst.emit('monitor', '1731.4', ['ping'], '127.0.0.1:1', 0)
+  inst.emit('monitor', '1731.5', ['echo'], '127.0.0.1:1', 0)
+  const inc = db.getRedisProfilerData(null, { handleId, lastSeq: maxSeq })
+  assert.deepEqual(inc.rows.map(r => r.text), ['ping', 'echo'])
 
-  db.stopRedisProfiler(handleId)
+  db.stopRedisProfiler(null, { handleId })
 })
 
 test('N5c profiler: 主进程 filter 只收录包含子串的行（大小写敏感）', async () => {
   fresh({})
   const db = loadModule()
-  const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0, filter: '"set"' })
-  const c = FakeRedis.instances[0]
-  c.monitorCb('t1', ['set', 'a'], 'raw "set" a b')
-  c.monitorCb('t2', ['get', 'x'], 'raw "get" x')
-  c.monitorCb('t3', ['set', 'z'], 'raw "SET" z') // 大写 SET 不含小写 '"set"' → 过滤掉
-  const res = db.getRedisProfilerData(handleId, -1)
-  assert.deepEqual(res.rows.map(r => r.text), ['raw "set" a b'])
-  db.stopRedisProfiler(handleId)
+  const handleId = await startProfiler(db, { dbIndex: 0, filter: 'set' })
+  const inst = FakeMonitorInstance.instances[0]
+  inst.emit('monitor', 't1', ['set', 'a'], '', 0)
+  inst.emit('monitor', 't2', ['get', 'x'], '', 0)
+  inst.emit('monitor', 't3', ['SET', 'z'], '', 0) // 大写 SET 不含小写 'set' → 过滤掉
+  const res = db.getRedisProfilerData(null, { handleId, lastSeq: -1 })
+  assert.deepEqual(res.rows.map(r => r.text), ['set a'])
+  db.stopRedisProfiler(null, { handleId })
 })
 
 test('N5c profiler: pause → 不收录；resume → 恢复', async () => {
   fresh({})
   const db = loadModule()
-  const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0 })
-  const c = FakeRedis.instances[0]
+  const handleId = await startProfiler(db, { dbIndex: 0 })
+  const inst = FakeMonitorInstance.instances[0]
 
-  assert.equal(await db.toggleRedisProfilerPause(handleId, true), true)
-  c.monitorCb('t1', ['get'], 'paused line')
-  assert.equal(db.getRedisProfilerData(handleId, -1).rows.length, 0)
+  assert.equal(await db.toggleRedisProfilerPause(null, { handleId, paused: true }), true)
+  inst.emit('monitor', 't1', ['get'], '', 0)
+  assert.equal(db.getRedisProfilerData(null, { handleId, lastSeq: -1 }).rows.length, 0)
 
-  assert.equal(await db.toggleRedisProfilerPause(handleId, false), false)
-  c.monitorCb('t2', ['get'], 'resumed line')
+  assert.equal(await db.toggleRedisProfilerPause(null, { handleId, paused: false }), false)
+  inst.emit('monitor', 't2', ['get'], '', 0)
   assert.deepEqual(
-    db.getRedisProfilerData(handleId, -1).rows.map(r => r.text),
-    ['resumed line']
+    db.getRedisProfilerData(null, { handleId, lastSeq: -1 }).rows.map(r => r.text),
+    ['get']
   )
-  db.stopRedisProfiler(handleId)
+  db.stopRedisProfiler(null, { handleId })
 })
 
 test('N5c profiler: 环形覆盖 → 超过 1000 行时最老被覆写，lastSeq 落后被覆盖区间 → overflow', async () => {
   fresh({})
   const db = loadModule()
-  const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0 })
-  const c = FakeRedis.instances[0]
+  const handleId = await startProfiler(db, { dbIndex: 0 })
+  const inst = FakeMonitorInstance.instances[0]
 
   // 模拟渲染侧早期拉到 lastSeq=3，之后很久没拉
-  c.monitorCb('t', ['x'], 'line 0')
-  c.monitorCb('t', ['x'], 'line 1')
-  c.monitorCb('t', ['x'], 'line 2')
-  c.monitorCb('t', ['x'], 'line 3')
-  const early = db.getRedisProfilerData(handleId, -1)
+  inst.emit('monitor', 't', ['x'], '', 0)
+  inst.emit('monitor', 't', ['x'], '', 0)
+  inst.emit('monitor', 't', ['x'], '', 0)
+  inst.emit('monitor', 't', ['x'], '', 0)
+  const early = db.getRedisProfilerData(null, { handleId, lastSeq: -1 })
   assert.equal(early.rows.length, 4)
 
   // 疯狂推 1005 行（环形上限 1000 → id 0..4 被覆盖）
   for (let i = 0; i < 1005; i++) {
-    c.monitorCb('t', ['x'], 'burst ' + i)
+    inst.emit('monitor', 't', ['x'], '', 0)
   }
-  const res = db.getRedisProfilerData(handleId, 3)
+  const res = db.getRedisProfilerData(null, { handleId, lastSeq: 3 })
   assert.equal(res.overflow, true, 'lastSeq=3 已落后于环形最老行(id=5) → overflow')
   assert.equal(res.rows.length, 1000)
-  assert.equal(res.rows[0].text, 'burst 5', '环形最老一行应是 id=5（0..4 被覆盖）')
-  db.stopRedisProfiler(handleId)
+  assert.equal(res.rows[0].text, 'x', '环形最老一行应是 id=5（0..4 被覆盖）')
+  db.stopRedisProfiler(null, { handleId })
 })
 
-test('N5c profiler: stop 后 pull 返回 stopped，handle 清理', async () => {
+test('N5c profiler: stop 后 pull 返回 stopped，handle 清理，monitor 实例断开', async () => {
   fresh({})
   const db = loadModule()
-  const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0 })
-  db.stopRedisProfiler(handleId)
-  const res = db.getRedisProfilerData(handleId, -1)
+  const handleId = await startProfiler(db, { dbIndex: 0 })
+  db.stopRedisProfiler(null, { handleId })
+  const res = db.getRedisProfilerData(null, { handleId, lastSeq: -1 })
   assert.equal(res.stopped, true)
   assert.deepEqual(res.rows, [])
-  // monitor client 应被断开
+  // p.client 已换绑成 monitor 实例，stop 走它 disconnect
+  assert.equal(FakeMonitorInstance.instances[0].disconnected, true)
   assert.equal(FakeRedis.instances[0].disconnected, true)
 })
 
@@ -284,7 +321,7 @@ test('N5c profiler: monitor 命令被拒（fatal）→ 自动清理，pull 得 s
   const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0 })
   // fatal cleanup 是异步 catch，等一拍
   await new Promise(resolve => setTimeout(resolve, 20))
-  const res = db.getRedisProfilerData(handleId, -1)
+  const res = db.getRedisProfilerData(null, { handleId, lastSeq: -1 })
   assert.equal(res.stopped, true, 'fatal 后 handle 应已被清掉')
   assert.equal(FakeRedis.instances[0].disconnected, true)
 })

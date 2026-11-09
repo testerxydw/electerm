@@ -890,22 +890,30 @@ async function startRedisProfiler (conn, { dbIndex, filter } = {}) {
   const handleId = nextProfilerHandle++
   profilers.set(handleId, p)
 
-  // ioredis monitor API：client.monitor((time, args, rawline) => void)
-  // time 是 "1731191234.123"（UNIX 秒+毫秒小数），args 是命令名+参数数组
-  // rawline 是原始字符串（如 "1731191234.123 [0 ...] \"PING\""）
-  monitorClient.monitor((time, args, rawline) => {
-    if (p.paused) return
-    const text = rawline || ((args && args.join && args.join(' ')) || String(args))
-    if (p.filter && !text.includes(p.filter)) return
+  // ioredis 的 monitor() 会 duplicate 一条新连接跑 MONITOR 并 resolve 出那个实例；
+  // callback 形态的 monitor(cb) 里 cb 是 Promise 回调 (err, monitorInstance)，
+  // 不是事件监听器 —— 直接在里面 append 只会得到一次 '[object Object]'，
+  // 真正的命令流要挂在实例的 'monitor' 事件上（回调签名 time, args, source, db）。
+  // resolve 后换绑 p.client = monitor 实例（cleanup 走它 disconnect），
+  // 原连接立刻断掉，不留一条常驻的空闲连接
+  monitorClient.monitor().then(inst => {
+    p.client = inst
+    inst.on('error', () => {}) // 吞，避免 ioredis 未监听异常
+    inst.on('monitor', (time, args) => {
+      if (p.paused) return
+      const text = (args && args.join && args.join(' ')) || String(args)
+      if (p.filter && !text.includes(p.filter)) return
 
-    // 环形：buffer 未满时直接 push；满了覆盖 ringStart 位置后 ringStart++
-    const item = { id: p.seq++, t: time, text }
-    if (p.buffer.length < PROFILER_RING_MAX) {
-      p.buffer.push(item)
-    } else {
-      p.buffer[p.ringStart] = item
-      p.ringStart = (p.ringStart + 1) % PROFILER_RING_MAX
-    }
+      // 环形：buffer 未满时直接 push；满了覆盖 ringStart 位置后 ringStart++
+      const item = { id: p.seq++, t: time, text }
+      if (p.buffer.length < PROFILER_RING_MAX) {
+        p.buffer.push(item)
+      } else {
+        p.buffer[p.ringStart] = item
+        p.ringStart = (p.ringStart + 1) % PROFILER_RING_MAX
+      }
+    })
+    try { monitorClient.disconnect() } catch (_) {}
   }).catch(err => {
     // monitor 命令本身失败（权限/连接），cleanup 并让渲染侧下次 stop 时能拿到状态
     p._fatal = true
@@ -920,7 +928,10 @@ async function startRedisProfiler (conn, { dbIndex, filter } = {}) {
 // 环形缓冲 + seq 单调递增 = 简单 diff：lastSeq 之后的都要。
 // 如果 lastSeq 已在环形覆盖区间之前（意味着渲染侧太久没拉、丢了），
 // 返回 _overflow=true + 全 buffer 内容让渲染侧重置。
-function getRedisProfilerData (handleId, lastSeq = -1) {
+// 签名与转发层协议一致：index.js 对所有 op 统一 adapter[method](conn, args) 调用，
+// 之前写成 (handleId, lastSeq) 导致 profilers.get(conn对象) 永远 miss → 永远
+// 返回 stopped（CDP 实机验证抓到，Contract 测试直接调函数绕过了转发层没拦住）
+function getRedisProfilerData (conn, { handleId, lastSeq } = {}) {
   const p = profilers.get(handleId)
   if (!p) return { rows: [], overflow: false, stopped: true }
 
@@ -946,15 +957,18 @@ function getRedisProfilerData (handleId, lastSeq = -1) {
 
 // N5c：Profiler 暂停/恢复 —— 主进程侧"停止 append"，不影响 monitor client 持续接收
 // （ioredis monitor 本身没法暂停；我们在回调里 skip 就行）
-function toggleRedisProfilerPause (handleId, paused) {
+// 签名与转发层协议一致（同 getRedisProfilerData，参数错位会让 toggle 永远失效）
+function toggleRedisProfilerPause (conn, { handleId, paused } = {}) {
   const p = profilers.get(handleId)
   if (!p) return false
   p.paused = !!paused
   return p.paused
 }
 
-// N5c：Profiler 停止 —— cleanupProfiler 的公开入口
-function stopRedisProfiler (handleId) {
+// N5c：Profiler 停止 —— cleanupProfiler 的公开入口。
+// 签名与转发层协议一致（同 getRedisProfilerData，参数错位会让 handle 永不
+// 清理 —— monitor 常驻连接泄漏）
+function stopRedisProfiler (conn, { handleId } = {}) {
   if (!handleId) return
   cleanupProfiler(handleId)
 }

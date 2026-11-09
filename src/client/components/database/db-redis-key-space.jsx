@@ -23,7 +23,7 @@ import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCir
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
 import { DbGridPager } from './db-grid-pager'
-import { REDIS_SPLIT_KEY, REDIS_TREE_MAX_KEYS } from '../../common/db-session-const'
+import { REDIS_SPLIT_KEY, REDIS_TREE_MAX_KEYS, REDIS_PROFILER_VIEW_MAX } from '../../common/db-session-const'
 import { scanBigKeys, startRedisProfiler, getRedisProfilerData, toggleRedisProfilerPause, stopRedisProfiler } from './use-db-redis-keys'
 
 const e = window.translate
@@ -82,7 +82,9 @@ export function DbRedisKeySpace ({
   const [bigKeyModal, setBigKeyModal] = useState({ open: false, loading: false, rows: [], scanned: 0, truncated: false, cancelled: false, error: '' })
 
   const openBigKeyScan = () => {
-    if (typeof tabId !== 'number' || redisDb < 0) {
+    // tabId 是 nanoid+时间戳字符串（tab.id），不能按 number 判——
+    // 原来写成 typeof tabId !== 'number' 导致按钮永远点了没反应（CDP 实机抓到）
+    if (!tabId || redisDb < 0) {
       return
     }
     setBigKeyModal({ open: true, loading: true, rows: [], scanned: 0, truncated: false, cancelled: false, error: '' })
@@ -116,13 +118,22 @@ export function DbRedisKeySpace ({
     error: ''
   })
   const timerRef = useRef(null)
+  // pull 循环里读 lastSeq 必须走 ref：setInterval 闭包捕获的是 startPulling
+  // 调用时刻的 state，profiler.lastSeq 恒为 -1 → 每次 pull 都全量拉取并
+  // concat 重复累计（CDP 实机实测 8720 条命令被累计成 4.5 万行）
+  const profilerLastSeqRef = useRef(-1)
+
+  // 渲染侧展示行数上限：新行追加在尾部，超出丢最老（与主进程环形同思路）
+  const capRows = (rows) => rows.length > REDIS_PROFILER_VIEW_MAX
+    ? rows.slice(-REDIS_PROFILER_VIEW_MAX)
+    : rows
 
   // 拉流：200ms 一次 getRedisProfilerData，按 lastSeq diff 增量追加
   const startPulling = (handleId) => {
     if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(async () => {
       try {
-        const res = await getRedisProfilerData(tabId, handleId, profiler.lastSeq)
+        const res = await getRedisProfilerData(tabId, handleId, profilerLastSeqRef.current)
         // 主进程停了 / 连接断了 → 清定时器
         if (res && res.stopped) {
           clearInterval(timerRef.current)
@@ -136,20 +147,23 @@ export function DbRedisKeySpace ({
           // overflow：主进程环形覆盖了旧数据 → 全量替换 + lastSeq 重置
           if (res.overflow) {
             newLastSeq = Math.max(-1, ...newRows.map(r => r.id))
-            return { ...s, rows: newRows, lastSeq: newLastSeq, overflow: true }
+            profilerLastSeqRef.current = newLastSeq
+            return { ...s, rows: capRows(newRows), lastSeq: newLastSeq, overflow: true }
           }
           // 增量追加，取新行最大 id 作为下次起点
           if (newRows.length) {
             const maxId = Math.max(...newRows.map(r => r.id))
             if (maxId > newLastSeq) newLastSeq = maxId
           }
-          return { ...s, rows: s.rows.concat(newRows), lastSeq: newLastSeq, paused: !!res.paused }
+          profilerLastSeqRef.current = newLastSeq
+          return { ...s, rows: capRows(s.rows.concat(newRows)), lastSeq: newLastSeq, paused: !!res.paused }
         })
       } catch (_) { /* IPC 临时失败忽略，下轮继续 */ }
     }, 200)
   }
 
   const openProfilerModal = () => {
+    profilerLastSeqRef.current = -1
     setProfiler({ open: true, running: false, handleId: null, rows: [], lastSeq: -1, paused: false, filter: '', overflow: false, error: '' })
   }
   const closeProfilerModal = async () => {
@@ -158,11 +172,13 @@ export function DbRedisKeySpace ({
       try { await stopRedisProfiler(tabId, profiler.handleId) } catch (_) {}
     }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    profilerLastSeqRef.current = -1
     setProfiler(s => ({ ...s, open: false, running: false, handleId: null, rows: [] }))
   }
   const startProfiler = async () => {
     try {
       const res = await startRedisProfiler(tabId, redisDb, profiler.filter)
+      profilerLastSeqRef.current = -1
       setProfiler(s => ({ ...s, running: true, handleId: res.handleId, rows: [], lastSeq: -1, overflow: false, error: '' }))
       startPulling(res.handleId)
     } catch (err) {
@@ -455,6 +471,7 @@ export function DbRedisKeySpace ({
       <Modal
         open={bigKeyModal.open}
         title={e('dbRedisBigKeysTitle')}
+        className='db-redis-bigkeys-modal'
         onCancel={closeBigKeyModal}
         footer={null}
         width={720}
@@ -530,29 +547,33 @@ export function DbRedisKeySpace ({
           />
         </Space>
         {profiler.error && <div className='db-redis-profiler-error'>{profiler.error}</div>}
+        {/* virtual：MONITOR 高频流不设虚拟滚动会把可视外几万行也塞进 DOM
+            （CDP 实机实测 20s 就 17 万节点）；列宽固定以满足 virtual 前提 */}
         {profiler.running
           ? <Table
               size='small'
+              virtual
               pagination={false}
               rowKey='id'
               columns={[
                 { title: '#', dataIndex: 'id', width: 60, render: v => v + 1 },
-                { title: e('dbRedisProfilerFilter'), dataIndex: 'text' }
+                { title: e('dbRedisProfilerFilter'), dataIndex: 'text', width: 560, ellipsis: true }
               ]}
               dataSource={profiler.rows}
-              scroll={{ y: 360 }}
+              scroll={{ x: 620, y: 360 }}
             />
           : profiler.rows.length
             ? <Table
                 size='small'
+                virtual
                 pagination={false}
                 rowKey='id'
                 columns={[
                   { title: '#', dataIndex: 'id', width: 60, render: v => v + 1 },
-                  { title: e('dbRedisProfilerFilter'), dataIndex: 'text' }
+                  { title: e('dbRedisProfilerFilter'), dataIndex: 'text', width: 560, ellipsis: true }
                 ]}
                 dataSource={profiler.rows}
-                scroll={{ y: 360 }}
+                scroll={{ x: 620, y: 360 }}
               />
             : <Empty description={e('dbRedisProfilerEmpty')} />}
       </Modal>
