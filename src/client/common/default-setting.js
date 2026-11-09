@@ -2,7 +2,7 @@
  * default setting
  */
 
-import { defaultLeftSideBarIcons } from './left-sidebar-icon-defs'
+import { defaultLeftSideBarIcons } from './left-sidebar-icon-defs.js'
 
 export default {
   hotkey: 'Control+2',
@@ -80,9 +80,9 @@ export default {
   ],
   hideIP: false,
   dataSyncSelected: 'all',
-  nameAI: '',
-  baseURLAI: 'https://cf.api.fan/v1',
-  modelAI: 'deepseek-flash',
+  nameAI: 'Infistar',
+  baseURLAI: 'https://infistar.cc/v1',
+  modelAI: 'deepseek-v4-flash',
   roleAI: '终端专家,提供不同系统下命令,简要解释用法,用markdown格式',
   apiPathAI: '/chat/completions',
   proxyAI: '',
