@@ -409,8 +409,13 @@ describe('只读是执行闸门，不是输入闸门', () => {
     // SQL 页一进来就打不了字：实测 .cm-content 的 contenteditable="false"，
     // 鼠标点进去 activeElement 仍是 BODY，敲进去的内容全落在 placeholder 上。
     // 迁移前的 textarea 从来没有 readOnly 绑定，写语句由主进程白名单挡。
+    // N7 起断言收窄到 <SqlCodeEditor> 调用块：其余组件（如 DbExplainDialog 的
+    // 实测开关禁用）可以带 readOnly，编辑器本体永远不许锁键盘。
+    const editor = session.match(/<SqlCodeEditor[\s\S]*?\/>/)
+    assert.ok(editor, 'SqlCodeEditor 调用点要在')
+    // 只匹配 prop 绑定（readOnly= / readonly=），注释里的 checkReadonly 等词不误杀
     assert.ok(
-      !/readOnly=\{isReadonly\}/.test(session),
+      !/[Rr]eadOnly\s*=/.test(editor[0]),
       'SQL 编辑器不允许被只读开关锁死输入'
     )
   })

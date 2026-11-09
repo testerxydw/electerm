@@ -4391,6 +4391,9 @@ export default auto(function DbSession (props) {
         database={(sel && sel.database) || tab.dbName || ''}
         schema={sel ? sel.schema : ''}
         sql={explainSql}
+        dbType={tab.dbType}
+        readOnly={isReadonly}
+        confirmSqlRisk={confirmSqlRisk}
       />
       {/* D 批 Redis 重命名键（RENAMENX，不覆盖；冲突走后端可读错误） */}
       <Modal

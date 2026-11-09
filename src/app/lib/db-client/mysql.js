@@ -1277,9 +1277,9 @@ async function executeSql (conn, { sql, database, readOnly, params }) {
 // raw 是服务端原始 JSON（前端折叠查看用）。redis 不注册本 op。
 
 // 「实际行数」只在计划**真正执行过**时存在：mysql EXPLAIN ANALYZE 输出 r_rows，
-// pg ANALYZE 输出 Actual Rows。本实现的 explainQuery 永远拒绝 ANALYZE，
-// 正常返回里 actualRows 恒为 null —— 导出本函数仅供单测，防止未来放开 ANALYZE 时
-// 把预估值（rows_examined_per_scan / Plan Rows）误当实际值。
+// pg ANALYZE 输出 Actual Rows。N7 之后 mysql 的受控实测走 EXPLAIN ANALYZE（TREE 文本，
+// 见 explainQuery），不产 JSON 计划，本函数仍只服务于"防把预估值误当实际值"的
+// 单测护栏 —— 正常预估返回里 actualRows 恒为 null。
 function extractActualRows (plan) {
   if (!plan || typeof plan !== 'object') {
     return null
@@ -1386,6 +1386,22 @@ function containsAnalyze (sql) {
   return /\banalyze\b/i.test(maskSqlText(sql))
 }
 
+// N7 受控实测（analyze=true）的三重收紧：
+// ① 只读连接一律拒绝 —— readOnly 由主进程 safeArgs 注入（index.js dbClientOp），
+//    渲染层伪造 readOnly:false 到不了这里；
+// ② 掩码后首关键词必须是 SELECT/WITH（纯读语句）—— 写语句没有"实测"语义，
+//    N7 验收"EXPLAIN ANALYZE DELETE 被拒"由本闸与 containsAnalyze 双层兜住；
+// ③ 见 explainQuery：用户自带的 ANALYZE 语句在 containsAnalyze 处已拒，统一入口。
+// pg 适配器内联同一段（两适配器不互相依赖，与 containsAnalyze/maskSqlText 同模式）。
+function assertAnalyzeAllowed (maskedSql, readOnly) {
+  if (readOnly) {
+    throw new Error('只读连接不提供实测执行计划（EXPLAIN ANALYZE 会真实执行语句）')
+  }
+  if (!/^\s*(select|with)\b/i.test(maskedSql)) {
+    throw new Error('实测执行计划只接受 SELECT 语句')
+  }
+}
+
 function finiteOrNull (v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -1473,12 +1489,13 @@ function parseMysqlPlan (json) {
   return convertMysqlNode(root, 'SELECT')
 }
 
-async function explainQuery (conn, { database, sql }) {
+async function explainQuery (conn, { database, sql, analyze, readOnly }) {
   const s = String(sql || '').trim()
   if (!s) {
     throw new Error('explainQuery requires sql')
   }
   // 安全边界：EXPLAIN ANALYZE 会真实执行语句，词法级检查后一律拒绝
+  // （用户自己写的 ANALYZE 也要拒 —— N7 的受控实测走 analyze 参数，不收 ANALYZE 语句）
   if (containsAnalyze(s)) {
     throw new Error('EXPLAIN 拒绝 ANALYZE：EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会真实执行语句')
   }
@@ -1496,12 +1513,27 @@ async function explainQuery (conn, { database, sql }) {
   if (maskSqlText(clean).includes(';')) {
     throw new Error('EXPLAIN 一次只接受一条语句（检测到多余分号）')
   }
+  // N7 受控实测：显式 analyze 开关进来才真跑，且三重收紧（见 assertAnalyzeAllowed）。
+  // MySQL 的 EXPLAIN ANALYZE 只支持 TREE 文本输出（8.0 手册：JSON/TRADITIONAL 均报
+  // ER_NOT_SUPPORTED_YET），root 树不解析，TREE 原文直传前端展示。
+  const doAnalyze = Boolean(analyze)
+  if (doAnalyze) {
+    assertAnalyzeAllowed(maskSqlText(clean), readOnly)
+  }
   const pool = await getPool(conn)
   const c = await pool.getConnection()
   try {
     // 与 executeSql 同一模式：同一连接先 USE 再执行，否则裸表名报 No database selected
     if (database) {
       await c.query('USE ' + quoteIdent(database))
+    }
+    if (doAnalyze) {
+      const [arows] = await c.query('EXPLAIN ANALYZE ' + clean)
+      const afirst = arows && arows[0]
+      const raw = afirst
+        ? (afirst.EXPLAIN !== undefined ? afirst.EXPLAIN : afirst[Object.keys(afirst)[0]])
+        : ''
+      return { dialect: 'mysql', root: null, raw, analyze: true }
     }
     const [rows] = await c.query('EXPLAIN FORMAT=JSON ' + clean)
     const first = rows && rows[0]

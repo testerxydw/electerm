@@ -1182,6 +1182,20 @@ function containsAnalyze (sql) {
   return /\banalyze\b/i.test(maskSqlText(sql))
 }
 
+// N7 受控实测（analyze=true）的三重收紧，与 mysql 适配器内联同一段
+// （两适配器不互相依赖，与 containsAnalyze/maskSqlText 同模式）：
+// ① 只读连接拒绝（readOnly 由主进程 safeArgs 注入，渲染层伪造不了）；
+// ② 掩码后首关键词必须是 SELECT/WITH（纯读）；
+// ③ 用户自带的 ANALYZE 语句在 containsAnalyze 处已拒。
+function assertAnalyzeAllowed (maskedSql, readOnly) {
+  if (readOnly) {
+    throw new Error('只读连接不提供实测执行计划（EXPLAIN ANALYZE 会真实执行语句）')
+  }
+  if (!/^\s*(select|with)\b/i.test(maskedSql)) {
+    throw new Error('实测执行计划只接受 SELECT 语句')
+  }
+}
+
 function finiteOrNull (v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -1196,6 +1210,8 @@ function convertPgNode (p) {
     nodeType: p['Node Type'] || 'Plan',
     table: p['Relation Name'] || null,
     rows: finiteOrNull(p['Plan Rows']),
+    // 实际行数只在 EXPLAIN ANALYZE 输出里有；预估计划恒为 null
+    actualRows: finiteOrNull(p['Actual Rows']),
     filtered: null,
     key: p['Index Name'] || null,
     extra,
@@ -1212,12 +1228,13 @@ function parsePgPlan (planDoc) {
   return convertPgNode(planDoc.Plan)
 }
 
-async function explainQuery (conn, { database, schema, sql }) {
+async function explainQuery (conn, { database, schema, sql, analyze, readOnly }) {
   const s = String(sql || '').trim()
   if (!s) {
     throw new Error('explainQuery requires sql')
   }
   // 安全边界：EXPLAIN ANALYZE 会真实执行语句，词法级检查后一律拒绝
+  // （用户自己写的 ANALYZE 也拒 —— N7 的受控实测走 analyze 参数，统一入口）
   if (containsAnalyze(s)) {
     throw new Error('EXPLAIN 拒绝 ANALYZE：EXPLAIN ANALYZE / EXPLAIN (ANALYZE 会真实执行语句')
   }
@@ -1230,6 +1247,26 @@ async function explainQuery (conn, { database, schema, sql }) {
   const c = await getClient(conn)
   if (database && database !== c.database) {
     throw new Error('cross-database query not supported for postgres, connect with that database')
+  }
+  // N7 受控实测：事务包裹真跑一遍再回滚（SELECT 本身无写副作用，ROLLBACK 是收尾，
+  // 保证连接不留开放事务）。statement_timeout 服务端先掐长跑，与 index.js 的
+  // explainQuery op 超时（120s）同值；SET LOCAL 只影响本事务。
+  if (analyze) {
+    assertAnalyzeAllowed(masked, readOnly)
+    await c.query('BEGIN')
+    try {
+      await c.query('SET LOCAL statement_timeout = 120000')
+      const res = await c.query('EXPLAIN (ANALYZE, FORMAT JSON) ' + s)
+      const row = res.rows && res.rows[0]
+      const list = row && row['QUERY PLAN']
+      if (!list) {
+        throw new Error('无法解析 EXPLAIN 输出：缺少 QUERY PLAN')
+      }
+      const planDoc = Array.isArray(list) ? list[0] : list
+      return { dialect: 'postgres', root: parsePgPlan(planDoc), raw: planDoc, analyze: true }
+    } finally {
+      await c.query('ROLLBACK').catch(() => {})
+    }
   }
   const res = await c.query('EXPLAIN (FORMAT JSON) ' + s)
   const row = res.rows && res.rows[0]

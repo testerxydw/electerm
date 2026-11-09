@@ -8,13 +8,18 @@
  * 三视图：树（ant Table 树形数据）/ 图（自绘 SVG 纵向树，零第三方图库）/ JSON（默认折叠）。
  * 图视图支持导出 SVG / PNG（渲染层 Blob + canvas 转制，不经主进程）。
  * 后端拒绝 ANALYZE 的错误信息原样展示——安全语义不做前端转述。
+ * N7 受控实测：显式「实测执行计划」开关（默认关）。开着时真跑语句：
+ * 能力位 explainAnalyze（sqlite 无）才显示开关；只读连接禁用；每次实测前过
+ * confirmSqlRisk 二次确认，取消则开关弹回关。MySQL 实测返回 TREE 文本（root=null），
+ * PG 返回带 actualRows 的计划树（事务内跑完即回滚，见后端 explainQuery）。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Modal, Segmented, Table, Alert, Spin, Button, Collapse, Empty } from 'antd'
+import { Alert, Modal, Segmented, Switch, Table, Tooltip, Spin, Button, Collapse, Empty } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import { downloadText } from '../../common/db-csv'
+import { capabilityOf } from '../../common/sql-dialects'
 
 const e = window.translate
 
@@ -68,6 +73,7 @@ function toTableRows (node, seq) {
     nodeType: node.nodeType,
     table: node.table,
     rows: node.rows,
+    actualRows: node.actualRows,
     filtered: node.filtered,
     key: node.key,
     extra: node.extra,
@@ -84,37 +90,72 @@ export default function DbExplainDialog ({
   tabId,
   database = '',
   schema = '',
-  sql = ''
+  sql = '',
+  dbType = '',
+  readOnly = false,
+  confirmSqlRisk = null
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
   const [view, setView] = useState('tree')
+  // N7：实测开关，默认关（验收项）。能力位 false（sqlite）不渲染开关。
+  const [analyze, setAnalyze] = useState(false)
+  const analyzeAllowed = capabilityOf(dbType, 'explainAnalyze')
   const svgRef = useRef(null)
 
-  // 打开时拉取执行计划：sql/database/tabId 变化即重查
+  // 打开时拉取执行计划：sql/database/tabId 变化即重查；analyze 切换也重查。
+  // 实测前过 confirmSqlRisk 二次确认（N7 要点②），取消则开关弹回关、保留上一轮预估数据
   useEffect(() => {
     if (!open || !sql) {
-      return
+      return undefined
     }
-    setLoading(true)
-    setError('')
-    setData(null)
-    setView('tree')
-    window.pre.runGlobalAsync('dbClientOp', tabId, 'explainQuery', {
-      sql,
-      database: database || '',
-      schema: schema || ''
-    })
-      .then(res => {
-        setData(res && res.root ? res : null)
+    let alive = true
+    const run = async () => {
+      if (analyze && confirmSqlRisk) {
+        let ok = false
+        try {
+          ok = await confirmSqlRisk(sql, database)
+        } catch (err) {
+          ok = false
+        }
+        if (!alive) {
+          return
+        }
+        if (!ok) {
+          setAnalyze(false)
+          return
+        }
+      }
+      setLoading(true)
+      setError('')
+      setData(null)
+      setView('tree')
+      try {
+        const res = await window.pre.runGlobalAsync('dbClientOp', tabId, 'explainQuery', {
+          sql,
+          database: database || '',
+          schema: schema || '',
+          analyze
+        })
+        if (!alive) {
+          return
+        }
+        setData(res && (res.root || res.analyze) ? res : null)
         setLoading(false)
-      })
-      .catch(err => {
+      } catch (err) {
+        if (!alive) {
+          return
+        }
         setError(err && err.message ? err.message : String(err))
         setLoading(false)
-      })
-  }, [open, sql, tabId, database, schema])
+      }
+    }
+    run()
+    return () => {
+      alive = false
+    }
+  }, [open, sql, tabId, database, schema, analyze, confirmSqlRisk])
 
   const treeRows = useMemo(() => {
     if (!data || !data.root) {
@@ -216,6 +257,8 @@ export default function DbExplainDialog ({
     },
     { title: e('dbExplainTable'), dataIndex: 'table', key: 'table', width: 130, render: fmtCell },
     { title: e('dbExplainRows'), dataIndex: 'rows', key: 'rows', width: 90, render: fmtCell },
+    // N7：实际行数只在实测（ANALYZE）输出里有，预估计划恒为 '-'
+    { title: e('dbExplainActualRows'), dataIndex: 'actualRows', key: 'actualRows', width: 90, render: fmtCell },
     { title: e('dbExplainFiltered'), dataIndex: 'filtered', key: 'filtered', width: 90, render: fmtCell },
     { title: e('dbExplainKeyCol'), dataIndex: 'key', key: 'key', width: 120, ellipsis: true, render: fmtCell },
     {
@@ -233,6 +276,10 @@ export default function DbExplainDialog ({
       return null
     }
     if (!data || !data.root) {
+      // MySQL 实测返回 TREE 文本（无 root 树），直接原文展示
+      if (data && data.analyze && typeof data.raw === 'string' && data.raw) {
+        return <pre className='db-explain-json-pre'>{data.raw}</pre>
+      }
       return <Empty description={e('dbExplainNoPlan')} />
     }
     if (view === 'graph' && graph) {
@@ -345,7 +392,32 @@ export default function DbExplainDialog ({
               )
             : null
         }
+        {
+          // N7：实测开关，能力位 explainAnalyze 才有（sqlite 没有就不渲染）；
+          // 只读连接禁用（后端也会拒，这里是 UI 先降级），说明放 Tooltip
+          analyzeAllowed
+            ? (
+              <Tooltip title={readOnly ? e('dbExplainAnalyzeReadonly') : e('dbExplainAnalyzeTip')}>
+                <span className='db-explain-analyze'>
+                  <Switch
+                    size='small'
+                    checked={analyze}
+                    disabled={readOnly}
+                    onChange={setAnalyze}
+                  />
+                  <span>{e('dbExplainAnalyze')}</span>
+                </span>
+              </Tooltip>
+              )
+            : null
+        }
       </div>
+      {
+        // 实测成功：明确告诉用户这条语句真的执行过了（N7 验收「估算 vs 实际」的语义提示）
+        !error && !loading && data && data.analyze
+          ? <Alert type='warning' showIcon message={e('dbExplainAnalyzeWarn')} className='mg1b' />
+          : null
+      }
       {error ? <Alert type='error' showIcon message={error} /> : null}
       <Spin spinning={loading}>
         <div className='db-explain-body'>

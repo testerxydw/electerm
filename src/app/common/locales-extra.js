@@ -809,6 +809,12 @@ const en = {
   dbExplainExportPng: 'Export PNG',
   dbExplainExportFailed: 'Export failed',
   dbExplainSelection: 'Explain selection',
+  // N7：受控实测执行计划（EXPLAIN ANALYZE）
+  dbExplainAnalyze: 'Actual plan',
+  dbExplainAnalyzeTip: 'Runs the statement for real (EXPLAIN ANALYZE) and shows actual rows. SELECT only; you will be asked to confirm',
+  dbExplainAnalyzeWarn: 'This statement was actually executed to measure the plan. PostgreSQL runs it inside a transaction that is rolled back afterwards',
+  dbExplainAnalyzeReadonly: 'Actual plan is unavailable on read-only connections',
+  dbExplainActualRows: 'actual rows',
   // D 批：Redis 类型化写（T12）
   dbRedisAddField: 'Add field',
   dbRedisAddMember: 'Add member',
@@ -2191,6 +2197,12 @@ const zhCn = {
   dbExplainExportPng: '导出 PNG',
   dbExplainExportFailed: '导出失败',
   dbExplainSelection: '解释所选',
+  // N7：受控实测执行计划（EXPLAIN ANALYZE）
+  dbExplainAnalyze: '实测执行计划',
+  dbExplainAnalyzeTip: '真实执行该语句（EXPLAIN ANALYZE）并给出实际行数；仅限 SELECT，执行前会再次确认',
+  dbExplainAnalyzeWarn: '为测出真实计划，该语句已被实际执行过。PostgreSQL 在事务内执行并在测完回滚',
+  dbExplainAnalyzeReadonly: '只读连接不提供实测执行计划',
+  dbExplainActualRows: '实际行数',
   // D 批：Redis 类型化写（T12）
   dbRedisAddField: '添加字段',
   dbRedisAddMember: '添加成员',
