@@ -1826,12 +1826,9 @@
   .db-redis-del-err
     margin-top 10px
 
-// N5b 大 Key 弹窗：正文随视口限高后整体滚动（与 .db-table-design-modal 同款）。
-// 表格行数不定，不用 scroll.y 钉死行数 —— 那是定行高容器才适合的方式
-.db-redis-bigkeys-modal
-  .ant-modal-body
-    max-height calc(100vh - 220px)
-    overflow auto
+// N5b 大 Key 弹窗：汇总行不滚，表格走 scroll.y 内部滚动并固定表头 ——
+// 弹层正文不能整体滚动（会把表头滚走，全局约定：弹层滚动必须固定表头/标题栏）；
+// 表格限高直接由 JSX 的 scroll={{ y: 420 }} 承担，这里无需再写规则
 
 // 上下可拖拽分区（redis 键列表/详情、mysql 网格/单元格预览共用，DbSplitPane）
 .db-split-pane

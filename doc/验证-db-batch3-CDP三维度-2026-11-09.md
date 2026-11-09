@@ -62,3 +62,5 @@ N5a：55 条命令后历史封顶 50（HISTORY_MAX，不发一条涨一条）。
 ## 八、遗留
 
 - 修复代码未 commit（遵守"不主动提交"，等用户指示）。
+- 弹层滚动全局约定补充修复：bigkeys 表格改 scroll.y 固定表头（删 body 整体滚动）；关于弹层 Tabs 栏钉住、正文独立滚。全库排查其余弹层均合规（内部限高或无表头概念）。
+- 本机 nvm 路径为 `$HOME/.config/nvm`（非默认 ~/.nvm），node v22.23.2 在 `/home/dp25/.config/nvm/versions/node/v22.23.2/bin`；全量单测需此 PATH（node v20 会因 node:sqlite/ESM 解析误报 9 个失败）。

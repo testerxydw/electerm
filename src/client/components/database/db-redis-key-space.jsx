@@ -496,11 +496,14 @@ export function DbRedisKeySpace ({
                     pagination={false}
                     rowKey='name'
                     columns={[
-                      { title: e('dbRedisBigKeysColName'), dataIndex: 'name', ellipsis: true, copyable: true },
+                      // scroll.y 让表头独立钉住、行在内部滚 —— 弹层正文不能整体滚动
+                      // （整体滚动会把表头滚走，全局约定：弹层滚动必须固定表头/标题栏）
+                      { title: e('dbRedisBigKeysColName'), dataIndex: 'name', width: 420, ellipsis: true, copyable: true },
                       { title: e('dbRedisBigKeysColType'), dataIndex: 'type', width: 100 },
                       { title: e('dbRedisBigKeysColSize'), dataIndex: 'size', width: 140, render: v => Number(v).toLocaleString() }
                     ]}
                     dataSource={bigKeyModal.rows}
+                    scroll={{ y: 420 }}
                     onRow={r => ({ onClick: () => { selectRedisKey(r.name); closeBigKeyModal() } })}
                   />
                 </>

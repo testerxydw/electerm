@@ -31,3 +31,24 @@
 
 .about-row-sub
   color var(--text-light)
+
+// 关于弹层：Tab 栏钉住、正文独立滚动 —— deps 一两百行 / 命令行帮助超长，
+// 整体滚动会把 Tab 栏滚走，切页就找不到了
+// （全局约定：弹层滚动必须固定表头/标题栏）
+.info-modal
+  .about-wrap
+    display flex
+    flex-direction column
+    max-height calc(100vh - 220px)
+  .ant-tabs
+    display flex
+    flex-direction column
+    flex 1
+    min-height 0
+  .ant-tabs-nav
+    flex none
+    margin-bottom 8px
+  .ant-tabs-content-holder
+    flex 1
+    min-height 0
+    overflow auto
