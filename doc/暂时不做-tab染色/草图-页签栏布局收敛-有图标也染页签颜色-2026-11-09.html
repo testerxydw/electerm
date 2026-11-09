@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>页签栏布局收敛草图 · 有图标也染页签颜色（方案 A / 方案 B 对比）</title>
+<style>
+  /* ===== 主题 token（对齐 src/client/css/includes/tokens.styl 口径的近似值）===== */
+  :root {
+    --primary: #0088cc;
+    --success: #3fb950;
+    --error: #f85149;
+    --radius: 10px;
+    --radius-sm: 8px;
+    --radius-pill: 999px;
+    --tab-item-h: 32px;
+    --tab-color-1: #bf3989;
+    --tab-color-2: #2ea56d;
+    --default-tab-color: #0088cc;
+  }
+  body.theme-dark {
+    --main: #2b303b;
+    --main-dark: #22262f;
+    --surface-0: color-mix(in srgb, var(--primary) 4%, var(--main-dark));
+    --surface-1: color-mix(in srgb, var(--primary) 2%, var(--main));
+    --hover-bg: color-mix(in srgb, var(--text) 7%, transparent);
+    --text: #d0d7de;
+    --text-dark: #9aa4af;
+  }
+  body.theme-light {
+    --main: #eceff1;
+    --main-dark: #dfe3e8;
+    --surface-0: color-mix(in srgb, var(--primary) 4%, var(--main-dark));
+    --surface-1: color-mix(in srgb, var(--primary) 2%, var(--main));
+    --hover-bg: color-mix(in srgb, var(--text) 7%, transparent);
+    --text: #333a40;
+    --text-dark: #4a525a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 32px 64px;
+    background: var(--main-dark); color: var(--text);
+    font: 13px/1.6 ui-monospace, 'SF Mono', Menlo, Consolas, 'Noto Sans Mono CJK SC', monospace;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--text-dark); font-size: 12px; margin-bottom: 16px; }
+  .controls { margin-bottom: 24px; }
+  .controls button {
+    font: inherit; padding: 4px 14px; margin-right: 8px; cursor: pointer;
+    border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+    border-radius: var(--radius-sm);
+    background: var(--surface-0); color: var(--text);
+  }
+  .controls button.on { border-color: var(--primary); color: var(--primary); }
+  section { margin-bottom: 40px; }
+  .sec-title { font-size: 14px; font-weight: bold; margin: 0 0 6px; }
+  .sec-title .tag {
+    font-size: 11px; font-weight: normal; padding: 1px 8px; margin-left: 8px;
+    border-radius: var(--radius-pill); vertical-align: 2px;
+  }
+  .tag.now   { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); }
+  .tag.a     { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--primary); }
+  .tag.b     { background: color-mix(in srgb, var(--tab-color-1) 22%, transparent); color: var(--tab-color-1); }
+  .sec-note { color: var(--text-dark); font-size: 12px; margin: 0 0 12px; max-width: 900px; }
+  .sec-note b { color: var(--text); }
+
+  /* ===== 页签栏（对齐 tabs.styl 实测值）===== */
+  .tabs-bar {
+    display: flex; align-items: flex-end;
+    height: 36px; padding: 3px 8px 0 8px;
+    background: color-mix(in srgb, var(--primary) 3%, var(--main-dark));
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+    overflow: hidden;
+  }
+  .tab {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 5px; vertical-align: middle; cursor: pointer;
+    padding: 0 14px; min-width: 100px; max-width: 200px;
+    height: var(--tab-item-h); line-height: var(--tab-item-h);
+    margin: 0 1px 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: var(--surface-0);
+    color: var(--text-dark);
+    white-space: nowrap; font-size: 13px;
+    transition: background 120ms cubic-bezier(.4,0,.2,1);
+  }
+  .tab:hover { background: var(--hover-bg); }
+  .tab:hover .tab-close { opacity: .7; }
+  .tab.active {
+    color: var(--text);
+    background: var(--surface-1);
+    background-image: linear-gradient(90deg, var(--primary), transparent 78%);
+    background-repeat: no-repeat;
+    background-size: 100% 2px;
+    background-position: 0 0;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 26%, transparent);
+  }
+  /* 状态点：绝对定位左上角 (2px, 2px)，5px 小方块，不占行内宽度（定稿现状） */
+  .tab-status {
+    position: absolute; left: 2px; top: 2px;
+    width: 5px; height: 5px;
+    border-radius: var(--radius-sm);
+    background-color: var(--text-dark);
+  }
+  .tab-status.success { background-color: var(--success); }
+  .tab-status.error { background-color: var(--error); }
+  .tab-status.processing { background-color: var(--primary); }
+  /* 编号徽标：行内首元素，底色 = 页签颜色（定稿现状） */
+  .tab-count {
+    display: inline-block; flex: none;
+    border-radius: var(--radius-pill);
+    padding: 0 4px; height: 20px; line-height: 21px;
+    font-size: 12px;
+  }
+  .tab-title-tag { display: inline-flex; align-items: center; margin-right: 5px; font-size: 14px; flex: none; }
+  .tab-title-tag svg { width: 13px; height: 13px; display: block; }
+  .tab-pin { margin-right: 3px; flex: none; }
+  .tab-pin svg { width: 11px; height: 11px; display: block; }
+  .tab-reload { margin-right: 5px; color: var(--error); flex: none; font-size: 13px; }
+  .tab-qm { margin-right: 5px; color: var(--primary); flex: none; font-size: 11px; }
+  .tab-title-text { overflow: hidden; text-overflow: ellipsis; }
+  .tab-close { margin-left: 2px; opacity: 0; font-size: 12px; color: var(--text-dark); flex: none; }
+  .tab.active .tab-close { opacity: .7; }
+
+  /* ===== 方案 A：下缘 2px 全饱和色条（box-shadow，不碰内容区）===== */
+  .scheme-a .tab-colored { box-shadow: inset 0 -2px 0 var(--tc); }
+  .scheme-a .tab.active.tab-colored {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 26%, transparent),
+                inset 0 -2px 0 var(--tc);
+  }
+  /* ===== 方案 B：14% 淡染背景 + 下缘 2px 色条 ===== */
+  .scheme-b .tab-colored {
+    background-color: color-mix(in srgb, var(--tc) 14%, var(--surface-0));
+    box-shadow: inset 0 -2px 0 var(--tc);
+  }
+  .scheme-b .tab-colored:hover {
+    background-color: color-mix(in srgb, var(--tc) 18%, var(--surface-0));
+  }
+  .scheme-b .tab.active.tab-colored {
+    background-color: color-mix(in srgb, var(--tc) 14%, var(--surface-1));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 26%, transparent),
+                inset 0 -2px 0 var(--tc);
+  }
+
+  /* ===== 图标清晰度对照（方案 B 论证）===== */
+  .legib { display: flex; gap: 20px; align-items: flex-end; margin-top: 14px; flex-wrap: wrap; }
+  .legib .tile { text-align: center; }
+  .legib .swatch {
+    width: 72px; height: 44px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 6px;
+  }
+  .legib .swatch svg { width: 26px; height: 26px; }
+  .legib .cap { font-size: 11px; color: var(--text-dark); max-width: 110px; }
+  .legib .cap b { color: var(--text); }
+  .tile.bad .cap b { color: var(--error); }
+  .tile.good .cap b { color: var(--success); }
+
+  /* ===== 细节放大 3 倍 ===== */
+  .zoom-wrap { position: relative; width: 420px; height: 150px; margin-top: 10px; }
+  .zoom-tab {
+    position: absolute; left: 40px; top: 10px;
+    width: 300px; height: 96px;
+    border-radius: 30px 30px 0 0;
+    background: color-mix(in srgb, var(--tab-color-1) 14%, var(--surface-0));
+    box-shadow: inset 0 -6px 0 var(--tab-color-1);
+    display: flex; align-items: center; gap: 15px;
+    padding: 0 42px;
+  }
+  .zoom-dot { position: absolute; left: 6px; top: 6px; width: 15px; height: 15px; border-radius: 24px; background: var(--success); }
+  .zoom-badge {
+    flex: none; height: 60px; line-height: 63px; padding: 0 12px;
+    border-radius: var(--radius-pill); background: var(--tab-color-1);
+    color: #fff; font-size: 30px;
+  }
+  .zoom-icon { flex: none; }
+  .zoom-icon svg { width: 39px; height: 39px; display: block; }
+  .zoom-title { font-size: 30px; color: var(--text-dark); overflow: hidden; text-overflow: ellipsis; }
+  .dim { position: absolute; font-size: 11px; color: var(--text-dark); }
+  .dim .lbl { color: var(--primary); }
+  .dim-line-h { position: absolute; height: 0; border-top: 1px dashed color-mix(in srgb, var(--primary) 60%, transparent); }
+  .dim-line-v { position: absolute; width: 0; border-left: 1px dashed color-mix(in srgb, var(--primary) 60%, transparent); }
+  .legend { margin-top: 8px; font-size: 12px; color: var(--text-dark); max-width: 900px; }
+  .legend b { color: var(--text); }
+</style>
+</head>
+<body class="theme-dark">
+  <h1>页签栏布局收敛草图 · 有图标也染页签颜色</h1>
+  <div class="sub">2026-11-09 · 承接提交 38c4b025（状态点回左上角 + 编号最左 + 行内颜色圆点删除）· 配套文档：doc/设计-页签栏布局收敛-功能详细说明-2026-11-09.md</div>
+  <div class="controls">
+    主题：
+    <button id="btn-dark" class="on" onclick="setTheme('dark')">深色</button>
+    <button id="btn-light" onclick="setTheme('light')">浅色</button>
+  </div>
+
+  <!-- 复用图标（内置图标示意：橙色圆形 / 青色圆角方） -->
+  <template id="icon-orange">
+    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="7" fill="#E95420"/><circle cx="8" cy="8" r="3" fill="none" stroke="#fff" stroke-width="1.6"/></svg>
+  </template>
+  <template id="icon-teal">
+    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="13" height="13" rx="3.5" fill="#0e9c8a"/><path d="M5 8.2l2 2 4-4.4" fill="none" stroke="#fff" stroke-width="1.6"/></svg>
+  </template>
+  <template id="icon-pin">
+    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M9 1l6 6-2.5.8-3-3L4 12l1 3-1 1-1-1-3-1L8 8.5l-3-3L5.8 3z" fill="#9aa4af"/></svg>
+  </template>
+
+  <!-- ============ 现状 ============ -->
+  <section class="scheme-now">
+    <div class="sec-title">现状 <span class="tag now">已定稿 · 38c4b025</span></div>
+    <div class="sec-note">颜色只表达在<b>编号徽标底色</b>上（含图标页签）；页签本体不带颜色。状态点在左上角 (2px, 2px)。</div>
+    <div class="tabs-bar">
+      <div class="tab"><span class="tab-status success"></span><span class="tab-title"><span class="tab-count" style="background:#0088cc;color:#fff">1</span><span class="tab-title-text">本地终端</span></span><span class="tab-close">×</span></div>
+      <div class="tab active"><span class="tab-status"></span><span class="tab-title"><span class="tab-count" style="background:#bf3989;color:#fff">2</span><span class="tab-title-tag" data-icon="icon-orange"></span><span class="tab-title-text">web-server</span></span><span class="tab-close">×</span></div>
+      <div class="tab"><span class="tab-status"></span><span class="tab-title"><span class="tab-count" style="background:#2ea56d;color:#fff">3</span><span class="tab-title-text">db-备库</span></span><span class="tab-close">×</span></div>
+      <div class="tab"><span class="tab-status error"></span><span class="tab-reload">⟳</span><span class="tab-title"><span class="tab-count" style="background:#bf3989;color:#fff">4</span><span class="tab-title-text">build</span></span><span class="tab-close">×</span></div>
+      <div class="tab"><span class="tab-status processing"></span><span class="tab-title"><span class="tab-count" style="background:#0088cc;color:#fff">5</span><span class="tab-qm">▣</span><span class="tab-title-text">compile 中</span></span><span class="tab-close">×</span></div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 A ============ -->
+  <section class="scheme-a">
+    <div class="sec-title">方案 A：下缘 2px 全饱和色条 <span class="tag a">候选</span></div>
+    <div class="sec-note">页签下缘加一条 <b>2px 全饱和页签颜色条</b>（box-shadow 实现，不占用 ::after）。内容区完全不动，<b>图标清晰度零风险</b>；与激活页签顶部品牌渐变条上下并存。仅显式设置过颜色的页签染色——素色页签不染，默认蓝不扩散。</div>
+    <div class="tabs-bar">
+      <div class="tab"><span class="tab-status success"></span><span class="tab-title"><span class="tab-count" style="background:#0088cc;color:#fff">1</span><span class="tab-title-text">本地终端（无颜色不染）</span></span><span class="tab-close">×</span></div>
+      <div class="tab active tab-colored" style="--tc:#bf3989"><span class="tab-status"></span><span class="tab-title"><span class="tab-count" style="background:#bf3989;color:#fff">2</span><span class="tab-title-tag" data-icon="icon-orange"></span><span class="tab-title-text">web-server（有图标也染）</span></span><span class="tab-close">×</span></div>
+      <div class="tab tab-colored" style="--tc:#2ea56d"><span class="tab-status"></span><span class="tab-title"><span class="tab-count" style="background:#2ea56d;color:#fff">3</span><span class="tab-title-text">db-备库</span></span><span class="tab-close">×</span></div>
+      <div class="tab tab-colored" style="--tc:#bf3989"><span class="tab-status error"></span><span class="tab-reload">⟳</span><span class="tab-title"><span class="tab-count" style="background:#bf3989;color:#fff">4</span><span class="tab-title-text">build</span></span><span class="tab-close">×</span></div>
+      <div class="tab"><span class="tab-status processing"></span><span class="tab-title"><span class="tab-count" style="background:#0088cc;color:#fff">5</span><span class="tab-qm">▣</span><span class="tab-title-text">compile 中</span></span><span class="tab-close">×</span></div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 B ============ -->
+  <section class="scheme-b">
+    <div class="sec-title">方案 B：14% 淡染背景 + 下缘 2px 色条 <span class="tag b">候选</span></div>
+    <div class="sec-note">在方案 A 基础上，背景再掺 <b>14% 页签颜色</b>（默认掺 --surface-0、悬停加强到 18%、激活掺 --surface-1）。整签带色一眼可辨，且 14% 淡染后底色仍接近原表面色，<b>图标对比度基本不变</b>。</div>
+    <div class="tabs-bar">
+      <div class="tab"><span class="tab-status success"></span><span class="tab-title"><span class="tab-count" style="background:#0088cc;color:#fff">1</span><span class="tab-title-text">本地终端（无颜色不染）</span></span><span class="tab-close">×</span></div>
+      <div class="tab active tab-colored" style="--tc:#bf3989"><span class="tab-status"></span><span class="tab-title"><span class="tab-count" style="background:#bf3989;color:#fff">2</span><span class="tab-title-tag" data-icon="icon-orange"></span><span class="tab-title-text">web-server（有图标也染）</span></span><span class="tab-close">×</span></div>
+      <div class="tab tab-colored" style="--tc:#2ea56d"><span class="tab-status"></span><span class="tab-title"><span class="tab-count" style="background:#2ea56d;color:#fff">3</span><span class="tab-title-text">db-备库</span></span><span class="tab-close">×</span></div>
+      <div class="tab tab-colored" style="--tc:#bf3989"><span class="tab-status error"></span><span class="tab-reload">⟳</span><span class="tab-title"><span class="tab-count" style="background:#bf3989;color:#fff">4</span><span class="tab-title-text">build</span></span><span class="tab-close">×</span></div>
+      <div class="tab"><span class="tab-status processing"></span><span class="tab-title"><span class="tab-count" style="background:#0088cc;color:#fff">5</span><span class="tab-qm">▣</span><span class="tab-title-text">compile 中</span></span><span class="tab-close">×</span></div>
+    </div>
+
+    <div class="legib">
+      <div class="tile good">
+        <div class="swatch" style="background: var(--surface-0)"><span data-icon="icon-orange"></span></div>
+        <div class="cap"><b>素底</b>· 图标基准</div>
+      </div>
+      <div class="tile good">
+        <div class="swatch" style="background: color-mix(in srgb, #bf3989 14%, var(--surface-0))"><span data-icon="icon-orange"></span></div>
+        <div class="cap"><b>14% 淡染（方案 B）</b>· 图标依然清楚</div>
+      </div>
+      <div class="tile bad">
+        <div class="swatch" style="background: #bf3989"><span data-icon="icon-orange"></span></div>
+        <div class="cap"><b>全饱和整染（否决）</b>· 图标与底色同色系，看不清</div>
+      </div>
+    </div>
+    <div class="legend">对照结论：担心图标看不清只针对「整块饱和染色」这一种做法；方案 B 的 14% 淡染 + 下缘实色条是安全落法。切换到<b>浅色主题</b>再核对一遍。</div>
+  </section>
+
+  <!-- ============ 细节放大 ============ -->
+  <section>
+    <div class="sec-title">细节放大 3 倍（以方案 B · 图标 + 颜色页签为例）</div>
+    <div class="sec-note">标注本次收敛的全部定稿尺寸：状态点 (2px, 2px) / 5px 小方块 / 下缘 2px 色条 / 14% 淡染 / 编号徽标最左。</div>
+    <div class="zoom-wrap">
+      <div class="zoom-tab">
+        <span class="zoom-dot"></span>
+        <span class="zoom-badge">2</span>
+        <span class="zoom-icon" data-icon="icon-orange"></span>
+        <span class="zoom-title">web-server</span>
+      </div>
+      <!-- 尺寸标注 -->
+      <div class="dim-line-h" style="left: 40px; top: 106px; width: 300px;"></div>
+      <div class="dim" style="left: 120px; top: 110px;"><span class="lbl">下缘色条 2px（图内 6px = 3×）</span></div>
+      <div class="dim-line-v" style="left: 34px; top: 10px; height: 96px;"></div>
+      <div class="dim" style="left: 2px; top: 40px; width: 30px;"><span class="lbl">32px</span><br>单签高</div>
+      <div class="dim-line-v" style="left: 49px; top: 22px; height: 12px;"></div>
+      <div class="dim" style="left: 52px; top: 22px;"><span class="lbl">状态点 5px @ (2,2)</span></div>
+      <div class="dim-line-h" style="left: 82px; top: 12px; width: 60px;"></div>
+      <div class="dim" style="left: 84px; top: -2px;"><span class="lbl">徽标底色 = 页签颜色 · 行内首元素</span></div>
+    </div>
+  </section>
+
+<script>
+  // 把 <template> 里的示意图标克隆到所有 data-icon 槽位
+  document.querySelectorAll('[data-icon]').forEach(slot => {
+    const tpl = document.getElementById(slot.dataset.icon)
+    if (tpl) slot.appendChild(tpl.content.cloneNode(true))
+  })
+  function setTheme (t) {
+    document.body.classList.toggle('theme-dark', t === 'dark')
+    document.body.classList.toggle('theme-light', t === 'light')
+    document.getElementById('btn-dark').classList.toggle('on', t === 'dark')
+    document.getElementById('btn-light').classList.toggle('on', t === 'light')
+  }
+</script>
+</body>
+</html>
