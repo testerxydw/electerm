@@ -40,6 +40,11 @@
 //     content 隐式变成 100vh；wrap 一旦 hidden，必须靠 body 内滚才能不裁内容。
 //     下面 .is-mobile 子规则把 height/min-height/max-height 三值显式写死为
 //     100vh，消除隐式行为，并把滚动明确交给 .custom-modal-body。
+//     antd Modal 没有 mobile.styl 的补位：默认 .ant-modal{top:100px}，小屏
+//     media query 还加 margin:8px auto / max-width calc(100vw - 16px)，叠加
+//     全局 max-height(100vh-148px) 后顶部留 108px、底部留 48px，既不全屏、
+//     又白丢一大截视口。移动端子规则把位移/外边距归零、宽度铺满，
+//     container 三值写死 100vh；滚动仍归 .ant-modal-body，不新增通道。
 //
 // 已收敛的局部补丁（不再各自为政）：
 //   tree-list.styl 的 .dup-bookmarks-modal、db-session.styl 的
@@ -91,8 +96,21 @@
 // ---- 3. 移动端全屏弹层 -----------------------------------------------------
 // 与 mobile.styl:139-144 的 width/max-width/margin-top/min-height 互补：
 // 这里只补高度链，使「min-height 100vh 压过全局 max-height」变成显式契约。
+// antd 分支同样逐条 !important：CSS-in-JS 的 .ant-modal{top:100} 与小屏
+// media query 的 margin/max-width 都是运行时注入，裸声明压不过。
 .is-mobile
   .custom-modal-content
     height 100vh
     min-height 100vh
     max-height 100vh
+  .ant-modal
+    top 0 !important
+    margin 0 !important
+    width 100vw !important
+    max-width 100vw !important
+  .ant-modal-container
+    box-sizing border-box !important
+    height 100vh !important
+    min-height 100vh !important
+    max-height 100vh !important
+    border-radius 0 !important

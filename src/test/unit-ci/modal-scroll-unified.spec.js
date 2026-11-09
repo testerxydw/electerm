@@ -58,6 +58,8 @@ const INFO_STYL = path.join(CLIENT, 'components/sidebar/info.styl')
 const DB_STYL = path.join(CLIENT, 'components/database/db-session.styl')
 const TREE_STYL = path.join(CLIENT, 'components/tree-list/tree-list.styl')
 const SHORTCUT_STYL = path.join(CLIENT, 'components/terminal/shortcut-bar.styl')
+const SETTING_LIST_STYL = path.join(CLIENT, 'components/setting-panel/list.styl')
+const SETTING_WRAP_STYL = path.join(CLIENT, 'components/setting-panel/setting-wrap.styl')
 const ANTD_TABS_DIR = path.join(ROOT, 'node_modules/antd/es/tabs')
 const ANTD_MODAL_STYLE = path.join(ROOT, 'node_modules/antd/es/modal/style/index.js')
 const PANEL = path.join(ROOT, 'node_modules/@rc-component/dialog/es/Dialog/Content/Panel.js')
@@ -158,6 +160,30 @@ function assertAntdImportant (src) {
     assert.ok(decls.length > 0, `${sel} 没有声明`)
     for (const d of decls) {
       assert.match(d, /!important\s*$/, `${sel} 的 "${d}" 缺 !important：会被运行时 CSS-in-JS 压过`)
+    }
+  }
+}
+
+// 从「顶层 .is-mobile 选择器行」起截取移动端块。不能用 indexOf('.is-mobile')：
+// 文件头注释里先出现了这个字符串，会把桌面层的 .ant-modal-container 也截进来，
+// ruleBody 于是命中错误的规则块（实测曾让移动端断言假绿）。
+function mobileBlock (src) {
+  const lines = stripStylComments(src).split('\n')
+  const i = lines.findIndex(l => l.trim() === '.is-mobile' && l.match(/^\s*/)[0].length === 0)
+  assert.notEqual(i, -1, 'SSOT 里找不到顶层 .is-mobile 选择器')
+  return lines.slice(i).join('\n')
+}
+
+// 移动端 antd 分支同样逐条 !important（小屏 media query 也是运行时注入）。
+function assertMobileAntdImportant (src) {
+  const mobile = mobileBlock(src)
+  for (const sel of ['.ant-modal', '.ant-modal-container']) {
+    const decls = ruleBody(mobile, sel).split('\n')
+      .map(s => s.trim())
+      .filter(s => s && /^[a-z][a-z-]*\s/.test(s))
+    assert.ok(decls.length > 0, `移动端 ${sel} 没有声明`)
+    for (const d of decls) {
+      assert.match(d, /!important\s*$/, `移动端 ${sel} 的 "${d}" 缺 !important`)
     }
   }
 }
@@ -285,6 +311,32 @@ function overflowViolations (files) {
   return out
 }
 
+// 白名单不能靠「JS 侧 listStyle 动态给定高度」蒙混过关：全仓 listStyle
+// 只有默认值 = {}、透传简写、style={listStyle} 三种形态，没有任何调用方赋值。
+// 一旦有人给 listStyle 塞了 { height: ... }，静态 styl 扫描看不见，
+// 这里必须立刻红，并提示改用 CSS 父链定高或补运行时判据。
+function listStyleDynamicHitsInSrc (src, rel) {
+  const out = []
+  src.split('\n').forEach((l, i) => {
+    const t = l.trim()
+    if (!t.includes('listStyle')) return
+    if (/^(\/\/|\/\*|\*)/.test(t)) return
+    if (/^listStyle\s*=\s*\{\s*\}\s*,?\s*$/.test(t)) return // 解构默认参数
+    if (/^listStyle,?$/.test(t)) return // 解构 / 对象简写透传
+    if (t.includes('style={listStyle}')) return // 组件内使用
+    out.push(`${rel}:${i + 1}:${t}`)
+  })
+  return out
+}
+
+function listStyleDynamicHits (files) {
+  const out = []
+  for (const f of files) {
+    out.push(...listStyleDynamicHitsInSrc(read(f), path.relative(ROOT, f)))
+  }
+  return out
+}
+
 // 已核实合规白名单（「保留 + 理由」逐条登记，AGENTS.md §5.2.2 SSOT）：
 // 这些声明自身/祖先链里没有显式高度约束，但高度由「使用处 / 兄弟规则 /
 // 已定高的父容器」给出，滚动条仍落在该容器内，不做改动以免行为变更。
@@ -299,7 +351,10 @@ const OVERFLOW_ALLOWLIST = [
   // 下拉浮层：父 .transports-wrap{height 36px;position absolute}，
   // 子 .transports-content{max-height 200px} 限制内容
   'src/client/components/file-transfer/transfer.styl|.transports-dd|overflow-y scroll',
-  // 高度由 JSX 的 listStyle 动态给定 + 父 .setting-row 绝对定位定高
+  // 定高只来自 CSS 父链：setting-wrap.styl 的 .setting-row{position absolute;
+  // top 127px} + .setting-row-left/.setting-row-right{bottom 0} 完成上下定位。
+  // JSX 里的 listStyle 全仓从未被赋值（恒为 {}），不是高度来源 —— 曾误记为此，
+  // 现在由「白名单父链」静态断言 + CDP 运行时判据双重钉死。
   'src/client/components/setting-panel/list.styl|.item-list-wrap|overflow-y scroll',
   // 兄弟规则 .setting-row-left/.setting-row-right 提供 bottom 0 完成上下定位定高
   'src/client/components/setting-panel/setting-wrap.styl|.setting-row|overflow-y scroll',
@@ -417,12 +472,37 @@ describe('弹层统一通道：modal-scroll.styl 是唯一真源', () => {
 
   test('移动端全屏弹层有显式 100vh 高度链（覆盖 mobile.styl 的 min-height 100vh）', () => {
     const ssot = read(SSOT)
-    const mobileBlock = ssot.slice(ssot.indexOf('.is-mobile'))
-    assert.match(mobileBlock, /\.custom-modal-content[\s\S]{0,160}height 100vh/)
-    assert.match(mobileBlock, /min-height 100vh/)
-    assert.match(mobileBlock, /max-height 100vh/)
+    const mobile = mobileBlock(ssot)
+    assert.match(mobile, /\.custom-modal-content[\s\S]{0,160}height 100vh/)
+    assert.match(mobile, /min-height 100vh/)
+    assert.match(mobile, /max-height 100vh/)
     assert.match(read(MOBILE), /\.custom-modal-content[\s\S]{0,200}min-height 100vh/,
       'mobile.styl 的全屏规则仍在，SSOT 子规则必须存在以消除隐式覆盖')
+  })
+
+  test('移动端 antd Modal 全屏化：top/margin 归零、宽度铺满、container 100vh', () => {
+    const ssot = read(SSOT)
+    const mobile = mobileBlock(ssot)
+    const modal = ruleBody(mobile, '.ant-modal').split('\n').map(s => s.trim())
+    for (const d of [
+      'top 0 !important', 'margin 0 !important',
+      'width 100vw !important', 'max-width 100vw !important'
+    ]) {
+      assert.ok(modal.includes(d), `移动端 .ant-modal 缺 "${d}"：top:100 + 小屏 margin 会留下空白`)
+    }
+    const container = ruleBody(mobile, '.ant-modal-container').split('\n').map(s => s.trim())
+    for (const d of [
+      'box-sizing border-box !important',
+      'height 100vh !important', 'min-height 100vh !important', 'max-height 100vh !important'
+    ]) {
+      assert.ok(container.includes(d), `移动端 .ant-modal-container 缺 "${d}"：无法全屏且会算进 padding`)
+    }
+    assertMobileAntdImportant(ssot)
+    // 绑定 antd 真实默认值：升级改了 top / 小屏 margin 就必须重推这套覆盖。
+    const antd = read(ANTD_MODAL_STYLE)
+    assert.match(antd, /top:\s*100/, 'antd .ant-modal 不再 top:100，移动端归零规则须重评')
+    assert.match(antd, /maxWidth:\s*'calc\(100vw - 16px\)'/,
+      'antd 小屏 media query 改了宽度规则，移动端 width/max-width 覆盖须重评')
   })
 
   test('局部 .ant-modal-body 补丁已收敛，既有成果不被回退', () => {
@@ -475,6 +555,48 @@ describe('滚动容器护栏：无高度约束的 overflow auto/scroll 必须登
     for (const item of OVERFLOW_ALLOWLIST) {
       assert.equal(actual.filter(a => a === item).length, 1, '白名单项未恰好命中一次：' + item)
     }
+  })
+})
+
+// ---- 3b. 白名单父链与 JS 侧定高（评估项③：静态假阴性收敛）------------------
+
+describe('白名单父链真实存在 / JS 侧不得提供定高', () => {
+  test('setting-wrap.styl 的 .setting-row 绝对定位 + bottom 0 确实给列表定高', () => {
+    const src = read(SETTING_WRAP_STYL)
+    const row = ruleBody(src, '.setting-row')
+    assert.match(row, /^position absolute$/m, '白名单登记的父链必须仍是绝对定位')
+    assert.match(row, /^top 127px$/m, '父链必须有确定 top')
+    const left = ruleBody(src, '.setting-row-left')
+    const right = ruleBody(src, '.setting-row-right')
+    assert.match(left, /^bottom 0$/m, '.setting-row-left 必须给 bottom 0')
+    assert.match(right, /^bottom 0$/m, '.setting-row-right 必须给 bottom 0')
+    assert.match(right, /^min-height 400px$/m, '右栏仍有最小高度，父链不是隐式撑开')
+    assert.match(ruleBody(read(SETTING_LIST_STYL), '.item-list-wrap'), /^overflow-y scroll$/m,
+      '白名单指向的声明必须仍存在')
+  })
+
+  test('tree-list.styl 的 .tree-list 定高链 + .item-list-wrap 弹性收高真实存在', () => {
+    const src = read(TREE_STYL)
+    const tree = ruleBody(src, '.tree-list')
+    assert.match(tree, /^height 100%$/m)
+    assert.match(tree, /^display flex$/m)
+    const wrap = ruleBody(src, '.item-list-wrap')
+    assert.match(wrap, /^flex 1$/m)
+    assert.match(wrap, /^min-height 0$/m)
+  })
+
+  test('全仓 JSX 里 listStyle 只有默认值/透传/使用，无任何动态定高赋值', () => {
+    const hits = listStyleDynamicHits(walkFiles(CLIENT, '.jsx'))
+    assert.deepEqual(hits, [],
+      'listStyle 一旦被赋值，静态 styl 扫描看不见；必须改用 CSS 父链或补运行时判据')
+  })
+
+  test('反例：注入 listStyle={{ height: 400 }} → 护栏立即命中', () => {
+    const src = read(path.join(CLIENT, 'components/setting-panel/list.jsx'))
+    assert.deepEqual(listStyleDynamicHitsInSrc(src, 'clean.jsx'), [])
+    const mutated = src + '\nconst regression = { listStyle: { height: 400 } }\n'
+    assert.ok(listStyleDynamicHitsInSrc(mutated, 'mutated.jsx').length > 0,
+      '静态护栏必须识别 JS 侧新增的定高')
   })
 })
 
@@ -551,5 +673,11 @@ describe('反例自检：把源码改坏，护栏必须立即红', () => {
   test('反例 G：info.styl 覆盖 .custom-modal-body → 单通道护栏抛错', () => {
     const mutated = read(INFO_STYL) + '\n  .custom-modal-body\n    overflow hidden\n'
     assert.throws(() => assertInfoNoHeightChain(mutated), /SSOT/)
+  })
+
+  test('反例 H：移动端 antd 覆盖去掉 !important → 全屏护栏抛错', () => {
+    const mutated = read(SSOT).replace('height 100vh !important', 'height 100vh')
+    assert.notEqual(mutated, read(SSOT), '变异未生效')
+    assert.throws(() => assertMobileAntdImportant(mutated), /!important/)
   })
 })

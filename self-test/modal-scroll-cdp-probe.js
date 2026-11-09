@@ -33,6 +33,13 @@
  *      的 div，嵌套在也 overflow-y:auto 的 .custom-modal-body 内 ——
  *      同时可滚祖先链 <=1、条款能滚到底、header/footer rect.top 差 = 0、
  *      footer 按钮可见可点、无全屏滚动条。
+ *   ⑦ 真实 antd Modal（store.toggleTriggerSessionModal 打开 footer 常驻弹层）：
+ *      桌面 wrap hidden / top:100 / maxHeight=100vh-148 / body 内滚；
+ *      移动端 top、margin 归零、宽度铺满、container 三值 100vh 贴满视口、
+ *      header 常驻、真实滚轮滚到底、无双滚动条。
+ *   ⑧ 列表容器运行时父链（白名单静态扫描的盲区）：设置弹层 .item-list-wrap
+ *      的 computed height/overflowY、祖先链定高证据、注入超高内容后真实滚轮
+ *      scrollTop>0，且弹层外可滚元素 0 / 无全屏滚动条。
  *   抽验：5 个 Tab 逐个切换 nav 常驻；is-mobile content.height===innerHeight
  *      且能滚到底；浅/深主题 nav 背景跟随 --main 且不透明。
  *
@@ -305,6 +312,154 @@ const PROBE = `(() => {
           const r = term.getBoundingClientRect()
           return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + Math.min(r.height / 2, 120)) }
         })() : null
+      }
+    },
+
+    // ---- 评估项②：真实 antd Modal 运行时判据 -------------------------------
+    // 此前 46 条判据量到的全是自定义 Modal；antd Modal（27+ 处调用）是盲区。
+    // 用 store.toggleTriggerSessionModal(true) 打开 footer 常驻、Modal 直接来自
+    // antd 的 trigger-session-modal，再注入超高内容当滚动夹具。
+    antdWrap: () => window.__ms.qa('.ant-modal-wrap')[0] || null,
+    antdContainer: () => window.__ms.qa('.ant-modal-container')[0] || null,
+    antdBody: () => window.__ms.qa('.ant-modal-body')[0] || null,
+    antdInstallTall: () => {
+      const b = window.__ms.antdBody()
+      if (!b) return false
+      let d = b.querySelector('[data-probe-antd-tall]')
+      if (!d) {
+        d = document.createElement('div')
+        d.setAttribute('data-probe-antd-tall', '1')
+        d.style.height = '2600px'
+        d.style.background = 'rgba(128,128,128,0.06)'
+        d.textContent = 'probe tall content'
+        b.appendChild(d)
+      }
+      return true
+    },
+    antdRemoveTall: () => {
+      const b = window.__ms.antdBody()
+      if (!b) return 0
+      const ds = [...b.querySelectorAll('[data-probe-antd-tall]')]
+      ds.forEach(d => d.remove())
+      return ds.length
+    },
+    antdState: () => {
+      const M = window.__ms
+      const wrap = M.antdWrap()
+      const modal = M.q('.ant-modal')
+      const c = M.antdContainer()
+      const b = M.antdBody()
+      const h = c ? c.querySelector('.ant-modal-header') : null
+      const f = c ? c.querySelector('.ant-modal-footer') : null
+      const cs = el => el ? getComputedStyle(el) : null
+      const bRect = rect(b)
+      return {
+        found: !!(wrap && c && b),
+        innerHeight: window.innerHeight,
+        innerWidth: window.innerWidth,
+        isMobileCls: document.documentElement.classList.contains('is-mobile'),
+        wrapOverflowY: wrap ? cs(wrap).overflowY : null,
+        modalTop: modal ? cs(modal).top : null,
+        modalMarginTop: modal ? cs(modal).marginTop : null,
+        modalWidth: modal ? cs(modal).width : null,
+        modalRect: rect(modal),
+        containerRect: rect(c),
+        containerComputed: c ? {
+          height: cs(c).height, minHeight: cs(c).minHeight,
+          maxHeight: cs(c).maxHeight, display: cs(c).display,
+          boxSizing: cs(c).boxSizing, overflowY: cs(c).overflowY
+        } : null,
+        bodyOverflowY: b ? cs(b).overflowY : null,
+        body: scrollInfo(b),
+        header: rect(h),
+        footer: rect(f),
+        innerScrollables: c ? [...c.querySelectorAll('*')].filter(vis).filter(isScrollableY).map(brief) : [],
+        outerScrollables: M.outerScrollables(),
+        doc: M.docScroll(),
+        tallInstalled: b ? !!b.querySelector('[data-probe-antd-tall]') : false,
+        wheelPoint: bRect ? {
+          x: Math.round(bRect.left + bRect.width / 2),
+          y: Math.round(bRect.top + bRect.height * 0.6),
+          w: Math.round(bRect.width), h: Math.round(bRect.height)
+        } : null
+      }
+    },
+
+    // ---- 评估项③：列表容器运行时父链 ---------------------------------------
+    // 静态白名单只扫 styl，证明不了父链真的定高。这里直接量 computed height /
+    // position / overflow，并注入超高内容用真实滚轮确认滚动条落在容器内。
+    listEl: () => {
+      const M = window.__ms
+      const tagged = M.q('[data-probe-list-target]')
+      if (tagged && vis(tagged)) return tagged
+      const els = M.qa('.item-list-wrap')
+      if (!els.length) return null
+      const el = els.find(e => e.closest('.setting-row')) || els[0]
+      el.setAttribute('data-probe-list-target', '1')
+      return el
+    },
+    listInstallTall: () => {
+      const el = window.__ms.listEl()
+      if (!el) return false
+      let d = el.querySelector('[data-probe-list-tall]')
+      if (!d) {
+        d = document.createElement('div')
+        d.setAttribute('data-probe-list-tall', '1')
+        d.style.height = '2400px'
+        d.textContent = 'probe tall filler'
+        el.appendChild(d)
+      }
+      return true
+    },
+    listRemoveTall: () => {
+      const el = window.__ms.listEl()
+      if (!el) return 0
+      const ds = [...el.querySelectorAll('[data-probe-list-tall]')]
+      ds.forEach(d => d.remove())
+      el.removeAttribute('data-probe-list-target')
+      return ds.length
+    },
+    listState: () => {
+      const M = window.__ms
+      const el = M.listEl()
+      if (!el) return null
+      const s = getComputedStyle(el)
+      const chain = []
+      let n = el.parentElement
+      while (n && chain.length < 6) {
+        const ps = getComputedStyle(n)
+        const r = rect(n)
+        chain.push({
+          cls: String(n.className || '').slice(0, 80),
+          height: r ? r.height : -1,
+          computedHeight: ps.height,
+          position: ps.position,
+          display: ps.display,
+          overflowY: ps.overflowY,
+          flex: ps.flex,
+          top: ps.top,
+          bottom: ps.bottom
+        })
+        n = n.parentElement
+      }
+      const r = rect(el)
+      return {
+        cls: String(el.className || ''),
+        innerHeight: window.innerHeight,
+        innerWidth: window.innerWidth,
+        own: {
+          computedHeight: s.height, overflowY: s.overflowY,
+          rect: r, sh: el.scrollHeight, ch: el.clientHeight, st: el.scrollTop
+        },
+        chain,
+        outerScrollables: M.outerScrollables(),
+        doc: M.docScroll(),
+        tallInstalled: !!el.querySelector('[data-probe-list-tall]'),
+        wheelPoint: r ? {
+          x: Math.round(r.left + r.width / 2),
+          y: Math.round(r.top + r.height * 0.6),
+          w: Math.round(r.width), h: Math.round(r.height)
+        } : null
       }
     }
   }
@@ -717,6 +872,145 @@ async function main () {
     await cdp.eval('window.store.showInfoModal = false')
     await sleep(500)
 
+    // ================================================================ S6b 真实 antd Modal（桌面）
+    // 评估项②：此前判据量到的全是自定义 Modal，27+ 处 antd Modal 是测试盲区。
+    // footer 常驻的 trigger-session-modal.jsx 直接 import antd 的 Modal，
+    // store.toggleTriggerSessionModal(true) 可稳定打开；超高内容为注入夹具。
+    await cdp.eval('window.store.toggleTriggerSessionModal(true)')
+    const antdUp = await waitFor(cdp, '!!window.__ms.antdBody()', 'antd modal open', 10000)
+    check('⑦ 夹具：真实 antd Modal 可打开（.ant-modal-body 可见）', antdUp)
+    const antdTallUp = antdUp ? await cdp.eval('window.__ms.antdInstallTall()') : false
+    check('⑦ 夹具：antd Modal 超高内容注入成功', antdTallUp === true)
+    await sleep(500)
+    const a7 = await cdp.eval('window.__ms.antdState()')
+    metrics.antdDesktop = a7
+    console.log('METRIC antd-desktop ' + J({
+      found: a7.found,
+      wrapOverflowY: a7.wrapOverflowY,
+      modalTop: a7.modalTop,
+      containerComputed: a7.containerComputed,
+      body: a7.body,
+      bodyOverflowY: a7.bodyOverflowY,
+      innerScrollables: a7.innerScrollables.length,
+      outer: a7.outerScrollables.length,
+      doc: a7.doc
+    }))
+    check('⑦ 桌面 .ant-modal-wrap computed overflowY === hidden（弹层外不滚）',
+      a7.found && a7.wrapOverflowY === 'hidden', { wrapOverflowY: a7.wrapOverflowY })
+    check('⑦ 桌面 .ant-modal 仍是 antd 默认 top:100px（移动端规则不误伤桌面）',
+      a7.modalTop === '100px', { modalTop: a7.modalTop })
+    check('⑦ 桌面 .ant-modal-container maxHeight === 100vh - 148px',
+      a7.found &&
+      Math.abs(parseFloat(a7.containerComputed.maxHeight) - (a7.innerHeight - 148)) <= 1.5,
+      { maxHeight: a7.containerComputed && a7.containerComputed.maxHeight, innerHeight: a7.innerHeight })
+    check('⑦ 桌面 .ant-modal-body computed overflowY === auto 且超高内容可滚',
+      a7.found && a7.bodyOverflowY === 'auto' && a7.body.sh > a7.body.ch + 1,
+      { body: a7.body, bodyOverflowY: a7.bodyOverflowY })
+    const a7Trace = antdUp && a7.wheelPoint
+      ? await wheelToBottom(cdp, a7.wheelPoint, 'window.__ms.antdBody()')
+      : []
+    const a7after = await cdp.eval('window.__ms.antdState()')
+    check('⑦ 桌面真实滚轮滚到底（st>0 且 st+ch>=sh-2）',
+      a7after.body.st > 0 && a7after.body.st + a7after.body.ch >= a7after.body.sh - 2,
+      { body: a7after.body, trace: a7Trace[a7Trace.length - 1] })
+    check('⑦ 桌面 header rect.top 滚动前后恒定（头常驻）',
+      !!(a7.header && a7after.header) &&
+      Math.abs(a7.header.top - a7after.header.top) <= 1.5,
+      { before: a7.header && a7.header.top, after: a7after.header && a7after.header.top })
+    check('⑦ 桌面弹层内可滚元素 <=1 / 弹层外 0 / 无全屏滚动条',
+      a7after.innerScrollables.length <= 1 && a7after.outerScrollables.length === 0 &&
+      a7after.doc.scrollingTop === 0 && a7after.doc.docScrollWidth <= a7after.doc.innerWidth,
+      { inner: a7after.innerScrollables.length, outer: a7after.outerScrollables.length, doc: a7after.doc })
+
+    // ================================================================ S6c 真实 antd Modal（移动端）
+    // 评估项②核心：.is-mobile 只覆盖自定义 Modal 时，antd Modal 仍 top:100 +
+    // 100vh-148px，顶部留 108px、底部留 48px。这里量真实 DOM 的全屏化。
+    await cdp.call('Emulation.setDeviceMetricsOverride',
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: false })
+    const mobileClsOk = await cdp.eval(
+      '(() => { const h = document.documentElement; ' +
+      'if (!h.classList.contains(\'is-mobile\')) h.classList.add(\'is-mobile\'); ' +
+      'return h.classList.contains(\'is-mobile\') })()')
+    check('⑦ 夹具：html 挂上 is-mobile 类', mobileClsOk === true)
+    await sleep(900)
+    // 视口变化可能触发 React 重渲染，夹具可能被冲掉，重新装一次
+    await cdp.eval('window.__ms.antdInstallTall()')
+    const a8 = await cdp.eval('window.__ms.antdState()')
+    metrics.antdMobile = a8
+    console.log('METRIC antd-mobile ' + J({
+      isMobileCls: a8.isMobileCls,
+      modalTop: a8.modalTop,
+      modalMarginTop: a8.modalMarginTop,
+      modalWidth: a8.modalWidth,
+      containerRect: a8.containerRect,
+      containerComputed: a8.containerComputed,
+      body: a8.body,
+      innerScrollables: a8.innerScrollables.length,
+      outer: a8.outerScrollables.length,
+      doc: a8.doc
+    }))
+    const near = (v, target) => Math.abs(parseFloat(v) - target) <= 1.5
+    check('⑦ 移动端 .ant-modal top/margin 归零（消除 100px + 8px 空白）',
+      a8.found && a8.modalTop === '0px' && a8.modalMarginTop === '0px',
+      { modalTop: a8.modalTop, modalMarginTop: a8.modalMarginTop })
+    check('⑦ 移动端 .ant-modal 宽度铺满视口',
+      a8.found && near(a8.modalWidth, a8.innerWidth),
+      { modalWidth: a8.modalWidth, innerWidth: a8.innerWidth })
+    check('⑦ 移动端 container 三值 100vh 且贴满视口上下沿',
+      a8.found && a8.containerComputed &&
+      near(a8.containerComputed.height, a8.innerHeight) &&
+      near(a8.containerComputed.minHeight, a8.innerHeight) &&
+      near(a8.containerComputed.maxHeight, a8.innerHeight) &&
+      a8.containerRect && Math.abs(a8.containerRect.top) <= 1.5 &&
+      Math.abs(a8.containerRect.bottom - a8.innerHeight) <= 1.5,
+      { containerComputed: a8.containerComputed, containerRect: a8.containerRect })
+    check('⑦ 移动端 .ant-modal-wrap 仍 hidden 且 body 内滚（不新增滚动通道）',
+      a8.found && a8.wrapOverflowY === 'hidden' && a8.bodyOverflowY === 'auto' &&
+      a8.body.sh > a8.body.ch + 1,
+      { wrapOverflowY: a8.wrapOverflowY, bodyOverflowY: a8.bodyOverflowY, body: a8.body })
+    const a8Trace = a8.wheelPoint
+      ? await wheelToBottom(cdp, a8.wheelPoint, 'window.__ms.antdBody()')
+      : []
+    const a8after = await cdp.eval('window.__ms.antdState()')
+    check('⑦ 移动端真实滚轮滚到底（st>0 且 st+ch>=sh-2）',
+      a8after.body.st > 0 && a8after.body.st + a8after.body.ch >= a8after.body.sh - 2,
+      { body: a8after.body, trace: a8Trace[a8Trace.length - 1] })
+    check('⑦ 移动端 header rect.top 滚动前后恒定（全屏下头仍常驻）',
+      !!(a8.header && a8after.header) &&
+      Math.abs(a8.header.top - a8after.header.top) <= 1.5,
+      { before: a8.header && a8.header.top, after: a8after.header && a8after.header.top })
+    check('⑦ 移动端弹层内可滚元素 <=1 / 弹层外 0 / 无全屏滚动条',
+      a8after.innerScrollables.length <= 1 && a8after.outerScrollables.length === 0 &&
+      a8after.doc.scrollingTop === 0 && a8after.doc.docScrollWidth <= a8after.doc.innerWidth,
+      { inner: a8after.innerScrollables.length, outer: a8after.outerScrollables.length, doc: a8after.doc })
+
+    // 运行时反例自检：注入一条「模拟回退」的 CSS 把 top 改回 100px，
+    // 判据读的 computed top 必须跟着变；再字节级移除、确认恢复 0px。
+    // 证明上面这些判据不是恒真，CSS 一旦被回退就会被识别出来。
+    const negTop = await cdp.eval(
+      '(() => { const s = document.createElement("style"); ' +
+      's.id = "probe-negative-control"; ' +
+      's.textContent = ".is-mobile .ant-modal{top:100px !important}"; ' +
+      'document.head.appendChild(s); ' +
+      'return getComputedStyle(document.querySelector(".ant-modal")).top })()')
+    check('⑦ 运行时反例：回退 top:100 后 computed top 立即变回 100px（判据可识别回退）',
+      negTop === '100px' && a8.modalTop === '0px',
+      { before: a8.modalTop, mutated: negTop })
+    const restoredTop = await cdp.eval(
+      '(() => { const s = document.getElementById("probe-negative-control"); ' +
+      'if (s) s.remove(); ' +
+      'return getComputedStyle(document.querySelector(".ant-modal")).top })()')
+    check('⑦ 运行时反例：移除注入 CSS 后 top 恢复 0px（字节级恢复，无残留）',
+      restoredTop === '0px', { restored: restoredTop })
+    await cdp.eval('window.__ms.antdRemoveTall()')
+    await cdp.eval('window.store.toggleTriggerSessionModal(false)')
+    const antdClosed = await waitFor(cdp,
+      'window.__ms.qa(".ant-modal-wrap").length === 0', 'antd modal closed', 6000)
+    check('⑦ 夹具：antd Modal 已关闭清场（不干扰后续 confirm 测试）', antdClosed)
+    await cdp.eval("document.documentElement.classList.remove('is-mobile')")
+    await cdp.call('Emulation.clearDeviceMetricsOverride', {})
+    await sleep(400)
+
     // ================================================================ S7 短内容 confirm
     // window.store.confirmExit() -> Modal.confirm({content:''}) 不传 width，默认 520，
     // 带 header + footer（cancel/ok），maskClosable 默认 true，Esc 走 onCancel。
@@ -981,6 +1275,57 @@ async function main () {
       '!document.querySelector(' + J('.custom-modal-wrap[data-probe-id="ms-term"]') + ')',
       'term closed', 6000)
     check('⑥ 条款 footer cancel 实际点击可关闭', termCancelOk)
+
+    // ================================================================ S10 列表容器运行时父链
+    // 评估项③：静态白名单只扫 styl，验证不了运行时父链真的给 .item-list-wrap
+    // 定高，也验证不了 listStyle 恒为 {}。这里打开设置弹层，量 computed
+    // height / position / overflow，并注入超高内容用真实滚轮确认滚动条在容器内。
+    await cdp.eval('window.__ms.forceCloseAll()')
+    await sleep(250)
+    await cdp.eval('window.store.openSettingModal()')
+    const listUp = await waitFor(cdp,
+      'window.__ms.qa(".item-list-wrap").length > 0', 'setting list wrap', 10000)
+    check('⑧ 夹具：设置弹层 .item-list-wrap 可见', listUp)
+    const listTallUp = listUp ? await cdp.eval('window.__ms.listInstallTall()') : false
+    check('⑧ 夹具：列表超高内容注入成功', listTallUp === true)
+    await sleep(400)
+    const l1 = await cdp.eval('window.__ms.listState()')
+    metrics.listRuntime = l1
+    console.log('METRIC list-runtime ' + J({
+      own: l1 && l1.own,
+      chain: l1 && l1.chain,
+      outer: l1 && l1.outerScrollables.length,
+      doc: l1 && l1.doc
+    }))
+    check('⑧ 运行时 .item-list-wrap 自身定高且小于视口（父链收高，不是撑满页面）',
+      !!l1 && parseFloat(l1.own.computedHeight) > 0 &&
+      parseFloat(l1.own.computedHeight) < l1.innerHeight,
+      { own: l1 && l1.own })
+    check('⑧ 运行时 computed overflowY 为 auto/scroll（滚动条在容器内）',
+      !!l1 && (l1.own.overflowY === 'auto' || l1.own.overflowY === 'scroll'),
+      { overflowY: l1 && l1.own.overflowY })
+    const bounded = !!l1 && l1.chain.some(a =>
+      a.height > 0 && a.height < l1.innerHeight &&
+      (a.position === 'absolute' || a.display === 'flex'))
+    check('⑧ 运行时父链确有定高祖先（absolute 上下定位或 flex 列，非 JS listStyle）',
+      bounded, { chain: l1 && l1.chain })
+    check('⑧ 注入超高内容后 sh>ch（列表自身可滚）',
+      !!l1 && l1.tallInstalled && l1.own.sh > l1.own.ch + 1,
+      { own: l1 && l1.own, tallInstalled: l1 && l1.tallInstalled })
+    const lTrace = l1 && l1.wheelPoint
+      ? await wheelToBottom(cdp, l1.wheelPoint, 'window.__ms.listEl()')
+      : []
+    const l2 = await cdp.eval('window.__ms.listState()')
+    check('⑧ 真实滚轮滚到底（st>0 且 st+ch>=sh-2），滚动的是列表而非页面',
+      !!l2 && l2.own.st > 0 && l2.own.st + l2.own.ch >= l2.own.sh - 2,
+      { own: l2 && l2.own, trace: lTrace[lTrace.length - 1] })
+    check('⑧ 弹层外可滚元素 0 / 无全屏滚动条 / 无横向溢出',
+      !!l2 && l2.outerScrollables.length === 0 && l2.doc.scrollingTop === 0 &&
+      l2.doc.docScrollWidth <= l2.doc.innerWidth,
+      { outer: l2 && l2.outerScrollables.length, doc: l2 && l2.doc })
+    await cdp.eval('window.__ms.listRemoveTall()')
+    await cdp.eval('window.store.hideSettingModal()')
+    await sleep(300)
 
     // ================================================================ 汇总
     const failed = results.filter(r => !r.ok)
