@@ -45,7 +45,9 @@ const KNOWN = new Set([
   'SMEMBERS', 'SCARD', 'SSCAN', 'SADD', 'SREM',
   'HGETALL', 'HLEN', 'HSCAN', 'HSET', 'HDEL',
   'ZRANGE', 'ZCARD', 'ZADD', 'ZREM',
-  'SLOWLOG', 'COMMAND', 'ECHO', 'QUIT'
+  'SLOWLOG', 'COMMAND', 'ECHO', 'QUIT',
+  // N5b 大 Key 扫描（scanBigKeys 的第二段 pipeline）与 N5c Profiler（MONITOR 流）
+  'MEMORY', 'MONITOR'
 ])
 
 const pad3 = n => String(n).padStart(3, '0')
@@ -783,6 +785,39 @@ function handle (args, ctx) {
       }
       return 'OK'
     }
+    case 'MEMORY': {
+      // N5b：只实现 USAGE。近似真实占用：值内容字节数 + 每条目少量开销常数，
+      // 够 TOP-N 降序比较用，不追求与真实 Redis 对表
+      if (String(a[0] || '').toUpperCase() !== 'USAGE') {
+        throw new RespError(`ERR unknown subcommand '${String(a[0] || '')}'`)
+      }
+      const rec = store.alive(db, str(1))
+      if (!rec) {
+        return null
+      }
+      const OVERHEAD = 64
+      let bytes = OVERHEAD
+      if (rec.type === 'string') {
+        bytes += rec.value.length
+      } else if (rec.type === 'hash') {
+        for (const [k, v] of rec.value.entries()) {
+          bytes += k.length + v.length + OVERHEAD
+        }
+      } else if (rec.type === 'list') {
+        for (const v of rec.value) {
+          bytes += v.length + OVERHEAD
+        }
+      } else if (rec.type === 'set') {
+        for (const v of rec.value) {
+          bytes += v.length + OVERHEAD
+        }
+      } else if (rec.type === 'zset') {
+        for (const [m, s] of rec.value) {
+          bytes += m.length + String(s).length + OVERHEAD
+        }
+      }
+      return bytes
+    }
     case 'QUIT':
       return { quit: true }
     default:
@@ -803,6 +838,22 @@ function attach (sock, ctx, opts) {
     sock.write(enc(v))
   }
 
+  // N5c：把一条已执行的命令广播给所有 MONITOR 连接（真实 Redis 的 monitor 事件行）。
+  // MONITOR 自身不广播；发起者也不收自己的（真实 Redis 对订阅模式连接单独推流）
+  const broadcast = args => {
+    if (!ctx.monitors.size) {
+      return
+    }
+    const line = (Date.now() / 1000).toFixed(6) +
+      ` [${ctx.session.db} ${ctx.addr || '127.0.0.1:0'}] ` +
+      args.map(x => JSON.stringify(String(x))).join(' ')
+    for (const m of ctx.monitors) {
+      if (!m.destroyed) {
+        m.write('+' + line + '\r\n')
+      }
+    }
+  }
+
   const respond = args => {
     const name = String(args[0] || '')
     const up = name.toUpperCase()
@@ -813,6 +864,12 @@ function attach (sock, ctx, opts) {
     if (!KNOWN.has(up)) {
       ctx.stats.unknown.push({ cmd: up, args: args.slice(1).map(String) })
     }
+    // MONITOR 是连接模式切换：标记 + +OK，之后该连接只收广播，不再走命令分派
+    if (up === 'MONITOR') {
+      ctx.monitors.add(sock)
+      sock.write('+OK\r\n')
+      return
+    }
     let out
     try {
       out = handle(args.map(String), ctx)
@@ -820,6 +877,9 @@ function attach (sock, ctx, opts) {
       out = e instanceof RespError ? e : new RespError('ERR ' + (e && e.message ? e.message : e))
     }
     write(out)
+    if (up !== 'QUIT') {
+      broadcast(args)
+    }
   }
 
   const parse = () => {
@@ -891,8 +951,17 @@ function startFakeRedis (port = DEFAULT_PORT, opts = {}) {
   const store = createStore()
   seed(store)
   const stats = makeStats()
+  // N5c：跨连接共享的 MONITOR 订阅者表
+  const monitors = new Set()
   const server = net.createServer(sock => {
-    attach(sock, { store, stats, session: { db: 0 } }, opts)
+    sock.on('close', () => monitors.delete(sock))
+    attach(sock, {
+      store,
+      stats,
+      session: { db: 0 },
+      monitors,
+      addr: (sock.remoteAddress || '127.0.0.1') + ':' + (sock.remotePort || 0)
+    }, opts)
   })
   return new Promise((resolve, reject) => {
     server.once('error', reject)
