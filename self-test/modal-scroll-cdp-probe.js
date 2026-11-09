@@ -779,15 +779,14 @@ async function main () {
       s7.doc.docScrollWidth <= s7.doc.innerWidth,
       { outer: s7.outerScrollables.length, doc: s7.doc })
 
-    // Esc 关闭：CDP 真按键（keyDown）+ capture 日志，三级兜底，每级都打印 mode。
+    // Esc 关闭：CDP 真按键（keyDown）+ capture 日志。
     //
-    // 归因（独立诊断实测）：焦点常落在 xterm 的隐藏 TEXTAREA 上，其既有 keydown
-    // 处理在 target 阶段 stopPropagation —— 实测 CDP 真实 Escape 只有 document
-    // capture 记录、没有 bubble 记录，Modal 注册在 bubble 阶段的 handleKeyDown
-    // （modal.jsx:74）收不到，弹层因此不关；而直接向 document 派发 KeyboardEvent
-    // 时 capture+bubble 都有、wraps 1→0。证明 Modal 的 Esc -> onCancel -> destroy
-    // 逻辑完好，问题在输入路径，不是产品回归（modal.jsx 本轮零改动）。
-    // 只有连「直接派发到 document 的合成事件」都关不掉才判红 —— 那才是源码 bug。
+    // 历史归因：焦点常落在 xterm 的隐藏 TEXTAREA 上，其既有 keydown 处理在 target
+    // 阶段 stopPropagation —— CDP 真实 Escape 只有 document capture 记录、没有
+    // bubble 记录，注册在冒泡阶段的 handleKeyDown（modal.jsx:74）收不到，弹层不关。
+    // 本轮已把监听改到 capture 阶段，验收标准随之收紧为「第一次真实按键就关闭」：
+    // 若还需要 blur 或合成事件兜底，说明键盘路由回退，直接判红。下面保留三级
+    // 兜底只用于打印诊断模式，不再作为通过条件。
     const sendEsc = async () => {
       await cdp.call('Input.dispatchKeyEvent', {
         type: 'keyDown',
@@ -808,11 +807,12 @@ async function main () {
     await cdp.eval('window.__ms.clearKeyLog()')
     await sendEsc()
     const keyLog = await cdp.eval('window.__ms.keyLog()')
-    let escOk = await gone('short')
+    const firstEscOk = await gone('short')
+    let escOk = firstEscOk
     let escMode = 'CDP Input.dispatchKeyEvent(keyDown)'
     const keyDelivered = Array.isArray(keyLog) && keyLog.some(k => k.key === 'Escape')
     if (!escOk) {
-      // 先把焦点从 xterm textarea 移开，再派一次真实按键
+      // 诊断兜底 1：把焦点从 xterm textarea 移开，再派一次真实按键
       await cdp.eval('document.activeElement && document.activeElement.blur && document.activeElement.blur()')
       await cdp.eval('window.__ms.clearKeyLog()')
       await sendEsc()
@@ -820,13 +820,16 @@ async function main () {
       escMode = 'CDP keyDown after activeElement.blur()'
     }
     if (!escOk) {
-      // 上游既有 keydown 处理吞掉真实按键时，直接验证 Modal 的 Esc 逻辑本身
+      // 诊断兜底 2：只验证 Modal 的 Esc 逻辑本身，不证明真实按键链路可达
       await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))")
       escOk = await gone('short')
       escMode = 'synthetic KeyboardEvent on document (upstream keydown swallowed real key)'
     }
-    console.log('METRIC esc ' + J({ keyLog, keyDelivered, escOk, escMode }))
+    console.log('METRIC esc ' + J({ keyLog, keyDelivered, firstEscOk, escOk, escMode }))
     check('⑤ Esc 关闭行为不变（弹层销毁）', escOk, { keyLog, keyDelivered, escMode })
+    check('⑤ Esc 真实按键在 capture 阶段一级生效（无需 blur/合成兜底）',
+      firstEscOk && keyDelivered && escMode === 'CDP Input.dispatchKeyEvent(keyDown)',
+      { keyLog, keyDelivered, firstEscOk, escMode })
     await sleep(300)
 
     // 遮罩点击关闭：点 content 外侧空白，命中 mask/container 触发 onCancel

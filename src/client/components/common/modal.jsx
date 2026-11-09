@@ -71,8 +71,12 @@ export default function Modal (props) {
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    // Capture 阶段（第三参数 true）是必须的：焦点常落在 xterm 的隐藏 TEXTAREA 上，
+    // 它的既有 keydown 处理会在 target 阶段 stopPropagation，注册在冒泡阶段的
+    // document 监听收不到 Escape，Modal.confirm 的 Esc 就关不掉。挂到 capture
+    // 阶段后事件在到达目标前先由弹层处理；remove 必须带同样的 true 才注销得掉。
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [open, onCancel])
 
   if (!open) {
