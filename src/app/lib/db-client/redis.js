@@ -376,9 +376,6 @@ const BIGKEYS_MAX_SCAN = 10000
 const BIGKEYS_SCAN_COUNT = 500
 // N5b 大 Key 扫描 TOP-N 上限：IPC 传 100 条排序结果 + 元信息，前端够用；再多会克隆变慢
 const BIGKEYS_TOP_N = 100
-// N5b 每 chunk 内 pipeline 大小上限：ioredis pipeline() 的缓冲区上限，
-// 单轮塞 500 条 TYPE+MEMORY USAGE=1000 个命令刚好，再多可能被 Redis 服务端吞或丢
-const BIGKEYS_PIPELINE_MAX = 1000
 
 // N5b：大 Key / MEMORY USAGE 扫描 —— SCAN + TYPE + MEMORY USAGE 聚合的迷你 --bigkeys。
 // 思路：ioredis MEMORY USAGE 会先 DUMP 再算占用，string 类型直接用 STRLEN 更准更快；
@@ -414,7 +411,7 @@ async function scanBigKeys (conn, { dbIndex, match, maxScan, cancelToken }) {
     const p = c.pipeline()
     for (const k of keys) {
       p.type(k)
-      p.strlen(k)  // 先假定 string，后根据 type 覆盖
+      p.strlen(k) // 先假定 string，后根据 type 覆盖
     }
     const baseRes = await p.exec()
 
@@ -852,7 +849,7 @@ async function listRedisCommands (conn, args) {
 const PROFILER_RING_MAX = 1000
 // N5c：同连接签名同一时刻只允许一个 profiler —— MONITOR 会把 client 切订阅模式，
 // 第二个 PROFILER client 不会拿到第一个的流（ioredis monitor 是 per-client 独立的）
-const profilers = new Map()  // handleId -> { client, buffer, paused, ringStart, seq }
+const profilers = new Map() // handleId -> { client, buffer, paused, ringStart, seq }
 let nextProfilerHandle = 1
 
 // N5c：Profiler 停止 —— 关 monitor client、清 buffer、删表项。
@@ -876,7 +873,7 @@ async function startRedisProfiler (conn, { dbIndex, filter } = {}) {
   // 避免"同一个 conn 对象被 acquire() 重用"——acquire 返回的是主操作 client，
   // monitor client 独立存在 profilers Map，两者互不干扰
   const monitorClient = createClient(conn)
-  monitorClient.on('error', () => {})  // 吞，避免 ioredis 未监听异常
+  monitorClient.on('error', () => {}) // 吞，避免 ioredis 未监听异常
   await connectClient(monitorClient)
   if (typeof dbIndex === 'number') {
     try { await monitorClient.select(dbIndex) } catch (_) {}
@@ -885,9 +882,9 @@ async function startRedisProfiler (conn, { dbIndex, filter } = {}) {
   const p = {
     client: monitorClient,
     buffer: [],
-    ringStart: 0,  // 环形起始索引；buffer 本身不 shrink，覆盖老行靠这个指针
+    ringStart: 0, // 环形起始索引；buffer 本身不 shrink，覆盖老行靠这个指针
     paused: false,
-    seq: 0,        // 单调递增序号，渲染侧靠 seq 知道"拉到了哪"
+    seq: 0, // 单调递增序号，渲染侧靠 seq 知道"拉到了哪"
     filter: filter ? String(filter) : ''
   }
   const handleId = nextProfilerHandle++

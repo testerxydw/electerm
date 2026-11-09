@@ -183,15 +183,15 @@ test('N6 pg getServerStatus: version() + pg_stat_database 当前库统计行', a
 
 test('N6 OP_MAP: mysql / postgres 都注册 listSessions + getServerStatus', () => {
   const src = fs.readFileSync(path.join(baseDir, 'index.js'), 'utf8')
-  const m = src.match(/mysql:\s*\{([\s\S]*?)\n  \}/)
-  const p = src.match(/postgres:\s*\{([\s\S]*?)\n  \}/)
+  const m = src.match(/mysql:\s*\{([\s\S]*?)\n {2}\}/)
+  const p = src.match(/postgres:\s*\{([\s\S]*?)\n {2}\}/)
   assert.ok(m && p, 'OP_MAP 两段都要能抽出来')
   assert.match(m[1], /listSessions:\s*'listSessions'/)
   assert.match(m[1], /getServerStatus:\s*'getServerStatus'/)
   assert.match(p[1], /listSessions:\s*'listSessions'/)
   assert.match(p[1], /getServerStatus:\s*'getServerStatus'/)
   // sqlite 不该有（无会话视图能力位）
-  const s = src.match(/sqlite:\s*\{([\s\S]*?)\n  \}/)
+  const s = src.match(/sqlite:\s*\{([\s\S]*?)\n {2}\}/)
   assert.ok(s, 'sqlite 段要能抽出来')
   assert.doesNotMatch(s[1], /listSessions/, 'sqlite 没有会话视图，不注册')
 })

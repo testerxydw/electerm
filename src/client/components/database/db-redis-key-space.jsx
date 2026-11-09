@@ -131,7 +131,7 @@ export function DbRedisKeySpace ({
           return
         }
         setProfiler(s => {
-          let newRows = res.rows || []
+          const newRows = res.rows || []
           let newLastSeq = s.lastSeq
           // overflow：主进程环形覆盖了旧数据 → 全量替换 + lastSeq 重置
           if (res.overflow) {
@@ -487,9 +487,8 @@ export function DbRedisKeySpace ({
                     onRow={r => ({ onClick: () => { selectRedisKey(r.name); closeBigKeyModal() } })}
                   />
                 </>
-              )
-              : <Empty description={e('dbRedisBigKeysEmpty')} />
-        }
+                )
+              : <Empty description={e('dbRedisBigKeysEmpty')} />}
       </Modal>
       {/* N5c：Profiler (MONITOR) Modal。顶部 Alert 警告 + 控制 Space + 过滤 + 实时 Table */}
       <Modal
@@ -503,13 +502,16 @@ export function DbRedisKeySpace ({
         <Alert type='warning' showIcon message={e('dbRedisProfilerWarn')} style={{ marginBottom: 12 }} />
         <Space style={{ marginBottom: 8 }}>
           {!profiler.running
-            ? <Button size='small' type='primary' icon={<PlayCircleOutlined />} onClick={startProfiler} disabled={redisDb < 0}>
+            ? (
+              <Button size='small' type='primary' icon={<PlayCircleOutlined />} onClick={startProfiler} disabled={redisDb < 0}>
                 {e('dbRedisProfilerStart')}
               </Button>
-            : <Button size='small' danger icon={<PlayCircleOutlined />} onClick={stopProfiler}>
+              )
+            : (
+              <Button size='small' danger icon={<PlayCircleOutlined />} onClick={stopProfiler}>
                 {e('dbRedisProfilerStop')}
               </Button>
-          }
+              )}
           {profiler.running && (
             <Button size='small' icon={profiler.paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />} onClick={togglePause}>
               {profiler.paused ? e('dbRedisProfilerResume') : e('dbRedisProfilerPause')}
@@ -552,8 +554,7 @@ export function DbRedisKeySpace ({
                 dataSource={profiler.rows}
                 scroll={{ y: 360 }}
               />
-            : <Empty description={e('dbRedisProfilerEmpty')} />
-        }
+            : <Empty description={e('dbRedisProfilerEmpty')} />}
       </Modal>
     </div>
   )

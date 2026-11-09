@@ -127,7 +127,7 @@ test('N5b scanBigKeys: string 取 STRLEN、非 string 取 MEMORY USAGE，结果�
   assert.equal(res.scanned, 3)
   assert.equal(res.truncated, false)
   assert.deepEqual(res.rows, [
-    { name: 'k2', type: 'hash', size: 8192 },   // hash 走 MEMORY USAGE
+    { name: 'k2', type: 'hash', size: 8192 }, // hash 走 MEMORY USAGE
     { name: 'k1', type: 'string', size: 1024 }, // string 走 STRLEN
     { name: 'k3', type: 'string', size: 5 }
   ])
@@ -216,7 +216,7 @@ test('N5c profiler: 主进程 filter 只收录包含子串的行（大小写敏�
   const c = FakeRedis.instances[0]
   c.monitorCb('t1', ['set', 'a'], 'raw "set" a b')
   c.monitorCb('t2', ['get', 'x'], 'raw "get" x')
-  c.monitorCb('t3', ['set', 'z'], 'raw "SET" z')  // 大写 SET 不含小写 '"set"' → 过滤掉
+  c.monitorCb('t3', ['set', 'z'], 'raw "SET" z') // 大写 SET 不含小写 '"set"' → 过滤掉
   const res = db.getRedisProfilerData(handleId, -1)
   assert.deepEqual(res.rows.map(r => r.text), ['raw "set" a b'])
   db.stopRedisProfiler(handleId)
@@ -283,7 +283,7 @@ test('N5c profiler: monitor 命令被拒（fatal）→ 自动清理，pull 得 s
   const db = loadModule()
   const { handleId } = await db.startRedisProfiler(conn, { dbIndex: 0 })
   // fatal cleanup 是异步 catch，等一拍
-  await new Promise(r => setTimeout(r, 20))
+  await new Promise(resolve => setTimeout(resolve, 20))
   const res = db.getRedisProfilerData(handleId, -1)
   assert.equal(res.stopped, true, 'fatal 后 handle 应已被清掉')
   assert.equal(FakeRedis.instances[0].disconnected, true)
