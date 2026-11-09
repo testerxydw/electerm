@@ -51,7 +51,10 @@ const OP_MAP = {
     listColumns: 'listColumns',
     getObjectDdl: 'getObjectDdl',
     // H3b：整库外键（ER 图；只读）
-    listForeignKeys: 'listForeignKeys'
+    listForeignKeys: 'listForeignKeys',
+    // N6：会话与状态查看（只读，只展示，前端无任何 kill 入口）
+    listSessions: 'listSessions',
+    getServerStatus: 'getServerStatus'
   },
   postgres: {
     getMetadata: 'getMetadata',
@@ -69,7 +72,10 @@ const OP_MAP = {
     listColumns: 'listColumns',
     getObjectDdl: 'getObjectDdl',
     // H3b：整 schema 外键（ER 图；只读）
-    listForeignKeys: 'listForeignKeys'
+    listForeignKeys: 'listForeignKeys',
+    // N6：会话与状态查看（只读，只展示，前端无任何 kill 入口）
+    listSessions: 'listSessions',
+    getServerStatus: 'getServerStatus'
   },
   sqlite: {
     getMetadata: 'getMetadata',

@@ -1336,6 +1336,50 @@ async function listForeignKeys (conn, { schema }) {
   })
 }
 
+// N6：会话与状态查看（只读，只展示，绝不 kill —— kill 属于永不做的分叉点）。
+// 只看当前库的会话；query 截到 500 字符，防止长跑大语句把 IPC 包撑爆
+const PG_SESSIONS_SQL = `
+SELECT a.pid,
+       a.usename,
+       a.application_name,
+       a.client_addr::text AS client_addr,
+       a.datname,
+       a.state,
+       a.wait_event_type,
+       a.wait_event,
+       CASE WHEN a.state = 'active' AND a.query_start IS NOT NULL
+            THEN floor(extract(epoch FROM (now() - a.query_start)))::bigint
+            ELSE NULL END AS running_seconds,
+       left(a.query, 500) AS query
+  FROM pg_stat_activity a
+ WHERE a.datname = current_database()
+ ORDER BY COALESCE(a.query_start, a.xact_start) DESC NULLS LAST`
+
+async function listSessions (conn) {
+  const c = await getClient(conn)
+  const res = await c.query(PG_SESSIONS_SQL)
+  return { rows: res.rows || [] }
+}
+
+const PG_STATUS_SQL = `
+SELECT numbackends, xact_commit, xact_rollback, blks_read, blks_hit,
+       deadlocks, tup_fetched, tup_returned
+  FROM pg_stat_database
+ WHERE datname = current_database()`
+
+// 版本 + 当前库统计行（行本身就是 { 列名: 值 } 平对象，前端直接渲染）
+async function getServerStatus (conn) {
+  const c = await getClient(conn)
+  const [v, s] = await Promise.all([
+    c.query('SELECT version() AS version'),
+    c.query(PG_STATUS_SQL)
+  ])
+  return {
+    version: (v.rows && v.rows[0] && v.rows[0].version) || '',
+    status: (s.rows && s.rows[0]) || {}
+  }
+}
+
 module.exports = {
   testPostgresConnection,
   acquire,
@@ -1363,6 +1407,9 @@ module.exports = {
   groupColumns,
   getReferences,
   listForeignKeys,
+  // N6：会话与状态查看（只读）
+  listSessions,
+  getServerStatus,
   buildInsertBatch,
   insertBatchParams,
   parsePgPlan,

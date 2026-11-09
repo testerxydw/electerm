@@ -1523,6 +1523,47 @@ async function explainQuery (conn, { database, sql }) {
   }
 }
 
+// N6：会话与状态查看（只读，只展示，绝不 kill —— kill 属于永不做的分叉点）。
+// info 截到 500 字符，防止长跑大语句把 IPC 包撑爆
+const MYSQL_SERVER_STATUS_VARS = [
+  'Threads_connected',
+  'Threads_running',
+  'Questions',
+  'Queries',
+  'Slow_queries',
+  'Innodb_row_lock_current_waits',
+  'Uptime'
+]
+
+// 当前实例的全部会话（含其他连接），跑得久的排前面
+async function listSessions (conn) {
+  const pool = await getPool(conn)
+  const [rows] = await pool.query(`
+    SELECT id, user, host, db, command, time, state, left(info, 500) AS info
+      FROM information_schema.PROCESSLIST
+     ORDER BY time DESC, id ASC`)
+  return { rows: rows || [] }
+}
+
+// 版本 + 关键 GLOBAL STATUS 子集（整形为 { 变量名: 值 } 平对象，前端直接渲染）
+async function getServerStatus (conn) {
+  const pool = await getPool(conn)
+  const [[vrows], [srows]] = await Promise.all([
+    pool.query('SELECT VERSION() AS version'),
+    pool.query('SHOW GLOBAL STATUS WHERE Variable_name IN (?)', [
+      MYSQL_SERVER_STATUS_VARS
+    ])
+  ])
+  const status = {}
+  for (const r of (srows || [])) {
+    status[r.Variable_name] = r.Value
+  }
+  return {
+    version: (vrows && vrows[0] && vrows[0].version) || '',
+    status
+  }
+}
+
 // 无参全清（app 退出兜底）；有参按引用计数释放
 async function closeMysqlConnection (conn) {
   if (!conn) {
@@ -1569,6 +1610,9 @@ module.exports = {
   groupReferences,
   getReferences,
   listForeignKeys,
+  // N6：会话与状态查看（只读）
+  listSessions,
+  getServerStatus,
   INLINE_LIMIT,
   buildInsertBatch,
   insertBatchParams,

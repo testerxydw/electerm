@@ -84,6 +84,8 @@ import DbStructureArea from './db-structure-area'
 import DbSqlHistoryPanel from './db-sql-history-panel'
 // N11b-#31b：SQL 收藏面板（收藏 tab 的整块 JSX）迁出为纯展示组件
 import DbSqlFavPanel from './db-sql-fav-panel'
+// N6：会话与状态查看（只读展示，绝不 kill；MySQL PROCESSLIST / PG pg_stat_activity）
+import DbSessions from './db-sessions'
 import { dbConnTarget } from '../../common/db-file'
 // 引擎归属（哪个引擎按 PG 的目录结构办事）只在 db-engine-family 定点，组件里不另写一份
 import { isPgFamily } from '../../common/db-engine-family'
@@ -4207,6 +4209,14 @@ export default auto(function DbSession (props) {
             label: e('tableStructure'),
             forceRender: true,
             children: structureArea
+          },
+          {
+            // N6：会话与状态查看（只读）。不加 forceRender —— 首次切到该页签才
+            // 挂载拉数，不为"从没看过会话的连接"白付一次查询；redis 无此页签，
+            // 服务器态走 H7a 的 INFO 弹层
+            key: 'sessions',
+            label: e('dbSessionsTab'),
+            children: <DbSessions tabId={tabId} dbType={tab.dbType} />
           }
         ]}
       />

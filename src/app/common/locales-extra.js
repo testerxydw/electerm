@@ -760,6 +760,11 @@ const en = {
   dbAiDictToggle: 'Glossary',
   dbAiDictSave: 'save glossary',
   dbAiDictPh: 'One entry per line: term = meaning\n# comment lines are ignored',
+  // N6：会话与状态查看（只读，无任何 kill 入口）
+  dbSessionsTab: 'sessions',
+  dbSessionsRefresh: 'refresh',
+  dbSessionsAutoRefresh: 'auto refresh',
+  dbSessionsTimeSecs: 'time(s)',
   dbAiNeedInstruction: 'Type what you need first',
   dbAiRequestFailed: 'The AI request failed',
   dbAiWaiting: 'Waiting for the model...',
@@ -2137,6 +2142,11 @@ const zhCn = {
   dbAiDictToggle: '数据词典',
   dbAiDictSave: '保存词典',
   dbAiDictPh: '一行一条：术语 = 含义\n# 开头的行是注释，会被忽略',
+  // N6：会话与状态查看（只读，无任何 kill 入口）
+  dbSessionsTab: '会话',
+  dbSessionsRefresh: '刷新',
+  dbSessionsAutoRefresh: '自动刷新',
+  dbSessionsTimeSecs: '耗时(秒)',
   dbAiNeedInstruction: '请先写下你的需求',
   dbAiRequestFailed: 'AI 请求失败',
   dbAiWaiting: '等待模型回复……',
