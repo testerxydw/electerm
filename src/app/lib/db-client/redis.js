@@ -847,8 +847,127 @@ async function listRedisCommands (conn, args) {
   return redisConsole.listRedisCommands(conn, args, { useDb })
 }
 
-// 无参全清（app 退出兜底）
+// N5c：Profiler（MONITOR）环形缓冲上限。MONITOR 每秒几十上百行输出，
+// 1000 行够用（200ms 拉一次的话 1000 行≈几秒窗口）；再多 IPC 克隆变慢
+const PROFILER_RING_MAX = 1000
+// N5c：同连接签名同一时刻只允许一个 profiler —— MONITOR 会把 client 切订阅模式，
+// 第二个 PROFILER client 不会拿到第一个的流（ioredis monitor 是 per-client 独立的）
+const profilers = new Map()  // handleId -> { client, buffer, paused, ringStart, seq }
+let nextProfilerHandle = 1
+
+// N5c：Profiler 停止 —— 关 monitor client、清 buffer、删表项。
+// 无论正常 stop 还是异常断连都走这里，保证 profilers 表不会漏项
+function cleanupProfiler (handleId) {
+  const p = profilers.get(handleId)
+  if (!p) return
+  try { p.client.disconnect() } catch (_) {}
+  p.buffer.length = 0
+  profilers.delete(handleId)
+}
+
+// N5c：Profiler 启动 —— 新建独立 monitor client（不碰控制台/扫描用的连接池），
+// 跑 MONITOR 命令，每一行 append 到环形缓冲。buffer 是普通数组 + ringStart 指针，
+// PROFILER_RING_MAX 以上时移动 ringStart 覆盖最老行，不做 splice（避免 O(n)）。
+// 返回 handleId；渲染侧用 handleId 拉数据 / 停 profiler。
+// - filter：主进程侧先过滤（渲染侧再二次过滤也行，但主进程先挡能少 clone）
+// - 返回：handleId；失败抛异常（连接/认证错误一路冒给调用方）
+async function startRedisProfiler (conn, { dbIndex, filter } = {}) {
+  // 签名：复用 sig() 逻辑但加 '-monitor' 后缀区分；跟 clients Map 完全隔离，
+  // 避免"同一个 conn 对象被 acquire() 重用"——acquire 返回的是主操作 client，
+  // monitor client 独立存在 profilers Map，两者互不干扰
+  const monitorClient = createClient(conn)
+  monitorClient.on('error', () => {})  // 吞，避免 ioredis 未监听异常
+  await connectClient(monitorClient)
+  if (typeof dbIndex === 'number') {
+    try { await monitorClient.select(dbIndex) } catch (_) {}
+  }
+
+  const p = {
+    client: monitorClient,
+    buffer: [],
+    ringStart: 0,  // 环形起始索引；buffer 本身不 shrink，覆盖老行靠这个指针
+    paused: false,
+    seq: 0,        // 单调递增序号，渲染侧靠 seq 知道"拉到了哪"
+    filter: filter ? String(filter) : ''
+  }
+  const handleId = nextProfilerHandle++
+  profilers.set(handleId, p)
+
+  // ioredis monitor API：client.monitor((time, args, rawline) => void)
+  // time 是 "1731191234.123"（UNIX 秒+毫秒小数），args 是命令名+参数数组
+  // rawline 是原始字符串（如 "1731191234.123 [0 ...] \"PING\""）
+  monitorClient.monitor((time, args, rawline) => {
+    if (p.paused) return
+    const text = rawline || ((args && args.join && args.join(' ')) || String(args))
+    if (p.filter && !text.includes(p.filter)) return
+
+    // 环形：buffer 未满时直接 push；满了覆盖 ringStart 位置后 ringStart++
+    const item = { id: p.seq++, t: time, text }
+    if (p.buffer.length < PROFILER_RING_MAX) {
+      p.buffer.push(item)
+    } else {
+      p.buffer[p.ringStart] = item
+      p.ringStart = (p.ringStart + 1) % PROFILER_RING_MAX
+    }
+  }).catch(err => {
+    // monitor 命令本身失败（权限/连接），cleanup 并让渲染侧下次 stop 时能拿到状态
+    p._fatal = true
+    p._fatalErr = String(err && err.message)
+    cleanupProfiler(handleId)
+  })
+
+  return { handleId }
+}
+
+// N5c：Profiler 拉取数据 —— 渲染侧每次传上次的 lastSeq，返回之后的新行。
+// 环形缓冲 + seq 单调递增 = 简单 diff：lastSeq 之后的都要。
+// 如果 lastSeq 已在环形覆盖区间之前（意味着渲染侧太久没拉、丢了），
+// 返回 _overflow=true + 全 buffer 内容让渲染侧重置。
+function getRedisProfilerData (handleId, lastSeq = -1) {
+  const p = profilers.get(handleId)
+  if (!p) return { rows: [], overflow: false, stopped: true }
+
+  // 从环形构造"当前有效窗口"—— ringStart 之后是老，之前是新（因为覆盖是循环的）
+  const rows = []
+  if (p.ringStart < p.buffer.length) {
+    rows.push(...p.buffer.slice(p.ringStart))
+    rows.push(...p.buffer.slice(0, p.ringStart))
+  } else {
+    rows.push(...p.buffer)
+  }
+
+  // filter：返回 lastSeq 之后的新行
+  const since = rows.filter(r => r.id > lastSeq)
+
+  // lastSeq 在环形之前 → overflow（buffer 覆盖过了）；返回全量让渲染侧重置
+  const overflow = lastSeq >= 0 && rows.length > 0 && rows[0].id > lastSeq
+  if (overflow) {
+    return { rows, overflow: true, paused: p.paused, stopped: false }
+  }
+  return { rows: since, overflow: false, paused: p.paused, stopped: false }
+}
+
+// N5c：Profiler 暂停/恢复 —— 主进程侧"停止 append"，不影响 monitor client 持续接收
+// （ioredis monitor 本身没法暂停；我们在回调里 skip 就行）
+function toggleRedisProfilerPause (handleId, paused) {
+  const p = profilers.get(handleId)
+  if (!p) return false
+  p.paused = !!paused
+  return p.paused
+}
+
+// N5c：Profiler 停止 —— cleanupProfiler 的公开入口
+function stopRedisProfiler (handleId) {
+  if (!handleId) return
+  cleanupProfiler(handleId)
+}
+
+// 无参全清（app 退出兜底）—— 额外把所有 profiler client 也关掉
 async function closeRedisConnection () {
+  for (const p of profilers.values()) {
+    try { p.client.disconnect() } catch (_) {}
+  }
+  profilers.clear()
   for (const c of clients.values()) {
     c.disconnect()
   }
@@ -889,6 +1008,11 @@ module.exports = {
   listRedisCommands,
   // N5b：大 Key 扫描 —— SCAN+TYPE+MEMORY USAGE 聚合，TOP-N 降序，带上限/取消
   scanBigKeys,
+  // N5c：Profiler（MONITOR）—— 独立 monitor client + 环形缓冲 + start/stop/pull/pause
+  startRedisProfiler,
+  getRedisProfilerData,
+  toggleRedisProfilerPause,
+  stopRedisProfiler,
   closeRedisConnection,
   // 键列表任意跳页（SCAN 从 0 前向步进 pageIndex 次）
   scanKeysToPage,

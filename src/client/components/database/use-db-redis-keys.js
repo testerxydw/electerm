@@ -501,3 +501,19 @@ export function scanBigKeys (tabId, dbIndex, match = '*', maxScan = 10000) {
     maxScan
   })
 }
+
+// N5c：Profiler（MONITOR）—— 主进程独立 monitor client + 环形缓冲。
+// 四个纯函数，渲染侧管理 handleId / lastSeq / paused / rows 状态。
+// start 返回 { handleId }；渲染侧保存 handleId，用它 pull/pause/stop。
+export function startRedisProfiler (tabId, dbIndex, filter = '') {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'startRedisProfiler', { dbIndex, filter })
+}
+export function getRedisProfilerData (tabId, handleId, lastSeq = -1) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisProfilerData', { handleId, lastSeq })
+}
+export function toggleRedisProfilerPause (tabId, handleId, paused) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'toggleRedisProfilerPause', { handleId, paused })
+}
+export function stopRedisProfiler (tabId, handleId) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'stopRedisProfiler', { handleId })
+}

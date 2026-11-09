@@ -17,14 +17,14 @@
  * keys 是 useDbRedisKeys 返回值与 7 个 owner state 的合成对象（直传返回值会白屏）。
  * 详情渲染走 renderDetail() 回调；JSX 与原内联块逐字等价（仅此一处差异）。
  */
-import React, { useState } from 'react'
-import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Table } from 'antd'
-import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined } from '@ant-design/icons'
+import React, { useState, useEffect, useRef } from 'react'
+import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Table, Alert, Space } from 'antd'
+import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCircleOutlined, PauseCircleOutlined, CopyOutlined } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
 import { DbGridPager } from './db-grid-pager'
 import { REDIS_SPLIT_KEY, REDIS_TREE_MAX_KEYS } from '../../common/db-session-const'
-import { scanBigKeys } from './use-db-redis-keys'
+import { scanBigKeys, startRedisProfiler, getRedisProfilerData, toggleRedisProfilerPause, stopRedisProfiler } from './use-db-redis-keys'
 
 const e = window.translate
 
@@ -100,6 +100,102 @@ export function DbRedisKeySpace ({
     })
   }
   const closeBigKeyModal = () => setBigKeyModal(s => ({ ...s, open: false }))
+
+  // N5c：Profiler (MONITOR) —— 独立 monitor client + 渲染侧定时器 200ms 拉流
+  // state 全在这里：handleId 主进程句柄，rows 全量累计（overwrite 时 reset），
+  // lastSeq 下次拉取从哪开始，paused 过滤输入
+  const [profiler, setProfiler] = useState({
+    open: false,
+    running: false,
+    handleId: null,
+    rows: [],
+    lastSeq: -1,
+    paused: false,
+    filter: '',
+    overflow: false,
+    error: ''
+  })
+  const timerRef = useRef(null)
+
+  // 拉流：200ms 一次 getRedisProfilerData，按 lastSeq diff 增量追加
+  const startPulling = (handleId) => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(async () => {
+      try {
+        const res = await getRedisProfilerData(tabId, handleId, profiler.lastSeq)
+        // 主进程停了 / 连接断了 → 清定时器
+        if (res && res.stopped) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+          setProfiler(s => ({ ...s, running: false }))
+          return
+        }
+        setProfiler(s => {
+          let newRows = res.rows || []
+          let newLastSeq = s.lastSeq
+          // overflow：主进程环形覆盖了旧数据 → 全量替换 + lastSeq 重置
+          if (res.overflow) {
+            newLastSeq = Math.max(-1, ...newRows.map(r => r.id))
+            return { ...s, rows: newRows, lastSeq: newLastSeq, overflow: true }
+          }
+          // 增量追加，取新行最大 id 作为下次起点
+          if (newRows.length) {
+            const maxId = Math.max(...newRows.map(r => r.id))
+            if (maxId > newLastSeq) newLastSeq = maxId
+          }
+          return { ...s, rows: s.rows.concat(newRows), lastSeq: newLastSeq, paused: !!res.paused }
+        })
+      } catch (_) { /* IPC 临时失败忽略，下轮继续 */ }
+    }, 200)
+  }
+
+  const openProfilerModal = () => {
+    setProfiler({ open: true, running: false, handleId: null, rows: [], lastSeq: -1, paused: false, filter: '', overflow: false, error: '' })
+  }
+  const closeProfilerModal = async () => {
+    // 关 Modal 前先停 profiler（主进程 handle 也清）
+    if (profiler.handleId && profiler.running) {
+      try { await stopRedisProfiler(tabId, profiler.handleId) } catch (_) {}
+    }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    setProfiler(s => ({ ...s, open: false, running: false, handleId: null, rows: [] }))
+  }
+  const startProfiler = async () => {
+    try {
+      const res = await startRedisProfiler(tabId, redisDb, profiler.filter)
+      setProfiler(s => ({ ...s, running: true, handleId: res.handleId, rows: [], lastSeq: -1, overflow: false, error: '' }))
+      startPulling(res.handleId)
+    } catch (err) {
+      setProfiler(s => ({ ...s, error: (err && err.message) || e('dbRedisProfilerStopped') }))
+    }
+  }
+  const stopProfiler = async () => {
+    if (profiler.handleId) {
+      try { await stopRedisProfiler(tabId, profiler.handleId) } catch (_) {}
+    }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    setProfiler(s => ({ ...s, running: false, handleId: null }))
+  }
+  const togglePause = async () => {
+    if (!profiler.handleId) return
+    const newPaused = !profiler.paused
+    try {
+      const realPaused = await toggleRedisProfilerPause(tabId, profiler.handleId, newPaused)
+      setProfiler(s => ({ ...s, paused: realPaused }))
+    } catch (_) {}
+  }
+  const copyAll = async () => {
+    const text = profiler.rows.map(r => r.text).join('\n')
+    try { await navigator.clipboard.writeText(text) } catch (_) {}
+  }
+
+  // unmount 时必须清理定时器 + stop profiler，否则主进程环形缓冲永远占内存
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (profiler.handleId) {
+      stopRedisProfiler(tabId, profiler.handleId).catch(() => {})
+    }
+  }, [])
   return (
     <div className='db-redis-area'>
       {
@@ -279,6 +375,17 @@ export function DbRedisKeySpace ({
                 >
                   {e('dbRedisBigKeys')}
                 </Button>
+                {/* N5c：Profiler (MONITOR) 入口。只读可开（MONITOR 是只读订阅命令）。
+                    对生产有性能影响——Modal 打开时顶部会弹 Alert 警告 */}
+                <Button
+                  size='small'
+                  icon={<PlayCircleOutlined />}
+                  className='db-redis-profiler-open'
+                  onClick={openProfilerModal}
+                  disabled={redisDb < 0}
+                >
+                  {e('dbRedisProfiler')}
+                </Button>
               </div>
               <DbSplitPane
                 storageKey={REDIS_SPLIT_KEY}
@@ -382,6 +489,70 @@ export function DbRedisKeySpace ({
                 </>
               )
               : <Empty description={e('dbRedisBigKeysEmpty')} />
+        }
+      </Modal>
+      {/* N5c：Profiler (MONITOR) Modal。顶部 Alert 警告 + 控制 Space + 过滤 + 实时 Table */}
+      <Modal
+        open={profiler.open}
+        title={e('dbRedisProfilerTitle')}
+        onCancel={closeProfilerModal}
+        footer={null}
+        width={880}
+        destroyOnClose
+      >
+        <Alert type='warning' showIcon message={e('dbRedisProfilerWarn')} style={{ marginBottom: 12 }} />
+        <Space style={{ marginBottom: 8 }}>
+          {!profiler.running
+            ? <Button size='small' type='primary' icon={<PlayCircleOutlined />} onClick={startProfiler} disabled={redisDb < 0}>
+                {e('dbRedisProfilerStart')}
+              </Button>
+            : <Button size='small' danger icon={<PlayCircleOutlined />} onClick={stopProfiler}>
+                {e('dbRedisProfilerStop')}
+              </Button>
+          }
+          {profiler.running && (
+            <Button size='small' icon={profiler.paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />} onClick={togglePause}>
+              {profiler.paused ? e('dbRedisProfilerResume') : e('dbRedisProfilerPause')}
+            </Button>
+          )}
+          <Button size='small' icon={<CopyOutlined />} onClick={copyAll} disabled={!profiler.rows.length}>
+            {e('dbRedisProfilerCopy')}
+          </Button>
+          <Input.Search
+            size='small'
+            placeholder={e('dbRedisProfilerFilter')}
+            allowClear
+            style={{ width: 220 }}
+            defaultValue={profiler.filter}
+            onSearch={v => setProfiler(s => ({ ...s, filter: v }))}
+          />
+        </Space>
+        {profiler.error && <div className='db-redis-profiler-error'>{profiler.error}</div>}
+        {profiler.running
+          ? <Table
+              size='small'
+              pagination={false}
+              rowKey='id'
+              columns={[
+                { title: '#', dataIndex: 'id', width: 60, render: v => v + 1 },
+                { title: e('dbRedisProfilerFilter'), dataIndex: 'text' }
+              ]}
+              dataSource={profiler.rows}
+              scroll={{ y: 360 }}
+            />
+          : profiler.rows.length
+            ? <Table
+                size='small'
+                pagination={false}
+                rowKey='id'
+                columns={[
+                  { title: '#', dataIndex: 'id', width: 60, render: v => v + 1 },
+                  { title: e('dbRedisProfilerFilter'), dataIndex: 'text' }
+                ]}
+                dataSource={profiler.rows}
+                scroll={{ y: 360 }}
+              />
+            : <Empty description={e('dbRedisProfilerEmpty')} />
         }
       </Modal>
     </div>

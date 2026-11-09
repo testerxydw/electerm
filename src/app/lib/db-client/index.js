@@ -118,7 +118,12 @@ const OP_MAP = {
     runRedisCommand: 'runRedisCommand',
     listRedisCommands: 'listRedisCommands',
     // N5b：大 Key 扫描 —— SCAN+TYPE+MEMORY USAGE 聚合，TOP-N 降序，带上限/取消
-    scanBigKeys: 'scanBigKeys'
+    scanBigKeys: 'scanBigKeys',
+    // N5c：Profiler（MONITOR）—— 独立 monitor client + 环形缓冲，4 个 op
+    startRedisProfiler: 'startRedisProfiler',
+    getRedisProfilerData: 'getRedisProfilerData',
+    toggleRedisProfilerPause: 'toggleRedisProfilerPause',
+    stopRedisProfiler: 'stopRedisProfiler'
   }
 }
 
