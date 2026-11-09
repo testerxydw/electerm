@@ -113,7 +113,10 @@ const OP_MAP = {
     listPush: 'listPush',
     listSetAt: 'listSetAt',
     listRemAt: 'listRemAt',
-    renameKeyNx: 'renameKeyNx'
+    renameKeyNx: 'renameKeyNx',
+    // N5a：受限命令控制台（runRedisCommand 拒绝时不碰服务端；listRedisCommands 给补全名单）
+    runRedisCommand: 'runRedisCommand',
+    listRedisCommands: 'listRedisCommands'
   }
 }
 
@@ -136,6 +139,9 @@ const OP_TIMEOUTS = {
   getPageData: 60000,
   // R1：键列表跳页需从 0 前向步进（深跳可能是多次 SCAN），给足与 getPageData 同档超时
   scanKeysToPage: 60000,
+  // N5a：控制台的一条自由命令可能落在与分页同量级的数据上（大 key 全量读），
+  // 而会挂住连接的那一类（阻塞/订阅/MONITOR）已在策略层无条件拒绝 → 跟随 60s 档
+  runRedisCommand: 60000,
   countRows: 60000
 }
 

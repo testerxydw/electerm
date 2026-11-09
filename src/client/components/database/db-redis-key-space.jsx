@@ -19,7 +19,7 @@
  */
 import React from 'react'
 import { Segmented, Input, Button, Tooltip, Tree, Empty } from 'antd'
-import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CodeOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
 import { DbGridPager } from './db-grid-pager'
@@ -69,7 +69,9 @@ export function DbRedisKeySpace ({
     loadRedisKeys,
     jumpRedisKeysPage,
     refreshRedisView,
-    openRedisDel
+    openRedisDel,
+    // N5a：控制台入口（弹层本体挂在 owner 上，这里只出按钮）
+    openRedisConsole
   } = keys
   return (
     <div className='db-redis-area'>
@@ -225,6 +227,20 @@ export function DbRedisKeySpace ({
                   title={e('refresh')}
                   onClick={refreshRedisView}
                 />
+                {
+                  // N5a：命令控制台。开在这里而不是顶栏，因为它打的是**当前 db**：
+                  // 顶栏那个位置放的是"整实例"的事（INFO），两者混在一排会让人
+                  // 以为控制台也是跨库的。禁用条件交给主进程（那边按权威只读位拦），
+                  // 所以这里不设 disabled —— 只读下仍然能敲读命令
+                  <Button
+                    size='small'
+                    icon={<CodeOutlined />}
+                    className='db-redis-console-open'
+                    onClick={openRedisConsole}
+                  >
+                    {e('dbRedisConsole')}
+                  </Button>
+                }
               </div>
               <DbSplitPane
                 storageKey={REDIS_SPLIT_KEY}

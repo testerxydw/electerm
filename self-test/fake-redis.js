@@ -7,7 +7,9 @@
  * 才验得到。这里不做协议子集猜测：命令按 `src/app/lib/db-client/redis.js`
  * 实际会发的那些逐个实现（连接握手 PING/CLIENT SETINFO/INFO、键列表 SCAN、
  * 每键 TYPE+TTL 的 pipeline、详情 GET/LRANGE/SSCAN/HSCAN/ZRANGE、INFO、
- * SLOWLOG GET，以及写路径 SELECT/UNLINK/EXPIRE）。遇到没实现的命令回
+ * SLOWLOG GET，以及写路径 SELECT/UNLINK/EXPIRE）。N5a 命令控制台还需要 COMMAND
+ * 自述（只读判定的权威来源，见下方 COMMAND_TABLE）与 ECHO（验带引号参数的分词）。
+ * 遇到没实现的命令回
  * `-ERR unknown command`，并记进 `stats().unknown` —— 方便按实测补，而不是
  * 让客户端把「没有返回」当成空结果。
  *
@@ -43,7 +45,7 @@ const KNOWN = new Set([
   'SMEMBERS', 'SCARD', 'SSCAN', 'SADD', 'SREM',
   'HGETALL', 'HLEN', 'HSCAN', 'HSET', 'HDEL',
   'ZRANGE', 'ZCARD', 'ZADD', 'ZREM',
-  'SLOWLOG', 'QUIT'
+  'SLOWLOG', 'COMMAND', 'ECHO', 'QUIT'
 ])
 
 const pad3 = n => String(n).padStart(3, '0')
@@ -267,6 +269,69 @@ const SLOWLOG_ENTRIES = [
   [3, 1730192090, 421, ['GET', 'smoke:key:000'], '127.0.0.1:50000', 'app']
 ]
 
+// COMMAND 自述表：[name, arity, flags, firstKey, lastKey, step]（真实 Redis 7 的前 6 项）。
+// 故意保留三类「反直觉但真实」的条目，N5a 的判据就靠它们才验得出来：
+//   keys   → readonly（名字类黑名单必须先于 flags 生效）
+//   ping/info/echo/command/time/slowlog → 没有 readonly，但也不写（只读下应放行）
+//   publish/eval/blpop → 不是 write，却带 may-replicate/blocking（只读下应拦）
+// LOLWUT 不在表里：可写模式下真发给服务端，拿回 -ERR，验「服务端错误回显」这条路。
+const COMMAND_TABLE = [
+  ['get', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['set', -3, ['write', 'denyoom'], 1, 1, 1],
+  ['strlen', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['del', -2, ['write'], 1, -1, 1],
+  ['unlink', -2, ['write', 'fast'], 1, -1, 1],
+  ['expire', -3, ['write', 'fast'], 1, 1, 1],
+  ['persist', 2, ['write', 'fast'], 1, 1, 1],
+  ['exists', -2, ['readonly', 'fast'], 1, -1, 1],
+  ['type', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['ttl', 2, ['readonly', 'fast', 'random'], 1, 1, 1],
+  ['pttl', 2, ['readonly', 'fast', 'random'], 1, 1, 1],
+  ['keys', 2, ['readonly', 'sort_for_script'], 0, 0, 0],
+  ['scan', -2, ['readonly', 'random'], 0, 0, 0],
+  ['dbsize', 1, ['readonly', 'fast'], 0, 0, 0],
+  ['ping', -1, ['fast'], 0, 0, 0],
+  ['echo', 2, ['fast'], 0, 0, 0],
+  ['info', -1, ['loading', 'stale'], 0, 0, 0],
+  ['command', -1, ['loading', 'stale'], 0, 0, 0],
+  ['time', 1, ['loading', 'stale', 'fast', 'random'], 0, 0, 0],
+  ['slowlog', -2, ['admin', 'random', 'loading', 'stale'], 0, 0, 0],
+  ['select', 2, ['loading', 'fast', 'stale'], 0, 0, 0],
+  ['auth', -2, ['noscript', 'loading', 'stale', 'fast', 'no_auth'], 0, 0, 0],
+  ['client', -2, ['admin', 'noscript', 'loading', 'stale'], 0, 0, 0],
+  ['config', -2, ['admin', 'loading', 'stale'], 0, 0, 0],
+  ['flushdb', -1, ['write'], 0, 0, 0],
+  ['flushall', -1, ['write'], 0, 0, 0],
+  ['shutdown', -1, ['admin', 'loading', 'stale', 'noscript'], 0, 0, 0],
+  ['monitor', 1, ['admin', 'noscript', 'loading', 'stale'], 0, 0, 0],
+  ['subscribe', -2, ['pubsub', 'noscript', 'loading', 'stale'], 0, 0, 0],
+  ['publish', 3, ['pubsub', 'may-replicate', 'fast'], 0, 0, 0],
+  ['blpop', -3, ['write', 'blocking', 'noscript'], 1, -2, 1],
+  ['brpop', -3, ['write', 'blocking', 'noscript'], 1, -2, 1],
+  ['eval', -3, ['noscript', 'may-replicate', 'movablekeys'], 0, 0, 0],
+  ['script', -2, ['noscript', 'may-replicate'], 0, 0, 0],
+  ['hgetall', 2, ['readonly', 'random'], 1, 1, 1],
+  ['hlen', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['hscan', -3, ['readonly', 'random'], 1, 1, 1],
+  ['hset', -4, ['write', 'denyoom', 'fast'], 1, 1, 1],
+  ['hdel', -3, ['write', 'fast'], 1, 1, 1],
+  ['llen', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['lrange', 4, ['readonly'], 1, 1, 1],
+  ['lpush', -3, ['write', 'denyoom', 'fast'], 1, 1, 1],
+  ['rpush', -3, ['write', 'denyoom', 'fast'], 1, 1, 1],
+  ['lset', 4, ['write', 'denyoom'], 1, 1, 1],
+  ['lrem', 4, ['write'], 1, 1, 1],
+  ['smembers', 2, ['readonly', 'sort_for_script'], 1, 1, 1],
+  ['scard', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['sscan', -3, ['readonly', 'random'], 1, 1, 1],
+  ['sadd', -3, ['write', 'denyoom', 'fast'], 1, 1, 1],
+  ['srem', -3, ['write', 'fast'], 1, 1, 1],
+  ['zrange', -4, ['readonly'], 1, 1, 1],
+  ['zcard', 2, ['readonly', 'fast'], 1, 1, 1],
+  ['zadd', -4, ['write', 'denyoom', 'fast'], 1, 1, 1],
+  ['zrem', -3, ['write', 'fast'], 1, 1, 1]
+]
+
 function makeStats () {
   return {
     commands: [],
@@ -277,6 +342,7 @@ function makeStats () {
     expireCalls: [],
     infoCalls: [],
     slowlogCalls: [],
+    commandCalls: [],
     scanCalls: []
   }
 }
@@ -295,6 +361,22 @@ function handle (args, ctx) {
       throw new RespError('NOPROTO unsupported protocol version')
     case 'PING':
       return a.length ? str(0) : 'PONG'
+    case 'ECHO':
+      return str(0)
+    case 'COMMAND': {
+      const sub = String(a[0] || '').toUpperCase()
+      stats.commandCalls.push(sub || 'ALL')
+      if (sub === 'COUNT') {
+        return COMMAND_TABLE.length
+      }
+      if (sub === 'INFO') {
+        return a.slice(1).map(n => {
+          const hit = COMMAND_TABLE.find(e => e[0] === String(n).toLowerCase())
+          return hit || null
+        })
+      }
+      return COMMAND_TABLE
+    }
     case 'AUTH':
       return 'OK'
     case 'SELECT': {

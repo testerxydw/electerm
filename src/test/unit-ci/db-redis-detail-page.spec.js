@@ -11,6 +11,8 @@ const vm = require('node:vm')
 const ROOT = path.join(__dirname, '../../..')
 // N1：适配器新增依赖 './db-tls'（只依赖 fs/crypto），沙箱给真模块，顺带钉住委托关系
 const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
+// N5a：适配器新增依赖 './redis-console'（只依赖纯策略模块），沙箱同样给真模块
+const REDIS_CONSOLE = require(path.join(ROOT, 'src/app/lib/db-client/redis-console.js'))
 const REDIS_JS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const JSX = path.join(ROOT, 'src/client/components/database/db-session.jsx')
 // N11a #15：Redis 详情渲染已拆成独立 shipped 模块 db-redis-detail.jsx；
@@ -71,6 +73,7 @@ function loadRedis (opts = {}) {
     exports: mod.exports,
     require: spec => {
       if (spec === './db-tls') return DB_TLS
+      if (spec === './redis-console') return REDIS_CONSOLE
       assert.equal(spec, 'ioredis')
       return Redis
     },

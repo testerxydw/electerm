@@ -11,6 +11,8 @@ const clients = new Map()
 
 // N1：TLS 档位（校验模式）的唯一口径，与 mysql/postgres 同一份实现
 const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
+// N5a：受限命令控制台的执行层（策略在 redis-command-policy.js，本模块只注入 useDb）
+const redisConsole = require('./redis-console')
 // sig → per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
 const refs = new Map()
 // sig → 当前 SELECT 到的 db index（按连接记录，避免多连接互相干扰）
@@ -578,7 +580,9 @@ async function expireKey (conn, { dbIndex, key, seconds, readOnly }) {
 // -------------------------------------------------- D 批：Redis 类型化写（T12） ----
 // 范围严格按设计 §12.2（总览 §3.3 T12）：hash HSET/HDEL、set SADD/SREM、
 // zset ZADD/ZREM、list LPUSH/RPUSH/LSET/LREM、key RENAMENX（string SET/TTL/DEL 为既有）。
-// **不做**：FLUSHDB/FLUSHALL、KEYS、通用命令、二进制写。
+// **本批不做**：FLUSHDB/FLUSHALL、KEYS、通用命令、二进制写。
+// （"通用命令"在 N5a 另开一条**受限控制台**路径：见 redis-console.js +
+//   redis-command-policy.js，分词与拦截都在主进程，FLUSHDB/FLUSHALL/KEYS 仍是无条件拒绝。）
 // 全部 checkWritable 前置（与 setKey/delKey/expireKey 同一口径），
 // readOnly 以主进程实例为权威（dbClientOp 注入），渲染层传参不可信。
 
@@ -730,6 +734,20 @@ async function renameKeyNx (conn, { dbIndex, key, newKey, readOnly }) {
   return { ok: true }
 }
 
+// -------------------------------------------------- N5a：受限命令控制台 ----
+// 这一层的职责是"把一条任意命令安全地递出去"，与上面"按类型读写键"是两个变更理由，
+// 所以实现在 redis-console.js / redis-command-policy.js，这里只做句柄注入：
+// `useDb` 由本模块传下去（控制台需要复用同一套 per-request SELECT 口径），
+// 反过来 require 会形成循环依赖 —— 注入而不是互相引用。
+
+async function runRedisCommand (conn, args) {
+  return redisConsole.runRedisCommand(conn, args, { useDb })
+}
+
+async function listRedisCommands (conn, args) {
+  return redisConsole.listRedisCommands(conn, args, { useDb })
+}
+
 // 无参全清（app 退出兜底）
 async function closeRedisConnection () {
   for (const c of clients.values()) {
@@ -767,6 +785,9 @@ module.exports = {
   listSetAt,
   listRemAt,
   renameKeyNx,
+  // N5a：受限命令控制台（分词/判定/封顶都在 redis-console.js，只读位由 dbClientOp 注入）
+  runRedisCommand,
+  listRedisCommands,
   closeRedisConnection,
   // 键列表任意跳页（SCAN 从 0 前向步进 pageIndex 次）
   scanKeysToPage,

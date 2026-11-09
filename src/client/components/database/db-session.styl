@@ -1575,6 +1575,204 @@
     font-family var(--db-code-font, var(--font-mono))
     color var(--text-dark)
 
+// N5a Redis 命令控制台
+.db-redis-console
+  // 输入行 + 补全列表：列表绝对定位，弹层高度不随候选数量跳动
+  //（否则敲一个字符就把下面的历史顶得一颤）
+  .db-redis-console-input
+    position relative
+    display flex
+    gap 6px
+    align-items center
+    margin-bottom 10px
+
+  .db-redis-console-line
+    flex 1 1 0
+    min-width 0
+    font-family var(--db-code-font, var(--font-mono))
+
+  .db-redis-console-run
+    flex none
+
+  .db-redis-console-suggest
+    position absolute
+    top 100%
+    // 与输入框左边缘对齐，宽度贴着弹层内容区；z-index 高过 antd Modal 内容层
+    left 0
+    right 0
+    z-index 10
+    margin-top 2px
+    max-height 220px
+    overflow auto
+    border 1px solid var(--border)
+    border-radius var(--radius-sm)
+    background var(--main)
+    box-shadow var(--shadow-2)
+
+  .db-redis-console-suggest-item
+    display flex
+    align-items baseline
+    gap 8px
+    padding 3px 8px
+    line-height 18px
+    cursor pointer
+
+    &.is-active
+      background var(--hover-bg)
+
+    // 会被拦下来的命令仍然列得出来（用户有权知道这个实例有什么命令），
+    // 只是不给出"可直接执行"的字重
+    &.is-blocked
+      .db-redis-console-suggest-name
+        color var(--text-muted)
+
+  .db-redis-console-suggest-name
+    flex none
+    font-family var(--db-code-font, var(--font-mono))
+    font-size 12px
+    color var(--text-dark)
+
+  .db-redis-console-suggest-flags
+  .db-redis-console-suggest-hint
+    flex 1 1 0
+    min-width 0
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
+    font-size 11px
+    color var(--text-muted)
+
+  .db-redis-console-suggest-hint
+    // 提示是"这条会被拦"，颜色要区别于 flags 的中性灰
+    color var(--warn)
+    flex none
+    text-align right
+
+  .db-redis-console-mode
+    margin-bottom 8px
+
+  // 历史：最新一条在最上面，所以不需要自动滚底（见 hook 头注释第 3 条）
+  .db-redis-console-history
+    max-height 46vh
+    overflow auto
+    display flex
+    flex-direction column
+    gap 8px
+
+  .db-redis-console-entry
+    border 1px solid var(--border)
+    border-radius var(--radius-sm)
+    padding 6px 8px
+
+    &.is-pending
+      opacity .7
+
+    &.is-blocked
+    &.is-invalid
+      border-color var(--warn)
+
+    &.is-error
+    &.is-conn
+      border-color var(--error)
+
+  .db-redis-console-cmd
+    display flex
+    align-items center
+    gap 6px
+
+  .db-redis-console-cmd-text
+    flex 1 1 0
+    min-width 0
+    font-family var(--db-code-font, var(--font-mono))
+    font-size 12px
+    color var(--text-dark)
+    white-space pre-wrap
+    word-break break-all
+
+  .db-redis-console-tag
+    flex none
+    margin 0
+
+  .db-redis-console-ms
+    flex none
+    color var(--text-muted)
+    font-size 11px
+    font-variant-numeric tabular-nums
+
+  .db-redis-console-copy
+    flex none
+    padding 0 4px !important
+    height auto !important
+
+  .db-redis-console-alert
+    margin-top 6px
+
+  .db-redis-console-error
+    margin-top 6px
+    padding 6px 8px
+    border-radius var(--radius-sm)
+    background var(--hover-bg)
+    color var(--error)
+    font-family var(--db-code-font, var(--font-mono))
+    font-size 12px
+    white-space pre-wrap
+    word-break break-all
+
+  .db-redis-console-prefix
+    margin-right 6px
+    color var(--text-muted)
+
+  .db-redis-console-reply
+    margin-top 6px
+
+  .db-redis-console-header
+    color var(--text-muted)
+    font-size 11px
+    font-family var(--db-code-font, var(--font-mono))
+    margin-bottom 2px
+
+  .db-redis-console-row
+    display flex
+    align-items baseline
+    gap 6px
+    line-height 18px
+    min-width 0
+
+  .db-redis-console-row-label
+    flex none
+    min-width 18px
+    color var(--text-muted)
+    font-size 11px
+    font-variant-numeric tabular-nums
+    text-align right
+
+  .db-redis-console-value
+    flex 1 1 0
+    min-width 0
+    font-family var(--db-code-font, var(--font-mono))
+    font-size 12px
+    color var(--text-dark)
+    white-space pre-wrap
+    word-break break-all
+
+    // nil 与整数分开着色：'(nil)' 是一个值，不是空
+    &.is-nil
+      color var(--text-muted)
+
+    &.is-integer
+      color var(--success)
+
+  .db-redis-console-note
+    margin-top 4px
+    color var(--text-muted)
+    font-size 11px
+
+  .db-redis-console-empty
+    min-height 100px
+    display flex
+    align-items center
+    justify-content center
+
 // H7b-3 跨页勾选提示：勾选可能整页都不在当前页，这行是唯一"我还选着东西"的证据
 .db-redis-sel-chip
   display inline-flex

@@ -67,6 +67,9 @@ import { useDbSqlFile } from './use-db-sql-file'
 import { useDbConnection } from './use-db-connection'
 import DbSessionHeadBar from './db-session-head-bar'
 import { useDbSqlFavorite } from './use-db-sql-favorite'
+// N5a：Redis 命令控制台（受限：判定在主进程，这里只接线与呈现）
+import DbRedisConsoleModal from './db-redis-console'
+import { useDbRedisConsole } from './use-db-redis-console'
 import { useDbQuickOpen } from './use-db-quick-open'
 import { DbTreePanel } from './db-tree-panel'
 import { DbRedisKeySpace } from './db-redis-key-space'
@@ -1824,6 +1827,25 @@ export default auto(function DbSession (props) {
     setRedisKey,
     selectRedisKey,
     loadRedisKeys,
+    confirmRedisWrite
+  })
+
+  // N5a：Redis 命令控制台。状态与编排在同目录 hook，这里只做接线：
+  // - redisDb 走惰性 getter：弹层开着时用户仍可能切库，执行那一刻的库才是目标；
+  // - 确认闸门复用 useDbGuard 的 confirmRedisWrite（§5.2.6：新增写路径不另造护栏）。
+  const {
+    redisConsole,
+    openRedisConsole,
+    closeRedisConsole,
+    setRedisConsoleDraft,
+    loadRedisConsoleCommands,
+    clearRedisConsoleHistory,
+    runRedisConsole
+  } = useDbRedisConsole({
+    tabId,
+    getRedisDb: () => redisDb,
+    isReadonly,
+    isProduction,
     confirmRedisWrite
   })
 
@@ -4146,7 +4168,9 @@ export default auto(function DbSession (props) {
         matchInput,
         keyJumpInput,
         setKeyJumpInput,
-        redisKeySel
+        redisKeySel,
+        // N5a：控制台入口（开在键列表工具条上：它作用于当前 db，与 INFO 的"整实例"不同）
+        openRedisConsole
       }}
     />
   )
@@ -4594,6 +4618,23 @@ export default auto(function DbSession (props) {
               slowlog={redisSlowlog}
               onLoadSlowlog={loadRedisSlowlog}
               onRefreshSlowlog={loadRedisSlowlog}
+            />
+            )
+          : null
+      }
+      {/* N5a：Redis 命令控制台（自由命令 + 命令名补全；判定与拦截都在主进程） */}
+      {
+        isRedis
+          ? (
+            <DbRedisConsoleModal
+              state={redisConsole}
+              isReadonly={isReadonly}
+              dbIndex={redisDb}
+              onClose={closeRedisConsole}
+              onDraftChange={setRedisConsoleDraft}
+              onRun={runRedisConsole}
+              onReloadCommands={loadRedisConsoleCommands}
+              onClearHistory={clearRedisConsoleHistory}
             />
             )
           : null

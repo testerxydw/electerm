@@ -23,9 +23,7 @@ let rewriteType
 let ddlProfileOf
 
 before(async () => {
-  ;({ dialectMap, getDialect, dialectIdOf, isSqlDialect, staticCandidates, cmDialectSpec,
-    capabilityOf, getCapabilities, canStageDialect, rewriteType, ddlProfileOf } =
-    await import(pathToFileURL(SRC).href))
+  ;({ dialectMap, getDialect, dialectIdOf, isSqlDialect, staticCandidates, cmDialectSpec, capabilityOf, getCapabilities, canStageDialect, rewriteType, ddlProfileOf } = await import(pathToFileURL(SRC).href))
 })
 
 describe('sql-dialects: dbType → 方言映射', () => {
