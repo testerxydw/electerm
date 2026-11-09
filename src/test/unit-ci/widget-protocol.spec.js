@@ -14,6 +14,7 @@
 
 const { describe, it, before, after } = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -32,6 +33,23 @@ const isStale = p => {
 
 const removeTree = p => fs.rmSync(p, { recursive: true, force: true })
 
+/**
+ * 崩溃遗留里可能还有旧版代码建的 node_modules 软链（指回仓库）。安全删除垫片
+ * 用 realpathSync 判定 os.tmpdir() 豁免：软链的真实路径落在仓库，会被当成仓库
+ * 文件转回收站，跨设备 rename 失败后 copyFileSync(目录) 抛 EISDIR，连清理本身
+ * 都会挂掉（AGENTS.md §1：临时产物直删，绝不进回收站）。这种树用一个不带
+ * NODE_OPTIONS 垫片的干净 node 进程按 §1 直删。
+ */
+function removeTreeRaw (p) {
+  const env = { ...process.env }
+  delete env.NODE_OPTIONS
+  execFileSync(
+    process.execPath,
+    ['-e', 'require("node:fs").rmSync(process.argv[1], { recursive: true, force: true })', p],
+    { env, stdio: 'ignore' }
+  )
+}
+
 // 回收崩溃遗留：只删 1 小时没动过的（同一工作区可能有别的进程正在跑）
 function sweepStale (dir, prefix) {
   let names = []
@@ -44,7 +62,15 @@ function sweepStale (dir, prefix) {
     .filter(n => n.startsWith(prefix))
     .map(n => path.join(dir, n))
     .filter(isStale)
-    .forEach(removeTree)
+    .forEach(p => {
+      let legacyLink = false
+      try {
+        legacyLink = fs.lstatSync(path.join(p, 'node_modules')).isSymbolicLink()
+      } catch (e) {
+        // 没有 node_modules 或 lstat 失败：按普通临时树处理
+      }
+      return legacyLink ? removeTreeRaw(p) : removeTree(p)
+    })
 }
 
 /**
@@ -53,21 +79,32 @@ function sweepStale (dir, prefix) {
  * 为什么不能放 node_modules 下：agent 运行时（CodeBuddy/WorkBuddy 的
  * NODE_OPTIONS 安全删除垫片）会把 node_modules 里的 fs.rmSync 逐条转进回收站，
  * 本用例一次跑要建 6 棵树、每棵十几个条目，实测把回收站灌进 8000+ 条垃圾；
- * 系统临时目录是该垫片的豁免路径，删了就是真删。
+ * 系统临时目录是该垫片的豁免路径，删了就是真删（AGENTS.md §1-2）。
  *
- * 树里再软链一个 node_modules 指回仓库：被拷贝的 protocol.js 里的
- * `require('electron')` 才仍解析到用例 stub 的那个 electron（require.cache 按
- * realpath 命中）。软链建不了（Windows 无权限）就退回仓库内，用例优先能跑。
+ * 也不能把 node_modules 软链回仓库：垫片用 realpathSync 判定 tmpdir 豁免，
+ * 软链的真实路径落在仓库，删除时会被判成仓库文件走回收站；跨设备 rename 失败
+ * 后降级 copyFileSync(目录) 抛 EISDIR，整个 suite 的 before hook 挂掉
+ * （node:test 只把子测试标成 cancelled、# fail 仍是 0，见
+ * src/build/bin/test-unit-ci.js 的汇总护栏）。
+ *
+ * 改为在 tmpdir 内放真实文件转发：被拷贝的 protocol.js 里 `require('electron')`
+ * 解析到这份转发文件，它再 require 仓库 electron 的绝对路径，仍命中
+ * stubElectron 注入 require.cache[electronPath] 的那份 stub。所有条目的 realpath
+ * 都在 tmpdir 下，删除全程直删，也不再需要 Windows 软链权限的回退分支。
  */
 function makeRunRoot () {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-inject-'))
-  try {
-    fs.symlinkSync(NM, path.join(root, 'node_modules'), 'junction')
-    return root
-  } catch (e) {
-    removeTree(root)
-    return fs.mkdtempSync(path.join(NM, '.tmp-inject-'))
-  }
+  const electronDir = path.join(root, 'node_modules', 'electron')
+  fs.mkdirSync(electronDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(electronDir, 'package.json'),
+    JSON.stringify({ name: 'electron', main: 'index.js' })
+  )
+  fs.writeFileSync(
+    path.join(electronDir, 'index.js'),
+    `module.exports = require(${JSON.stringify(electronPath)})\n`
+  )
+  return root
 }
 const electronPath = require.resolve('electron')
 const protocolPath = require.resolve('../../app/widgets/protocol')

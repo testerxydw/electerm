@@ -17,7 +17,7 @@
     "lint": "./node_modules/.bin/standard --verbose",
     "fix": "./node_modules/.bin/standard --fix",
     "test": "npm run test1 && npm run test2",
-    "test-unit-ci": "node --experimental-detect-module --test src/test/unit-ci/*.spec.js",
+    "test-unit-ci": "node src/build/bin/test-unit-ci.js",
     "test-db-e2e": "node src/test/e2e-db/db-e2e.js",
     "test-integration": "node --test src/test/integration/*.spec.js",
     "test1": "./node_modules/.bin/playwright test src/test/e2e/00*.js --workers=1 --workers=1",
