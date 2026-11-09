@@ -162,7 +162,8 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const families = line => applyCoverageGate(line, collectMatches(line, patterns, scan, 512))
       .map(h => h.family)
     // 这三类行天然短：不计豁免的话 diff 头 ≈ 89%、hunk = 45%、指纹 ≈ 65%，会被整行丢弃
-    assert.deepEqual(families('diff --git a/src/app.js b/src/app.js'), ['diff-header'])
+    // 削最胖命中后回落到阈值内：两条等长路径丢一条、留一条（≤35%），diff 头豁免照旧
+    assert.deepEqual(families('diff --git a/src/app.js b/src/app.js'), ['diff-header', 'path'])
     assert.deepEqual(families('@@ -12,7 +12,8 @@ const init = () => {'), ['diff-hunk'])
     assert.deepEqual(families('ED25519 key fingerprint is SHA256:4Kq9vX2mZ8bR1nT6wY3cJ5hL0pF7sD9gA2eU4iO6xQ8.'), ['fingerprint'])
     // 豁免不扩散：同一条短行上的胖路径（rank 20）仍然被闸
@@ -218,8 +219,8 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
       { start: 11, end: 13, tier: 'structure' }
     ]
     const out = applyCoverageGate(content, hits)
-    assert.equal(out.length, 1)
-    assert.equal(out[0].start, 11, 'only the dirty line drops its structure hit')
+    // 超阈值行只削最胖命中：40% 丢一个 2 字符命中回落到 20%、保留另一个；净行不动
+    assert.deepEqual(out.map(h => h.start), [2, 11])
   })
 
   test('tier 从预设一路透传到命中（buildScan.tiers / collectMatches.hit.tier）', async () => {
@@ -262,12 +263,13 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     assert.match(addon, /applyCoverageGate\(plain,/, 'terminal gate must judge the whole physical line')
   })
 
-  test('结构档打开时，覆盖率闸把中位染色率压回 20% 以内', async () => {
+  test('结构档打开时，覆盖率闸把中位染色率压回单行 35% 上限内（保留小命中、不整行素色）', async () => {
     const { patterns, scan } = await buildPatterns(true)
     const raw = corpus.map(line => ratioOf(line, patterns, scan, false).ratio)
     const gated = corpus.map(line => ratioOf(line, patterns, scan, true).ratio)
     assert.ok(median(raw) > 0.35, `ungated median ${(median(raw) * 100).toFixed(1)}% should be noisy`)
-    assert.ok(median(gated) <= 0.20, `gated median ${(median(gated) * 100).toFixed(1)}% should be ≤ 20%`)
+    assert.ok(median(gated) <= 0.35, `gated median ${(median(gated) * 100).toFixed(1)}% should be ≤ 35%`)
+    assert.ok(median(gated) > 0.10, `gated median ${(median(gated) * 100).toFixed(1)}% must stay visible, not over-suppressed`)
   })
 
   // ---- QA Round 1 发现的缺陷回归守卫 ----
@@ -319,12 +321,14 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     clearKeywordCache()
     const { keywords, patterns, scan } = await buildPatterns(true)
     // 一行 199 字符：前半 10 个 IP（88.9%），后半 1 个 IP + 100 普通字符（7.3%）
-    // 整行 88/199 = 44.2% > 35% → 整行 structure 命中都该丢
+    // 整行 88/199 = 44.2% > 35% → 削最胖的 IP 回落到 ≤35%，但保留小命中（不整行素色）
     const head = Array.from({ length: 10 }, (_, i) => '10.1.2.' + (i + 1)).join(' ')
     const line = head + ' ' + 'x'.repeat(100) + ' 10.1.2.99'
     const plainHits = applyCoverageGate(line, collectMatches(line, patterns, scan, 512))
-    assert.equal(plainHits.filter(h => h.tier === 'structure').length, 0,
-      'whole physical line is over threshold')
+    const keptStruct = plainHits.filter(h => h.tier === 'structure')
+      .reduce((n, h) => n + (h.end - h.start), 0) / line.length
+    assert.ok(keptStruct <= 0.35 + 1e-9, 'whole physical line trimmed to ≤35%')
+    assert.ok(keptStruct > 0, 'small hits survive the trim (not nuked to plain)')
 
     // addon 构造函数要的是原始 keywords（内部自己编译），传已编译 patterns 会退化成
     // 空规则集，让断言变成假阳性。先自检无 ANSI 时确实有染色，再比对插入 SGR 的结果。
@@ -333,16 +337,16 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const sanity = addon.highlightKeywords('host 10.1.2.3 ' + 'y'.repeat(80))
     const ip = await ipColorCode()
     assert.ok(sanity.includes(ip + '10.1.2.3'), 'fixture sanity: addon must be live')
-    // 脏行整行 44% > 35%，无 ANSI 与有 ANSI 都必须把 structure 全丢掉
-    assert.equal(addon.highlightKeywords(line).includes(ip), false,
-      'plain dirty line drops all structure hits')
+    // 脏行整行 44% > 35%：削到 ≤35% 但保留小命中；无 ANSI 与有 ANSI 的裁决必须一致
+    const plainColored = addon.highlightKeywords(line).split(ip).length - 1
+    assert.ok(plainColored > 0, 'trimmed dirty line keeps some structure (not nuked to plain)')
     const splitAt = head.length + 1
     const sgr = '\u001b[32m\u001b[0m'
     const withAnsi = line.slice(0, splitAt) + sgr + line.slice(splitAt)
     const out = addon.highlightKeywords(withAnsi)
     const ipColor = await ipColorCode()
     const colored = out.split(ipColor).length - 1
-    assert.equal(colored, 0, 'SGR must not shrink the physical line into two gate windows')
+    assert.equal(colored, plainColored, 'SGR must not shrink the physical line into two gate windows')
     assert.ok(out.includes(sgr), 'the ANSI sequence itself must be preserved verbatim')
   })
 

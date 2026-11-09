@@ -125,8 +125,10 @@ describe('keyword highlight addon', () => {
     // eslint-disable-next-line no-control-regex
     const stripSgr = s => s.replace(/\u001b\[[0-9;]*m/g, '')
     assert.equal(stripSgr(out), chunk)
-    // ③ 覆盖率闸仍按物理行裁决：超阈值行丢 structure、干净行保留、signal 永存
-    assert.ok(out.includes(dirtyLine), '超阈值行的 structure 命中应被整行丢弃')
+    // ③ 覆盖率闸仍按物理行裁决：超阈值行削掉最胖 structure（保留小命中）、干净行保留、signal 永存
+    const blueCount = s => s.split(blue).length - 1
+    assert.ok(blueCount(out) < blueCount(noGate.highlightChunk(chunk)),
+      '超阈值行应削掉部分 structure 命中（保留小命中，不再整行素色）')
     assert.ok(out.includes(blue + '10.1.2.99' + RESET), '干净行的 IP 应保留染色')
     assert.ok(out.includes(RED + 'ERROR' + RESET), 'signal 命中不受闸影响')
   })

@@ -91,7 +91,7 @@ const main = async () => {
   console.log('   未过闸逐行:', rawRatios.map(r => (r * 100).toFixed(0) + '%').join(' '))
   console.log('   未过闸中位:', pct(median(rawRatios)))
   console.log('   过闸后逐行:', gatedRatios.map(r => (r * 100).toFixed(0) + '%').join(' '))
-  console.log('   过闸后中位:', pct(median(gatedRatios)), '(门槛 ≤ 20%)\n')
+  console.log('   过闸后中位:', pct(median(gatedRatios)), '(门槛 ≤ 35%，且 > 10% 保证可见)\n')
 
   console.log('C) 93% 脏行 + 1 脏 9 净多行片段（按行算，不能被净行平均掉）')
   const all = collectMatches(multiLineChunk, full.patterns, full.scan, 512)
@@ -157,7 +157,8 @@ const main = async () => {
 
   // §9 硬门槛
   assert.ok(median(semanticRatios) <= 0.20, '默认全选中位染色率必须 ≤ 20%')
-  assert.ok(median(gatedRatios) <= 0.20, '结构档开启且过闸后中位染色率必须 ≤ 20%')
+  assert.ok(median(gatedRatios) <= 0.35, '结构档开启且过闸后中位染色率必须 ≤ 35%（单行上限）')
+  assert.ok(median(gatedRatios) > 0.10, '过闸后仍须保留可见高亮（削最胖、不整行素色）')
   assert.ok(median(rawRatios) > 0.35, '未过闸时应明显偏密（证明闸确实起了作用）')
   assert.equal(activeKeywords(semantic.list).filter(k => k.tier === 'structure').length, 0)
   assert.equal(gated.filter(h => h.start < dirtyEnd && h.tier === 'structure').length, 0)

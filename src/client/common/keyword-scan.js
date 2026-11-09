@@ -365,8 +365,20 @@ export function applyCoverageGate (content, matches, opts = {}) {
       continue
     }
     if (colored[i] / lineLength > threshold && structureByLine[i]) {
-      for (const m of structureByLine[i]) {
+      // 只削「最胖」的命中直到回落到阈值内，而不是整行结构全丢：
+      // 一条长路径吃满整行时，丢路径但保留行号/短 flag 这些小命中，
+      // 否则命令历史这类「路径主导」的行会整行素色（几乎没高亮）。
+      const budget = threshold * lineLength
+      const lineEnd = lineEndOf(i)
+      const span = m => Math.min(m.end, lineEnd) - Math.max(m.start, lineStarts[i])
+      const sorted = [...structureByLine[i]].sort((a, b) => span(b) - span(a))
+      let remaining = colored[i]
+      for (const m of sorted) {
+        if (remaining <= budget) {
+          break
+        }
         drop.add(m)
+        remaining -= span(m)
       }
     }
   }
