@@ -370,6 +370,105 @@ const DETAIL_SCAN_MAX_ROUNDS = 10
 // string 详情预览软上限（字节）：超过只回传截断预览，防 IPC 克隆内存翻倍
 const MAX_STRING_PREVIEW_BYTES = 256 * 1024
 
+// N5b 大 Key 扫描上限：对齐键树 10000 键上限的既有纪律，防 500 万键实例把主进程卡死
+const BIGKEYS_MAX_SCAN = 10000
+// N5b 大 Key 扫描每轮 SCAN COUNT：越大 pipeline 越大，越小往返越多；500 是折中
+const BIGKEYS_SCAN_COUNT = 500
+// N5b 大 Key 扫描 TOP-N 上限：IPC 传 100 条排序结果 + 元信息，前端够用；再多会克隆变慢
+const BIGKEYS_TOP_N = 100
+// N5b 每 chunk 内 pipeline 大小上限：ioredis pipeline() 的缓冲区上限，
+// 单轮塞 500 条 TYPE+MEMORY USAGE=1000 个命令刚好，再多可能被 Redis 服务端吞或丢
+const BIGKEYS_PIPELINE_MAX = 1000
+
+// N5b：大 Key / MEMORY USAGE 扫描 —— SCAN + TYPE + MEMORY USAGE 聚合的迷你 --bigkeys。
+// 思路：ioredis MEMORY USAGE 会先 DUMP 再算占用，string 类型直接用 STRLEN 更准更快；
+// 复杂类型（hash/list/set/zset/stream）才走 MEMORY USAGE。
+// - cancelToken：每 SCAN 循环开头检查，非零值直接 break 并标记 cancelled，
+//   主进程不等 pipeline 跑完就 return（pipeline 的结果会自然被 Promise 链忽略）
+// - 返回 rows 已按 size 降序、最多 BIGKEYS_TOP_N 条
+// - 不跨 dbIndex：渲染侧按"每个 db 单独一次扫描"调用方，本模块只管单库
+async function scanBigKeys (conn, { dbIndex, match, maxScan, cancelToken }) {
+  const c = await useDb(conn, dbIndex)
+  const limit = Math.min(Number(maxScan) || BIGKEYS_MAX_SCAN, BIGKEYS_MAX_SCAN)
+  const pattern = match || '*'
+  let cursor = '0'
+  let scanned = 0
+  let cancelled = false
+  const rows = []
+
+  for (let round = 0; round < 10000; round++) {
+    // cancelToken 检查：渲染侧 cancelToken++ 后这里立即停
+    if (typeof cancelToken === 'number' && cancelToken !== 0 && !cancelled) {
+      cancelled = true
+      break
+    }
+    const [next, keys] = await c.scan(cursor, 'MATCH', pattern, 'COUNT', BIGKEYS_SCAN_COUNT)
+    cursor = String(next)
+    if (!keys || !keys.length) {
+      if (cursor === '0') break
+      continue
+    }
+
+    // pipeline TYPE + MEMORY USAGE / STRLEN —— 1 pipeline 搞定这一小撮，
+    // 避免 N 键 × 2 次往返把 RTT 放大
+    const p = c.pipeline()
+    for (const k of keys) {
+      p.type(k)
+      p.strlen(k)  // 先假定 string，后根据 type 覆盖
+    }
+    const baseRes = await p.exec()
+
+    // 第二轮 pipeline：对非 string 类型补 MEMORY USAGE
+    const bigTypes = new Set()
+    const bigKeys = []
+    for (let i = 0; i < keys.length; i++) {
+      const [typeErr, typeVal] = baseRes[i * 2] || []
+      const type = typeErr ? 'unknown' : typeVal
+      if (type !== 'string' && type !== 'none') {
+        bigTypes.add(i)
+        bigKeys.push(keys[i])
+      }
+    }
+    let memRes = []
+    if (bigKeys.length) {
+      const p2 = c.pipeline()
+      for (const k of bigKeys) p2.call('MEMORY', 'USAGE', k)
+      memRes = await p2.exec()
+    }
+
+    // 合并：str 取 strlen，非 str 取 MEMORY USAGE
+    let memIdx = 0
+    for (let i = 0; i < keys.length; i++) {
+      const [typeErr, typeVal] = baseRes[i * 2] || []
+      const [, strSize] = baseRes[i * 2 + 1] || []
+      const type = typeErr ? 'unknown' : typeVal
+      let size = 0
+      if (type === 'string') {
+        size = Number(strSize) || 0
+      } else if (bigTypes.has(i)) {
+        const [memErr, memVal] = memRes[memIdx++] || []
+        size = memErr ? 0 : (Number(memVal) || 0)
+      }
+      rows.push({ name: keys[i], type, size })
+      scanned++
+      if (scanned >= limit) break
+    }
+    if (scanned >= limit || cursor === '0') break
+  }
+
+  // 降序取 TOP-N
+  rows.sort((a, b) => b.size - a.size)
+  const top = rows.slice(0, BIGKEYS_TOP_N)
+
+  return {
+    rows: top,
+    scanned,
+    truncated: scanned >= limit,
+    cancelled,
+    totalInTop: rows.length
+  }
+}
+
 async function scanPage (scan, pageSize, startCursor) {
   let cursor = String(startCursor || '0')
   let items = []
@@ -788,6 +887,8 @@ module.exports = {
   // N5a：受限命令控制台（分词/判定/封顶都在 redis-console.js，只读位由 dbClientOp 注入）
   runRedisCommand,
   listRedisCommands,
+  // N5b：大 Key 扫描 —— SCAN+TYPE+MEMORY USAGE 聚合，TOP-N 降序，带上限/取消
+  scanBigKeys,
   closeRedisConnection,
   // 键列表任意跳页（SCAN 从 0 前向步进 pageIndex 次）
   scanKeysToPage,

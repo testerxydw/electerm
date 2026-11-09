@@ -116,7 +116,9 @@ const OP_MAP = {
     renameKeyNx: 'renameKeyNx',
     // N5a：受限命令控制台（runRedisCommand 拒绝时不碰服务端；listRedisCommands 给补全名单）
     runRedisCommand: 'runRedisCommand',
-    listRedisCommands: 'listRedisCommands'
+    listRedisCommands: 'listRedisCommands',
+    // N5b：大 Key 扫描 —— SCAN+TYPE+MEMORY USAGE 聚合，TOP-N 降序，带上限/取消
+    scanBigKeys: 'scanBigKeys'
   }
 }
 

@@ -17,13 +17,14 @@
  * keys 是 useDbRedisKeys 返回值与 7 个 owner state 的合成对象（直传返回值会白屏）。
  * 详情渲染走 renderDetail() 回调；JSX 与原内联块逐字等价（仅此一处差异）。
  */
-import React from 'react'
-import { Segmented, Input, Button, Tooltip, Tree, Empty } from 'antd'
-import { CodeOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
+import React, { useState } from 'react'
+import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Table } from 'antd'
+import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
 import { DbGridPager } from './db-grid-pager'
 import { REDIS_SPLIT_KEY, REDIS_TREE_MAX_KEYS } from '../../common/db-session-const'
+import { scanBigKeys } from './use-db-redis-keys'
 
 const e = window.translate
 
@@ -48,6 +49,8 @@ export function DbRedisKeySpace ({
   redisKeyTotal,
   redisKeyPagesShow,
   redisPageNoText,
+  // N5b：大 Key 扫描需要 tabId 调 dbClientOp
+  tabId,
   // 来自 useDbRedisKeys 的返回值
   keys
 }) {
@@ -73,6 +76,30 @@ export function DbRedisKeySpace ({
     // N5a：控制台入口（弹层本体挂在 owner 上，这里只出按钮）
     openRedisConsole
   } = keys
+
+  // N5b：大 Key 扫描 Modal state。打开按钮 → loading → 结果表格/错误，关闭即清理。
+  // 每次点按钮都是一次全新扫描，不保留上次结果（跟 INFO 弹层的"打开即刷新"同口径）
+  const [bigKeyModal, setBigKeyModal] = useState({ open: false, loading: false, rows: [], scanned: 0, truncated: false, cancelled: false, error: '' })
+
+  const openBigKeyScan = () => {
+    if (typeof tabId !== 'number' || redisDb < 0) {
+      return
+    }
+    setBigKeyModal({ open: true, loading: true, rows: [], scanned: 0, truncated: false, cancelled: false, error: '' })
+    scanBigKeys(tabId, redisDb).then(res => {
+      setBigKeyModal(s => ({
+        ...s,
+        loading: false,
+        rows: (res && res.rows) || [],
+        scanned: (res && res.scanned) || 0,
+        truncated: !!(res && res.truncated),
+        cancelled: !!(res && res.cancelled)
+      }))
+    }).catch(err => {
+      setBigKeyModal(s => ({ ...s, loading: false, error: (err && err.message) || e('dbRedisBigKeysFailed') }))
+    })
+  }
+  const closeBigKeyModal = () => setBigKeyModal(s => ({ ...s, open: false }))
   return (
     <div className='db-redis-area'>
       {
@@ -241,6 +268,17 @@ export function DbRedisKeySpace ({
                     {e('dbRedisConsole')}
                   </Button>
                 }
+                {/* N5b：大 Key / MEMORY USAGE 扫描入口。只读可开（MEMORY USAGE 是只读命令），
+                    跟控制台不同——控制台禁用是因为它可能跑写命令，这里只有 TYPE+STRLEN+MEMORY USAGE */}
+                <Button
+                  size='small'
+                  icon={<DatabaseOutlined />}
+                  className='db-redis-bigkeys-open'
+                  onClick={openBigKeyScan}
+                  disabled={redisDb < 0}
+                >
+                  {e('dbRedisBigKeys')}
+                </Button>
               </div>
               <DbSplitPane
                 storageKey={REDIS_SPLIT_KEY}
@@ -306,6 +344,46 @@ export function DbRedisKeySpace ({
             </>
             )
       }
+      {/* N5b：大 Key / MEMORY USAGE 扫描 Modal。独立于键空间面板，关闭即清理 */}
+      <Modal
+        open={bigKeyModal.open}
+        title={e('dbRedisBigKeysTitle')}
+        onCancel={closeBigKeyModal}
+        footer={null}
+        width={720}
+        destroyOnClose
+      >
+        {bigKeyModal.loading
+          ? <div className='db-redis-bigkeys-loading'>{e('dbLoading')}…</div>
+          : bigKeyModal.error
+            ? <div className='db-redis-bigkeys-error'>{bigKeyModal.error}</div>
+            : bigKeyModal.rows.length
+              ? (
+                <>
+                  <div className='db-redis-bigkeys-summary'>
+                    {e('dbRedisBigKeysSummary')
+                      .replace('{n}', String(bigKeyModal.scanned))
+                      .replace('{m}', String(bigKeyModal.rows.length))}
+                    {bigKeyModal.truncated ? ` · ${e('dbRedisBigKeysTruncated')}` : ''}
+                    {bigKeyModal.cancelled ? ` · ${e('dbRedisBigKeysCancelled')}` : ''}
+                  </div>
+                  <Table
+                    size='small'
+                    pagination={false}
+                    rowKey='name'
+                    columns={[
+                      { title: e('dbRedisBigKeysColName'), dataIndex: 'name', ellipsis: true, copyable: true },
+                      { title: e('dbRedisBigKeysColType'), dataIndex: 'type', width: 100 },
+                      { title: e('dbRedisBigKeysColSize'), dataIndex: 'size', width: 140, render: v => Number(v).toLocaleString() }
+                    ]}
+                    dataSource={bigKeyModal.rows}
+                    onRow={r => ({ onClick: () => { selectRedisKey(r.name); closeBigKeyModal() } })}
+                  />
+                </>
+              )
+              : <Empty description={e('dbRedisBigKeysEmpty')} />
+        }
+      </Modal>
     </div>
   )
 }

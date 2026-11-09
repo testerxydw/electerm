@@ -73,6 +73,7 @@ import { useDbRedisConsole } from './use-db-redis-console'
 import { useDbQuickOpen } from './use-db-quick-open'
 import { DbTreePanel } from './db-tree-panel'
 import { DbRedisKeySpace } from './db-redis-key-space'
+import { scanBigKeys } from './use-db-redis-keys'
 import DbChangePanel from './db-change-panel'
 import clone from '../../common/to-simple-obj'
 import { downloadText, buildCopyStatements, toTsv } from '../../common/db-csv'
@@ -4150,6 +4151,7 @@ export default auto(function DbSession (props) {
       redisKeyTotal={redisKeyTotal}
       redisKeyPagesShow={redisKeyPagesShow}
       redisPageNoText={redisPageNoText}
+      tabId={tabId}
       keys={{
         loadRedisKeys,
         jumpRedisKeysPage,

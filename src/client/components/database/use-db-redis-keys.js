@@ -489,3 +489,15 @@ export function useDbRedisKeys ({
     runRedisDel
   }
 }
+
+// N5b：大 Key / MEMORY USAGE 扫描 —— 主进程 scanBigKeys 异步执行，返回 Promise。
+// 主进程内部 SCAN+TYPE+MEMORY USAGE 聚合、TOP-N 降序、带 10000 键上限 + cancelled 标记。
+// 渲染侧拿到 Promise 后弹 Modal 呈现结果（loading → 结果表格 / 错误 / 取消）。
+// 函数本身只做"IPC 调用 + 返回 Promise"，不管理 UI state（state 归 DbRedisKeySpace 组件）。
+export function scanBigKeys (tabId, dbIndex, match = '*', maxScan = 10000) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'scanBigKeys', {
+    dbIndex,
+    match,
+    maxScan
+  })
+}
