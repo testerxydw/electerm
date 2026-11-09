@@ -756,6 +756,10 @@ const en = {
   dbAiActionAgain: 'Again',
   dbAiInstructionPh: 'Describe the query you need...',
   dbAiExtraPh: 'Extra requirement (optional)',
+  // N10a：语义层词典（连接级，自动附带 <glossary> 进 AI prompt）
+  dbAiDictToggle: 'Glossary',
+  dbAiDictSave: 'save glossary',
+  dbAiDictPh: 'One entry per line: term = meaning\n# comment lines are ignored',
   dbAiNeedInstruction: 'Type what you need first',
   dbAiRequestFailed: 'The AI request failed',
   dbAiWaiting: 'Waiting for the model...',
@@ -2129,6 +2133,10 @@ const zhCn = {
   dbAiActionAgain: '重新生成',
   dbAiInstructionPh: '说明你要什么查询……',
   dbAiExtraPh: '补充要求（可选）',
+  // N10a：语义层词典（连接级，自动附带 <glossary> 进 AI prompt）
+  dbAiDictToggle: '数据词典',
+  dbAiDictSave: '保存词典',
+  dbAiDictPh: '一行一条：术语 = 含义\n# 开头的行是注释，会被忽略',
   dbAiNeedInstruction: '请先写下你的需求',
   dbAiRequestFailed: 'AI 请求失败',
   dbAiWaiting: '等待模型回复……',

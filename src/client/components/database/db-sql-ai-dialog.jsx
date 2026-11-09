@@ -16,13 +16,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Modal, Button, Input, Alert, Tag, Segmented, Spin } from 'antd'
-import { RobotOutlined, LoadingOutlined, CopyOutlined } from '@ant-design/icons'
+import { RobotOutlined, LoadingOutlined, CopyOutlined, BookOutlined } from '@ant-design/icons'
 import message from '../common/message'
 import { copy } from '../../common/clipboard'
 import { appendMandatoryGuardrails } from '../ai/ai-guardrails'
 import { resolveAiLanguage } from '../../common/ai-role'
 import { buildSqlAiPrompt, parseSqlFromAiResponse } from '../../common/db-sql-ai'
 import { classifySql } from '../../common/db-sql-risk'
+// N10a 语义层词典：连接级（bookmarkId）可编辑，generate/explain 时自动附带 <glossary>
+import { parseDictionaryText, loadDictionaryText, saveDictionaryText } from '../../common/db-ai-dictionary'
 // 风险等级词条映射只此一份（危险确认弹窗在用），这里复用而不是抄一遍
 import { LEVEL_LABEL_KEY } from './db-danger-confirm'
 
@@ -59,6 +61,9 @@ export default function DbSqlAiDialog (props) {
   const [raw, setRaw] = useState('')
   const [failed, setFailed] = useState('')
   const [strategy, setStrategy] = useState('auto')
+  // N10a：词典编辑器开合与草稿（按打开时的 bookmarkId 载入，保存写回 localStorage）
+  const [dictOpen, setDictOpen] = useState(false)
+  const [dictText, setDictText] = useState('')
 
   // 每次打开（或换模式）都重置：留着上一次的回复，会让人误以为它是这次的结果
   useEffect(() => {
@@ -70,6 +75,9 @@ export default function DbSqlAiDialog (props) {
     setFailed('')
     setLoading(false)
     setStrategy('auto')
+    // 词典编辑器收起 + 按当前连接重读（换 tab 不串词典）
+    setDictOpen(false)
+    setDictText(loadDictionaryText((context || {}).bookmarkId))
   }, [open, mode])
 
   const parsed = useMemo(() => parseSqlFromAiResponse(raw), [raw])
@@ -122,6 +130,8 @@ export default function DbSqlAiDialog (props) {
       table: (context && context.table) || '',
       columns: (context && context.columns) || [],
       readOnly: !!(context && context.readOnly),
+      // N10a：连接级词典自动附带（空词典不出 <glossary> 块）
+      dictionary: parseDictionaryText(dictText),
       language: resolveAiLanguage(config.languageAI, window.store.getLangName())
     })
     setLoading(true)
@@ -252,6 +262,52 @@ export default function DbSqlAiDialog (props) {
                 showIcon
                 message={error}
               />
+              )
+            : null
+        }
+        {
+          // N10a：语义层词典（连接级）。折叠区 + 保存按钮；run() 时 parseDictionaryText
+          // 自动附带进 <glossary>。格式一行一条 `term = meaning`，# 注释。
+          context && context.bookmarkId
+            ? (
+              <div className='pd1t db-sql-ai-dict'>
+                <Button
+                  size='small'
+                  icon={<BookOutlined />}
+                  onClick={() => setDictOpen(o => !o)}
+                >
+                  {e('dbAiDictToggle')}
+                </Button>
+                {
+                  dictOpen
+                    ? (
+                      <>
+                        <TextArea
+                          className='pd1b'
+                          autoSize={{ minRows: 3, maxRows: 10 }}
+                          placeholder={e('dbAiDictPh')}
+                          value={dictText}
+                          onChange={ev => setDictText(ev.target.value)}
+                          disabled={loading}
+                        />
+                        <div>
+                          <Button
+                            size='small'
+                            type='primary'
+                            disabled={loading}
+                            onClick={() => {
+                              saveDictionaryText(context.bookmarkId, dictText)
+                              setDictOpen(false)
+                            }}
+                          >
+                            {e('dbAiDictSave')}
+                          </Button>
+                        </div>
+                      </>
+                      )
+                    : null
+                }
+              </div>
               )
             : null
         }

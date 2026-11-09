@@ -121,6 +121,8 @@ import { dialectIdOf } from '../../common/sql-dialects'
 // AI 第一批：提示词/落编辑器策略都是纯函数（db-sql-ai.js），回复解析在弹层里做；
 // 会话页只负责把编辑器句柄登记到目标表、把弹层的产出落到编辑器
 import { buildSqlAiPrompt, planSqlInsertion } from '../../common/db-sql-ai'
+// N10a 语义层词典：explain 入口按连接（bookmarkId）读词典附带 <glossary>
+import { parseDictionaryText, loadDictionaryText } from '../../common/db-ai-dictionary'
 import { buildDbAiSource } from '../ai/ai-source-context'
 import { resolveAiLanguage } from '../../common/ai-role'
 import { muteLowWrite } from '../../common/db-safe-guard'
@@ -1622,6 +1624,8 @@ export default auto(function DbSession (props) {
       schema: ctx.schema,
       table: ctx.table,
       columns: ctx.columns,
+      // N10a：连接级词典自动附带（空词典不出 <glossary> 块）
+      dictionary: parseDictionaryText(loadDictionaryText(ctx.bookmarkId)),
       language: resolveAiLanguage((window.store.config || {}).languageAI, window.store.getLangName())
     })
     // 来源快照跟着这句走（P-4）：AI 面板据此提示"这条会话是在哪个页签的哪张表上问的"。

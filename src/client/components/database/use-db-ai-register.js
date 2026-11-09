@@ -23,6 +23,8 @@ export function useDbAiRegister ({
   // 上下文（当前表 / 列缓存 / 只读）每次渲染刷进 ref，登记出去的对象保持稳定：
   // 依赖变化来回注销重登，在严格模式/热更下会把刚登记的新句柄删掉
   sqlAiCtxRef.current = {
+    // N10a：词典是连接级的，AI 侧按 bookmarkId（tab.id）读 localStorage 词典
+    bookmarkId: tab.id,
     dbType: tab.dbType,
     database: (sel && sel.database) || '',
     schema: (sel && sel.schema) || '',
