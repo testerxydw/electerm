@@ -19,6 +19,7 @@
 
 const { Server, utils } = require('@electerm/ssh2')
 const { exec } = require('child_process')
+const net = require('net')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -377,6 +378,20 @@ function startTestSshServer ({ port = TEST_PORT, rootDir, algorithms } = {}) {
       ctx.reject(['password'])
     })
     client.on('ready', () => {
+      // direct-tcpip（服务端事件名 tcpip）：db-tunnel 的 forwardOut 走这条通道。
+      // 仅放行 127.0.0.1 目标——夹具只服务本机回环，不对外转发。
+      client.on('tcpip', (accept, reject, info) => {
+        if (info.destIP !== '127.0.0.1') {
+          reject()
+          return
+        }
+        const stream = accept()
+        const sock = net.connect(info.destPort, info.destIP)
+        sock.on('error', () => stream.end())
+        stream.on('close', () => sock.end())
+        stream.pipe(sock)
+        sock.pipe(stream)
+      })
       client.on('session', (accept) => {
         const session = accept()
         session.on('pty', (acceptPty) => {
