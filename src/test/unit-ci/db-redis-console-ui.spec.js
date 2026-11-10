@@ -241,6 +241,26 @@ describe('N5a 接线：样式与词条', () => {
     assert.match(STYL, /\.db-redis-console-history/)
   })
 
+  test('输入行钉在弹层顶部（sticky），历史不另开滚动通道（单通道 SSOT）', () => {
+    // 输入行：sticky 钉顶，历史滚动时输入框与执行按钮不动
+    const inputBlock = STYL.slice(
+      STYL.indexOf('  .db-redis-console-input\n'),
+      STYL.indexOf('  .db-redis-console-line')
+    )
+    assert.match(inputBlock, /position sticky/)
+    assert.match(inputBlock, /top 0/)
+    assert.match(inputBlock, /background var\(--main\)/)
+
+    // 历史：不能自己限制高度/开 overflow，否则与弹层 body（modal-scroll.styl SSOT）
+    // 形成双滚动条，且输入行会被滚走
+    const historyBlock = STYL.slice(
+      STYL.indexOf('  .db-redis-console-history\n'),
+      STYL.indexOf('  .db-redis-console-entry')
+    )
+    assert.ok(!/overflow/.test(historyBlock), '历史区不得自带 overflow（滚动交回弹层 body）')
+    assert.ok(!/max-height/.test(historyBlock), '历史区不得自带 max-height（单滚动通道）')
+  })
+
   test('界面用到的每个控制台词条在 en 与 zh_cn 里都有，且没有多余孤儿键', () => {
     const used = new Set()
     for (const src of [JSX, HOOK, KEY_SPACE]) {

@@ -162,22 +162,25 @@ describe('统一滚动通道：组件层零手写滚动逻辑', () => {
     assert.match(code, /defaultExpandAllRows/, '树展开交互必须零变更')
   })
 
-  test('SSOT：.db-sticky-thead 是唯一的非虚拟表头吸顶定义（白名单显式登记既存同类）', () => {
+  test('SSOT：仅白名单的吸顶定义（表头×2 + 控制台输入行），新增分叉必须显式登记', () => {
     const styl = read(STYL)
     assert.equal((styl.match(/^\.db-sticky-thead\b/gm) || []).length, 1, 'sticky class must be defined once')
     assert.match(styl, /\.db-sticky-thead[\s\S]{0,300}\.ant-table-thead th[\s\S]{0,200}position sticky/)
     // 既存的「自定义 div grid 表头行」吸顶（db-session.jsx:4430）是另一渲染结构，
-    // 显式登记为白名单，避免被误判成新增分叉；除此之外不允许第三处 position sticky
+    // 显式登记为白名单，避免被误判成新增分叉
     assert.match(styl, /\.db-tx-row-head[\s\S]{0,120}position sticky/)
-    // 放宽到 stylus 也允许的 `position: sticky`（带冒号）写法，避免同类分叉绕过计数
+    // Redis 控制台输入行 sticky 钉顶（db-session.styl:1601）：历史滚动时输入框不滚走，
+    // 属于「输入行」而非「表头」吸顶，单独登记、不与表头 SSOT 混为一谈
+    assert.match(styl, /\.db-redis-console-input[\s\S]{0,120}position sticky/)
+    // 放宽到 stylus 也允许的 `position: sticky`（带冒号）写法，避免同类分叉绕过计数。
+    // 全仓 db-session.styl 的 position sticky 必须恰好落在白名单三处，
+    // 任何第四处（例如新的表头吸顶分叉）都会让计数 != 3 而告警
     const stickyHits = styl.match(/^\s*position\s*:?\s*sticky\s*$/gm) || []
-    // .db-sticky-thead 的 sticky 带 !important 优先级保障（见下方护栏 test），
-    // 行尾锚定的 stickyHits 不计该行，单独统计后仍要求合计恰好 2 处
     const importantHits = styl.match(/^\s*position\s*:?\s*sticky\s+!important\s*$/gm) || []
     assert.equal(
       stickyHits.length + importantHits.length,
-      2,
-      'only .db-tx-row-head (legacy) + .db-sticky-thead (SSOT) may exist'
+      3,
+      'only .db-tx-row-head (legacy) + .db-sticky-thead (SSOT) + .db-redis-console-input (pinned input) may exist'
     )
   })
 

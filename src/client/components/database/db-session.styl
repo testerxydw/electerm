@@ -1594,13 +1594,19 @@
 // N5a Redis 命令控制台
 .db-redis-console
   // 输入行 + 补全列表：列表绝对定位，弹层高度不随候选数量跳动
-  //（否则敲一个字符就把下面的历史顶得一颤）
+  //（否则敲一个字符就把下面的历史顶得一颤）。
+  // 输入行 sticky 钉在弹层 body 顶部：历史滚动时输入框与执行按钮不动
+  //（弹层滚动通道 SSOT 见 css/includes/modal-scroll.styl —— body 是唯一滚动区，
+  // 这里不再给历史单独开一层 overflow，避免双滚动条 + 输入行被滚走）。
   .db-redis-console-input
-    position relative
+    position sticky
+    top 0
+    z-index 5
+    background var(--main)
     display flex
     gap 6px
     align-items center
-    margin-bottom 10px
+    padding-bottom 10px
 
   .db-redis-console-line
     flex 1 1 0
@@ -1667,10 +1673,10 @@
   .db-redis-console-mode
     margin-bottom 8px
 
-  // 历史：最新一条在最上面，所以不需要自动滚底（见 hook 头注释第 3 条）
+  // 历史：最新一条在最上面，所以不需要自动滚底（见 hook 头注释第 3 条）。
+  // 不再自己限制高度/开 overflow —— 弹层 body（SSOT）是唯一滚动通道，
+  // 这样历史再长也只出现弹层内的一条滚动条，输入行始终钉在顶部可见。
   .db-redis-console-history
-    max-height 46vh
-    overflow auto
     display flex
     flex-direction column
     gap 8px
@@ -2094,7 +2100,10 @@
   color var(--text-muted)
 
 // 会话页（N6）：工具条钉住，表格区撑满后内部滚动 —— 与数据/结构页同款撑满链路；
-// 不写这条时 wrap 无高度约束，超高内容被 .ant-tabs-body-holder 的 hidden 裁掉，表格滚不动
+// 不写这条时 wrap 无高度约束，超高内容被 .ant-tabs-body-holder 的 hidden 裁掉，表格滚不动。
+// ⚠️ antd 已从 5 升到 6：<Spin> 不再渲染 .ant-spin-nested-loading（那是 antd5 类），
+// 真实结构为 .ant-spin（根，直接子）> .ant-spin-container（包表格）。旧选择器永不命中 →
+// 滚动规则不生效 → 表滚不动。这里改打 antd6 真实类链；表头吸顶复用 .db-sticky-thead（非虚拟表 SSOT）。
 .db-sessions-wrap
   height 100%
   min-height 0
@@ -2105,10 +2114,18 @@
     flex none
   > .ant-alert
     flex none
-  > .ant-spin-nested-loading
+  // antd6：<Spin> 根 .ant-spin（直接子）填剩余高、内部 .ant-spin-container 做滚动视口，
+  // 表体超高即内滚；两层层叠是因为 .ant-spin 需是 flex 列容器，容器才能拿到确定高来 overflow
+  > .ant-spin
     flex 1 1 0
     min-height 0
-    overflow auto
+    display flex
+    flex-direction column
+    overflow hidden
+    > .ant-spin-container
+      flex 1 1 0
+      min-height 0
+      overflow auto
 
 // 表结构区（列定义网格）：撑满 tabpane（块级父级里 flex-basis 不生效，必须 height 100%），
 // flex 列布局让 .db-grid-table-wrap 拿到确定高度并内部滚动
