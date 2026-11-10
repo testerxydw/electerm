@@ -973,12 +973,179 @@ function stopRedisProfiler (conn, { handleId } = {}) {
   cleanupProfiler(handleId)
 }
 
-// 无参全清（app 退出兜底）—— 额外把所有 profiler client 也关掉
+// N5f：Pub/Sub —— 与 Profiler 同构：独立订阅 client + 环形缓冲 + start/pull/pause/stop。
+// 为什么不跟 N5a 控制台合用一条连接：subscribe 会把连接切进订阅模式，后续普通
+// op 全被当成消息流吞掉（redis-command-policy 的 'pubsub' 黑名单就是这个原因），
+// 所以这里必须像 monitor 一样独占一条连接。
+// 与 monitor 的差异：subscribe 有确认回执（subscribe/psubscribe 事件带 count），
+// 失败的 pattern 不会抛异常只会收不到消息 —— 把成功清单原样回给 UI 让用户看得见。
+const PUBSUB_RING_MAX = 500
+// 单条 message 正文截断：pub/sub 常被拿来广播大 payload，不做上限会把渲染层
+// 拉流 IPC 和表格都拖垮（与 N12c SQL_MAX 同策略：截断加标记，不静默剪）
+const PUBSUB_TEXT_MAX = 2000
+
+const pubsubs = new Map() // handleId -> { client, buffer, ringStart, seq, paused, channels, patterns }
+let nextPubsubHandle = 1
+
+function clipPubsubText (v) {
+  const s = v === null || v === undefined ? '' : String(v)
+  return s.length > PUBSUB_TEXT_MAX ? s.slice(0, PUBSUB_TEXT_MAX) + '…[truncated]' : s
+}
+
+function cleanupPubsub (handleId) {
+  const p = pubsubs.get(handleId)
+  if (!p) return
+  try { p.client.disconnect() } catch (_) {}
+  p.buffer.length = 0
+  pubsubs.delete(handleId)
+}
+
+// 解析渲染层传来的清单：逗号分隔 → 去空 → 去重。patterns 另有 glob 语义但
+// 解析口径一致；两者都不填 = 没有可订阅目标，直接抛错（连接都省了）
+function parseSubList (v) {
+  if (!v) return []
+  return [...new Set(String(v).split(',')
+    .map(s => s.trim())
+    .filter(Boolean))]
+}
+
+// N5f：启动订阅 —— 新建独立 client，SUBSCRIBE + PSUBSCRIBE（各 absorb 自己的
+// 失败，互不连坐：channel 拼错不该拖死 pattern）。'message'（精确订阅命中）与
+// 'pmessage'（模式订阅命中，Redis 会把两种都投递，同一条消息可能收两行 ——
+// 这是服务端语义不是 bug，kind 列让用户分得清来源）
+async function startRedisPubSub (conn, { channels, patterns } = {}) {
+  const chanList = parseSubList(channels)
+  const patList = parseSubList(patterns)
+  if (!chanList.length && !patList.length) {
+    throw new Error('no channels or patterns to subscribe')
+  }
+  const client = createClient(conn)
+  client.on('error', () => {})
+  await connectClient(client)
+
+  const p = {
+    client,
+    buffer: [],
+    ringStart: 0,
+    seq: 0,
+    paused: false,
+    channels: chanList,
+    patterns: patList
+  }
+  const handleId = nextPubsubHandle++
+  pubsubs.set(handleId, p)
+
+  client.on('message', (channel, message) => {
+    if (p.paused) return
+    const item = {
+      id: p.seq++,
+      t: Date.now(),
+      kind: 'message',
+      channel: clipPubsubText(channel),
+      pattern: '',
+      text: clipPubsubText(message)
+    }
+    if (p.buffer.length < PUBSUB_RING_MAX) {
+      p.buffer.push(item)
+    } else {
+      p.buffer[p.ringStart] = item
+      p.ringStart = (p.ringStart + 1) % PUBSUB_RING_MAX
+    }
+  })
+  client.on('pmessage', (pattern, channel, message) => {
+    if (p.paused) return
+    const item = {
+      id: p.seq++,
+      t: Date.now(),
+      kind: 'pmessage',
+      channel: clipPubsubText(channel),
+      pattern: clipPubsubText(pattern),
+      text: clipPubsubText(message)
+    }
+    if (p.buffer.length < PUBSUB_RING_MAX) {
+      p.buffer.push(item)
+    } else {
+      p.buffer[p.ringStart] = item
+      p.ringStart = (p.ringStart + 1) % PUBSUB_RING_MAX
+    }
+  })
+
+  // subscribe 返回收到的确认数；ioredis 对非法 pattern（如含空格）会 reject
+  const errors = []
+  const okChannels = []
+  const okPatterns = []
+  for (const ch of chanList) {
+    try {
+      await client.subscribe(ch)
+      okChannels.push(ch)
+    } catch (e) {
+      errors.push('subscribe ' + ch + ': ' + String((e && e.message) || e))
+    }
+  }
+  for (const pat of patList) {
+    try {
+      await client.psubscribe(pat)
+      okPatterns.push(pat)
+    } catch (e) {
+      errors.push('psubscribe ' + pat + ': ' + String((e && e.message) || e))
+    }
+  }
+  // 全部失败 = 这个 handle 没有任何价值，清掉（部分失败继续跑，UI 提示失败项）
+  if (!okChannels.length && !okPatterns.length) {
+    const firstErr = errors[0] || 'subscribe failed'
+    cleanupPubsub(handleId)
+    throw new Error(firstErr)
+  }
+  p.channels = okChannels
+  p.patterns = okPatterns
+  return { handleId, channels: okChannels, patterns: okPatterns, errors }
+}
+
+// N5f：拉数据 —— 与 getRedisProfilerData 同一份环形窗口 + lastSeq diff 逻辑。
+// 签名走转发层协议 (conn, args)，错位会让 handle 永远 miss → 永远 stopped
+function getRedisPubSubData (conn, { handleId, lastSeq } = {}) {
+  const p = pubsubs.get(handleId)
+  if (!p) return { rows: [], overflow: false, stopped: true }
+
+  const rows = []
+  if (p.ringStart < p.buffer.length) {
+    rows.push(...p.buffer.slice(p.ringStart))
+    rows.push(...p.buffer.slice(0, p.ringStart))
+  } else {
+    rows.push(...p.buffer)
+  }
+  const since = rows.filter(r => r.id > lastSeq)
+  const overflow = lastSeq >= 0 && rows.length > 0 && rows[0].id > lastSeq
+  if (overflow) {
+    return { rows, overflow: true, paused: p.paused, stopped: false }
+  }
+  return { rows: since, overflow: false, paused: p.paused, stopped: false }
+}
+
+// N5f：暂停/恢复 —— 主进程侧跳过 append，订阅连接继续收（同 profiler 语义）
+function toggleRedisPubSubPause (conn, { handleId, paused } = {}) {
+  const p = pubsubs.get(handleId)
+  if (!p) return false
+  p.paused = !!paused
+  return p.paused
+}
+
+// N5f：停止 —— 断订阅连接、清 buffer、删表项
+function stopRedisPubSub (conn, { handleId } = {}) {
+  if (!handleId) return
+  cleanupPubsub(handleId)
+}
+
+// 无参全清（app 退出兜底）—— 额外把所有 profiler / pubsub client 也关掉
 async function closeRedisConnection () {
   for (const p of profilers.values()) {
     try { p.client.disconnect() } catch (_) {}
   }
   profilers.clear()
+  for (const p of pubsubs.values()) {
+    try { p.client.disconnect() } catch (_) {}
+  }
+  pubsubs.clear()
   for (const c of clients.values()) {
     c.disconnect()
   }
@@ -1024,6 +1191,12 @@ module.exports = {
   getRedisProfilerData,
   toggleRedisProfilerPause,
   stopRedisProfiler,
+  // N5f：Pub/Sub —— 独立订阅 client（subscribe 会切连接模式，不与共享连接合用）
+  // + 环形缓冲 + start/pull/pause/stop，签名协议与 Profiler 完全一致
+  startRedisPubSub,
+  getRedisPubSubData,
+  toggleRedisPubSubPause,
+  stopRedisPubSub,
   closeRedisConnection,
   // 键列表任意跳页（SCAN 从 0 前向步进 pageIndex 次）
   scanKeysToPage,

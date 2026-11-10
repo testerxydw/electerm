@@ -18,13 +18,13 @@
  * 详情渲染走 renderDetail() 回调；JSX 与原内联块逐字等价（仅此一处差异）。
  */
 import React, { useState, useEffect, useRef } from 'react'
-import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Alert, Space } from 'antd'
-import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCircleOutlined, PauseCircleOutlined, CopyOutlined } from '@ant-design/icons'
+import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Alert, Space, Tag } from 'antd'
+import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCircleOutlined, PauseCircleOutlined, CopyOutlined, ApiOutlined, SendOutlined } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
 import { DbGridPager } from './db-grid-pager'
 import { REDIS_SPLIT_KEY, REDIS_TREE_MAX_KEYS, REDIS_PROFILER_VIEW_MAX } from '../../common/db-session-const'
-import { scanBigKeys, startRedisProfiler, getRedisProfilerData, toggleRedisProfilerPause, stopRedisProfiler } from './use-db-redis-keys'
+import { scanBigKeys, startRedisProfiler, getRedisProfilerData, toggleRedisProfilerPause, stopRedisProfiler, startRedisPubSub, getRedisPubSubData, toggleRedisPubSubPause, stopRedisPubSub } from './use-db-redis-keys'
 
 const e = window.translate
 
@@ -210,6 +210,159 @@ export function DbRedisKeySpace ({
     if (timerRef.current) clearInterval(timerRef.current)
     if (profiler.handleId) {
       stopRedisProfiler(tabId, profiler.handleId).catch(() => {})
+    }
+  }, [])
+
+  // N5f：Pub/Sub —— 与 Profiler 同一套协议（独立订阅 client + 主进程环形缓冲 +
+  // 200ms 拉流）。subscribing 的清单/失败项由 start 返回（订阅失败是服务端语义
+  // 不抛异常，UI 必须显式展示）；publish 测试行走控制台策略通道（PUBLISH 不在
+  // BLOCKED 名单，只读模式下策略层按 COMMAND flags 判定，可能被拒——拒了就显示）
+  const [pubsub, setPubsub] = useState({
+    open: false,
+    running: false,
+    handleId: null,
+    rows: [],
+    lastSeq: -1,
+    paused: false,
+    overflow: false,
+    error: '',
+    channels: '',
+    patterns: '',
+    subs: null, // { channels, patterns, errors } 服务端确认过的订阅清单
+    pubChannel: '',
+    pubMessage: '',
+    pubResult: ''
+  })
+  const psTimerRef = useRef(null)
+  const psLastSeqRef = useRef(-1)
+  // unmount 清理要走 ref：useEffect([]) 闭包里的 pubsub.handleId 永远是挂载时的
+  // null（state 闭包陷阱），ref 才能拿到"此刻真的在订阅"的句柄
+  const psHandleRef = useRef(null)
+  const pubChannelReady = !!String(pubsub.pubChannel || '').trim()
+
+  const startPsPulling = (handleId) => {
+    if (psTimerRef.current) clearInterval(psTimerRef.current)
+    psTimerRef.current = setInterval(async () => {
+      try {
+        const res = await getRedisPubSubData(tabId, handleId, psLastSeqRef.current)
+        if (res && res.stopped) {
+          clearInterval(psTimerRef.current)
+          psTimerRef.current = null
+          setPubsub(s => ({ ...s, running: false, handleId: null }))
+          return
+        }
+        setPubsub(s => {
+          const newRows = res.rows || []
+          let newLastSeq = s.lastSeq
+          if (res.overflow) {
+            newLastSeq = Math.max(-1, ...newRows.map(r => r.id))
+            psLastSeqRef.current = newLastSeq
+            return { ...s, rows: capRows(newRows), lastSeq: newLastSeq, overflow: true }
+          }
+          if (newRows.length) {
+            const maxId = Math.max(...newRows.map(r => r.id))
+            if (maxId > newLastSeq) newLastSeq = maxId
+          }
+          psLastSeqRef.current = newLastSeq
+          return { ...s, rows: capRows(s.rows.concat(newRows)), lastSeq: newLastSeq, paused: !!res.paused }
+        })
+      } catch (_) { /* IPC 临时失败忽略，下轮继续 */ }
+    }, 200)
+  }
+
+  const openPubsubModal = () => {
+    if (!tabId || redisDb < 0) {
+      return
+    }
+    psLastSeqRef.current = -1
+    setPubsub(s => ({ ...s, open: true, running: false, handleId: null, rows: [], lastSeq: -1, paused: false, overflow: false, error: '', subs: null, pubResult: '' }))
+  }
+  const closePubsubModal = async () => {
+    if (pubsub.handleId && pubsub.running) {
+      try { await stopRedisPubSub(tabId, pubsub.handleId) } catch (_) {}
+    }
+    psHandleRef.current = null
+    if (psTimerRef.current) { clearInterval(psTimerRef.current); psTimerRef.current = null }
+    psLastSeqRef.current = -1
+    setPubsub(s => ({ ...s, open: false, running: false, handleId: null, rows: [] }))
+  }
+  const startPubsub = async () => {
+    try {
+      const res = await startRedisPubSub(tabId, pubsub.channels, pubsub.patterns)
+      psLastSeqRef.current = -1
+      psHandleRef.current = res.handleId
+      setPubsub(s => ({
+        ...s,
+        running: true,
+        handleId: res.handleId,
+        rows: [],
+        lastSeq: -1,
+        overflow: false,
+        error: '',
+        subs: { channels: res.channels || [], patterns: res.patterns || [], errors: res.errors || [] }
+      }))
+      startPsPulling(res.handleId)
+    } catch (err) {
+      setPubsub(s => ({ ...s, error: (err && err.message) || e('dbRedisPubSubStartFailed') }))
+    }
+  }
+  const stopPubsub = async () => {
+    if (pubsub.handleId) {
+      try { await stopRedisPubSub(tabId, pubsub.handleId) } catch (_) {}
+    }
+    psHandleRef.current = null
+    if (psTimerRef.current) { clearInterval(psTimerRef.current); psTimerRef.current = null }
+    setPubsub(s => ({ ...s, running: false, handleId: null, paused: false }))
+  }
+  const togglePubsubPause = async () => {
+    if (!pubsub.handleId) return
+    const newPaused = !pubsub.paused
+    try {
+      const realPaused = await toggleRedisPubSubPause(tabId, pubsub.handleId, newPaused)
+      setPubsub(s => ({ ...s, paused: realPaused }))
+    } catch (_) {}
+  }
+  const copyPubsub = async () => {
+    const text = pubsub.rows
+      .map(r => `[${r.kind}] ${r.channel}: ${r.text}`)
+      .join('\n')
+    try { await navigator.clipboard.writeText(text) } catch (_) {}
+  }
+  const clearPubsubRows = () => {
+    psLastSeqRef.current = pubsub.lastSeq
+    setPubsub(s => ({ ...s, rows: [], overflow: false }))
+  }
+  // PUBLISH 测试行：走控制台策略通道（runRedisCommand），分词/黑白名单都在
+  // 主进程判定一次。channel/message 带引号转义（tokenize 支持 " 与 \ 转义）。
+  // 返回形状与控制台一致：{ status:'ok', reply } / { status:'blocked'|'error', reason|error }
+  const quoteArg = s => '"' + String(s || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
+  const sendPublish = async () => {
+    if (!pubChannelReady) return
+    setPubsub(s => ({ ...s, pubResult: '' }))
+    try {
+      const res = await window.pre.runGlobalAsync('dbClientOp', tabId, 'runRedisCommand', {
+        line: `PUBLISH ${quoteArg(pubsub.pubChannel)} ${quoteArg(pubsub.pubMessage)}`,
+        dbIndex: redisDb
+      })
+      if (res && res.status === 'ok') {
+        const n = Array.isArray(res.reply) ? res.reply[0] : res.reply
+        setPubsub(s => ({
+          ...s,
+          pubResult: `${e('dbRedisPubSubPublishOk')}${typeof n === 'number' ? ' · ' + n : ''}`
+        }))
+      } else {
+        setPubsub(s => ({ ...s, pubResult: (res && (res.error || res.reason)) || e('dbRedisPubSubPublishFailed') }))
+      }
+    } catch (err) {
+      setPubsub(s => ({ ...s, pubResult: (err && err.message) || e('dbRedisPubSubPublishFailed') }))
+    }
+  }
+
+  // unmount 时清理 pubsub 定时器 + 订阅连接（句柄走 ref，见上）
+  useEffect(() => () => {
+    if (psTimerRef.current) clearInterval(psTimerRef.current)
+    if (psHandleRef.current) {
+      stopRedisPubSub(tabId, psHandleRef.current).catch(() => {})
     }
   }, [])
   return (
@@ -402,6 +555,17 @@ export function DbRedisKeySpace ({
                 >
                   {e('dbRedisProfiler')}
                 </Button>
+                {/* N5f：Pub/Sub 入口。订阅本身是只读命令，只读连接可开；
+                    面板内的 PUBLISH 测试行走控制台策略通道，只读下可能被策略拒绝 */}
+                <Button
+                  size='small'
+                  icon={<ApiOutlined />}
+                  className='db-redis-pubsub-open'
+                  onClick={openPubsubModal}
+                  disabled={redisDb < 0}
+                >
+                  {e('dbRedisPubSub')}
+                </Button>
               </div>
               <DbSplitPane
                 storageKey={REDIS_SPLIT_KEY}
@@ -577,6 +741,130 @@ export function DbRedisKeySpace ({
                 dataSource={profiler.rows}
               />
             : <Empty description={e('dbRedisProfilerEmpty')} />}
+      </Modal>
+      {/* N5f：Pub/Sub Modal。订阅输入（channels/patterns 逗号分隔）+ 控制 Space +
+          消息流 Table + PUBLISH 测试行（走控制台策略通道，不绕过护栏） */}
+      <Modal
+        open={pubsub.open}
+        title={e('dbRedisPubSubTitle')}
+        className='db-redis-pubsub-modal'
+        onCancel={closePubsubModal}
+        footer={null}
+        width={880}
+        destroyOnClose
+      >
+        {!pubsub.running
+          ? (
+            <>
+              <div className='db-redis-pubsub-form'>
+                <Input
+                  size='small'
+                  placeholder={e('dbRedisPubSubChannels')}
+                  value={pubsub.channels}
+                  onChange={ev => setPubsub(s => ({ ...s, channels: ev.target.value }))}
+                  className='db-redis-pubsub-input'
+                  allowClear
+                />
+                <Input
+                  size='small'
+                  placeholder={e('dbRedisPubSubPatterns')}
+                  value={pubsub.patterns}
+                  onChange={ev => setPubsub(s => ({ ...s, patterns: ev.target.value }))}
+                  className='db-redis-pubsub-input'
+                  allowClear
+                />
+              </div>
+              <div className='db-redis-pubsub-tip'>{e('dbRedisPubSubTip')}</div>
+              <div style={{ marginBottom: 8 }}>
+                <Button size='small' type='primary' icon={<ApiOutlined />} onClick={startPubsub} disabled={redisDb < 0}>
+                  {e('dbRedisPubSubStart')}
+                </Button>
+              </div>
+            </>
+            )
+          : (
+            <Space style={{ marginBottom: 8 }} wrap>
+              <Button size='small' danger icon={<ApiOutlined />} onClick={stopPubsub}>
+                {e('dbRedisPubSubStop')}
+              </Button>
+              <Button size='small' icon={pubsub.paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />} onClick={togglePubsubPause}>
+                {pubsub.paused ? e('dbRedisPubSubResume') : e('dbRedisPubSubPause')}
+              </Button>
+              <Button size='small' icon={<CopyOutlined />} onClick={copyPubsub} disabled={!pubsub.rows.length}>
+                {e('dbRedisPubSubCopy')}
+              </Button>
+              <Button size='small' onClick={clearPubsubRows} disabled={!pubsub.rows.length}>
+                {e('dbRedisPubSubClear')}
+              </Button>
+            </Space>
+            )}
+        {pubsub.subs && (
+          <div className='db-redis-pubsub-subs'>
+            {[
+              ...(pubsub.subs.channels || []).map(c => ({ label: c, pat: false })),
+              ...(pubsub.subs.patterns || []).map(c => ({ label: c, pat: true }))
+            ].map(it => (
+              <Tag key={(it.pat ? 'p:' : 'c:') + it.label} color={it.pat ? 'purple' : 'blue'}>
+                {it.label}
+              </Tag>
+            ))}
+            {(pubsub.subs.errors || []).length > 0 && (
+              <span className='db-redis-pubsub-subs-error'>{pubsub.subs.errors.join('; ')}</span>
+            )}
+          </div>
+        )}
+        {pubsub.error && <div className='db-redis-pubsub-error'>{pubsub.error}</div>}
+        {/* 统一滚动通道：定高/表头吸顶/virtual 全由 DbGridTable 承担（同 Profiler 纪律） */}
+        {pubsub.rows.length
+          ? <DbGridTable
+              height={360}
+              size='small'
+              pagination={false}
+              rowKey='id'
+              columns={[
+                { title: '#', dataIndex: 'id', width: 60, render: v => v + 1 },
+                {
+                  title: e('dbRedisPubSubColKind'),
+                  dataIndex: 'kind',
+                  width: 90,
+                  render: v => (
+                    <Tag color={v === 'pmessage' ? 'purple' : 'blue'} className='db-redis-pubsub-kind'>
+                      {v === 'pmessage' ? e('dbRedisPubSubKindPmsg') : e('dbRedisPubSubKindMsg')}
+                    </Tag>
+                  )
+                },
+                { title: e('dbRedisPubSubColChannel'), dataIndex: 'channel', width: 180, ellipsis: true },
+                { title: e('dbRedisPubSubColMessage'), dataIndex: 'text', width: 400, ellipsis: true }
+              ]}
+              dataSource={pubsub.rows}
+            />
+          : pubsub.running
+            ? <Empty description={e('dbRedisPubSubWaiting')} />
+            : <Empty description={e('dbRedisPubSubEmpty')} />}
+        {/* PUBLISH 测试行：策略通道直达，只读模式下策略层可能拒绝（拒绝原文回显） */}
+        <div className='db-redis-pubsub-publish'>
+          <Input
+            size='small'
+            placeholder={e('dbRedisPubSubPubChannel')}
+            value={pubsub.pubChannel}
+            onChange={ev => setPubsub(s => ({ ...s, pubChannel: ev.target.value }))}
+            className='db-redis-pubsub-pub-channel'
+            allowClear
+          />
+          <Input
+            size='small'
+            placeholder={e('dbRedisPubSubPubMessage')}
+            value={pubsub.pubMessage}
+            onChange={ev => setPubsub(s => ({ ...s, pubMessage: ev.target.value }))}
+            onPressEnter={sendPublish}
+            className='db-redis-pubsub-pub-message'
+            allowClear
+          />
+          <Button size='small' icon={<SendOutlined />} onClick={sendPublish} disabled={!pubChannelReady}>
+            {e('dbRedisPubSubPublish')}
+          </Button>
+        </div>
+        {pubsub.pubResult && <div className='db-redis-pubsub-pub-result'>{pubsub.pubResult}</div>}
       </Modal>
     </div>
   )

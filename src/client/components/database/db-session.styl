@@ -4100,3 +4100,44 @@ body.db-col-resizing
     -webkit-line-clamp 3
     -webkit-box-orient vertical
     overflow hidden
+
+// N5f：Redis Pub/Sub 弹层——只做布局（订阅输入两列、发布行三列、状态行），
+// 配色走 token；表格区沿用 DbGridTable 统一滚动通道，这里不写定高
+.db-redis-pubsub-modal
+  .db-redis-pubsub-form
+    display flex
+    gap 8px
+    margin-bottom 6px
+  .db-redis-pubsub-input
+    flex 1 1 50%
+  .db-redis-pubsub-tip
+    color var(--text-muted)
+    font-size 12px
+    margin-bottom 8px
+  .db-redis-pubsub-subs
+    margin-bottom 8px
+    .db-redis-pubsub-subs-error
+      color var(--error)
+      font-size 12px
+      margin-left 8px
+  .db-redis-pubsub-error
+    color var(--error)
+    font-size 12px
+    margin-bottom 8px
+    word-break break-all
+  .db-redis-pubsub-publish
+    display flex
+    gap 8px
+    margin-top 12px
+    align-items center
+    .db-redis-pubsub-pub-channel
+      flex 0 0 240px
+    .db-redis-pubsub-pub-message
+      flex 1 1 auto
+  .db-redis-pubsub-pub-result
+    color var(--text-muted)
+    font-size 12px
+    margin-top 6px
+    word-break break-all
+  .db-redis-pubsub-kind
+    margin 0

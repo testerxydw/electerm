@@ -517,3 +517,19 @@ export function toggleRedisProfilerPause (tabId, handleId, paused) {
 export function stopRedisProfiler (tabId, handleId) {
   return window.pre.runGlobalAsync('dbClientOp', tabId, 'stopRedisProfiler', { handleId })
 }
+
+// N5f：Pub/Sub —— 主进程独立订阅 client + 环形缓冲（与 Profiler 同一套协议）。
+// start 返回 { handleId, channels, patterns, errors }：成功清单给 UI 展示，
+// 部分失败的 pattern 在 errors 里（订阅失败不抛异常是服务端语义，得显式回传）。
+export function startRedisPubSub (tabId, channels = '', patterns = '') {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'startRedisPubSub', { channels, patterns })
+}
+export function getRedisPubSubData (tabId, handleId, lastSeq = -1) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisPubSubData', { handleId, lastSeq })
+}
+export function toggleRedisPubSubPause (tabId, handleId, paused) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'toggleRedisPubSubPause', { handleId, paused })
+}
+export function stopRedisPubSub (tabId, handleId) {
+  return window.pre.runGlobalAsync('dbClientOp', tabId, 'stopRedisPubSub', { handleId })
+}

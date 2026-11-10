@@ -130,11 +130,12 @@ describe('统一滚动通道：组件层零手写滚动逻辑', () => {
     assert.doesNotMatch(src, /import \{[^}]*\bTable\b[^}]*\} from 'antd'/)
   })
 
-  test('db-redis-key-space.jsx：4 处表格走 DbGridTable，其中 3 处弹层定高', () => {
+  test('db-redis-key-space.jsx：5 处表格走 DbGridTable，其中 4 处弹层定高', () => {
     const src = read(KEY_SPACE)
-    assert.equal((src.match(/<DbGridTable\b/g) || []).length, 4, '键列表 + 大 Key + Profiler×2')
+    assert.equal((src.match(/<DbGridTable\b/g) || []).length, 5, '键列表 + 大 Key + Profiler×2 + Pub/Sub')
     assert.equal((src.match(/height=\{460\}/g) || []).length, 1, '大 Key 表格')
     assert.equal((src.match(/height=\{400\}/g) || []).length, 2, 'Profiler 两处')
+    assert.equal((src.match(/height=\{360\}/g) || []).length, 1, 'Pub/Sub 消息表（N5f）')
   })
 
   test('db-redis-info.jsx：慢日志与键空间两表都收敛到 DbGridTable height={380}', () => {

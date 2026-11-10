@@ -129,7 +129,13 @@ const OP_MAP = {
     startRedisProfiler: 'startRedisProfiler',
     getRedisProfilerData: 'getRedisProfilerData',
     toggleRedisProfilerPause: 'toggleRedisProfilerPause',
-    stopRedisProfiler: 'stopRedisProfiler'
+    stopRedisProfiler: 'stopRedisProfiler',
+    // N5f：Pub/Sub —— 独立订阅 client（subscribe 切连接模式，不与共享连接合用），
+    // 环形缓冲 + start/pull/pause/stop，签名协议与 Profiler 一致
+    startRedisPubSub: 'startRedisPubSub',
+    getRedisPubSubData: 'getRedisPubSubData',
+    toggleRedisPubSubPause: 'toggleRedisPubSubPause',
+    stopRedisPubSub: 'stopRedisPubSub'
   }
 }
 
