@@ -15,6 +15,7 @@ import {
   bulkUpdatePreview,
   replacePreview
 } from '../../common/db-change-preview'
+import { appendEditHistory } from '../../common/db-edit-history'
 
 const e = window.translate
 
@@ -32,7 +33,8 @@ export function useDbBulkEdit ({
   selectedCell,
   selectedRowKeys,
   setSelectedRowKeys,
-  structureV2
+  structureV2,
+  editHistoryBase
 }) {
   // ---- B3-2 批量同列改值 / B3-3 表内查找替换 ----
   // 两者共用主进程 updateCells（同列、按主键定位、值全部绑定），区别只在
@@ -72,8 +74,9 @@ export function useDbBulkEdit ({
     setBulk({ open: true, col: def, text: '', isNull: false })
   }
 
-  // 共用：把一批 updates 发给主进程并刷新（B3-2/B3-3 都走这里）
-  const runUpdateCells = async (column, updates) => {
+  // 共用：把一批 updates 发给主进程并刷新（B3-2/B3-3 都走这里）。
+  // meta = { sql, n }：确认弹窗同源的预览文本与计划条数，成功后进编辑历史（N12c）
+  const runUpdateCells = async (column, updates, meta) => {
     if (!sel || !pkColumn || !updates.length) {
       return
     }
@@ -89,6 +92,19 @@ export function useDbBulkEdit ({
       })
       message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
       const failed = (res && res.failed) || []
+      // N12c：数据修改留痕——散值路径部分失败也要记（fail=失败行数，
+      // 成功的行已经真实落库，审计口径按"实际落了多少"来）
+      appendEditHistory({
+        ...editHistoryBase,
+        kind: 'cells',
+        database: sel.database,
+        schema: sel.schema || '',
+        table: sel.table,
+        sql: (meta || {}).sql || '',
+        n: (res && res.affected) ?? updates.length,
+        fail: failed.length,
+        ok: !failed.length
+      })
       if (failed.length) {
         message.warning(
           e('dbUpdateCellsFailed').replace('{n}', String(failed.length)) +
@@ -123,22 +139,23 @@ export function useDbBulkEdit ({
       setBulk(b => ({ ...b, open: false }))
       return
     }
+    const preview = bulkUpdatePreview({
+      sel,
+      column: bulk.col,
+      value,
+      pkColumn,
+      pks: plan.updates.map(u => u.pk)
+    })
     const ok = await confirmRowWrite({
       level: 'write',
-      text: bulkUpdatePreview({
-        sel,
-        column: bulk.col,
-        value,
-        pkColumn,
-        pks: plan.updates.map(u => u.pk)
-      }),
+      text: preview,
       note: e('dbAffectedRows').replace('{n}', String(plan.updates.length))
     })
     if (!ok) {
       return
     }
     setBulk(b => ({ ...b, open: false }))
-    await runUpdateCells(bulk.col, plan.updates)
+    await runUpdateCells(bulk.col, plan.updates, { sql: preview, n: plan.updates.length })
   }
 
   // 查找替换的实时预览：随输入变化，告诉用户"会改几行"（范围=当前页可见行）
@@ -192,23 +209,24 @@ export function useDbBulkEdit ({
       setRep(r => ({ ...r, open: false }))
       return
     }
+    const preview = replacePreview({
+      sel,
+      column: rep.col,
+      find: rep.find,
+      replace: rep.text,
+      pkColumn,
+      pks: repPreview.updates.map(u => u.pk)
+    })
     const ok = await confirmRowWrite({
       level: 'write',
-      text: replacePreview({
-        sel,
-        column: rep.col,
-        find: rep.find,
-        replace: rep.text,
-        pkColumn,
-        pks: repPreview.updates.map(u => u.pk)
-      }),
+      text: preview,
       note: e('dbAffectedRows').replace('{n}', String(repPreview.updates.length))
     })
     if (!ok) {
       return
     }
     setRep(r => ({ ...r, open: false }))
-    await runUpdateCells(rep.col, repPreview.updates)
+    await runUpdateCells(rep.col, repPreview.updates, { sql: preview, n: repPreview.updates.length })
   }
 
   return {

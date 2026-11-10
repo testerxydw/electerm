@@ -7,6 +7,7 @@ import message from '../common/message'
 import { SEL_COL_W, buildInsertFormColumns } from '../../common/db-session-const'
 import { buildInsertPayload, canSubmitInsertForm } from '../../common/db-change-set'
 import { insertRowPreview, deleteRowsPreview } from '../../common/db-change-preview'
+import { appendEditHistory } from '../../common/db-edit-history'
 
 const e = window.translate
 
@@ -25,7 +26,8 @@ export function useDbInsert ({
   grid,
   onOpError,
   pkColumn,
-  filteredRows
+  filteredRows,
+  editHistoryBase
 }) {
   // ---- B1 行级 INSERT / DELETE（主进程占位绑定构造 SQL，前端只传值） ----
 
@@ -84,9 +86,10 @@ export function useDbInsert ({
       return
     }
     // E1：production 连接上插行要二次确认（取消则插入弹窗保持打开，值不丢）
+    const preview = insertRowPreview({ sel, cols: insertPayload.cols, vals: insertPayload.vals })
     const ok = await confirmRowWrite({
       level: 'write',
-      text: insertRowPreview({ sel, cols: insertPayload.cols, vals: insertPayload.vals }),
+      text: preview,
       note: e('dbAffectedRows').replace('{n}', '1')
     })
     if (!ok) {
@@ -102,6 +105,18 @@ export function useDbInsert ({
       .then(res => {
         setInsertOpen(false)
         message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
+        // N12c：数据修改留痕（预览与确认弹窗同源）
+        appendEditHistory({
+          ...editHistoryBase,
+          kind: 'insert',
+          database: sel.database,
+          schema: sel.schema || '',
+          table: sel.table,
+          sql: preview,
+          n: (res && res.affected) ?? 1,
+          fail: 0,
+          ok: true
+        })
         // 行数变了 → 总数必须重算，否则"精确行数"会停在上一次的值上
         countKeyRef.current = ''
         loadWithCount(sel, grid.page)
@@ -130,9 +145,10 @@ export function useDbInsert ({
       return
     }
     // 删行定为 dangerous：批量删除不可撤销，按钮应以危险色呈现
+    const preview = deleteRowsPreview({ sel, pkColumn, pkValues })
     const ok = await confirmRowWrite({
       level: 'dangerous',
-      text: deleteRowsPreview({ sel, pkColumn, pkValues }),
+      text: preview,
       note: e('dbAffected').replace('{n}', String(pkValues.length))
     })
     if (!ok) {
@@ -147,6 +163,18 @@ export function useDbInsert ({
     })
       .then(res => {
         message.success(e('dbAffected').replace('{n}', String((res && res.affected) ?? 0)))
+        // N12c：数据修改留痕（预览与确认弹窗同源）
+        appendEditHistory({
+          ...editHistoryBase,
+          kind: 'delete',
+          database: sel.database,
+          schema: sel.schema || '',
+          table: sel.table,
+          sql: preview,
+          n: (res && res.affected) ?? pkValues.length,
+          fail: 0,
+          ok: true
+        })
         countKeyRef.current = ''
         loadWithCount(sel, grid.page)
       })

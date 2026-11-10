@@ -34,6 +34,7 @@ import {
   canStage
 } from '../../common/db-change-set'
 import { canStageDialect } from '../../common/sql-dialects'
+import { appendEditHistory } from '../../common/db-edit-history'
 
 const e = window.translate
 
@@ -49,7 +50,8 @@ export function useDbChanges (deps) {
     txActive,
     refresh,
     confirmBatch,
-    onError
+    onError,
+    editHistoryBase
   } = deps
 
   const [stageOn, setStageOn] = useState(false)
@@ -172,6 +174,8 @@ export function useDbChanges (deps) {
   /**
    * 应用：先给一次批量确认（E1 闸门按批而不是按条 —— 10 条改动弹 10 次窗只会训练用户
    * 连点确认），再按 planSubmit 的顺序逐条走 op。
+   * N12c：每个真实出口都留痕——成功（含部分成功）记 ok:true + n/fail 计数；
+   * COMMIT 失败（结果未定）与整体回滚记 ok:false，尝试过就要留下痕迹。
    */
   const apply = async () => {
     const items = []
@@ -191,6 +195,19 @@ export function useDbChanges (deps) {
     if (!ok) {
       return
     }
+    // 历史条目的语句摘要：与确认弹窗同一批文本合并（主进程侧有截断上限）
+    const historySql = items.map(it => it.sql).join(';\n')
+    const history = (n, fail, okFlag) => appendEditHistory({
+      ...editHistoryBase,
+      kind: 'changes',
+      database: sel ? sel.database : '',
+      schema: sel ? (sel.schema || '') : '',
+      table: sel ? sel.table : '',
+      sql: historySql,
+      n,
+      fail,
+      ok: okFlag
+    })
     // 自己包事务的条件：引擎支持 + 当前没开手动事务 + 多于一条（单条包事务纯属多余，
     // 还会把连接钉住 10 分钟）
     const wrap = txSupported && !txActive && items.length > 1
@@ -230,6 +247,8 @@ export function useDbChanges (deps) {
           // **不**收干变更集，权威交给 F2 事务清单（连接还钉着，用事务开关去提交或回滚）
           message.error(e('dbChangesCommitFailed'))
           onError(err2)
+          // 历史按"未定"记：语句已发进事务，成败等事务清单了结
+          history(0, items.length, false)
           refresh()
           return
         }
@@ -240,17 +259,24 @@ export function useDbChanges (deps) {
         message.warning(e('dbChangesPartial').replace('{ok}', String(doneIds.length - failedIds.length))
           .replace('{left}', String(count - doneIds.length + failedIds.length)))
       }
+      history(doneIds.length - failedIds.length, failedIds.length, true)
       refresh()
     } catch (err) {
       if (opened) {
         // 我们包的事务：中途抛错就整体回滚，数据库回到应用前，变更集原样留着可重试
         await run('rollbackDbTx').catch(() => {})
         message.warning(e('dbChangesRolledBack'))
+        // 整体回滚 = 一个字节都没落库，按失败尝试留痕
+        history(0, 0, false)
       } else if (doneIds.length) {
         // 已经真的执行掉的部分要从变更集收干，否则重试会二次执行（改值幂等，删行/插行不是）
         setStaged(s => dropChanges(s, doneIds.filter(id => !failedIds.includes(id))))
         message.warning(e('dbChangesPartial').replace('{ok}', String(doneIds.length - failedIds.length))
           .replace('{left}', String(count - doneIds.length + failedIds.length)))
+        history(doneIds.length - failedIds.length, failedIds.length, true)
+      } else {
+        // 第一步就抛错，什么都没执行
+        history(0, 0, false)
       }
       onError(err)
       refresh()

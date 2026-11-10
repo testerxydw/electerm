@@ -347,6 +347,30 @@ function initIpc () {
       }
       throw new Error('unknown dbSqlHistoryOp action: ' + action)
     },
+    // 数据修改历史（N12c）：与 SQL 历史同一套主进程固定文件策略
+    // （userData/db-edit-history.json）。写路径留痕（参数化 op 成功后登记），
+    // 查询不进来；语义是流水不去重，见 src/app/lib/db-edit-history.js 头注释
+    dbEditHistoryOp: async (action, arg) => {
+      const file = join(app.getPath('userData'), 'db-edit-history.json')
+      const h = require('./db-edit-history')
+      if (action === 'list') {
+        return h.listEditHistory(file)
+      }
+      if (action === 'append') {
+        return h.appendEditHistory(arg, file)
+      }
+      if (action === 'remove') {
+        return h.removeEditHistory(arg, file)
+      }
+      if (action === 'clear') {
+        return h.clearEditHistory(file)
+      }
+      if (action === 'exportFile') {
+        const a = arg || {}
+        return h.exportEditHistory(a.items, a.filePath)
+      }
+      throw new Error('unknown dbEditHistoryOp action: ' + action)
+    },
     // SQL 查询收藏（B 批）：与历史同一套主进程固定文件策略（userData/db-sql-favorites.json）。
     // 导入导出走文件路径：路径由渲染层经既有 openDialog/saveDialog 拿到，
     // 文件读写必须在主进程（渲染层不碰 fs）；导入在主进程做 id upsert 合并

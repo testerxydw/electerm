@@ -9,7 +9,7 @@
  * 与"提交仍走同一批 op"直接冲突（设计 N2 要点 1）。要手写 SQL 请去 SQL 页签。
  */
 import { Button, Switch, Tag, Tooltip, Empty } from 'antd'
-import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, CloseOutlined, HistoryOutlined } from '@ant-design/icons'
 
 const e = window.translate
 
@@ -38,7 +38,8 @@ export default function DbChangePanel (props) {
     onRevert,
     onDropTable,
     onDiscardAll,
-    onApply
+    onApply,
+    onOpenHistory
   } = props
   return (
     <div className='db-changes'>
@@ -65,6 +66,15 @@ export default function DbChangePanel (props) {
                 )
               : null
           }
+          <Tooltip title={e('dbEditHistoryTip')}>
+            <Button
+              size='small'
+              className='db-changes-history'
+              icon={<HistoryOutlined />}
+              title={e('dbEditHistoryTip')}
+              onClick={onOpenHistory}
+            />
+          </Tooltip>
           <Button
             size='small'
             type='primary'

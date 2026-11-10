@@ -7,6 +7,7 @@
 // selectCell（单元格选中）服务预览面板选中而非编辑，不属本簇，同样留 owner。
 import message from '../common/message'
 import { updateCellPreview } from '../../common/db-change-preview'
+import { appendEditHistory } from '../../common/db-edit-history'
 
 const e = window.translate
 
@@ -24,7 +25,8 @@ export function useDbCellEdit ({
   confirmRowWrite,
   setGrid,
   loadQuery,
-  onOpError
+  onOpError,
+  editHistoryBase
 }) {
   const startEdit = (row, col) => {
     if (!canEditCell) {
@@ -52,15 +54,16 @@ export function useDbCellEdit ({
       return
     }
     // E1：production 连接上改数据要二次确认（带表名/列名/主键定位与影响行数）
+    const preview = updateCellPreview({
+      sel,
+      pkColumn,
+      pkValue: row[pkColumn],
+      column: col,
+      value
+    })
     const ok = await confirmRowWrite({
       level: 'write',
-      text: updateCellPreview({
-        sel,
-        pkColumn,
-        pkValue: row[pkColumn],
-        column: col,
-        value
-      }),
+      text: preview,
       note: e('dbAffectedRows').replace('{n}', '1')
     })
     if (!ok) {
@@ -76,7 +79,21 @@ export function useDbCellEdit ({
       column: col,
       value
     })
-      .then(() => loadQuery(sel, grid.page))
+      .then(() => {
+        // N12c：数据修改留痕（预览与确认弹窗同源；fire-and-forget，失败静默）
+        appendEditHistory({
+          ...editHistoryBase,
+          kind: 'cell',
+          database: sel.database,
+          schema: sel.schema || '',
+          table: sel.table,
+          sql: preview,
+          n: 1,
+          fail: 0,
+          ok: true
+        })
+        loadQuery(sel, grid.page)
+      })
       .catch(err => {
         setGrid(g => ({ ...g, loading: false }))
         onOpError(err)

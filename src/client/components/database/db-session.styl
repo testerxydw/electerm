@@ -4041,3 +4041,62 @@ body.db-col-resizing
   &.is-null
     color var(--text-muted)
     font-style italic
+
+// N12c 数据修改历史面板（antd Modal 内的自绘列表区）
+.db-edit-history-modal
+  .db-edit-history-bar
+    display flex
+    align-items center
+    gap 8px
+    margin-bottom 6px
+  .db-edit-history-filter
+    flex 1
+  .db-edit-history-count
+    color var(--text-muted)
+    font-size 12px
+    margin-bottom 8px
+  .db-edit-history-list
+    max-height 55vh
+    overflow auto
+    display flex
+    flex-direction column
+    gap 8px
+  .db-edit-history-item
+    border 1px solid var(--border)
+    border-radius var(--radius-xs)
+    padding 6px 8px
+  .db-edit-history-item-head
+    display flex
+    align-items center
+    gap 8px
+    margin-bottom 4px
+  .db-edit-history-time
+    color var(--text-muted)
+    font-size 12px
+    white-space nowrap
+  .db-edit-history-kind
+    margin 0
+    flex-shrink 0
+  .db-edit-history-table
+    font-family var(--db-code-font, var(--font-mono))
+    font-size 12px
+    overflow hidden
+    text-overflow ellipsis
+    white-space nowrap
+  .db-edit-history-n
+    margin-left auto
+    color var(--text-muted)
+    font-size 12px
+    white-space nowrap
+    &.has-fail
+      color var(--error)
+  .db-edit-history-sql
+    color var(--text)
+    font-size 12px
+    font-family var(--db-code-font, var(--font-mono))
+    white-space pre-wrap
+    word-break break-all
+    display -webkit-box
+    -webkit-line-clamp 3
+    -webkit-box-orient vertical
+    overflow hidden

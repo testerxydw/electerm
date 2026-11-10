@@ -45,6 +45,7 @@ import { useKeywordPatterns } from './db-highlight'
 import { useDbPageSearch } from './use-db-page-search'
 import { useDbExport } from './use-db-export'
 import { useDbChanges } from './use-db-changes'
+import { useDbEditHistory } from './use-db-edit-history'
 import { useDbTree } from './use-db-tree'
 import { useDbView } from './use-db-view'
 import { useDbRedisKeys } from './use-db-redis-keys'
@@ -81,6 +82,7 @@ import DbGridTable from './db-grid-table'
 import DbStructureArea from './db-structure-area'
 // N11b-#31a：SQL 历史面板（历史 tab 的整块 JSX）迁出为纯展示组件
 import DbSqlHistoryPanel from './db-sql-history-panel'
+import DbEditHistoryPanel from './db-edit-history-panel'
 // N11b-#31b：SQL 收藏面板（收藏 tab 的整块 JSX）迁出为纯展示组件
 import DbSqlFavPanel from './db-sql-fav-panel'
 // N6：会话与状态查看（只读展示，绝不 kill；MySQL PROCESSLIST / PG pg_stat_activity）
@@ -1125,6 +1127,14 @@ export default auto(function DbSession (props) {
     countKeyRef.current = ''
     loadWithCount(sel, grid.page)
   }
+  // N12c：编辑历史的连接识别基座（各写 hook 成功落库后展开进条目；
+  // 只含连接识别字段，不含密码）。tab 换库（dbName）时随 useMemo 重建
+  const editHistoryBase = useMemo(() => ({
+    dbType: tab.dbType,
+    dbHost: tab.dbHost,
+    dbFile: tab.dbFile,
+    dbName: currentDbName
+  }), [tab.dbType, tab.dbHost, tab.dbFile, currentDbName])
   const changes = useDbChanges({
     tabId,
     dbType: tab.dbType,
@@ -1138,7 +1148,8 @@ export default auto(function DbSession (props) {
     // 应用前的那道闸复用 E1：它表达的是"执行前给人看"，不是 SQL 编辑器专属 UI。
     // 包一层箭头是必需的 —— confirmRowWrite 定义在本页后面两千行，直接传标识符是 TDZ
     confirmBatch: payload => confirmRowWrite(payload),
-    onError: onOpError
+    onError: onOpError,
+    editHistoryBase
   })
   // 底部页签的选中项 + "手动点开变更页签"。changesVisible 在渲染段算，两处共用一个判断
   const [detailTab, setDetailTab] = useState('value')
@@ -1250,7 +1261,8 @@ export default auto(function DbSession (props) {
     grid,
     onOpError,
     pkColumn,
-    filteredRows
+    filteredRows,
+    editHistoryBase
   })
 
   // ---- #4 单元格编辑拆到 use-db-cell-edit（行为零变更）----
@@ -1270,7 +1282,8 @@ export default auto(function DbSession (props) {
     confirmRowWrite,
     setGrid,
     loadQuery,
-    onOpError
+    onOpError,
+    editHistoryBase
   })
 
   // ---- #4b B3-2 批量同列改值 / B3-3 表内查找替换拆到 use-db-bulk-edit（行为零变更）----
@@ -1301,8 +1314,22 @@ export default auto(function DbSession (props) {
     selectedCell,
     selectedRowKeys,
     setSelectedRowKeys,
-    structureV2
+    structureV2,
+    editHistoryBase
   })
+
+  // N12c：数据修改历史（面板状态与动作，无外部依赖）
+  const {
+    editHistoryOpen,
+    editHistoryList,
+    editHistoryFilter,
+    setEditHistoryFilter,
+    openEditHistory,
+    removeOneEditHistory,
+    clearAllEditHistory,
+    exportEditHistoryFile,
+    editHistoryMax
+  } = useDbEditHistory()
 
   // H6a：参数化开关（默认开）。关掉就是原来的纯文本执行，:name 原样发给服务端
   const [sqlParamMode, setSqlParamMode] = useState(true)
@@ -2569,6 +2596,7 @@ export default auto(function DbSession (props) {
           onDropTable={key => changes.revertTable(key)}
           onDiscardAll={() => changes.discardAll()}
           onApply={() => changes.apply()}
+          onOpenHistory={() => openEditHistory(true)}
         />
       )
     })
@@ -4829,6 +4857,18 @@ export default auto(function DbSession (props) {
       }
       {/* 全屏时页面内唯一的退出入口（与终端相同：右上角 ⋮ → 退出全屏） */}
       <RemoteFloatControl isFullScreen={!!fullscreen} />
+      {/* N12c：数据修改历史（变更面板 bar 的历史按钮打开） */}
+      <DbEditHistoryPanel
+        open={editHistoryOpen}
+        items={editHistoryList}
+        filter={editHistoryFilter}
+        onFilterChange={setEditHistoryFilter}
+        max={editHistoryMax}
+        onClose={() => openEditHistory(false)}
+        onRemove={removeOneEditHistory}
+        onClearAll={clearAllEditHistory}
+        onExport={exportEditHistoryFile}
+      />
     </div>
   )
 })
