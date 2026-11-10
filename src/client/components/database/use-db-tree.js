@@ -8,7 +8,8 @@ import {
   EMPTY_STRUCTURE_V2,
   isDbObjectType,
   isLeafNode,
-  nodeKey
+  nodeKey,
+  treeNodeKey
 } from '../../common/db-session-const'
 
 export function useDbTree ({
@@ -169,17 +170,14 @@ export function useDbTree ({
       treeExpandedBeforeFilter.current = expandedKeys
     }
     const keys = []
-    // 展开键必须与 treeData 里同一节点的 key 同一推导：
-    // 分组节点（例程/触发器/事件）挂在「库[/schema] + 组名」三位形态上，
-    // schema 节点才是「库 + schema」两位形态。少一位 → 分组永远不展开，
-    // 计数条说命中 6 个节点、树里只画得出 4 个（真 MariaDB 实测踩到）
+    // 分组与同名表不能共用 key；自动展开必须与渲染节点使用同一身份。
     const walk = (dbName, schema, nodes) => {
       (nodes || []).forEach(node => {
         if (isLeafNode(node)) {
           return
         }
         const isGroup = node.type === 'group'
-        keys.push(isGroup ? nodeKey(dbName, schema, node.name) : nodeKey(dbName, node.name))
+        keys.push(isGroup ? treeNodeKey(dbName, schema, node) : nodeKey(dbName, node.name))
         walk(dbName, isGroup ? schema : node.name, node.children)
       })
     }

@@ -12,7 +12,7 @@ import { listSqlHistory } from '../../common/db-sql-history'
 import { previewText } from '../../common/db-sql-history-panel'
 import {
   isLeafNode,
-  nodeKey,
+  treeNodeKey,
   DB_OBJECT_MARKS,
   isDbObjectType
 } from '../../common/db-session-const'
@@ -155,14 +155,14 @@ export function useDbQuickOpen ({
           if (isLeafNode(node)) {
             out.push({
               kind: 'object',
-              id: nodeKey(db.name, schema, node.name),
+              id: treeNodeKey(db.name, schema, node),
               title: node.name,
-              subtitle: schema ? `${db.name}.${schema}` : db.name,
+              subtitle: [db.name, schema, node.table, node.signature].filter(Boolean).join(' · '),
               // 树里已改用形状图标；面板这一列窄，仍用单字母简称（不算文案，不进词条）
               hint: node.type === 'view' ? 'V' : (DB_OBJECT_MARKS[node.type] || ''),
               run: () => onSelectTree(null, {
                 node: {
-                  key: nodeKey(db.name, schema, node.name),
+                  key: treeNodeKey(db.name, schema, node),
                   isLeaf: true,
                   nodeType: node.type,
                   objMeta: isDbObjectType(node.type)

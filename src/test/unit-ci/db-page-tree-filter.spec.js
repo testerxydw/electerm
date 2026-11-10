@@ -78,7 +78,7 @@ const loadTreeFilterExpandKeys = () => {
   const nk = loadConst().match(/const nodeKey = \(database, schema, table\) => JSON\.stringify\(\[[\s\S]*?\]\)/)
   assert.ok(nk, 'nodeKey not found in db-session-const.js')
   return vm.runInNewContext(
-    '(() => {' + leaf[0] + ';' + nk[0] +
+    '(() => {' + loadConst().slice(loadConst().indexOf('\nconst isLeafNode ='), loadConst().indexOf('// U1c：空态')) +
     // N11a 簇 C：effect 走 getVisibleMetadata() getter（按值注入会 TDZ），
     // 沙箱把入参包成同名 getter，执行的仍是发布源码里的原样展开逻辑。
     '; return function (visibleMetadata) { const getVisibleMetadata = () => visibleMetadata;' + body[1] + '\n return keys }; })()',
@@ -212,6 +212,7 @@ describe('T2 tree filter auto-expand keys (real source)', () => {
   const expandKeys = loadTreeFilterExpandKeys()
   // treeData 里节点 key 的两种形态，就是这里要对照的"标准答案"
   const treeKey = (database, schema, table) => JSON.stringify([database, schema || '', table || ''])
+  const groupKey = (database, schema, name, group) => JSON.stringify([database, schema || '', name, 'group', group])
 
   test('mysql: 分组节点的展开键用三位形态（与 treeData 同一个 key）', () => {
     const metadata = [{
@@ -224,7 +225,7 @@ describe('T2 tree filter auto-expand keys (real source)', () => {
     }]
     const keys = expandKeys(metadata)
     assert.ok(keys.includes(treeKey('app')), '库节点要展开')
-    assert.ok(keys.includes(treeKey('app', '', 'routines')), '分组节点要按 nodeKey(库, 空 schema, 组名) 展开')
+    assert.ok(keys.includes(groupKey('app', '', 'routines', 'routine')), '分组节点要按 nodeKey(库, 空 schema, 组名) 展开')
     assert.ok(!keys.includes(treeKey('app', 'routines')), '分组不是 schema，不能写成两位形态')
   })
 
@@ -243,7 +244,8 @@ describe('T2 tree filter auto-expand keys (real source)', () => {
     }]
     const keys = expandKeys(metadata)
     assert.ok(keys.includes(treeKey('app', 'public')), 'schema 节点要展开')
-    assert.ok(keys.includes(treeKey('app', 'public', 'triggers')), 'schema 下的分组展开键要带上 schema')
+    assert.ok(keys.includes(groupKey('app', 'public', 'triggers', 'trigger')), 'schema 下的分组展开键要带上 schema（五段形态，与 treeData 同一身份）')
+    assert.ok(!keys.includes(treeKey('app', 'public', 'triggers')), '分组不再用旧三位形态，避免与同名表撞 key')
   })
 
   test('叶子不进展开集，命中例程的分组不能只计数不展开', () => {
@@ -256,7 +258,7 @@ describe('T2 tree filter auto-expand keys (real source)', () => {
       ]
     }])
     // vm 里造的是另一个 realm 的数组，deepStrictEqual 会比原型 → 先复制成本地数组
-    assert.deepEqual(Array.from(keys), [treeKey('app'), treeKey('app', '', 'routines')])
+    assert.deepEqual(Array.from(keys), [treeKey('app'), groupKey('app', '', 'routines', 'routine')])
   })
 })
 

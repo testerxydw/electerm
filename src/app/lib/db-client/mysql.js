@@ -411,6 +411,30 @@ async function getDbObjects (pool, dbName) {
       children: events.map(r => ({ name: r.name, type: 'event' }))
     })
   }
+  try {
+    const [indexes] = await pool.query(
+      'SELECT DISTINCT TABLE_NAME AS tbl, INDEX_NAME AS name FROM information_schema.STATISTICS ' +
+      'WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, INDEX_NAME',
+      [String(dbName)]
+    )
+    if (indexes && indexes.length) {
+      groups.push({
+        name: 'indexes',
+        type: 'group',
+        group: 'index',
+        children: indexes.map(r => ({ name: r.name, type: 'index', table: r.tbl }))
+      })
+    }
+  } catch (e) {
+    log.warn('getMetadata indexes failed:', dbName, e.message)
+    groups.push({
+      name: 'indexes',
+      type: 'group',
+      group: 'index',
+      children: [],
+      error: e.message
+    })
+  }
   return groups
 }
 
@@ -426,6 +450,41 @@ const DDL_KINDS = {
 }
 
 async function getObjectDdl (conn, args) {
+  if (String((args && args.objectType) || '').toLowerCase() === 'index') {
+    const name = String(args.name || '')
+    const table = String(args.table || '')
+    const database = String(args.database || conn.dbName || '')
+    if (!name) {
+      throw new Error('object name required')
+    }
+    if (!table) {
+      throw new Error('index table required')
+    }
+    if (!database) {
+      throw new Error('index database required')
+    }
+    const pool = await getPool(conn)
+    const [indexes] = await pool.query(
+      'SELECT 1 FROM information_schema.STATISTICS ' +
+      'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+      [database, table, name]
+    )
+    if (!indexes || !indexes.length) {
+      throw new Error(`index not found: ${name}`)
+    }
+    const full = [database, table].map(n => '`' + n.replace(/`/g, '``') + '`').join('.')
+    const [rows] = await pool.query(`SHOW CREATE TABLE ${full}`)
+    const ddl = rows && rows[0] && rows[0]['Create Table']
+    if (typeof ddl !== 'string' || !ddl) {
+      throw new Error(`table DDL not found: ${table}`)
+    }
+    return {
+      name,
+      objectType: 'index',
+      table,
+      ddl: '-- Selected index definition is included in the full table DDL below.\n' + ddl
+    }
+  }
   const kind = DDL_KINDS[String((args && args.objectType) || '').toLowerCase()]
   if (!kind) {
     throw new Error(`unsupported object type: ${args && args.objectType}`)

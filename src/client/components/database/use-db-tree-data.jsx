@@ -21,7 +21,8 @@
 import { useMemo } from 'react'
 import { Button, Tooltip } from 'antd'
 import {
-  EyeOutlined, CodeOutlined, FunctionOutlined, ThunderboltOutlined, ClockCircleOutlined
+  EyeOutlined, CodeOutlined, FunctionOutlined, ThunderboltOutlined, ClockCircleOutlined,
+  OrderedListOutlined, KeyOutlined
 } from '@ant-design/icons'
 import { hlText, hlNode } from './db-search'
 import {
@@ -29,7 +30,8 @@ import {
   isDbObjectType,
   countTreeLeaves,
   DB_GROUP_LABEL,
-  nodeKey
+  nodeKey,
+  treeNodeKey
 } from '../../common/db-session-const'
 
 const e = window.translate
@@ -41,13 +43,17 @@ const DB_OBJECT_ICONS = {
   procedure: <CodeOutlined />,
   function: <FunctionOutlined />,
   trigger: <ThunderboltOutlined />,
-  event: <ClockCircleOutlined />
+  event: <ClockCircleOutlined />,
+  sequence: <OrderedListOutlined />,
+  index: <KeyOutlined />
 }
 // 分组节点（过程与函数 / 触发器 / 事件）用同类图标，和组内叶子对得上
 const DB_GROUP_ICONS = {
   routine: <CodeOutlined />,
   trigger: <ThunderboltOutlined />,
-  event: <ClockCircleOutlined />
+  event: <ClockCircleOutlined />,
+  sequence: <OrderedListOutlined />,
+  index: <KeyOutlined />
 }
 
 export function useDbTreeData ({
@@ -68,7 +74,7 @@ export function useDbTreeData ({
     }
     const hit = name => String(name || '').toLowerCase().includes(treeFilterKw)
     const filterNode = node => {
-      const nodeHit = hit(node.name)
+      const nodeHit = hit(node.name) || (isLeafNode(node) && hit(node.table))
       if (isLeafNode(node)) {
         return nodeHit ? node : null
       }
@@ -118,10 +124,11 @@ export function useDbTreeData ({
                   {icon}
                 </span>
                 <span className='db-tree-name'>{treeTitle(node.name)}</span>
+                {node.table && <span className='db-tree-object-owner'>{treeTitle(node.table)}</span>}
               </span>
               )
             : <span className='db-tree-name'>{treeTitle(node.name)}</span>,
-          key: nodeKey(dbName, schema, node.name),
+          key: treeNodeKey(dbName, schema, node),
           isLeaf: true,
           // 类型随节点走：后续按钮门控（视图不可插入行）要它
           nodeType: node.type,
@@ -147,9 +154,10 @@ export function useDbTreeData ({
               {/* 分组标签是本地化界面词，不是标识符 → 故意不包 .db-tree-name */}
               {treeTitle(e(DB_GROUP_LABEL[node.group] || 'dbRoutines'))}
               <span className='db-tree-count'>{(node.children || []).length}</span>
+              {node.error && <Tooltip title={node.error}><span className='db-tree-db-err'>!</span></Tooltip>}
             </span>
           ),
-          key: nodeKey(dbName, schema, node.name),
+          key: treeNodeKey(dbName, schema, node),
           children: toTreeChildren(dbName, schema, node.children)
         }
       }

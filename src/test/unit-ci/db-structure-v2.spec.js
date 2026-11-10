@@ -500,7 +500,10 @@ describe('F0 元数据树：视图节点（验收 3）', () => {
     // "same structure but not reference-equal" → 过一遍 JSON 归一到宿主对象
     const tree = JSON.parse(JSON.stringify(await mod.getMetadata(conn, {})))
     const children = tree[0].children
-    assert.deepEqual(children.map(c => [c.name, c.type]), [['t', 'table'], ['v', 'view']])
+    // N12a 起表/视图之外还可能有分组节点（indexes 等）；本测试锁的是叶子口径
+    const groups = children.filter(c => c.type === 'group')
+    assert.deepEqual(groups.map(c => c.name), ['indexes'], '分组节点只含索引组（mock 的 STATISTICS 行被兜底成组节点）')
+    assert.deepEqual(children.filter(c => c.type !== 'group').map(c => [c.name, c.type]), [['t', 'table'], ['v', 'view']])
     assert.ok(calls.queries.every(q => !/SHOW TABLES/i.test(q.sql)), 'SHOW TABLES has no TABLE_TYPE')
     assert.ok(calls.queries.some(q => /TABLE_TYPE/.test(q.sql)))
   })

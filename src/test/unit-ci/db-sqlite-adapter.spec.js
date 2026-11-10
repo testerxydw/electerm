@@ -366,6 +366,9 @@ describe('sqlite adapter · integration', () => {
     assert.ok(!names.some(n => n.startsWith('sqlite_')))
     assert.equal(meta[0].children.find(c => c.name === 'v_users').type, 'view')
     assert.equal(meta[0].children.find(c => c.name === 'users').type, 'table')
+    const indexes = meta[0].children.find(c => c.group === 'index')
+    assert.deepEqual(plain(indexes.children), [{ name: 'idx_posts_user', type: 'index', table: 'posts' }])
+    assert.ok(!meta[0].children.some(c => c.group === 'sequence'))
   })
 
   test('getTableStructure：列类型/可空/默认值/长度/主键/索引/外键', async () => {
@@ -436,6 +439,9 @@ describe('sqlite adapter · integration', () => {
     assert.match(view.ddl, /^CREATE VIEW v_users/)
     const index = await adapter.getObjectDdl(ctx.conn, { name: 'idx_posts_user', objectType: 'index' })
     assert.match(index.ddl, /^CREATE INDEX idx_posts_user/)
+    await assert.rejects(adapter.getObjectDdl(ctx.conn, {
+      name: 'idx_posts_user', objectType: 'index', table: 'users'
+    }), /object not found/)
     await assert.rejects(
       adapter.getObjectDdl(ctx.conn, { name: 'users', objectType: 'procedure' }),
       /unsupported object type/

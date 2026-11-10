@@ -52,6 +52,15 @@ function makePool (opts) {
             TABLE_TYPE: conf.views && conf.views.includes(n) ? 'VIEW' : 'BASE TABLE'
           }))]
         }
+        if (/information_schema\.STATISTICS/.test(sql)) {
+          // N12a 起表清单之后还查一次索引目录：默认空，需要时在 conf.indexes 给行
+          const db = params && params[0]
+          const conf = opts.tables[db]
+          if (!conf) {
+            throw new Error('mock: no tables config for ' + db)
+          }
+          return [conf.indexes || []]
+        }
         throw new Error('mock: unexpected sql ' + sql)
       } finally {
         running--

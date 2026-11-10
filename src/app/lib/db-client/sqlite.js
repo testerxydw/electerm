@@ -347,6 +347,17 @@ async function getMetadata (conn) {
     name: r.name,
     type: r.type === 'view' ? 'view' : 'table'
   }))
+  const indexes = db.prepare(
+    "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name"
+  ).all().filter(r => !SYSTEM_TABLE_RE.test(r.name))
+  if (indexes.length) {
+    children.push({
+      name: 'indexes',
+      type: 'group',
+      group: 'index',
+      children: indexes.map(r => ({ name: r.name, type: 'index', table: r.tbl_name }))
+    })
+  }
   return [{
     name: 'main',
     type: 'database',
@@ -374,7 +385,9 @@ async function getObjectDdl (conn, args) {
     throw new Error('object name required')
   }
   const db = getDb(conn)
-  const row = db.prepare('SELECT sql FROM sqlite_master WHERE name = ? AND type = ?').get(name, kind)
+  const row = kind === 'index' && a.table
+    ? db.prepare('SELECT sql FROM sqlite_master WHERE name = ? AND type = ? AND tbl_name = ?').get(name, kind, String(a.table))
+    : db.prepare('SELECT sql FROM sqlite_master WHERE name = ? AND type = ?').get(name, kind)
   if (!row || !row.sql) {
     throw new Error(`object not found: ${name}`)
   }

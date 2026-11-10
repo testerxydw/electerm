@@ -1089,6 +1089,12 @@
     color var(--text-muted)
   &.is-group-routine
     color var(--primary-text)
+  &.is-sequence,
+  &.is-group-sequence
+    color var(--success)
+  &.is-index,
+  &.is-group-index
+    color var(--info)
 
 // 计数徽标：分组/schema 下可打开的对象数，与 Redis 树的计数同一视觉口径
 .db-tree-count
@@ -1107,6 +1113,11 @@
 // F0/U4：对象叶子的图标 + 名称包装（不能用 inline-flex 包文字，见上）
 .db-tree-view
   display inline
+
+.db-tree-object-owner
+  margin-left 6px
+  color var(--text-muted)
+  font-size var(--fs-xs)
 
 // P-1/P-2（2026-11-04 拍板）：树里的对象名（库 / schema / 表 / 视图 / 过程…）是
 // "要照着敲"的标识符，与网格单元格、Redis 键列表、SQL 编辑器同一口径 → 数据面字体链。

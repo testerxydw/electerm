@@ -128,13 +128,15 @@ const SEL_COL_W = 36
 // B2：叶子类型扩到非表对象（过程/函数/触发器/事件）—— 它们点开看 DDL、不进数据网格。
 // 若仍按非叶子处理，会被画成带 S 标记的 schema 节点且点不开。
 // 保持单行声明：db-page-tree-filter.spec.js 按 `^const isLeafNode = .+$` 抽取真实源码执行
-const isLeafNode = node => ['table', 'view', 'procedure', 'function', 'trigger', 'event'].includes(node.type)
+const isLeafNode = node => ['table', 'view', 'procedure', 'function', 'trigger', 'event', 'sequence', 'index'].includes(node.type)
 // B2：非表对象的单字母标记（与 view 的 V 共用一套视觉语言）
 const DB_OBJECT_MARKS = {
   procedure: 'P',
   function: 'F',
   trigger: 'T',
-  event: 'E'
+  event: 'E',
+  sequence: 'S',
+  index: 'I'
 }
 const isDbObjectType = type => Object.prototype.hasOwnProperty.call(DB_OBJECT_MARKS, type)
 // 计数徽标：分组/ schema 下有多少个可打开的对象（表/视图/过程/函数/触发器/事件）
@@ -147,13 +149,24 @@ const countTreeLeaves = nodes => (nodes || []).reduce(
 const DB_GROUP_LABEL = {
   routine: 'dbRoutines',
   trigger: 'dbTriggers',
-  event: 'dbEvents'
+  event: 'dbEvents',
+  sequence: 'dbSequences',
+  index: 'dbIndexes'
 }
 const nodeKey = (database, schema, table) => JSON.stringify([
   database,
   schema || '',
   table || ''
 ])
+const treeNodeKey = (database, schema, node) => {
+  if (node.type === 'group') {
+    return JSON.stringify([database, schema || '', node.name, 'group', node.group])
+  }
+  if (isDbObjectType(node.type)) {
+    return JSON.stringify([database, schema || '', node.name, node.type, node.table || '', node.signature || ''])
+  }
+  return nodeKey(database, schema, node.name)
+}
 
 // U1c：空态"最近表"最多列几张 —— 再多就不是"快捷入口"，是另一棵树了
 const HOME_TABLES_MAX = 8
@@ -253,6 +266,7 @@ export {
   countTreeLeaves,
   DB_GROUP_LABEL,
   nodeKey,
+  treeNodeKey,
   HOME_TABLES_MAX,
   EMPTY_STRUCTURE_V2,
   buildInsertFormColumns,

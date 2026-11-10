@@ -178,6 +178,7 @@ import {
   SEL_COL_W,
   isLeafNode,
   nodeKey,
+  treeNodeKey,
   HOME_TABLES_MAX,
   EMPTY_STRUCTURE_V2,
   tsName
@@ -259,6 +260,7 @@ export default auto(function DbSession (props) {
   const [expandedKeys, setExpandedKeys] = useState([])
   // 当前选中表 {database, table}
   const [sel, setSel] = useState(null)
+  const [selectedObjectKey, setSelectedObjectKey] = useState('')
   // 数据网格状态。注意这里**没有** orderBy：排序的唯一数据源是 view.order
   // （视角条 chips 与列头箭头都从它渲染，再存一份一定会打架）
   const [grid, setGrid] = useState({
@@ -1017,6 +1019,7 @@ export default auto(function DbSession (props) {
   // U1c：打开一张表（树点击 / 空态"最近表" / 空态"导入到…"共用同一条路径）。
   // 返回 promise：导入向导要等结构与首屏数据落定后再弹，否则列映射是空的
   const openTable = (target) => {
+    setSelectedObjectKey('')
     // nodeType: 'table' | 'view'。缺省按 table 处理（旧 metadata 无 type 时是表）
     const next = {
       database: target.database,
@@ -1047,7 +1050,7 @@ export default auto(function DbSession (props) {
   // 选中态：叶子=当前表，redis=当前 db 节点
   const selectedKeys = isRedis
     ? (redisDb >= 0 ? [String(redisDb)] : [])
-    : (sel ? [nodeKey(sel.database, sel.schema, sel.table)] : [])
+    : (selectedObjectKey ? [selectedObjectKey] : (sel ? [nodeKey(sel.database, sel.schema, sel.table)] : []))
 
   // 只读模式（默认开，书签 readOnly !== false）。
   // 用本地 state 而非直接读 tab：本组件是普通函数组件，父级不读 readOnly，
@@ -3968,7 +3971,8 @@ export default auto(function DbSession (props) {
     // 反引号内嵌反引号会破坏语句，标识符注入面剔除
     const db = String(sel.database).replace(/`/g, '')
     const tb = String(sel.table).replace(/`/g, '')
-    setDdl(d => ({ ...d, open: true, loading: true, title: tb, text: '' }))
+    const request = {}
+    setDdl({ open: true, loading: true, title: tb, text: '', request })
     window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', {
       sql: 'SHOW CREATE TABLE `' + db + '`.`' + tb + '`'
     })
@@ -3980,25 +3984,29 @@ export default auto(function DbSession (props) {
         const text = row
           ? (row['Create Table'] || row['Create View'] || '')
           : ''
-        if (!text) {
-          setDdl(d => ({ ...d, loading: false, text: e('dbDdlNotFound') }))
-          return
-        }
-        setDdl(d => ({ ...d, loading: false, text }))
+        setDdl(d => d.open && d.request === request
+          ? { ...d, loading: false, text: text || e('dbDdlNotFound') }
+          : d)
       })
       .catch(err => {
-        setDdl(d => ({
-          ...d,
-          loading: false,
-          text: err && err.message ? err.message : String(err)
-        }))
+        setDdl(d => d.open && d.request === request
+          ? { ...d, loading: false, text: err && err.message ? err.message : String(err) }
+          : d)
       })
   }
 
   // B2：对象 DDL 查看（过程/函数/触发器/事件）。只读、复用表 DDL 的弹窗与复制能力。
   // 定位参数随对象类型变化：PG 函数用签名区分重载、触发器用表名区分同名
   const showObjectDdl = (target) => {
-    setDdl({ open: true, loading: true, title: target.name, text: '' })
+    const request = {}
+    setSelectedObjectKey(treeNodeKey(target.database, target.schema, { ...target, type: target.objectType }))
+    setDdl({
+      open: true,
+      loading: true,
+      title: [target.schema, target.table, target.name].filter(Boolean).join('.'),
+      text: '',
+      request
+    })
     window.pre.runGlobalAsync('dbClientOp', tabId, 'getObjectDdl', {
       database: target.database,
       schema: target.schema || '',
@@ -4008,13 +4016,13 @@ export default auto(function DbSession (props) {
       table: target.table || ''
     }).then(res => {
       const text = res && res.ddl ? res.ddl : ''
-      setDdl(d => ({ ...d, loading: false, text: text || e('dbDdlNotFound') }))
+      setDdl(d => d.open && d.request === request
+        ? { ...d, loading: false, text: text || e('dbDdlNotFound') }
+        : d)
     }).catch(err => {
-      setDdl(d => ({
-        ...d,
-        loading: false,
-        text: err && err.message ? err.message : String(err)
-      }))
+      setDdl(d => d.open && d.request === request
+        ? { ...d, loading: false, text: err && err.message ? err.message : String(err) }
+        : d)
     })
   }
 

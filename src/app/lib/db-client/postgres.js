@@ -290,6 +290,7 @@ async function getMetadata (conn) {
       children
     })
   }
+  await appendRelationGroups(c, bySchema)
   const current = c.database
   return dbRes.rows.map(row => ({
     name: row.datname,
@@ -302,6 +303,56 @@ async function getMetadata (conn) {
       }))
       : []
   }))
+}
+
+// 每类一次全库目录查询；失败在各 schema 留错误组，不影响已有表树。
+async function appendRelationGroups (c, bySchema) {
+  const filter = "AND n.nspname NOT IN ('pg_catalog', 'information_schema') " +
+    "AND n.nspname NOT LIKE 'pg\\_%' ORDER BY n.nspname, c.relname"
+  const results = await Promise.all([
+    c.query(
+      'SELECT n.nspname AS schema, c.relname AS name ' +
+      'FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      "WHERE c.relkind = 'S' " + filter
+    ),
+    c.query(
+      'SELECT n.nspname AS schema, c.relname AS name, t.relname AS tbl ' +
+      'FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      'JOIN pg_index i ON i.indexrelid = c.oid ' +
+      'JOIN pg_class t ON t.oid = i.indrelid ' +
+      "WHERE c.relkind IN ('i', 'I') " + filter
+    )
+  ].map(p => p.catch(e => ({ rows: [], error: String(e.message || e) }))))
+  const kinds = ['sequence', 'index']
+  const groups = results.map((result, i) => {
+    const grouped = new Map()
+    for (const r of result.rows || []) {
+      if (!r || !r.schema) continue
+      if (!bySchema.has(r.schema)) bySchema.set(r.schema, [])
+      if (!grouped.has(r.schema)) grouped.set(r.schema, [])
+      grouped.get(r.schema).push({
+        name: r.name,
+        type: kinds[i],
+        ...(kinds[i] === 'index' ? { table: r.tbl } : {})
+      })
+    }
+    return grouped
+  })
+  for (const [schema, children] of bySchema) {
+    for (let i = 0; i < kinds.length; i++) {
+      const objects = groups[i].get(schema) || []
+      const error = results[i].error
+      if (objects.length || error) {
+        children.push({
+          name: kinds[i] === 'index' ? 'indexes' : 'sequences',
+          type: 'group',
+          group: kinds[i],
+          children: objects,
+          ...(error ? { error } : {})
+        })
+      }
+    }
+  }
 }
 
 // 排序标识符形状：只接受 [A-Za-z0-9_$]。
@@ -1292,6 +1343,38 @@ async function closePostgresConnection () {
 // 触发器用 tgname + 表名定位（同名触发器可存在于不同表）。
 async function getObjectDdl (conn, args) {
   const kind = String((args && args.objectType) || '').toLowerCase()
+  if (kind === 'index' || kind === 'sequence') {
+    const name = String(args.name || '')
+    if (!name) throw new Error('object name required')
+    const c = await getClient(conn)
+    if (args.database && args.database !== c.database) {
+      throw new Error('object database must match the current connection')
+    }
+    const schema = String(args.schema || 'public')
+    const result = kind === 'index'
+      ? await c.query(
+        'SELECT pg_get_indexdef(i.indexrelid) AS ddl FROM pg_index i ' +
+        'JOIN pg_class c ON c.oid = i.indexrelid ' +
+        'JOIN pg_class t ON t.oid = i.indrelid ' +
+        'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+        "WHERE n.nspname = $1 AND c.relname = $2 AND ($3 = '' OR t.relname = $3)",
+        [schema, name, String(args.table || '')]
+      )
+      : await c.query(
+        "SELECT format('CREATE SEQUENCE %I.%I AS %s INCREMENT BY %s MINVALUE %s MAXVALUE %s START WITH %s CACHE %s %s;', " +
+        'n.nspname, c.relname, s.seqtypid::regtype, s.seqincrement, s.seqmin, s.seqmax, s.seqstart, s.seqcache, ' +
+        "CASE WHEN s.seqcycle THEN 'CYCLE' ELSE 'NO CYCLE' END) AS ddl " +
+        'FROM pg_sequence s JOIN pg_class c ON c.oid = s.seqrelid ' +
+        'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+        "WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'S'",
+        [schema, name]
+      )
+    if (!result.rows.length) throw new Error(`${kind} not found: ${name}`)
+    const note = kind === 'sequence'
+      ? '-- Catalog definition only; current value, grants and ownership are not included.\n-- Identity sequence ownership is defined by its table.\n'
+      : ''
+    return { name, objectType: kind, ddl: note + result.rows[0].ddl }
+  }
   if (kind !== 'function' && kind !== 'procedure') {
     if (kind === 'trigger') {
       const c = await getClient(conn)

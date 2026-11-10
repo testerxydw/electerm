@@ -224,7 +224,7 @@ describe('B2 前端契约', () => {
     const line = constSrc.match(/^const isLeafNode = .+$/m)
     assert.ok(line, 'isLeafNode not found in db-session-const.js')
     const fn = vm.runInNewContext('(' + line[0].replace(/^const isLeafNode = /, '') + ')', {})
-    for (const t of ['table', 'view', 'procedure', 'function', 'trigger', 'event']) {
+    for (const t of ['table', 'view', 'procedure', 'function', 'trigger', 'event', 'sequence', 'index']) {
       assert.equal(fn({ type: t }), true, `${t} 必须是叶子，否则树里点不开`)
     }
     assert.equal(fn({ type: 'schema' }), false)
@@ -241,12 +241,12 @@ describe('B2 前端契约', () => {
   test('U4：五类对象各有图标，分组图标与组内叶子同源', () => {
     const block = jsx.match(/const DB_OBJECT_ICONS = \{([\s\S]*?)\n\}/)
     assert.ok(block, 'DB_OBJECT_ICONS not found')
-    for (const t of ['view', 'procedure', 'function', 'trigger', 'event']) {
+    for (const t of ['view', 'procedure', 'function', 'trigger', 'event', 'sequence', 'index']) {
       assert.match(block[1], new RegExp(t + ': <\\w+Outlined />'), `${t} 缺图标`)
     }
     const group = jsx.match(/const DB_GROUP_ICONS = \{([\s\S]*?)\n\}/)
     assert.ok(group, 'DB_GROUP_ICONS not found')
-    for (const g of ['routine', 'trigger', 'event']) {
+    for (const g of ['routine', 'trigger', 'event', 'sequence', 'index']) {
       assert.match(group[1], new RegExp(g + ': <\\w+Outlined />'), `${g} 分组缺图标`)
     }
   })
@@ -260,7 +260,7 @@ describe('B2 前端契约', () => {
     const src = constSrc.match(/^const countTreeLeaves = [\s\S]*?\n\)\n/m)[0]
     const fn = vm.runInNewContext(
       src + '; countTreeLeaves',
-      { isLeafNode: n => ['table', 'view', 'procedure', 'function', 'trigger', 'event'].includes(n.type) }
+      { isLeafNode: n => ['table', 'view', 'procedure', 'function', 'trigger', 'event', 'sequence', 'index'].includes(n.type) }
     )
     assert.equal(fn([
       { type: 'table' },
@@ -276,7 +276,7 @@ describe('B2 前端契约', () => {
     // 图标颜色全部走 token；不允许出现裸色值
     const iconBlock = styl.slice(styl.indexOf('.db-tree-obj-icon\n'), styl.indexOf('.db-tree-count'))
     assert.ok(iconBlock.length > 0)
-    for (const t of ['is-view', 'is-procedure', 'is-function', 'is-trigger', 'is-event']) {
+    for (const t of ['is-view', 'is-procedure', 'is-function', 'is-trigger', 'is-event', 'is-sequence', 'is-index']) {
       assert.ok(iconBlock.includes('&.' + t), `${t} 颜色未定义`)
     }
     assert.equal(/#[0-9a-fA-F]{3,8}|rgba?\(/.test(iconBlock), false, '图标颜色不得写裸色值')
@@ -284,7 +284,7 @@ describe('B2 前端契约', () => {
 
   test('分组文案中英齐全', () => {
     const loc = read(LOCALES)
-    for (const k of ['dbRoutines', 'dbTriggers', 'dbEvents']) {
+    for (const k of ['dbRoutines', 'dbTriggers', 'dbEvents', 'dbSequences', 'dbIndexes']) {
       const hits = loc.match(new RegExp('^\\s{2}' + k + ':', 'gm')) || []
       assert.equal(hits.length, 2, `${k} 需同时存在于 en 与 zhCn`)
     }
