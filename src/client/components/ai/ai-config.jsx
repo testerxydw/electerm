@@ -94,6 +94,25 @@ const authHeaderOptions = [
   { value: 'Authorization' }
 ]
 
+// Twin of isLoopbackURL in src/app/lib/ai.js (main process is CJS, renderer is
+// ESM, so the two cannot share a module — keep the bodies identical;
+// ai-credential-failclosed.spec.js diffs them on a shared corpus).
+// Keyless providers such as Ollama or LM Studio live on loopback, so "empty
+// key" is legitimate there.
+// SECURITY: compare the parsed hostname, never a string prefix —
+// `http://127.0.0.1:8080@evil.com/v1` has host evil.com (the part before the
+// last `@` is userinfo), and a prefix match would treat it as loopback. An
+// unparsable URL counts as remote, i.e. the key stays required.
+function isLoopbackBaseURL (baseURL) {
+  let hostname = ''
+  try {
+    hostname = new URL(String(baseURL || '')).hostname.toLowerCase()
+  } catch (_) {
+    return false
+  }
+  return ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '::1'].includes(hostname)
+}
+
 export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig }) {
   const [form] = Form.useForm()
   const [testing, setTesting] = useState(false)
@@ -105,6 +124,17 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
   const presets = useMemo(() => getAIPresets(), [])
   const currentPreset = findAIPreset(baseURLAI, presets)
   const baseURLOptions = getPresetBaseURLs(currentPreset).map(value => ({ value }))
+  // A saved config with an empty key means the stored credential could not be
+  // decrypted on this machine (safe-storage fails closed and returns ''), not
+  // that the user is setting up a keyless local provider. Submitting it would
+  // just write the empty value back, so ask for the key again instead.
+  // Loopback hosts are exempt, mirroring the guard in app/lib/ai.js
+  // (isLoopbackURL) — Ollama / LM Studio answer without any credential.
+  const credentialUnavailable = useMemo(() => {
+    const v = initialValues || {}
+    const configured = !!(v.baseURLAI || v.modelAI || v.nameAI)
+    return configured && !v.apiKeyAI && !isLoopbackBaseURL(v.baseURLAI)
+  }, [initialValues])
 
   useEffect(() => {
     if (initialValues) {
@@ -423,6 +453,17 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
         <Form.Item
           label={renderApiKeyLabel()}
           name='apiKeyAI'
+          extra={credentialUnavailable
+            ? 'The stored credential could not be decrypted on this machine — please re-enter the API key.'
+            : undefined}
+          rules={[{
+            validator: (_, value) => {
+              if (!credentialUnavailable || (typeof value === 'string' && value.trim())) {
+                return Promise.resolve()
+              }
+              return Promise.reject(new Error('Credential unavailable, please re-enter the API key'))
+            }
+          }]}
         >
           <Password placeholder='Enter your API key' />
         </Form.Item>

@@ -18,6 +18,50 @@ const formatError = (e) => {
   return detail ? `${e.message}: ${detail}` : e.message
 }
 
+// Surfaced verbatim in the AI panel. A stored credential that cannot be
+// decrypted comes back from safe-storage as '' (fail-closed), and sending that
+// as `Authorization: Bearer ` only earns an opaque provider 401 — the user has
+// no way to tell "my key is gone" from "my key is wrong".
+const MISSING_CREDENTIAL_ERROR =
+  'AI credential unavailable: please re-enter the API key in Settings'
+
+// Keyless providers (Ollama, LM Studio, a local vLLM) are a legitimate setup:
+// they answer without an Authorization header, so the guard must not turn them
+// into "re-enter the API key".
+//
+// SECURITY: compare the **parsed** hostname, never a string prefix.
+// `http://127.0.0.1:8080@evil.com/v1` only *looks* loopback: everything before
+// the last `@` is userinfo, so the real host is evil.com, and a prefix match
+// would send an unauthenticated request straight to it. An unparsable URL is
+// treated as remote (fail-closed) — demanding a key is the cheap side of that
+// trade. `URL.hostname` keeps the brackets on IPv6 (`[::1]`), so the whitelist
+// carries both forms.
+// Twin: isLoopbackBaseURL in src/client/components/ai/ai-config.jsx (main
+// process is CJS, renderer is ESM, so the two cannot share a module — keep the
+// bodies byte-identical, ai-credential-failclosed.spec.js diffs them).
+function isLoopbackURL (baseURL) {
+  let hostname = ''
+  try {
+    hostname = new URL(String(baseURL || '')).hostname.toLowerCase()
+  } catch (_) {
+    return false
+  }
+  return ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '::1'].includes(hostname)
+}
+
+/**
+ * Refuse to build a client that would go out without a credential.
+ * @param {string} apiKey
+ * @param {string} baseURL
+ */
+const assertCredential = (apiKey, baseURL) => {
+  const missing = typeof apiKey !== 'string' || !apiKey.trim()
+  if (!missing || isLoopbackURL(baseURL)) {
+    return
+  }
+  throw new Error(MISSING_CREDENTIAL_ERROR)
+}
+
 // Store for ongoing streaming sessions
 const streamingSessions = new Map()
 
@@ -62,6 +106,8 @@ exports.abortAIRequest = (requestId) => {
 }
 
 const createAIClient = (baseURL, apiKey, proxy, authHeaderName, extraHeaders) => {
+  // Fail closed before an unauthenticated request is even built.
+  assertCredential(apiKey, baseURL)
   // Lazy: axios is only needed once the user actually talks to an AI provider,
   // and this module is pulled in by ipc.js, which loads before the window is
   // shown. Requiring it here keeps it off the startup path (~20ms of in-app

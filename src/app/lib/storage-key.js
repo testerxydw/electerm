@@ -17,6 +17,12 @@ function getStorageKey () {
     if (fs.existsSync(keyFilePath)) {
       const enc = fs.readFileSync(keyFilePath, 'utf8').trim()
       const dec = safeDecrypt(enc)
+      // safeDecrypt 现在是 fail-closed（解不开就返回 ''），存储密钥解不开时下面
+      // 会重新生成一把新钥匙 —— 那意味着用旧钥匙加密的 vault 条目再也读不出来。
+      // 这里只加一条可见告警，分支行为保持不变。
+      if (!dec && enc.startsWith('v2:safe:')) {
+        console.warn('[storage-key] stored key cannot be decrypted on this machine (keyring changed?) — generating a new key; vault entries encrypted with the old key will be unreadable')
+      }
       if (dec && dec !== enc) {
         key = dec
       } else if (dec && !enc.startsWith('v2:safe:')) {
