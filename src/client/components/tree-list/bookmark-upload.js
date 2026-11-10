@@ -11,6 +11,7 @@ import { fixBookmarks } from '../../common/db-fix'
 import { findDuplicateBookmarks } from '../../common/bookmark-dedup'
 import { runImportTask } from '../../common/import-task'
 import { parseNcx } from '../../common/navicat-ncx'
+import { parseDbeaverDataSources } from '../../common/dbeaver-config'
 import message from '../common/message'
 import { collectUncategorizedBookmarks } from '../../common/bookmark-uncategorized'
 
@@ -39,7 +40,19 @@ export const bookmarkUpload = action(async (file) => {
   // Navicat .ncx 导出文件: 解析成 database bookmark 数组,
   // 之后复用下方 JSON 数组导入流程 (自动建 imported_ 分组)
   const isNcxFile = /\.ncx$/i.test(file.filePath || file.fileName || file.name || '')
-  const content = isNcxFile ? await parseNcx(txt) : JSON.parse(txt)
+  let content
+  if (isNcxFile) {
+    content = await parseNcx(txt)
+  } else {
+    content = JSON.parse(txt)
+    // N12b: DBeaver data-sources.json 与 electerm 自身导出同为 .json，
+    // 按形状分流（connections 对象映射且无 bookmarks 键）；
+    // electerm 导出**永远优先**走原路径，不会被误判
+    const dbeaver = parseDbeaverDataSources(content)
+    if (dbeaver !== null) {
+      content = dbeaver
+    }
+  }
   let bookmarkGroups1 = []
   let bookmarks1 = []
   if (Array.isArray(content)) {
@@ -80,6 +93,8 @@ export const bookmarkUpload = action(async (file) => {
   // 同名同连接才是侧栏堆重复的来源（换台机器导出，id 就全变了）。
   const pool = [...bookmarks0]
   let skipped = 0
+  // 本次导入真正落地的书签 id：判重全跳过的分组不该落地（见下方分组 step）
+  const importedIds = new Set()
 
   const task = await runImportTask({
     title: e('import'),
@@ -99,6 +114,7 @@ export const bookmarkUpload = action(async (file) => {
               return
             }
             pool.push(bg)
+            importedIds.add(bg.id)
             store.bookmarks.push(bg)
           })
         }
@@ -109,6 +125,13 @@ export const bookmarkUpload = action(async (file) => {
         process: (chunk) => {
           chunk.forEach(bg => {
             if (!bmgTree.has(bg.id)) {
+              // 同一文件导两次：第二次书签全被判重跳过，此时再 push 分组
+              // 只会堆一个 bookmarkIds 全是死引用的空 imported_ 分组。
+              // 引用全部落空的新建分组不落地（合法的无书签空组不受影响）
+              const ids = bg.bookmarkIds || []
+              if (ids.length && !ids.some(id => importedIds.has(id))) {
+                return
+              }
               store.bookmarkGroups.push(bg)
             } else {
               const bg1 = store.bookmarkGroups.find(
