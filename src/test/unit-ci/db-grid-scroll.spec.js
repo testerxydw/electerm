@@ -237,11 +237,12 @@ describe('DbGridTable: css layout contract', () => {
     assert.match(block, /height 100%/, 'flex-basis alone collapses inside block-level tabpane')
   })
 
-  test('.db-sql-result spin wrapper chain passes height through', () => {
+  test('.db-sql-result spin wrapper chain passes height through (antd6: .ant-spin)', () => {
     const styl = loadStyl()
     const block = stylBlock(styl, '.db-sql-result')
     assert.ok(block, '.db-sql-result block not found')
-    assert.ok(block.includes('> .ant-spin-nested-loading'), 'spin wrapper must flex')
+    // antd6 的 <Spin> 不再渲染 antd5 的 .ant-spin-nested-loading，真实根是 .ant-spin
+    assert.ok(block.includes('> .ant-spin'), 'antd6 spin wrapper (.ant-spin) must flex')
     assert.ok(block.includes('> .ant-spin-container'), 'spin container must flex')
   })
 

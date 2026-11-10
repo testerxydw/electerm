@@ -172,15 +172,18 @@ describe('统一滚动通道：组件层零手写滚动逻辑', () => {
     // Redis 控制台输入行 sticky 钉顶（db-session.styl:1601）：历史滚动时输入框不滚走，
     // 属于「输入行」而非「表头」吸顶，单独登记、不与表头 SSOT 混为一谈
     assert.match(styl, /\.db-redis-console-input[\s\S]{0,120}position sticky/)
+    // 结构对比控制组 sticky 钉顶（db-session.styl .db-diff-head）：差异列表随弹层 body
+    // 滚动时，选择/概览/落编辑器工具条常驻可见 —— 同样属于「控制条」吸顶，不是表头分叉
+    assert.match(styl, /\.db-diff-head[\s\S]{0,120}position sticky/)
     // 放宽到 stylus 也允许的 `position: sticky`（带冒号）写法，避免同类分叉绕过计数。
-    // 全仓 db-session.styl 的 position sticky 必须恰好落在白名单三处，
-    // 任何第四处（例如新的表头吸顶分叉）都会让计数 != 3 而告警
+    // 全仓 db-session.styl 的 position sticky 必须恰好落在白名单四处，
+    // 任何第五处（例如新的表头吸顶分叉）都会让计数 != 4 而告警
     const stickyHits = styl.match(/^\s*position\s*:?\s*sticky\s*$/gm) || []
     const importantHits = styl.match(/^\s*position\s*:?\s*sticky\s+!important\s*$/gm) || []
     assert.equal(
       stickyHits.length + importantHits.length,
-      3,
-      'only .db-tx-row-head (legacy) + .db-sticky-thead (SSOT) + .db-redis-console-input (pinned input) may exist'
+      4,
+      'only .db-tx-row-head (legacy) + .db-sticky-thead (SSOT) + .db-redis-console-input (pinned input) + .db-diff-head (pinned diff controls) may exist'
     )
   })
 

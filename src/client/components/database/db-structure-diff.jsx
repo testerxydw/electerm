@@ -334,118 +334,120 @@ export default function DbStructureDiff (props) {
       ]}
     >
       <div className='db-diff'>
-        <div className='db-diff-pick'>
-          <span className='db-diff-pick-label'>{e('dbStructDiffBase')}</span>
-          <Select
-            size='small'
-            className='db-diff-select'
-            value={base ? tableKey(base) : undefined}
-            options={options}
-            showSearch
-            optionFilterProp='label'
-            placeholder={e('dbStructDiffPickTable')}
-            onChange={v => pick(v, setBase)}
-          />
-          <SwapOutlined className='db-diff-swap' />
-          <span className='db-diff-pick-label'>{e('dbStructDiffTarget')}</span>
-          <Select
-            size='small'
-            className='db-diff-select'
-            value={target ? tableKey(target) : undefined}
-            options={options}
-            showSearch
-            optionFilterProp='label'
-            placeholder={e('dbStructDiffPickTable')}
-            onChange={v => pick(v, setTarget)}
-          />
+        <div className='db-diff-head'>
+          <div className='db-diff-pick'>
+            <span className='db-diff-pick-label'>{e('dbStructDiffBase')}</span>
+            <Select
+              size='small'
+              className='db-diff-select'
+              value={base ? tableKey(base) : undefined}
+              options={options}
+              showSearch
+              optionFilterProp='label'
+              placeholder={e('dbStructDiffPickTable')}
+              onChange={v => pick(v, setBase)}
+            />
+            <SwapOutlined className='db-diff-swap' />
+            <span className='db-diff-pick-label'>{e('dbStructDiffTarget')}</span>
+            <Select
+              size='small'
+              className='db-diff-select'
+              value={target ? tableKey(target) : undefined}
+              options={options}
+              showSearch
+              optionFilterProp='label'
+              placeholder={e('dbStructDiffPickTable')}
+              onChange={v => pick(v, setTarget)}
+            />
+          </div>
+          {
+            error
+              ? (
+                <Alert
+                  className='db-diff-err'
+                  type='error'
+                  showIcon
+                  message={e('dbStructDiffFailed')}
+                  description={error}
+                />
+                )
+              : null
+          }
+          {
+            !pairKey
+              ? <div className='db-diff-hint'>{e('dbStructDiffPick')}</div>
+              : null
+          }
+          {
+            pairKey && loading
+              ? (
+                <div className='db-diff-hint'>
+                  <Spin size='small' />
+                </div>
+                )
+              : null
+          }
+          {
+            diff
+              ? (
+                <div className='db-diff-summary'>
+                  <Tag className='db-diff-count is-removed'>
+                    {e('dbStructDiffOnlyA')} {diff.summary.removed}
+                  </Tag>
+                  <Tag className='db-diff-count is-added'>
+                    {e('dbStructDiffOnlyB')} {diff.summary.added}
+                  </Tag>
+                  <Tag className='db-diff-count is-changed'>
+                    {e('dbStructDiffChanged')} {diff.summary.changed}
+                  </Tag>
+                  <Tag className='db-diff-count is-equal'>
+                    {e('dbStructDiffEqual')} {diff.summary.equal}
+                  </Tag>
+                </div>
+                )
+              : null
+          }
+          {
+            diff && !diff.summary.added && !diff.summary.removed && !diff.summary.changed
+              ? <div className='db-diff-hint'>{e('dbStructDiffSame')}</div>
+              : null
+          }
+          {
+            diff && ddl.length
+              ? (
+                <div className='db-diff-ddl-bar'>
+                  <span className='db-diff-ddl-tip'>
+                    {generatable.length ? e('dbStructDiffDdlHint') : e('dbStructDiffDdlNone')}
+                  </span>
+                  {
+                    generatable.length
+                      ? (
+                        <Checkbox
+                          className='db-diff-ddl-all'
+                          checked={picked.length === generatable.length}
+                          indeterminate={picked.length > 0 && picked.length < generatable.length}
+                          onChange={v => setPicked(v.target.checked ? generatable.slice() : [])}
+                        >
+                          {e('dbStructDiffDdlAll')}
+                        </Checkbox>
+                        )
+                      : (
+                        <span className='db-diff-ddl-why'>{reasonText((ddl[0] || {}).reason)}</span>
+                        )
+                  }
+                  <Button
+                    size='small'
+                    type='primary'
+                    disabled={!script || !onApplySql}
+                    onClick={applyScript}
+                  >
+                    {e('dbStructDiffDdlApply')} {statementCount}
+                  </Button>
+                </div>
+                )
+              : null
+          }
         </div>
-        {
-          error
-            ? (
-              <Alert
-                className='db-diff-err'
-                type='error'
-                showIcon
-                message={e('dbStructDiffFailed')}
-                description={error}
-              />
-              )
-            : null
-        }
-        {
-          !pairKey
-            ? <div className='db-diff-hint'>{e('dbStructDiffPick')}</div>
-            : null
-        }
-        {
-          pairKey && loading
-            ? (
-              <div className='db-diff-hint'>
-                <Spin size='small' />
-              </div>
-              )
-            : null
-        }
-        {
-          diff
-            ? (
-              <div className='db-diff-summary'>
-                <Tag className='db-diff-count is-removed'>
-                  {e('dbStructDiffOnlyA')} {diff.summary.removed}
-                </Tag>
-                <Tag className='db-diff-count is-added'>
-                  {e('dbStructDiffOnlyB')} {diff.summary.added}
-                </Tag>
-                <Tag className='db-diff-count is-changed'>
-                  {e('dbStructDiffChanged')} {diff.summary.changed}
-                </Tag>
-                <Tag className='db-diff-count is-equal'>
-                  {e('dbStructDiffEqual')} {diff.summary.equal}
-                </Tag>
-              </div>
-              )
-            : null
-        }
-        {
-          diff && !diff.summary.added && !diff.summary.removed && !diff.summary.changed
-            ? <div className='db-diff-hint'>{e('dbStructDiffSame')}</div>
-            : null
-        }
-        {
-          diff && ddl.length
-            ? (
-              <div className='db-diff-ddl-bar'>
-                <span className='db-diff-ddl-tip'>
-                  {generatable.length ? e('dbStructDiffDdlHint') : e('dbStructDiffDdlNone')}
-                </span>
-                {
-                  generatable.length
-                    ? (
-                      <Checkbox
-                        className='db-diff-ddl-all'
-                        checked={picked.length === generatable.length}
-                        indeterminate={picked.length > 0 && picked.length < generatable.length}
-                        onChange={v => setPicked(v.target.checked ? generatable.slice() : [])}
-                      >
-                        {e('dbStructDiffDdlAll')}
-                      </Checkbox>
-                      )
-                    : (
-                      <span className='db-diff-ddl-why'>{reasonText((ddl[0] || {}).reason)}</span>
-                      )
-                }
-                <Button
-                  size='small'
-                  type='primary'
-                  disabled={!script || !onApplySql}
-                  onClick={applyScript}
-                >
-                  {e('dbStructDiffDdlApply')} {statementCount}
-                </Button>
-              </div>
-              )
-            : null
-        }
         <div className='db-diff-body'>
           {
             sections.map(s => {

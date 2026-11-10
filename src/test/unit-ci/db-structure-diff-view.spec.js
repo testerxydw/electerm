@@ -170,12 +170,19 @@ describe('H4 结构对比：只读边界与报告', () => {
 })
 
 describe('H4 结构对比：样式与词条', () => {
-  test('差异列表单独滚动，颜色全走 token', () => {
+  test('差异列表交回 body 滚动、控制组钉顶、颜色全走 token', () => {
     const styl = read(STYL)
     const at = styl.indexOf('.db-diff\n')
     assert.notEqual(at, -1, '对比弹层样式块缺失')
     const b = styl.slice(at, styl.indexOf('.db-ddl-pre', at))
-    assert.match(b, /\.db-diff-body\n\s+max-height 56vh\n\s+overflow auto/, '差异列表要自己滚，不撑爆弹层')
+    // SSOT：差异列表不再自设 max-height/overflow，滚动交回弹层 body 单一通道。
+    // 旧断言"差异列表自己滚"已不适用：.db-diff-body 选择器已移除（仅留说明注释），
+    // 故剥离 // 注释后再反向断言，避免命中注释里的说明性提及。
+    const bNoComment = b.split('\n').filter(line => !line.trim().startsWith('//')).join('\n')
+    assert.ok(bNoComment.indexOf('.db-diff-body') === -1, '差异列表不得自开一层滚动（SSOT：.db-diff-body 选择器已移除）')
+    const headIdx = bNoComment.indexOf('.db-diff-head')
+    assert.ok(headIdx !== -1, '控制组钉顶容器 .db-diff-head 缺失')
+    assert.ok(bNoComment.slice(headIdx, headIdx + 90).includes('position sticky'), '控制组必须钉顶')
     assert.match(b, /color var\(--error\)/, '仅在 A 用错误色')
     assert.match(b, /color var\(--success\)/, '仅在 B 用成功色')
     assert.match(b, /color var\(--warn\)/, '有差异用警示色')
