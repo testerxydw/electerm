@@ -36,8 +36,8 @@ const RADIUS_OK = /^border-radius\s+(var\(--radius[a-z-]*\)|0|none|100%|[0-9.%/\
 //   状态光晕：0 0 0 0 / 0 0 8px 2px var(--primary)（bookmark-form）
 //   描边环组合：0 0 0 1px var(--border), var(--shadow-2)（浮层容器）
 //   状态色条组合：inset 3px 0 0 0 var(--status), var(--shadow-2)（消息/通知芯片）
-//   吸顶补隙：0 16px 0 var(--main)（db-redis-info Tab 栏吸顶时等高填补 antd nav
-//   margin-bottom 的漏缝，与弹层同色、视觉不可见，纯功能非装饰）
+//   吸顶补隙：0 16px 0 var(--main-light)（db-redis-info Tab 栏吸顶时等高填补
+//   antd nav margin-bottom 的漏缝，与 Modal contentBg 同源、视觉不可见，纯功能非装饰）
 const SHADOW_ATOM = [
   /^var\(--shadow-[123]\)$/,
   /^var\(--accent-glow\)$/,
@@ -52,7 +52,7 @@ const SHADOW_ATOM = [
   /^inset 3px 0 0 0 var\(--(success|error|warn|info)\)$/,
   /^inset 0 1px 0 0 var\(--border\)$/,
   /^inset 1px 0 0 0 var\(--border\)$/,
-  /^0 16px 0 var\(--main\)$/
+  /^0 16px 0 var\(--main-light\)$/
 ]
 
 // token 基 color-mix 光晕（如 0 0 6px color-mix(in srgb, var(--success) 60%, transparent)）：

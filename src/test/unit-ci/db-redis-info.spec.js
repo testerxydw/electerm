@@ -526,9 +526,9 @@ describe('H7a-4 文案与样式', () => {
     // Tab 栏只能在滚动容器内 sticky，不许另开 overflow 通道
     assert.match(b, /\.ant-tabs-nav\n {4}position sticky !important/,
       'Tab 栏必须 sticky 吸顶，否则内容滚动时页签被滚走')
-    assert.match(b, /\.ant-tabs-nav\n(?: {4}.+\n)+ {4}background var\(--main\)/,
-      '吸顶必须垫弹层同色背景（--main = antd colorBgContainer），内容不能从页签底下透出来')
-    assert.match(b, /box-shadow 0 16px 0 var\(--main\)/,
+    assert.match(b, /\.ant-tabs-nav\n(?: {4}.+\n)+ {4}background var\(--main-light\)/,
+      '吸顶必须垫弹层同色背景：antd6 Modal contentBg=colorBgElevated（store.js 映射 --main-light），垫 --main 会黑一档')
+    assert.match(b, /box-shadow 0 16px 0 var\(--main-light\)/,
       'antd nav 的 margin-bottom 16px 吸顶时会漏内容，须等高补齐')
     // 组件级不许自建滚动通道（SSOT）：.db-redis-info 块内不许出现 overflow 声明
     const end = styl.indexOf('\n.db-', at + 1)

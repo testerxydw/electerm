@@ -698,7 +698,9 @@
   position sticky
   top 0
   z-index 2
-  background var(--main)
+  // Modal contentBg=colorBgElevated（store.js 映射 --main-light），
+  // 钉顶控制条要与弹层底色融合，垫 --main 会黑一档
+  background var(--main-light)
   display flex
   flex-direction column
   gap 10px
@@ -1525,12 +1527,14 @@
   // 是 :where() 特异性 0，这里仍按本仓惯例对 antd 覆盖带 !important。
   // antd 给 nav 的 margin-bottom 16px 在吸顶后会漏出滚动内容，
   // 用等高 box-shadow 补齐（不动 antd 布局间距，零布局位移）。
+  // 背景必须用 --main-light：antd6 Modal contentBg=colorBgElevated，
+  // store.js 映射到 --main-light；垫 --main（=colorBgBase）会比弹层底色黑一档。
   .ant-tabs-nav
     position sticky !important
     top 0
     z-index 3
-    background var(--main)
-    box-shadow 0 16px 0 var(--main)
+    background var(--main-light)
+    box-shadow 0 16px 0 var(--main-light)
 
   // 概览分组：窄宽度自动折行，不会因为窗口小就横向挤成一列长条
   .db-redis-info-groups
@@ -1628,7 +1632,9 @@
     position sticky
     top 0
     z-index 5
-    background var(--main)
+    // Modal contentBg=colorBgElevated（store.js 映射 --main-light），
+    // 钉顶条要与弹层底色融合，垫 --main 会黑一档
+    background var(--main-light)
     display flex
     gap 6px
     align-items center
@@ -1656,7 +1662,8 @@
     overflow auto
     border 1px solid var(--border)
     border-radius var(--radius-sm)
-    background var(--main)
+    // 浮层属 elevated 层级，与 Modal contentBg 同源（--main-light）
+    background var(--main-light)
     box-shadow var(--shadow-2)
 
   .db-redis-console-suggest-item

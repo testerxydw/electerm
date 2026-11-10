@@ -253,7 +253,9 @@ describe('N5a 接线：样式与词条', () => {
     )
     assert.match(inputBlock, /position sticky/)
     assert.match(inputBlock, /top 0/)
-    assert.match(inputBlock, /background var\(--main\)/)
+    // 弹层底色 = antd6 Modal contentBg（colorBgElevated，store.js 映射 --main-light），
+    // 钉顶条垫 --main 会比弹层黑一档（用户实测截图）
+    assert.match(inputBlock, /background var\(--main-light\)/)
 
     // 历史：不能自己限制高度/开 overflow，否则与弹层 body（modal-scroll.styl SSOT）
     // 形成双滚动条，且输入行会被滚走
