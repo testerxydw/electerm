@@ -240,3 +240,30 @@ test('N6 UI: db-session.jsx 在非 redis 主区挂 sessions 页签', () => {
   assert.doesNotMatch(jsx, /forceRender: true,\s*children: <DbSessions/,
     '不强制首帧渲染：没看过会话页的连接不白付一次查询')
 })
+
+// ---- UI 滚动通道（N6 回归锁）：antd6 真实类 ----
+test('N6 UI: 会话页滚动容器打 antd6 真实类 .ant-spin-container，禁用已废弃的 antd5 .ant-spin-nested-loading', () => {
+  const styl = fs.readFileSync(
+    path.join(__dirname, '../../client/components/database/db-session.styl'), 'utf8'
+  )
+  // 截出 .db-sessions-wrap 这一块（到下一个顶层 .db- 块为止）
+  const start = styl.indexOf('.db-sessions-wrap')
+  const next = styl.indexOf('\n.db-', start + 1)
+  const block = styl.slice(start, next > -1 ? next : styl.length)
+  assert.ok(block.length > 0, '要能截到 .db-sessions-wrap 块')
+  assert.match(block, /\.ant-spin-container/, '滚动容器须打 antd6 的 .ant-spin-container')
+  assert.doesNotMatch(block, /\.ant-spin-nested-loading/,
+    'antd5 的 .ant-spin-nested-loading 在 antd6 不存在、命中不了，必须用 .ant-spin-container')
+})
+
+// 同根遗留兜底：.db-sql-result 等其它块也可能误打 antd5 死类，全文件扫描一次
+test('N6 UI: db-session.styl 全文件注释剥离后不得残留 .ant-spin-nested-loading 选择器', () => {
+  const styl = fs.readFileSync(
+    path.join(__dirname, '../../client/components/database/db-session.styl'), 'utf8'
+  )
+  // 剥掉 /* */ 与 // 注释后，绝不允许再出现 .ant-spin-nested-loading 选择器
+  // （antd6 <Spin> 不渲染该类，写它等于没写；仅允许在注释里解释为何不用它）
+  const code = styl.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.doesNotMatch(code, /\.ant-spin-nested-loading/,
+    'antd5 的 .ant-spin-nested-loading 在 antd6 不存在，选择器层必须清零（注释可留）')
+})

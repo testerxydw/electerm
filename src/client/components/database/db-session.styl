@@ -441,9 +441,6 @@
   display flex
   flex-direction column
   gap 8px
-  max-height 60vh
-  overflow-y auto
-  padding-right 4px
 .db-insert-row
   display flex
   align-items center
@@ -695,10 +692,16 @@
   &.is-equal
     color var(--text-muted)
     background var(--hover-bg)
-.db-diff-body
-  max-height 56vh
-  overflow auto
-  padding-right 4px
+// .db-diff-body：差异列表不再自设 max-height/overflow —— 滚动回归 SSOT（弹层 body 单一通道），
+// 控制组 .db-diff-head 以 position:sticky 钉顶，差异列表随 body 滚动
+.db-diff-head
+  position sticky
+  top 0
+  z-index 2
+  background var(--main)
+  display flex
+  flex-direction column
+  gap 10px
 .db-diff-section
   & + &
     margin-top 12px
@@ -834,13 +837,14 @@
   flex none
 .db-ddl-pre
   margin 0
-  max-height 60vh
-  overflow auto
   padding 10px
   border-radius var(--radius-sm)
   font-family var(--db-code-font, var(--font-mono))
   font-size 12px
-  white-space pre
+  // 不再自设 max-height/overflow：滚动回归 SSOT（弹层 body 单一通道）；
+  // 长行改 pre-wrap 由 body 纵向滚动承载，避免横向裁切/横向滚动条
+  white-space pre-wrap
+  word-break break-word
   color var(--text)
 
 // N3b：受限表设计器。列/索引两块各一行一控件，宽度只在这里定死一次 ——
@@ -1383,8 +1387,9 @@
   flex-direction column
   gap 4px
   // 结果外层的 antd Spin 包装层必须参与 flex 传高，
-  // 否则内部 .db-grid-table-wrap 拿不到确定高度（scroll.y 不生效）
-  > .ant-spin-nested-loading,
+  // 否则内部 .db-grid-table-wrap 拿不到确定高度（scroll.y 不生效）。
+  // antd6 的 <Spin> 不再渲染 antd5 的 .ant-spin-nested-loading（旧类名命中不了），
+  // 真实根是 .ant-spin（容器 .ant-spin-container 见下方），这里只打 .ant-spin。
   > .ant-spin
     flex 1 1 0
     min-height 0
@@ -1544,8 +1549,6 @@
     font-variant-numeric tabular-nums
 
   .db-redis-info-raw
-    max-height 46vh
-    overflow auto
     margin 0
     padding 8px 10px
     border 1px solid var(--border)
@@ -1816,8 +1819,6 @@
     color var(--text-dark)
 
   .db-redis-del-list
-    max-height 220px
-    overflow auto
     padding 6px 8px
     border 1px solid var(--border)
     border-radius var(--radius-sm)
@@ -2669,8 +2670,6 @@ body.db-hist-resizing
   display flex
   flex-direction column
   gap 12px
-  max-height 60vh
-  overflow auto
 
 .db-risk-sec
   display flex
@@ -3065,8 +3064,6 @@ body.db-col-resizing
 
 // 待提交清单：四列（时间/耗时/影响行数/语句），语句列截断，错误跟在其后
 .db-tx-list
-  max-height 360px
-  overflow auto
   border 1px solid var(--border)
   border-radius var(--radius-xs)
 
@@ -3469,8 +3466,6 @@ body.db-col-resizing
   display flex
   flex-direction column
   gap 4px
-  max-height 260px
-  overflow auto
   padding 8px
   border 1px solid var(--border)
   border-radius var(--radius-xs)
@@ -3531,8 +3526,6 @@ body.db-col-resizing
   padding 8px
   border 1px solid var(--border)
   border-radius var(--radius-xs)
-  overflow auto
-  max-height 120px
 
 .db-import-sample-row
   display flex
@@ -3550,8 +3543,6 @@ body.db-col-resizing
   border 1px solid var(--border)
   border-radius var(--radius-xs)
   padding 8px
-  max-height 300px
-  overflow auto
 
 .db-import-mapping-head
   display flex
@@ -3609,8 +3600,6 @@ body.db-col-resizing
 
 .db-import-errors
   margin-top 10px
-  max-height 140px
-  overflow auto
   border 1px solid var(--border)
   border-radius var(--radius-xs)
   padding 6px 10px
@@ -3629,8 +3618,6 @@ body.db-col-resizing
   font-size 12px
 
 .db-import-stmt-list
-  max-height 260px
-  overflow auto
   padding 6px 8px
   border 1px solid var(--border)
   border-radius var(--radius-xs)
@@ -3712,8 +3699,6 @@ body.db-col-resizing
   display flex
   flex-direction column
   gap 8px
-  max-height 320px
-  overflow-y auto
 
 // 分组折叠标题
 .db-fav-grouptitle
@@ -3805,8 +3790,6 @@ body.db-col-resizing
 
 .db-explain-body
   min-height 160px
-  max-height 60vh
-  overflow auto
 
 .db-explain-svg
   display block
@@ -3990,10 +3973,8 @@ body.db-col-resizing
     background var(--hover-bg)
 
 // H1 行详情：字段名定宽 + 值自适应，逐字段可展开/复制
-.db-row-detail-scroll
-  max-height 60vh
-  overflow auto
-
+// .db-row-detail-scroll：不再自设 max-height/overflow —— 滚动回归 SSOT（弹层 body 单一通道），
+// 行详情随弹层 body 滚动（.db-row-detail-scroll 仅作为无样式的语义包裹类保留）
 .db-row-detail
   display flex
   flex-direction column

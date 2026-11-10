@@ -53,7 +53,7 @@ export default function DbSessions (props) {
   const statusEntries = Object.entries(st.status || {})
 
   return (
-    <div className='db-sessions-wrap'>
+    <div className='db-sessions-wrap db-sticky-thead'>
       <div className='pd1x'>
         <Space>
           <Tooltip title={e('dbSessionsRefresh')}>
