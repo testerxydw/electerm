@@ -272,6 +272,15 @@ try { fs.unlinkSync(binLink) } catch (e) {}
 fs.symlinkSync('/opt/electerm/electerm', binLink)
 fs.mkdirSync(path.join(stage, 'DEBIAN'), { recursive: true })
 
+// 5.5 node_modules 幂等瘦身：与 prepare.js 共用清理清单（prune-node-modules.js）。
+// 增量打包不重跑 prepare，依赖更新会把浏览器构建等冗余重新带进 work/app，
+// 故每次打包前都清一遍；失败仅影响包体积，不中断打包
+try {
+  require('./prune-node-modules').main()
+} catch (e) {
+  echo(`[deb-fast] ⚠ node_modules 瘦身失败（仅影响包体积，继续打包）：${e.message}`)
+}
+
 // 6. 打包 app.asar（解包原生 .node，否则 node-pty/serialport 在 asar 内加载失败）
 const resDir = path.join(optDir, 'resources')
 const appAsar = path.join(resDir, 'app.asar')
