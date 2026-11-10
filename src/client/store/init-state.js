@@ -125,6 +125,16 @@ export default () => {
     broadcastPickerMode: 'continuous',
     aiChatHistory: [],
     agentRunning: false,
+    // 外部 MCP 工具（设计 P0-1）。工具集与反查元数据都缓存在这里：
+    // - mcpExternalTools：已并入 runTools 的 openaiTools（前缀 mcp__）
+    // - mcpExternalToolMeta：alias → { serverId, originalName, annotations,
+    //   needsApproval, degraded, degradationNotes }，供审批与徽章读取
+    // - mcpServerStates：每台 server 的状态徽章
+    // - mcpToolsFetchedAt：上次拉取时间戳，用于 TTL 刷新
+    mcpExternalTools: [],
+    mcpExternalToolMeta: {},
+    mcpServerStates: [],
+    mcpToolsFetchedAt: 0,
     // ask turns and the agent loop compact their conversation when the window
     // gets full; persisted here so the toggle survives a reload
     // (see components/ai/ai-compress.js)

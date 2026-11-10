@@ -99,6 +99,9 @@ const {
   stopStream,
   abortAIRequest
 } = require('./ai')
+// 外部 MCP client 门面（设计 P0-1）。这里只 require 门面，不 require 传输层：
+// 门面内部懒加载，未配置 server 时不会 spawn 任何进程。
+const mcpClient = require('../mcp/client')
 
 // Security: whitelist of safe environment variables for Linux/Mac/Windows
 const SAFE_ENV_KEYS = [
@@ -552,6 +555,13 @@ function initIpc () {
     getStreamContent,
     stopStream,
     abortAIRequest,
+    // 外部 MCP client（设计 P0-1 §3.4）。五个门面函数都是 total function：
+    // 返回结构化结果、永不 throw，渲染层拿到的就是可以直接渲染的对象。
+    mcpClientGetTools: mcpClient.mcpClientGetTools,
+    mcpClientCallTool: mcpClient.mcpClientCallTool,
+    mcpClientGetState: mcpClient.mcpClientGetState,
+    mcpClientRestart: mcpClient.mcpClientRestart,
+    mcpClientOnConfigChange: mcpClient.mcpClientOnConfigChange,
     setTitle: (title) => {
       const win = globalState.get('win')
       win && win.setTitle(packInfo.name + ' - ' + title)
@@ -642,6 +652,16 @@ function initIpc () {
     )
     dialogLastDir.rememberSaveResult(res)
     return res
+  })
+
+  // M9：外部 MCP server 的子进程不能活过 app。这里不能 await（will-quit 的
+  // 回调不参与事件循环收尾），所以 shutdownMcpClients 进入函数体后先同步
+  // killAllNow() 发 SIGTERM，再走异步优雅收尸；异步那半段被丢弃也无所谓。
+  app.on('will-quit', () => {
+    const pending = mcpClient.shutdownMcpClients()
+    if (pending && typeof pending.catch === 'function') {
+      pending.catch(() => {})
+    }
   })
 }
 
