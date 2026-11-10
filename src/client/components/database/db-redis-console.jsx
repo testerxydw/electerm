@@ -344,48 +344,48 @@ export default function DbRedisConsoleModal (props) {
         >
           {e('dbRedisConsoleRun')}
         </Button>
-        {
-          suggestOpen
-            ? (
-              <div className='db-redis-console-suggest'>
-                {
-                  items.map((it, i) => (
-                    <div
-                      key={it.id}
-                      className={
-                        'db-redis-console-suggest-item' +
-                        (i === active ? ' is-active' : '') +
-                        (it.blocked ? ' is-blocked' : '')
-                      }
-                      // 用 onMouseDown：blur 会先于 click 发生，列表在 click 之前就被
-                      // 自己的失焦收掉了，于是鼠标点永远补不进去
-                      onMouseDown={ev => {
-                        ev.preventDefault()
-                        accept(it)
-                      }}
-                      onMouseEnter={() => setActive(i)}
-                    >
-                      <span className='db-redis-console-suggest-name'>{it.title}</span>
-                      {
-                        it.subtitle
-                          ? <span className='db-redis-console-suggest-flags'>{it.subtitle}</span>
-                          : null
-                      }
-                      {
-                        // 提示来自服务端 readOnlyHint，与执行判定同源：这里画的就是
-                        // "按回车会发生什么"，不是另算一遍
-                        it.hint
-                          ? <span className='db-redis-console-suggest-hint'>{e(it.hint)}</span>
-                          : null
-                      }
-                    </div>
-                  ))
-                }
-              </div>
-              )
-            : null
-        }
       </div>
+      {
+        suggestOpen
+          ? (
+            <div className='db-redis-console-suggest'>
+              {
+                items.map((it, i) => (
+                  <div
+                    key={it.id}
+                    className={
+                      'db-redis-console-suggest-item' +
+                      (i === active ? ' is-active' : '') +
+                      (it.blocked ? ' is-blocked' : '')
+                    }
+                    // 用 onMouseDown：blur 会先于 click 发生，列表在 click 之前就被
+                    // 自己的失焦收掉了，于是鼠标点永远补不进去
+                    onMouseDown={ev => {
+                      ev.preventDefault()
+                      accept(it)
+                    }}
+                    onMouseEnter={() => setActive(i)}
+                  >
+                    <span className='db-redis-console-suggest-name'>{it.title}</span>
+                    {
+                      it.subtitle
+                        ? <span className='db-redis-console-suggest-flags'>{it.subtitle}</span>
+                        : null
+                    }
+                    {
+                      // 提示来自服务端 readOnlyHint，与执行判定同源：这里画的就是
+                      // "按回车会发生什么"，不是另算一遍
+                      it.hint
+                        ? <span className='db-redis-console-suggest-hint'>{e(it.hint)}</span>
+                        : null
+                    }
+                  </div>
+                ))
+              }
+            </div>
+            )
+          : null
+      }
       <div className='db-redis-console-history'>
         {
           history.length

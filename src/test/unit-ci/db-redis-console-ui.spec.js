@@ -230,11 +230,15 @@ describe('N5a 接线：owner 与入口', () => {
 })
 
 describe('N5a 接线：样式与词条', () => {
-  test('补全列表绝对定位在输入行下方，且有层级（否则被历史区盖住）', () => {
+  test('补全列表在文档流内（输入行之后），不得 absolute 悬浮（假溢出会把 body 撑出双滚动条）', () => {
     assert.match(STYL, /^\.db-redis-console$/m)
     const suggest = STYL.slice(STYL.indexOf('  .db-redis-console-suggest\n'), STYL.indexOf('  .db-redis-console-mode'))
-    assert.match(suggest, /position absolute/)
-    assert.match(suggest, /z-index/)
+    // absolute 溢出后代计入 .ant-modal-body 的 scrollHeight：浮层一展开 body 就
+    // 多出一条「假溢出」滚动条，与浮层自身滚动条并排（用户截图的双滚动条根因）。
+    // 文档流定位后该断言反向锁定：suggest 块内禁止再写 position absolute。
+    assert.doesNotMatch(suggest, /position absolute/)
+    assert.match(suggest, /max-height 220px/)
+    assert.match(suggest, /overflow auto/)
     assert.match(STYL, /\.db-redis-console-suggest-item/)
     assert.match(STYL, /&\.is-active/)
     assert.match(STYL, /&\.is-blocked/)

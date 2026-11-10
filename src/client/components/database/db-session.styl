@@ -1596,11 +1596,9 @@
 
 // N5a Redis 命令控制台
 .db-redis-console
-  // 输入行 + 补全列表：列表绝对定位，弹层高度不随候选数量跳动
-  //（否则敲一个字符就把下面的历史顶得一颤）。
-  // 输入行 sticky 钉在弹层 body 顶部：历史滚动时输入框与执行按钮不动
-  //（弹层滚动通道 SSOT 见 css/includes/modal-scroll.styl —— body 是唯一滚动区，
-  // 这里不再给历史单独开一层 overflow，避免双滚动条 + 输入行被滚走）。
+  // 输入行 + 补全列表。输入行 sticky 钉在弹层 body 顶部：历史滚动时
+  // 输入框与执行按钮不动（弹层滚动通道 SSOT 见 css/includes/modal-scroll.styl
+  // —— body 是唯一滚动区，历史不再单独开一层 overflow）。
   .db-redis-console-input
     position sticky
     top 0
@@ -1619,13 +1617,15 @@
   .db-redis-console-run
     flex none
 
+  // 补全列表在文档流内（输入行之后、历史之前），不再 position:absolute。
+  // 曾经的 absolute 悬浮有一个隐性代价：absolute 溢出后代会计入最近滚动
+  // 容器（.ant-modal-body）的 scrollHeight —— 浮层一展开，body 就被撑出
+  // 一条「假溢出」滚动条，与浮层自身的滚动条并排贴在右缘，正是用户截图
+  // 报告的双滚动条（CDP 实测 body sh 309 > ch 210，probe: 
+  // db-redis-console-scroll-probe.js）。改文档流后浮层高度计入弹层内容，
+  // body 只有历史真溢出时才滚；代价是展开/收起时弹层高度跳一档
+  // （候选受 max-height 220 封顶，跳幅 ≤220px），权衡后接受。
   .db-redis-console-suggest
-    position absolute
-    top 100%
-    // 与输入框左边缘对齐，宽度贴着弹层内容区；z-index 高过 antd Modal 内容层
-    left 0
-    right 0
-    z-index 10
     margin-top 2px
     max-height 220px
     overflow auto
@@ -2100,11 +2100,9 @@
   font-size 12px
   color var(--text-muted)
 
-// 会话页（N6）：工具条钉住，表格区撑满后内部滚动 —— 与数据/结构页同款撑满链路；
-// 不写这条时 wrap 无高度约束，超高内容被 .ant-tabs-body-holder 的 hidden 裁掉，表格滚不动。
-// ⚠️ antd 已从 5 升到 6：<Spin> 不再渲染 .ant-spin-nested-loading（那是 antd5 类），
-// 真实结构为 .ant-spin（根，直接子）> .ant-spin-container（包表格）。旧选择器永不命中 →
-// 滚动规则不生效 → 表滚不动。这里改打 antd6 真实类链；表头吸顶复用 .db-sticky-thead（非虚拟表 SSOT）。
+// 会话页（N6）：工具条钉住，表格走 DbGridTable（与数据/结构页同款撑满链路）：
+// wrap 定高 flex 列 → .db-grid-table-wrap 拿剩余高 → 表体内滚、表头/分页常驻。
+// 不写撑满链时 wrap 无高度约束，超高内容被 .ant-tabs-body-holder 的 hidden 裁掉。
 .db-sessions-wrap
   height 100%
   min-height 0
@@ -2115,18 +2113,6 @@
     flex none
   > .ant-alert
     flex none
-  // antd6：<Spin> 根 .ant-spin（直接子）填剩余高、内部 .ant-spin-container 做滚动视口，
-  // 表体超高即内滚；两层层叠是因为 .ant-spin 需是 flex 列容器，容器才能拿到确定高来 overflow
-  > .ant-spin
-    flex 1 1 0
-    min-height 0
-    display flex
-    flex-direction column
-    overflow hidden
-    > .ant-spin-container
-      flex 1 1 0
-      min-height 0
-      overflow auto
 
 // 表结构区（列定义网格）：撑满 tabpane（块级父级里 flex-basis 不生效，必须 height 100%），
 // flex 列布局让 .db-grid-table-wrap 拿到确定高度并内部滚动
