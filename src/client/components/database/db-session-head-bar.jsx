@@ -28,6 +28,8 @@ export default function DbSessionHeadBar ({
   toggleReadonly,
   hideSystemSchemas,
   toggleSys,
+  showRelationGroups,
+  toggleRelationGroups,
   isRedis,
   redisInfo,
   openRedisInfo,
@@ -122,6 +124,27 @@ export default function DbSessionHeadBar ({
               />
             </span>
           </Tooltip>
+          {
+            // N12c 后续：关系对象组（索引/序列）**默认关闭** —— 与系统库开关相反。
+            // 它们只做库级定位 + 只读 DDL，表结构页已逐表给出索引；一个库几十上百条
+            // 索引铺在树里等于把树撑长却换不来新信息。打开即从已加载的 metadata 放出来
+            // （纯前端过滤，不重新拉树）。redis 树没有对象组，不展示
+            isRedis
+              ? null
+              : (
+                <Tooltip title={`${e('dbShowRelationGroups')} — ${e('dbShowRelationGroupsHint')}`}>
+                  <span className='db-sys-toggle db-relation-toggle'>
+                    <span className='db-tool-label'>{e('dbShowRelationGroups')}</span>
+                    <Switch
+                      size='small'
+                      checked={showRelationGroups}
+                      onChange={toggleRelationGroups}
+                      aria-label={e('dbShowRelationGroups')}
+                    />
+                  </span>
+                </Tooltip>
+                )
+          }
         </span>
         <span className='db-tool-sep' />
         <span className='db-tool-group'>

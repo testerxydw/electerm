@@ -686,6 +686,16 @@ export default auto(function DbSession (props) {
 
   // 系统库显示开关：默认显示（专业工具惯例），隐藏偏好持久化在 config
   const hideSystemSchemas = window.store._config.dbHideSystemSchemas === true
+  // N12c 后续：关系对象组（索引/序列）开关，默认**关闭**。
+  // 与系统库开关的差异：只裁树（纯前端 useDbTreeData 过滤），不重新拉元数据 ——
+  // 组里的条目表结构页本来就有，打开开关只是把已加载的节点放出来。config 由
+  // watch.js 的 autoRun debounce 自动落盘，切一次即持久化。
+  const showRelationGroups = window.store._config.dbShowRelationGroups === true
+  // 取反读实时 config 而不是闭包：连点两次时第二次读到的必须已是第一次写入的值
+  // （与 use-db-tree.js 的 toggleSys 同口径，那边踩过"setConfig 异步 + 闭包旧值"）
+  const toggleRelationGroups = () => window.store.setConfig({
+    dbShowRelationGroups: !(window.store._config.dbShowRelationGroups === true)
+  })
   // N11a 簇 C（#2/#3/#11）：元数据树 / 视角 / Redis 键空间三簇互相调用
   // （loadStructure ↔ refreshViewParts、openRefTable ↔ loadStructure、
   // loadTree ↔ loadRedisKeys），按值注入必然形成循环。这里用调用期解析的 bridge
@@ -1985,7 +1995,8 @@ export default auto(function DbSession (props) {
     isRedis,
     isPg,
     currentDbName,
-    setConnectDb
+    setConnectDb,
+    showRelationGroups
   })
 
   // 拖拽调整左侧元数据树宽度（松手时持久化）
@@ -4271,6 +4282,8 @@ export default auto(function DbSession (props) {
       toggleReadonly={toggleReadonly}
       hideSystemSchemas={hideSystemSchemas}
       toggleSys={toggleSys}
+      showRelationGroups={showRelationGroups}
+      toggleRelationGroups={toggleRelationGroups}
       isRedis={isRedis}
       redisInfo={redisInfo}
       openRedisInfo={openRedisInfo}

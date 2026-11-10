@@ -30,6 +30,7 @@ import {
   isDbObjectType,
   countTreeLeaves,
   DB_GROUP_LABEL,
+  dropRelationGroups,
   nodeKey,
   treeNodeKey
 } from '../../common/db-session-const'
@@ -56,6 +57,10 @@ const DB_GROUP_ICONS = {
   index: <KeyOutlined />
 }
 
+// N12c 后续：关系对象组（索引 / 序列）默认隐藏。裁剪函数是纯函数、住在
+// db-session-const（与 treeNodeKey 同处，便于契约 spec 直接 vm 加载断言）。
+// 纯前端裁剪（不动主进程 metadata 契约）：切换开关零请求，与 treeFilter 同层。
+
 export function useDbTreeData ({
   metadata,
   treeFilterKw,
@@ -63,14 +68,18 @@ export function useDbTreeData ({
   isRedis,
   isPg,
   currentDbName,
-  setConnectDb
+  setConnectDb,
+  showRelationGroups
 }) {
   // T2/T3：树过滤只作用于已加载的 metadata，不重新请求后端。
   // 递归支持 PG 的「库 → schema → 表」：节点自身命中时保留全部子节点，
   // 仅子节点命中时只保留命中的分支。
+  // 关系对象组裁剪在前、关键字过滤在后：先决定"这棵树里有哪些节点"，
+  // 再谈"哪些命中" —— 反过来的话，过滤空态文案会把看不见的索引也算成命中。
   const visibleMetadata = useMemo(() => {
+    const base = (showRelationGroups || isRedis) ? metadata : dropRelationGroups(metadata)
     if (!treeFilterKw) {
-      return metadata
+      return base
     }
     const hit = name => String(name || '').toLowerCase().includes(treeFilterKw)
     const filterNode = node => {
@@ -84,12 +93,12 @@ export function useDbTreeData ({
       }
       return { ...node, children: nodeHit ? (node.children || []) : children }
     }
-    return metadata.map(db => (
+    return base.map(db => (
       isRedis
         ? (hit(db.name) ? db : null)
         : filterNode(db)
     )).filter(Boolean)
-  }, [metadata, isRedis, treeFilterKw])
+  }, [metadata, isRedis, treeFilterKw, showRelationGroups])
   const countTreeNodes = nodes => (nodes || []).reduce(
     (n, node) => n + 1 + countTreeNodes(node.children),
     0

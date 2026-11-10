@@ -168,6 +168,20 @@ const treeNodeKey = (database, schema, node) => {
   return nodeKey(database, schema, node.name)
 }
 
+// 关系对象组（索引 / 序列）：N12a 引入、只做"库级定位 + 只读 DDL"的两组，
+// 树里**默认隐藏**（顶栏开关 dbShowRelationGroups 打开才显示）。
+// 为什么只这两组：表结构页本来就逐表给出索引清单，一个库几十上百条索引铺在树里
+// 只是把树撑长；routines/triggers/events 是 N12a 之前的老功能，不在此列。
+const RELATION_GROUPS = ['index', 'sequence']
+
+// 递归剔掉关系对象组；返回新数组/新节点，**不改入参**（metadata 是主进程契约，只读）。
+// 纯前端裁剪：主进程照旧回全量，切换开关零请求、零重拉。
+const dropRelationGroups = (nodes) => (nodes || [])
+  .filter(n => !(n && n.type === 'group' && RELATION_GROUPS.includes(n.group)))
+  .map(n => (n && Array.isArray(n.children)
+    ? { ...n, children: dropRelationGroups(n.children) }
+    : n))
+
 // U1c：空态"最近表"最多列几张 —— 再多就不是"快捷入口"，是另一棵树了
 const HOME_TABLES_MAX = 8
 
@@ -265,6 +279,8 @@ export {
   isDbObjectType,
   countTreeLeaves,
   DB_GROUP_LABEL,
+  RELATION_GROUPS,
+  dropRelationGroups,
   nodeKey,
   treeNodeKey,
   HOME_TABLES_MAX,
