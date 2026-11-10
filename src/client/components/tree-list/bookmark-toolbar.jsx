@@ -168,7 +168,7 @@ export default function BookmarkToolbar (props) {
             >
               <Button
                 icon={<ImportOutlined />}
-                title={e('importFromFile')}
+                title={e('importFormatsSupported')}
               />
             </Upload>
             <Button onClick={onSshConfigs}>

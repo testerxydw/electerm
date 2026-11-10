@@ -40,7 +40,7 @@ export default class BookmarkTransport extends PureComponent {
       >
         <Button
           icon={<ImportOutlined />}
-          title={e('importFromFile')}
+          title={e('importFormatsSupported')}
         />
       </Upload>
     )

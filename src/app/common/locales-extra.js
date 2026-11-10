@@ -1402,7 +1402,9 @@ const en = {
   rdpDownloadNeedsCopy: 'Nothing to download yet. Copy a file on the remote desktop (Ctrl+C in its file manager), then click here.',
   rdpDownloadCount: 'Download {n} file(s) copied on the remote',
   // 本地终端监控：Web 版没有 window.pre.osInfo() 时给一句友好提示
-  localMonitorUnavailable: 'Local system monitoring is not available in this build'
+  localMonitorUnavailable: 'Local system monitoring is not available in this build',
+  // 书签导入按钮 hover 提示：与 bookmark-upload.js 的分流能力一一对应
+  importFormatsSupported: 'Import from file. Supported: electerm bookmarks JSON, Navicat .ncx, DBeaver data-sources.json'
 }
 
 // 简体中文
@@ -2788,7 +2790,9 @@ const zhCn = {
   rdpDownloadNeedsCopy: '还没有可下载的文件——先在远程桌面里复制一个文件（在它自己的文件管理器里 Ctrl+C），再点这里。',
   rdpDownloadCount: '下载远程已复制的 {n} 个文件',
   // 本地终端监控：Web 版没有 window.pre.osInfo() 时给一句友好提示
-  localMonitorUnavailable: '当前版本不支持本地系统监控'
+  localMonitorUnavailable: '当前版本不支持本地系统监控',
+  // 书签导入按钮 hover 提示：与 bookmark-upload.js 的分流能力一一对应
+  importFormatsSupported: '从文件导入书签，支持：electerm 书签 JSON、Navicat .ncx、DBeaver data-sources.json'
 }
 
 module.exports = {
