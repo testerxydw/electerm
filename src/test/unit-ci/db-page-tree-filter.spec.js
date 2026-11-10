@@ -52,18 +52,32 @@ const loadFilteredRows = () => {
   return vm.runInNewContext('(function (grid, pageFilterKw) {' + m[1] + '})', { cellText })
 }
 
+// N11b-#24 之后 visibleMetadata 的真源是 use-db-tree-data.jsx（不再是 db-session.jsx），
+// N12a 又给它加了「关系对象组默认隐藏」这一步，依赖数组因此多了 showRelationGroups。
+// 取样一律对准真源文件 + 真依赖数组，抠的是发布源码里的原样表达式，测试不另抄一份过滤逻辑。
 const loadVisibleMetadata = () => {
-  const src = loadJsx()
+  const src = fs.readFileSync(TREE_DATA, 'utf8')
   const m = src.match(
-    /const visibleMetadata = useMemo\(\(\) => \{([\s\S]*?)\n\s{2}\}, \[metadata, isRedis, treeFilterKw\]\)/
+    /const visibleMetadata = useMemo\(\(\) => \{([\s\S]*?)\n\s{2}\}, \[metadata, isRedis, treeFilterKw, showRelationGroups\]\)/
   )
-  assert.ok(m, 'visibleMetadata derivation not found in db-session.jsx')
+  assert.ok(m, 'visibleMetadata derivation not found in use-db-tree-data.jsx')
   // F0：叶子判定提成了模块级 isLeafNode（table + view），
   // 抠函数体执行时要把它一起带上，否则 vm 里 ReferenceError
   const leaf = loadConst().match(/^const isLeafNode = .+$/m)
   assert.ok(leaf, 'isLeafNode not found in db-session-const.js')
+  // N12a：关系对象组裁剪是纯函数 dropRelationGroups + 它的常量 RELATION_GROUPS，
+  // 同源执行才能钉住"默认隐藏索引/序列组"这一步真的生效
+  const relGroups = loadConst().match(/^const RELATION_GROUPS = .+$/m)
+  assert.ok(relGroups, 'RELATION_GROUPS not found in db-session-const.js')
+  const dropRelationGroups = loadConst().match(/^const dropRelationGroups = [\s\S]*?\n {4}: n\)\)$/m)
+  assert.ok(dropRelationGroups, 'dropRelationGroups not found in db-session-const.js')
   return vm.runInNewContext(
-    '(() => {' + leaf[0] + '; return function (metadata, isRedis, treeFilterKw) {' + m[1] + '}; })()',
+    '(() => {' +
+      leaf[0] + ';' +
+      relGroups[0] + ';' +
+      dropRelationGroups[0] + ';' +
+      'return function (metadata, isRedis, treeFilterKw, showRelationGroups) {' + m[1] + '};' +
+    '})()',
     {}
   )
 }
