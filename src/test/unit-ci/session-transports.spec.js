@@ -7,13 +7,17 @@ const os = require('node:os')
 const path = require('node:path')
 const net = require('node:net')
 const { once } = require('node:events')
-const findFreePort = require('find-free-port')
 const FtpSrv = require('@electerm/ftp-srv')
 const serialportModulePath = require.resolve('serialport')
 const serialportExports = require(serialportModulePath)
 const { MockBinding } = require('@serialport/binding-mock')
 
 const globalState = require('../../../src/app/server/global-state')
+// bind-probe 的产品级取端口实现（探测即绑定，失败换下一个，含 EACCES）——
+// 取代 connect-probe 的 find-free-port（Windows 保留段会误报「空闲」）
+const { getFreePort } = require('../../../src/app/lib/free-port')
+// 自建 net server 的假设备直接 listen(0) 拿内核分配端口，无探测-监听窗口
+const { listenOnEphemeralPort } = require('../fixtures/listen-ephemeral')
 const { Ftp } = require('../../../src/app/server/session-ftp')
 const sessionSerial = require('../../../src/app/server/session-serial')
 const sessionTelnet = require('../../../src/app/server/session-telnet')
@@ -28,14 +32,19 @@ function makeTmpDir (prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
 }
 
-async function getFreePort (start = 30000, end = 39999) {
-  const [port] = await findFreePort(start, end, '127.0.0.1')
-  return port
+/**
+ * FtpSrv 自己构造内部 server，拿不到句柄做 listen(0)，所以走产品级 bind-probe
+ * （失败自动换下一个端口）；自建 net server 的假 telnet 设备用 listenOnEphemeralPort。
+ * @param {{from?: number, tries?: number}} [opts]
+ * @returns {Promise<number>}
+ */
+async function getTestPort ({ from = 30000, tries = 2000 } = {}) {
+  return getFreePort({ from, tries })
 }
 
 async function startFtpServer () {
   const root = makeTmpDir('electerm-ftp-test-')
-  const port = await getFreePort(31000, 31999)
+  const port = await getTestPort({ from: 31000, tries: 900 })
   const server = new FtpSrv({
     url: `ftp://127.0.0.1:${port}`,
     anonymous: false,
@@ -62,7 +71,6 @@ async function startFtpServer () {
 }
 
 async function startTelnetServer (eol = '\r\n') {
-  const port = await getFreePort(32000, 32999)
   const sockets = new Set()
   // Everything the client sent, for asserting the tx line ending
   let rawInput = ''
@@ -135,8 +143,8 @@ async function startTelnetServer (eol = '\r\n') {
     })
   })
 
-  server.listen(port, '127.0.0.1')
-  await once(server, 'listening')
+  // listen(0)：内核在同一 syscall 里分配端口，不存在探测-监听窗口
+  const port = await listenOnEphemeralPort(server)
 
   return {
     port,

@@ -78,6 +78,61 @@ describe('unit-ci 入口：hookFailed / cancelled / suite 级 not ok 统计盲�
     assert.equal(verdict.green, false, 'suite 级 not ok 不进 # fail，必须由 notOk 计数抓出来')
   })
 
+  it('只有 todo 探针失败（# fail 0）→ 同样判非全绿，且单独报出 known-failure 条数', () => {
+    const output = [
+      '# Subtest: 验收 · M3',
+      '    not ok 5 - 【缺陷探针】404 必须重握手 # TODO 缺陷 P0-1-D：只抛错不重试',
+      '      ---',
+      "      failureType: 'testCodeFailure'",
+      '      ...',
+      '# tests 10',
+      '# pass 9',
+      '# fail 0',
+      '# cancelled 0',
+      '# todo 1'
+    ].join('\n')
+    const verdict = evaluateTestOutput(output)
+    assert.equal(verdict.notOkCount, 0, 'todo 行单独归类，不混进 notOk')
+    assert.equal(verdict.knownFailureCount, 1, '但必须登记在案')
+    assert.deepEqual(verdict.knownFailureTitles, ['【缺陷探针】404 必须重握手 # TODO 缺陷 P0-1-D：只抛错不重试'])
+    assert.equal(verdict.green, false,
+      '过期 todo 探针必须红：本项目实证（2026-11-10）6 条 todo 探针 1 小时内 4 条过期，' +
+      '仍在断言已修掉的缺陷。豁免 = 它们永远绿着，没人会去看一个绿的 todo；' +
+      '删探针的 diff 可见可拦，豁免是隐形的')
+  })
+
+  it('todo 探针全部通过（# TODO 但 ok）→ 也判非全绿：通过了还挂着 # TODO 同样是谎言', () => {
+    const output = [
+      'ok 3 - 【缺陷探针】某待办 # TODO 还没做完',
+      '# tests 3',
+      '# pass 3',
+      '# fail 0',
+      '# cancelled 0',
+      '# todo 1'
+    ].join('\n')
+    const verdict = evaluateTestOutput(output)
+    assert.equal(verdict.notOkCount, 0)
+    assert.equal(verdict.knownFailureCount, 0)
+    assert.equal(verdict.todo, 1, '# todo 计数必须被抓出来')
+    assert.equal(verdict.green, false, '承诺「没做完」却做完了，要么转正要么删掉')
+  })
+
+  it('真 not ok 与 todo 混排 → 两者都判失败，todo 单独计数', () => {
+    const output = [
+      '    not ok 1 - real failure',
+      '    not ok 2 - 【缺陷探针】known # TODO 缺陷 P0-1-C：静默截断',
+      '# tests 2',
+      '# fail 0',
+      '# cancelled 0',
+      '# todo 1'
+    ].join('\n')
+    const verdict = evaluateTestOutput(output)
+    assert.equal(verdict.notOkCount, 1)
+    assert.deepEqual(verdict.notOkTitles, ['real failure'])
+    assert.equal(verdict.knownFailureCount, 1)
+    assert.equal(verdict.green, false)
+  })
+
   it('全 ok 的 TAP 输出 → 判定全绿', () => {
     const output = [
       '# Subtest: T1 current-page row filter (real source)',

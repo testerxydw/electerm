@@ -3,10 +3,10 @@ process.env.NODE_ENV = 'development'
 const { describe, test, afterEach } = require('node:test')
 const assert = require('node:assert/strict')
 const net = require('node:net')
-const { once } = require('node:events')
-const findFreePort = require('find-free-port')
 
 const sessionTelnet = require('../../../src/app/server/session-telnet')
+// 共用的「临时端口」helper：listen(0) 同一 syscall 绑定，无探测-监听窗口
+const { listenOnEphemeralPort } = require('../fixtures/listen-ephemeral')
 
 const IAC = 0xff
 const SB = 0xfa
@@ -26,17 +26,14 @@ const command = (cmd, option) => bytes(IAC, cmd, option)
 const suboption = (option, payload) =>
   Buffer.concat([bytes(IAC, SB, option), Buffer.from(payload), bytes(IAC, SE)])
 
+// 临时端口 helper 在文件头引入（listenOnEphemeralPort，listen(0) 同一 syscall
+// 绑定，无探测-监听 TOCTOU 窗口，失败不吞）。
+
 // A stand-in for the kind of device in #4575 (ZTE ZXR10 and other boxes that
 // only implement a subset of the telnet options): it prints its banner and
 // login prompt, optionally negotiates a couple of options, and records every
 // byte the client sends so a test can look at the client's own traffic.
 async function startDevice ({ negotiation = [] } = {}) {
-  const port = await new Promise((resolve, reject) => {
-    findFreePort(33000, 33999, '127.0.0.1')
-      .then(([p]) => resolve(p))
-      .catch(reject)
-  })
-
   const received = []
   const sockets = new Set()
 
@@ -84,8 +81,14 @@ async function startDevice ({ negotiation = [] } = {}) {
     socket.on('close', () => sockets.delete(socket))
   })
 
-  server.listen(port, '127.0.0.1')
-  await once(server, 'listening')
+  // Port 0 = let the kernel assign one. The previous version asked
+  // find-free-port for a port in 33000-33999 and listened on it afterwards,
+  // which is a TOCTOU: two suites running at the same time can be handed the
+  // same "free" port and the loser dies with EADDRINUSE — three red telnet
+  // tests that look exactly like a product regression. Nothing here needs a
+  // specific port number (the client is only told the port), so the window is
+  // removed rather than retried.
+  const port = await listenOnEphemeralPort(server)
 
   return {
     port,

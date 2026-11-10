@@ -46,24 +46,42 @@ function notOkTitles (output) {
 /**
  * 按 TAP 输出判定这次 unit-ci 是否全绿。
  * 纯函数，供 test-unit-ci-guard.spec.js 直接喂样例输出断言（不只钉源码文本）。
+ *
+ * `# TODO` 行单独归类（knownFailure*）：node:test 把「标了 todo 的用例失败」打印
+ * 成 `not ok N - title # TODO reason`。它们**不进 `# fail`**，所以只看 `# fail`
+ * 的人会以为绿——但我们不豁免它们：本项目的实证是「缺陷修好后探针没人摘」
+ * （一轮里 6 条 TODO 探针 1 小时内 4 条过期，还在断言已被修掉的缺陷）。
+ * 豁免 = 过期探针永远绿着，没人会去看一个绿的 todo。
+ * 删探针的 diff 是可见的、评审能拦；豁免过期的探针是隐形的。选可见的坏。
+ * 所以 green 必须同时要求 knownFailureCount === 0 且 todoCount === 0
+ * （通过了还挂着 # TODO 的用例同样是谎言：承诺没做完，却做完了）。
  * @param {string} output node --test 的 stdout + stderr
- * @returns {{notOkCount: number, notOkTitles: string[], fail: number,
- *   cancelled: number, hookFailed: boolean, green: boolean}}
+ * @returns {{notOkCount: number, notOkTitles: string[],
+ *   knownFailureCount: number, knownFailureTitles: string[],
+ *   fail: number, cancelled: number, todo: number,
+ *   hookFailed: boolean, green: boolean}}
  */
 function evaluateTestOutput (output) {
   const text = String(output || '')
-  const titles = notOkTitles(text)
+  const rawTitles = notOkTitles(text)
+  const knownFailures = rawTitles.filter(title => /#\s*TODO\b/.test(title))
+  const titles = rawTitles.filter(title => !/#\s*TODO\b/.test(title))
   const fail = tapCount(text, 'fail')
   const cancelled = tapCount(text, 'cancelled')
+  const todo = tapCount(text, 'todo')
   const hookFailed = /failureType: 'hookFailed'/.test(text)
   return {
     notOkCount: titles.length,
     // 只留前 5 条：一次挂几百条时摘要要还能读
     notOkTitles: titles.slice(0, 5),
+    knownFailureCount: knownFailures.length,
+    knownFailureTitles: knownFailures.slice(0, 5),
     fail,
     cancelled,
+    todo,
     hookFailed,
-    green: titles.length === 0 && fail === 0 && cancelled === 0 && !hookFailed
+    green: titles.length === 0 && knownFailures.length === 0 &&
+      todo === 0 && fail === 0 && cancelled === 0 && !hookFailed
   }
 }
 
@@ -98,6 +116,8 @@ function main () {
     console.error(
       '[test-unit-ci] 非全绿：' +
       `notOk=${verdict.notOkCount} ` +
+      `todoProbe=${verdict.knownFailureCount} ` +
+      `todo=${verdict.todo} ` +
       `fail=${verdict.fail} ` +
       `cancelled=${verdict.cancelled} ` +
       `hookFailed=${verdict.hookFailed ? 'yes' : 'no'} ` +
@@ -106,6 +126,11 @@ function main () {
     if (verdict.notOkTitles.length) {
       console.error(`[test-unit-ci] not ok（前 ${verdict.notOkTitles.length} 条）：`)
       verdict.notOkTitles.forEach(title => console.error(`[test-unit-ci]   - ${title}`))
+    }
+    if (verdict.knownFailureCount) {
+      console.error(`[test-unit-ci] todo 探针（前 ${verdict.knownFailureTitles.length} 条，同样阻断）：`)
+      verdict.knownFailureTitles.forEach(title => console.error(`[test-unit-ci]   - ${title}`))
+      console.error('[test-unit-ci] 规则：src/test/unit-ci/ 里不出现 todo:。缺陷修好 → 探针转正；没修完 → 让它红。')
     }
     if (verdict.cancelled || verdict.hookFailed) {
       console.error('[test-unit-ci] suite hook 失败不计入 # fail，必须按 exit code / cancelled 判定，不能只看 # fail 0')
@@ -116,6 +141,15 @@ function main () {
     if (!verdict.notOkCount && verdict.fail === 0 && verdict.cancelled === 0 && !verdict.hookFailed) {
       console.error('[test-unit-ci] TAP 汇总未报告失败但退出码非 0，请检查上面原始输出')
     }
+  }
+
+  // 已知缺陷（todo 探针）单独播报：同样阻断，只是归类不同，方便分辨
+  // 「1 条真红」还是「1 条待转正的探针」。
+  if (verdict.knownFailureCount) {
+    console.error(
+      `[test-unit-ci] 另有 known-failure TODO 探针 ${verdict.knownFailureCount} 条（同样算非全绿）：`
+    )
+    verdict.knownFailureTitles.forEach(title => console.error(`[test-unit-ci]   - ${title}`))
   }
 
   process.exitCode = code
