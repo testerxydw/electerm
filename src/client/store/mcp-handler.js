@@ -23,8 +23,24 @@ import {
   collectTables,
   resolveDbTab,
   summarizeResultSnapshot,
-  summarizeStructure
+  summarizeStructure,
+  summarizeStructureDiff
 } from '../common/db-agent-tools'
+import {
+  summarizeRedisKeys,
+  summarizeRedisKeyDetail,
+  summarizeRedisInfo,
+  summarizeRedisSlowlog,
+  normalizeRedisAgentLimit,
+  REDIS_AGENT_SCAN_DEFAULT,
+  REDIS_AGENT_SCAN_MAX,
+  REDIS_AGENT_KEY_ITEMS_DEFAULT,
+  REDIS_AGENT_KEY_ITEMS_MAX,
+  REDIS_AGENT_SLOWLOG_DEFAULT,
+  REDIS_AGENT_SLOWLOG_MAX
+} from '../common/db-agent-redis.js'
+import { diffTableStructure } from '../common/db-structure-diff.js'
+import { dialectIdOf } from '../common/sql-dialects.js'
 import { getSqlTarget, isSqlTargetReady } from '../common/db-sql-ai-target'
 import { planSqlInsertion } from '../common/db-sql-ai'
 import {
@@ -1672,6 +1688,17 @@ export default Store => {
     return resolved
   }
 
+  const requireRedisDbTab = (args) => {
+    const resolved = window.store.mcpResolveDbTab(args)
+    const dbType = String((resolved.tab && resolved.tab.dbType) || '').toLowerCase()
+    if (dbType !== 'redis') {
+      throw new Error(
+        `Tab "${resolved.tabId}" is not a Redis tab (dbType: ${dbType || 'unknown'}); redis_* tools need a Redis connection.`
+      )
+    }
+    return resolved
+  }
+
   Store.prototype.mcpResolveDbTab = function (args) {
     const { store } = window
     return resolveDbTab({
@@ -1773,5 +1800,98 @@ export default Store => {
       executed: false,
       note: 'Written into the SQL editor only. The user runs it (and the danger gate applies then).'
     }
+  }
+
+  const redisReadOptions = (args = {}) => {
+    const dbIndex = args.dbIndex === undefined ? 0 : args.dbIndex
+    if (!Number.isSafeInteger(dbIndex) || dbIndex < 0) {
+      throw new Error('dbIndex must be a non-negative integer')
+    }
+    const cursor = args.cursor === undefined ? '0' : args.cursor
+    if (typeof cursor !== 'string' || cursor.length > 128 || !/^\d+(?:-\d+)?$/.test(cursor)) {
+      throw new Error('cursor must be a Redis cursor returned by the tool')
+    }
+    return { dbIndex, cursor }
+  }
+
+  Store.prototype.mcpRedisScanKeys = async function (args = {}) {
+    const { tabId } = requireRedisDbTab(args)
+    const { dbIndex, cursor } = redisReadOptions(args)
+    const match = args.match === undefined ? '*' : args.match
+    if (typeof match !== 'string' || match.length > 8192 || !/^\d+$/.test(cursor)) {
+      throw new Error('match must be a string of at most 8192 characters and SCAN cursor must contain only digits')
+    }
+    const limit = normalizeRedisAgentLimit(args.limit, REDIS_AGENT_SCAN_DEFAULT, REDIS_AGENT_SCAN_MAX)
+    const page = await window.pre.runGlobalAsync(
+      'dbClientOp', tabId, 'getPageData', { dbIndex, match, cursor, pageSize: limit, keysOnly: false }
+    )
+    return summarizeRedisKeys(page, { dbIndex, match, limit })
+  }
+
+  Store.prototype.mcpRedisGetKey = async function (args = {}) {
+    const { tabId } = requireRedisDbTab(args)
+    const { key } = args
+    if (typeof key !== 'string') {
+      throw new Error('key is required as a string (see redis_scan_keys)')
+    }
+    if (key.length > 8192) {
+      throw new Error('key exceeds the agent preview limit of 8192 characters; inspect it in the Redis UI')
+    }
+    const { dbIndex, cursor } = redisReadOptions(args)
+    const limit = normalizeRedisAgentLimit(args.limit, REDIS_AGENT_KEY_ITEMS_DEFAULT, REDIS_AGENT_KEY_ITEMS_MAX)
+    const detail = await window.pre.runGlobalAsync(
+      'dbClientOp', tabId, 'getKeyDetail', { dbIndex, key, cursor, pageSize: limit }
+    )
+    return summarizeRedisKeyDetail(detail, { key, dbIndex, limit })
+  }
+
+  Store.prototype.mcpRedisInfo = async function (args = {}) {
+    const { tabId } = requireRedisDbTab(args)
+    const section = args.section === undefined ? '' : args.section
+    if (typeof section !== 'string' || section.length > 200) {
+      throw new Error('section must be a string of at most 200 characters')
+    }
+    const raw = await window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisInfo', {})
+    return summarizeRedisInfo(raw, { section })
+  }
+
+  Store.prototype.mcpRedisSlowlog = async function (args = {}) {
+    const { tabId } = requireRedisDbTab(args)
+    const limit = normalizeRedisAgentLimit(args.limit, REDIS_AGENT_SLOWLOG_DEFAULT, REDIS_AGENT_SLOWLOG_MAX)
+    const raw = await window.pre.runGlobalAsync('dbClientOp', tabId, 'getRedisSlowlog', { count: limit })
+    return summarizeRedisSlowlog(raw, { limit })
+  }
+
+  Store.prototype.mcpDbStructureDiff = async function (args) {
+    const { tab, tabId } = requireSqlDbTab(args)
+    const baseTable = String((args && args.baseTable) || '').trim()
+    const targetTable = String((args && args.targetTable) || '').trim()
+    if (!baseTable || !targetTable) {
+      throw new Error('baseTable and targetTable are required (see db_list_tables)')
+    }
+    const context = window.store.mcpDbGetContext({ tabId })
+    const dialect = dialectIdOf(tab.dbType)
+    // refresh:true 绕过 60s 结构缓存：base 拿了旧快照会让 diff 静默错（与结构对比页同口径）
+    const basePayload = {
+      database: (args && args.baseDatabase) || context.database,
+      schema: (args && args.baseSchema) || context.schema,
+      table: baseTable,
+      refresh: true
+    }
+    const targetPayload = {
+      database: (args && args.targetDatabase) || context.database,
+      schema: (args && args.targetSchema) || context.schema,
+      table: targetTable,
+      refresh: true
+    }
+    const base = await window.pre.runGlobalAsync('dbClientOp', tabId, 'getTableStructure', basePayload)
+    const target = await window.pre.runGlobalAsync('dbClientOp', tabId, 'getTableStructure', targetPayload)
+    const diff = diffTableStructure(base, target, { dialect })
+    const label = p => [p.database, p.schema, p.table].filter(Boolean).join('.')
+    return summarizeStructureDiff(diff, {
+      baseLabel: label(basePayload),
+      targetLabel: label(targetPayload),
+      dialect
+    })
   }
 }

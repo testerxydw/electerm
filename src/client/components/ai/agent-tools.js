@@ -581,6 +581,161 @@ export const agentTools = [
         required: ['sql']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'redis_scan_keys',
+      description: 'Sample keys in a Redis database on the user\'s open Redis session (read-only SCAN). Returns exact names with type and TTL where bounded; name:null with namePreview is not a usable key. COUNT is advisory: truncated batches omit items that nextCursor skips, so this is not an exhaustive enumeration. Never writes or removes keys. Requires a Redis tab; call db_get_context first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Redis tab ID. Omit to use the active database tab.'
+          },
+          dbIndex: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Redis database index (default 0).'
+          },
+          match: {
+            type: 'string',
+            description: 'Glob-style pattern to filter keys (default *).'
+          },
+          cursor: {
+            type: 'string',
+            description: 'Opaque SCAN cursor from a previous nextCursor; omit or "0" to start.'
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 200,
+            description: 'Keys to return (default 50, max 200).'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'redis_get_key',
+      description: 'Read one Redis key\'s type, TTL and bounded UTF-8 text preview (read-only, not binary-safe). Hash/set/stream cursors advance past the fetched batch, including any omitted items; check truncation before drawing conclusions. Lists/zsets are samples only. Never modifies the key. Requires a Redis tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Redis tab ID. Omit to use the active database tab.'
+          },
+          dbIndex: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Redis database index (default 0).'
+          },
+          key: {
+            type: 'string',
+            maxLength: 8192,
+            description: 'Exact key, including whitespace or an empty string. Never use a truncated namePreview as a key.'
+          },
+          cursor: {
+            type: 'string',
+            description: 'Opaque cursor for paging hash/set/stream contents; omit to start.'
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 200,
+            description: 'Max fields/members/entries to return (default 50, max 200).'
+          }
+        },
+        required: ['key']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'redis_info',
+      description: 'Read the Redis server\'s INFO: a compact overview (version, mode, memory, clients, hit rate, ops/sec, total keys) plus per-db keyspace counts. Optionally include one raw section (e.g. memory, stats, commandstats). Read-only; requires a Redis tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Redis tab ID. Omit to use the active database tab.'
+          },
+          section: {
+            type: 'string',
+            description: 'Optional INFO section name to include (capped). Omit for overview only.'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'redis_slowlog',
+      description: 'Read the Redis slow log: recent slow commands with duration, timestamp and a truncated argument preview (read-only SLOWLOG GET). Arguments are previewed, never full values. Requires a Redis tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Redis tab ID. Omit to use the active database tab.'
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 100,
+            description: 'Entries to return (default 20, max 100).'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'db_structure_diff',
+      description: 'Compare two tables\' structure (columns, indexes, foreign keys) on the user\'s open SQL database session and report added/removed/changed items with field-level detail. Read-only metadata comparison: it does not generate or run any DDL. To propose changes, write ALTER text with db_insert_sql for the user to review. Requires a SQL (non-Redis) tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: {
+            type: 'string',
+            description: 'Database tab ID. Omit to use the active database tab.'
+          },
+          baseTable: {
+            type: 'string',
+            description: 'The reference (base) table name.'
+          },
+          targetTable: {
+            type: 'string',
+            description: 'The table to compare against the base.'
+          },
+          baseDatabase: {
+            type: 'string',
+            description: 'Base table database. Omit to use the current one.'
+          },
+          baseSchema: {
+            type: 'string',
+            description: 'Base table schema (PostgreSQL). Omit to use the current one.'
+          },
+          targetDatabase: {
+            type: 'string',
+            description: 'Target table database. Omit to use the current one.'
+          },
+          targetSchema: {
+            type: 'string',
+            description: 'Target table schema (PostgreSQL). Omit to use the current one.'
+          }
+        },
+        required: ['baseTable', 'targetTable']
+      }
+    }
   }
 ]
 
@@ -662,6 +817,16 @@ export async function executeToolCall (toolName, args) {
       return JSON.stringify(store.mcpDbReadResult(args))
     case 'db_insert_sql':
       return JSON.stringify(store.mcpDbInsertSql(args))
+    case 'redis_scan_keys':
+      return JSON.stringify(await store.mcpRedisScanKeys(args))
+    case 'redis_get_key':
+      return JSON.stringify(await store.mcpRedisGetKey(args))
+    case 'redis_info':
+      return JSON.stringify(await store.mcpRedisInfo(args))
+    case 'redis_slowlog':
+      return JSON.stringify(await store.mcpRedisSlowlog(args))
+    case 'db_structure_diff':
+      return JSON.stringify(await store.mcpDbStructureDiff(args))
     default:
       throw new Error(`Unknown agent tool: ${toolName}`)
   }

@@ -321,3 +321,78 @@ export function summarizeResultSnapshot (snapshot, {
     totalRowsEstimate: numOr(snapshot.totalRows, undefined)
   }
 }
+
+export function summarizeStructureDiff (diff, {
+  baseLabel = '',
+  targetLabel = '',
+  dialect = '',
+  limit = DB_AGENT_COLUMN_LIMIT,
+  maxCellChars = DB_AGENT_CELL_MAX_CHARS
+} = {}) {
+  const d = diff || {}
+  const take = clampInt(limit, DB_AGENT_COLUMN_LIMIT, DB_AGENT_COLUMN_LIMIT)
+  const stats = { truncatedCells: 0, binaryCells: 0 }
+  const boundedText = value => clip(text(value), maxCellChars, stats)
+  const definitionOf = value => {
+    if (value === null || value === undefined) {
+      return null
+    }
+    if (typeof value === 'string') {
+      return boundedText(value)
+    }
+    if (typeof value !== 'object') {
+      return value
+    }
+    const entries = Array.isArray(value) ? value : Object.keys(value)
+    if (entries.length > DB_AGENT_COLUMN_LIMIT) {
+      stats.truncatedCells += 1
+    }
+    const shown = entries.slice(0, DB_AGENT_COLUMN_LIMIT)
+    return Array.isArray(value)
+      ? shown.map(definitionOf)
+      : Object.fromEntries(shown.map(key => [boundedText(key), definitionOf(value[key])]))
+  }
+  const sectionOf = (entries, tally) => {
+    const list = Array.isArray(entries) ? entries : []
+    const changed = list.filter(e => e && e.status !== 'equal')
+    const shown = changed.slice(0, take).map(e => {
+      const entry = {
+        name: boundedText(e.name),
+        status: text(e.status),
+        fields: (Array.isArray(e.fields) ? e.fields : []).map(f => ({
+          key: text(f.key),
+          base: toCell(f.base, maxCellChars, stats),
+          target: toCell(f.target, maxCellChars, stats)
+        }))
+      }
+      if (e.status === 'added' || e.status === 'removed') {
+        entry.base = definitionOf(e.base)
+        entry.target = definitionOf(e.target)
+      }
+      return entry
+    })
+    const t = tally || {}
+    return {
+      added: numOr(t.added, 0),
+      removed: numOr(t.removed, 0),
+      changed: numOr(t.changed, 0),
+      equal: numOr(t.equal, 0),
+      total: numOr(t.total, 0),
+      changes: shown,
+      totalChanges: changed.length,
+      truncated: changed.length > shown.length
+    }
+  }
+  const sections = d.sections || {}
+  return {
+    base: boundedText(baseLabel),
+    target: boundedText(targetLabel),
+    dialect: boundedText(dialect),
+    summary: d.summary || { added: 0, removed: 0, changed: 0, equal: 0, total: 0 },
+    columns: sectionOf(d.columns, sections.columns),
+    indexes: sectionOf(d.indexes, sections.indexes),
+    foreignKeys: sectionOf(d.foreignKeys, sections.foreignKeys),
+    truncatedCells: stats.truncatedCells,
+    note: 'Read-only comparison. No DDL is generated or run here; to propose changes, write ALTER text with db_insert_sql for the user to review and run.'
+  }
+}
