@@ -1518,6 +1518,20 @@
 
 // H7a-4 Redis 服务器信息弹层
 .db-redis-info
+  // Tab 栏常驻（用户硬指标）：.ant-modal-body 是唯一滚动区（modal-scroll.styl SSOT），
+  // 页签在滚动容器内 sticky 吸顶，切到任何页签、内容怎么滚 Tab 栏都不滚走；
+  // 弹层标题在 .ant-modal-header（body 外 flex none），本来就不参与滚动。
+  // 与 .db-sticky-thead 同款先例；antd 运行时注入 .ant-tabs-nav{position:relative}，
+  // 是 :where() 特异性 0，这里仍按本仓惯例对 antd 覆盖带 !important。
+  // antd 给 nav 的 margin-bottom 16px 在吸顶后会漏出滚动内容，
+  // 用等高 box-shadow 补齐（不动 antd 布局间距，零布局位移）。
+  .ant-tabs-nav
+    position sticky !important
+    top 0
+    z-index 3
+    background var(--main)
+    box-shadow 0 16px 0 var(--main)
+
   // 概览分组：窄宽度自动折行，不会因为窗口小就横向挤成一列长条
   .db-redis-info-groups
     display flex

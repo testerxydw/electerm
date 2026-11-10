@@ -174,15 +174,19 @@ describe('统一滚动通道：组件层零手写滚动逻辑', () => {
     // 结构对比控制组 sticky 钉顶（db-session.styl .db-diff-head）：差异列表随弹层 body
     // 滚动时，选择/概览/落编辑器工具条常驻可见 —— 同样属于「控制条」吸顶，不是表头分叉
     assert.match(styl, /\.db-diff-head[\s\S]{0,120}position sticky/)
+    // Redis 服务器信息弹层 Tab 栏吸顶（db-session.styl .db-redis-info .ant-tabs-nav）：
+    // 弹层 body 内滚（modal-scroll.styl SSOT）时页签常驻 —— 用户硬指标
+    // 「顶部标题+Tab 栏任何页签下都不滚」。属于「Tab 控制条」吸顶，不是表头分叉
+    assert.match(styl, /\.db-redis-info[\s\S]{0,800}\.ant-tabs-nav[\s\S]{0,200}position sticky/)
     // 放宽到 stylus 也允许的 `position: sticky`（带冒号）写法，避免同类分叉绕过计数。
-    // 全仓 db-session.styl 的 position sticky 必须恰好落在白名单四处，
-    // 任何第五处（例如新的表头吸顶分叉）都会让计数 != 4 而告警
+    // 全仓 db-session.styl 的 position sticky 必须恰好落在白名单五处，
+    // 任何第六处（例如新的表头吸顶分叉）都会让计数 != 5 而告警
     const stickyHits = styl.match(/^\s*position\s*:?\s*sticky\s*$/gm) || []
     const importantHits = styl.match(/^\s*position\s*:?\s*sticky\s+!important\s*$/gm) || []
     assert.equal(
       stickyHits.length + importantHits.length,
-      4,
-      'only .db-tx-row-head (legacy) + .db-sticky-thead (SSOT) + .db-redis-console-input (pinned input) + .db-diff-head (pinned diff controls) may exist'
+      5,
+      'only .db-tx-row-head (legacy) + .db-sticky-thead (SSOT) + .db-redis-console-input (pinned input) + .db-diff-head (pinned diff controls) + .db-redis-info .ant-tabs-nav (pinned tabs) may exist'
     )
   })
 
