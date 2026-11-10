@@ -63,11 +63,52 @@ describe('db-sql-format formatSql', () => {
     assert.ok(out.includes('\nWHERE'), 'WHERE line')
   })
 
-  test('括号内缩进、闭合回退', () => {
+  test('短列表折叠回单行（IN 列表不再竖排）', () => {
     const out = formatSql('select * from t where id in (1, 2, 3)')
-    const lines = out.split('\n')
-    assert.ok(lines.some(l => /^\s+2,/.test(l)), 'list item indented')
+    assert.ok(out.includes('IN (1, 2, 3)'), `inline list, got: ${out}`)
     assert.ok(!/\n\s*\)/.test(out), 'closing paren not on its own indented line')
+  })
+
+  test('N12e 子查询嵌套：括号内主子句保留缩进层级（不再拍平到第 0 列）', () => {
+    const out = formatSql('select a from (select b, c from t where x = 1) q')
+    assert.ok(out.includes('FROM (\n  SELECT b,\n  c\n  FROM t\n  WHERE x = 1) q'),
+      `nested indent, got:\n${out}`)
+  })
+
+  test('N12e CTE：WITH 换行、子查询体缩进、顶层 SELECT 回到第 0 列', () => {
+    const out = formatSql('with a as (select x from t) select * from a')
+    assert.ok(out.startsWith('WITH a AS (\n  SELECT x\n  FROM t)'), `cte head, got:\n${out}`)
+    assert.ok(out.includes('\nSELECT *\nFROM a'), 'outer SELECT at column 0')
+  })
+
+  test('N12e 窗口函数：OVER (PARTITION BY / ORDER BY) 分行缩进', () => {
+    const out = formatSql('select row_number() over (partition by dep order by sal desc) r from t')
+    assert.ok(out.includes('OVER (\n  PARTITION BY dep\n  ORDER BY sal DESC)'),
+      `window indent, got:\n${out}`)
+  })
+
+  test('N12e 函数参数折叠：func(a, b) 不拆竖排', () => {
+    const out = formatSql('select greatest(a, b, c) from t')
+    assert.ok(out.includes('greatest(a, b, c)'), `func args inline, got: ${out}`)
+  })
+
+  test('N12e 折叠护栏：块内有行注释不折叠（防注释吞行）', () => {
+    const out = formatSql('select * from t where id in (1, -- first\n 2)')
+    assert.ok(out.includes('-- first'), 'comment kept')
+    // 块没被折叠成单行 —— 折叠会把注释后的内容并进注释行
+    assert.ok(!out.includes('IN (1, -- first 2)'), 'block not collapsed under comment')
+  })
+
+  test('N12e 折叠护栏：超长块保持竖排（单行化 > 80 字符）', () => {
+    const items = Array.from({ length: 20 }, (_, i) => `verylongcolumnname${i + 1}`).join(', ')
+    const out = formatSql(`select * from t where id in (${items})`)
+    assert.ok(/\n\s+verylongcolumnname2,/.test(out), 'long list stays expanded')
+  })
+
+  test('N12e 折叠护栏：字符串字面量内的括号与换行不被折叠改动', () => {
+    const out = formatSql("select * from t where note = 'line1\nline2' and id in (1, 2)")
+    assert.ok(out.includes("'line1\nline2'"), 'multiline string literal untouched')
+    assert.ok(out.includes('IN (1, 2)'), 'plain list still collapsed')
   })
 
   test('注释保留', () => {
