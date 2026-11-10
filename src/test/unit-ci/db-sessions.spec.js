@@ -241,19 +241,27 @@ test('N6 UI: db-session.jsx 在非 redis 主区挂 sessions 页签', () => {
     '不强制首帧渲染：没看过会话页的连接不白付一次查询')
 })
 
-// ---- UI 滚动通道（N6 回归锁）：antd6 真实类 ----
-test('N6 UI: 会话页滚动容器打 antd6 真实类 .ant-spin-container，禁用已废弃的 antd5 .ant-spin-nested-loading', () => {
+// ---- UI 滚动通道（N6 回归锁）：与数据/结构页同款 DbGridTable ----
+test('N6 UI: 会话页表格走 DbGridTable（统一滚动通道），不自开 overflow 视口', () => {
+  const jsx = fs.readFileSync(
+    path.join(__dirname, '../../client/components/database/db-sessions.jsx'), 'utf8'
+  )
   const styl = fs.readFileSync(
     path.join(__dirname, '../../client/components/database/db-session.styl'), 'utf8'
   )
+  // 分支①（可虚拟化平表）唯一 JS 实现：组件层不得裸 Table / 手写 scroll.y / virtual
+  assert.match(jsx, /<DbGridTable\b/, '会话网格必须走 DbGridTable')
+  assert.doesNotMatch(jsx, /<Table\b/, '裸 antd Table 会绕过统一滚动通道')
+  assert.doesNotMatch(jsx, /scroll=\{\{/, '组件层不得手写 scroll')
   // 截出 .db-sessions-wrap 这一块（到下一个顶层 .db- 块为止）
   const start = styl.indexOf('.db-sessions-wrap')
   const next = styl.indexOf('\n.db-', start + 1)
   const block = styl.slice(start, next > -1 ? next : styl.length)
   assert.ok(block.length > 0, '要能截到 .db-sessions-wrap 块')
-  assert.match(block, /\.ant-spin-container/, '滚动容器须打 antd6 的 .ant-spin-container')
-  assert.doesNotMatch(block, /\.ant-spin-nested-loading/,
-    'antd5 的 .ant-spin-nested-loading 在 antd6 不存在、命中不了，必须用 .ant-spin-container')
+  // 撑满链留给 DbGridTable 实测 scroll.y；wrap 自己不再开滚动视口（否则双通道）
+  assert.match(block, /height 100%/, 'wrap 要撑满 tabpane，DbGridTable 才有确定高可测')
+  assert.doesNotMatch(block, /overflow auto/, 'wrap 内不得自开 overflow 视口（滚动权归 DbGridTable）')
+  assert.doesNotMatch(block, /\.ant-spin-container/, 'Spin 容器滚动链已废：loading 走 Table 自身 loading prop')
 })
 
 // 同根遗留兜底：.db-sql-result 等其它块也可能误打 antd5 死类，全文件扫描一次

@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Modal, Tabs, Table, Spin, Alert, Button } from 'antd'
+import { Modal, Tabs, Spin, Alert, Button } from 'antd'
 import DbGridTable from './db-grid-table'
 import { parseRedisInfo, redisOverview, keyspaceRows, formatPercent } from '../../common/db-redis-info'
 import { parseRedisSlowlog, slowlogStats, slowlogTsv, formatSlowDuration, formatSlowTime } from '../../common/db-redis-slowlog'
@@ -210,7 +210,10 @@ function infoTabItems (ov, rows, text) {
       key: 'keyspace',
       label: e('dbRedisInfoKeyspace'),
       children: (
-        <Table
+        // 与同弹层慢日志同款：DbGridTable 定高 → 表头钉住、表体内滚，
+        // 不跟弹层 body 整块滚（16 个 db 满配时裸表会把表头滚出视野）
+        <DbGridTable
+          height={380}
           size='small'
           rowKey='db'
           columns={keyspaceColumns}

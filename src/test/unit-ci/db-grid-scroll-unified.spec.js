@@ -137,14 +137,13 @@ describe('统一滚动通道：组件层零手写滚动逻辑', () => {
     assert.equal((src.match(/height=\{400\}/g) || []).length, 2, 'Profiler 两处')
   })
 
-  test('db-redis-info.jsx：慢日志表已收敛到 DbGridTable height={380}', () => {
+  test('db-redis-info.jsx：慢日志与键空间两表都收敛到 DbGridTable height={380}', () => {
     const src = read(INFO)
-    assert.match(src, /<DbGridTable\s*\n\s*height=\{380\}/)
+    assert.equal((src.match(/<DbGridTable\s*\n\s*height=\{380\}/g) || []).length, 2, '慢日志 + 键空间同款定高')
     assert.doesNotMatch(src, /scroll=\{\{ y: 340 \}\}/)
-    // 慢日志段不得裸用 antd Table；keyspace 静态小表仍保留裸 Table（白名单）
-    const slowlogSeg = src.slice(src.indexOf("className='db-redis-slowlog'"))
-    assert.ok(slowlogSeg, 'slowlog segment not found')
-    assert.doesNotMatch(slowlogSeg, /<Table\b/, 'slowlog table must go through DbGridTable')
+    // 整文件不得再裸用 antd Table（键空间曾是白名单小表，现与慢日志对齐）
+    assert.doesNotMatch(src, /<Table\b/, 'info 弹层两表都必须走 DbGridTable')
+    assert.doesNotMatch(src, /import \{[^}]*\bTable\b[^}]*\} from 'antd'/)
     // 整文件也不许再有任何手写滚动逻辑
     const code = stripComments(src)
     assert.doesNotMatch(code, /scroll=\{\{[^}]*\by\b/)
@@ -210,10 +209,6 @@ describe('统一滚动通道：组件层零手写滚动逻辑', () => {
     // 允许保留裸 <Table> 的白名单：这些表不在定高滚动容器内 / 走 CSS sticky 分支，
     // 但一律禁止组件里再写 scroll.y / virtual（这才是「各自为政」的根源）。
     const bareTableAllowlist = new Set([
-      // keyspace ≤16 行静态小表
-      'db-redis-info.jsx',
-      // 分页 50/页的管理型列表
-      'db-sessions.jsx',
       // 树形表：走 .db-sticky-thead
       'db-explain-tree.jsx'
     ])

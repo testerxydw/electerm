@@ -8,10 +8,11 @@
  */
 
 import { useMemo } from 'react'
-import { Alert, Button, Space, Spin, Switch, Table, Tag, Tooltip } from 'antd'
+import { Alert, Button, Space, Switch, Tag, Tooltip } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { isPgFamily } from '../../common/db-engine-family'
 import { useDbSessions } from './use-db-sessions'
+import DbGridTable from './db-grid-table'
 
 const e = window.translate
 // 自动刷新开关两端的小字（ON/OFF 通用记号，不进词条表）
@@ -53,7 +54,7 @@ export default function DbSessions (props) {
   const statusEntries = Object.entries(st.status || {})
 
   return (
-    <div className='db-sessions-wrap db-sticky-thead'>
+    <div className='db-sessions-wrap'>
       <div className='pd1x'>
         <Space>
           <Tooltip title={e('dbSessionsRefresh')}>
@@ -90,15 +91,14 @@ export default function DbSessions (props) {
             )
           : null
       }
-      <Spin spinning={sessions.loading && !sessions.rows.length}>
-        <Table
-          size='small'
-          rowKey={r => String(isPg ? r.pid : r.id) + ':' + String(r.query || r.info || '')}
-          columns={columns}
-          dataSource={sessions.rows || []}
-          pagination={{ pageSize: 50, hideOnSinglePage: true, showSizeChanger: false }}
-        />
-      </Spin>
+      <DbGridTable
+        size='small'
+        loading={sessions.loading && !sessions.rows.length}
+        rowKey={r => String(isPg ? r.pid : r.id) + ':' + String(r.query || r.info || '')}
+        columns={columns}
+        dataSource={sessions.rows || []}
+        pagination={{ pageSize: 50, hideOnSinglePage: true, showSizeChanger: false }}
+      />
     </div>
   )
 }

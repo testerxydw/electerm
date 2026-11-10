@@ -52,7 +52,10 @@ export default function DbGridTable (props) {
       if (!pager) {
         setPagerH(0)
       } else {
-        const ph = Math.ceil(pager.getBoundingClientRect().height)
+        // antd 分页器自带上下 margin（默认 16px 0），只扣 rect 高度会把分页器顶出 wrap
+        const ps = window.getComputedStyle(pager)
+        const ph = Math.ceil(pager.getBoundingClientRect().height +
+          (parseFloat(ps.marginTop) || 0) + (parseFloat(ps.marginBottom) || 0))
         if (ph > 0) {
           setPagerH(ph)
         }
