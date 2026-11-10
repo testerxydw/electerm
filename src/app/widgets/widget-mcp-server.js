@@ -1314,22 +1314,40 @@ class ElectermMCPServer {
       next()
     })
 
-    // Authenticate every request. The key is never empty (constructor), and it
-    // is accepted either as `Authorization: Bearer <key>` or as `?apiKey=<key>`
-    // in the URL — the latter so the copied server URL is the whole client
-    // configuration, instead of a URL plus a header the user has to find a
-    // place for in each client.
+    // Authenticate every request with `Authorization: Bearer <key>` ONLY.
+    //
+    // `?apiKey` (as a query parameter) used to be accepted so that "copy the URL" was the whole
+    // client setup. That convenience leaked the key into everything that
+    // records a URL: access logs, shell history, screenshots, the instance log
+    // this widget can export. The key now travels in a header only; a request
+    // that still carries it in the query gets a 401 naming the migration so
+    // an old client fails with an explanation instead of a silent 401.
     app.use((req, res, next) => {
       const authHeader = req.headers.authorization || ''
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
-      const provided = token || String(req.query.apiKey || '')
-      if (!apiKeyMatches(provided, this.config.apiKey)) {
+      if (req.query && req.query.apiKey !== undefined) {
         this.reportEvent({
           type: 'auth',
           ok: false,
           from: req.socket && req.socket.remoteAddress,
-          // path only: the query carries the key, and this log is readable
-          // (and exportable) from the instance panel
+          msg: `${req.method} ${req.path} -> 401 (apiKey in query is not accepted)`
+        })
+        res.status(401).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32600,
+            message: 'Unauthorized: the apiKey query parameter is not accepted any more. Send it as "Authorization: Bearer <key>" instead.'
+          },
+          id: null
+        })
+        return
+      }
+      if (!apiKeyMatches(token, this.config.apiKey)) {
+        this.reportEvent({
+          type: 'auth',
+          ok: false,
+          from: req.socket && req.socket.remoteAddress,
+          // path only: never log headers
           msg: `${req.method} ${req.path} -> 401 Unauthorized`
         })
         res.status(401).json({
@@ -1462,9 +1480,10 @@ class ElectermMCPServer {
         }
 
         const serverInfo = {
-          // the key rides in the URL so that "copy the URL" is the whole
-          // client setup: paste it, done, no header to find a field for
-          url: `http://${host}:${port}/mcp?apiKey=${encodeURIComponent(self.config.apiKey)}`,
+          // URL without the key: the key goes in an Authorization header.
+          // Putting it in the query (the old behaviour) leaked it into every
+          // place a URL gets copied to — logs, shell history, screenshots.
+          url: `http://${host}:${port}/mcp`,
           protocol: 'mcp',
           version: self.mcpServer.supportedProtocolVersions[0],
           apiKey: self.config.apiKey

@@ -479,8 +479,14 @@ describe('MCP server – Host/Origin guard and API key', () => {
     return res
   }
 
-  test('serverInfo.url carries the key, so copying it configures the client', () => {
-    assert.ok(serverInfo.url.includes(`apiKey=${TEST_API_KEY}`), serverInfo.url)
+  test('serverInfo.url carries no key, and the key is still on serverInfo', () => {
+    // The URL used to carry `?apiKey=…` so "copy the URL" was the whole client
+    // setup — which also put the key in every access log, shell history entry
+    // and screenshot the URL landed in. The key is header-only now, so the URL
+    // must be clean; `serverInfo.apiKey` is what the panel has to offer instead.
+    assert.doesNotMatch(serverInfo.url, /apiKey/, serverInfo.url)
+    assert.equal(serverInfo.url, `http://127.0.0.1:${PORT}/mcp`)
+    assert.equal(serverInfo.apiKey, TEST_API_KEY)
   })
 
   test('rejects a request whose Host is not the bind address', async () => {
@@ -519,7 +525,10 @@ describe('MCP server – Host/Origin guard and API key', () => {
     assert.equal(short.status, 401)
   })
 
-  test('accepts the key in the query string', async () => {
+  test('rejects the key in the query string and names the migration', async () => {
+    // The key used to be accepted in the query so "copy the URL" was the whole
+    // setup; that leaked it into logs/history/screenshots. It is now header-only,
+    // and a stale client must get an explanation rather than a generic 401.
     const res = await axios.post(
       `http://127.0.0.1:${PORT}/mcp?apiKey=${TEST_API_KEY}`,
       initBody,
@@ -529,8 +538,52 @@ describe('MCP server – Host/Origin guard and API key', () => {
         validateStatus: () => true
       }
     )
-    assert.equal(res.status, 200)
-    assert.ok(res.headers['mcp-session-id'])
+    assert.equal(res.status, 401)
+    assert.match(String(res.data && res.data.error && res.data.error.message), /Authorization: Bearer/)
+    // the rejection must not echo the key back: a 401 body can end up in a log
+    // or an issue screenshot just like the URL did
+    assert.ok(!JSON.stringify(res.data).includes(TEST_API_KEY))
+    // the same key in the header still works, so the migration is the only change
+    const viaHeader = await post({ Authorization: `Bearer ${TEST_API_KEY}` })
+    assert.equal(viaHeader.status, 200)
+    assert.ok(viaHeader.headers['mcp-session-id'])
+  })
+
+  test('rejects the query key even when a valid header is also present', async () => {
+    // fail closed: a client that kept the old URL *and* added the header is the
+    // most likely half-migrated state, and letting it through would keep the
+    // leak alive for as long as the old URL is in use
+    const res = await axios.post(
+      `http://127.0.0.1:${PORT}/mcp?apiKey=${TEST_API_KEY}`,
+      initBody,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${TEST_API_KEY}`
+        },
+        proxy: false,
+        validateStatus: () => true
+      }
+    )
+    assert.equal(res.status, 401)
+    assert.match(String(res.data && res.data.error && res.data.error.message), /Authorization: Bearer/)
+  })
+
+  test('GET and DELETE also reject the query key', async () => {
+    // the auth middleware sits in front of all three /mcp routes; a fix that
+    // only touched POST would leave the SSE and session-teardown paths leaking
+    for (const method of ['get', 'delete']) {
+      const res = await axios[method](
+        `http://127.0.0.1:${PORT}/mcp?apiKey=${TEST_API_KEY}`,
+        {
+          headers: { Accept: 'application/json, text/event-stream' },
+          proxy: false,
+          validateStatus: () => true
+        }
+      )
+      assert.equal(res.status, 401, method)
+      assert.match(String(res.data && res.data.error && res.data.error.message), /Authorization: Bearer/, method)
+    }
   })
 
   test('a rebound request cannot reach a tool even with a valid key', async () => {

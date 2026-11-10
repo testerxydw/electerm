@@ -30,6 +30,7 @@ import {
 import {
   CopyOutlined,
   DeleteOutlined,
+  KeyOutlined,
   ReloadOutlined,
   StopOutlined
 } from '@ant-design/icons'
@@ -62,6 +63,15 @@ function displayValue (key, value) {
     return value ? 'true' : 'false'
   }
   return value === undefined || value === null ? '' : String(value)
+}
+
+// Display-only masking for the MCP server API key: enough of the ends to tell
+// two keys apart, not enough to use one. maskUrl() is for URLs (it rewrites
+// credentials and query parameters), so the key needs its own two-liner.
+function maskApiKey (key) {
+  const str = String(key || '')
+  if (!str) return ''
+  return str.length <= 8 ? '****' : `${str.slice(0, 4)}****${str.slice(-4)}`
 }
 
 export default auto(function WidgetInstanceDetail ({ instance, store }) {
@@ -170,6 +180,20 @@ export default auto(function WidgetInstanceDetail ({ instance, store }) {
       children: (
         <span className='wil-mono' title={maskUrl(instance.serverInfo.url)}>
           {maskUrl(instance.serverInfo.url)}
+        </span>
+      )
+    })
+  }
+  // The URL no longer carries the key (it used to be a query parameter), so the
+  // key has to be readable here — masked, and copied from the header button —
+  // or the user cannot connect a client to this MCP server at all.
+  if (instance.serverInfo && instance.serverInfo.apiKey) {
+    infoItems.push({
+      key: 'apiKey',
+      label: 'API key',
+      children: (
+        <span className='wil-mono' title={maskApiKey(instance.serverInfo.apiKey)}>
+          {maskApiKey(instance.serverInfo.apiKey)}
         </span>
       )
     })
@@ -290,6 +314,17 @@ export default auto(function WidgetInstanceDetail ({ instance, store }) {
                   size='small'
                   icon={<CopyOutlined />}
                   onClick={() => copy(instance.serverInfo.url)}
+                />
+              </Tooltip>
+              )
+            : null}
+          {instance.serverInfo && instance.serverInfo.apiKey
+            ? (
+              <Tooltip title='Copy API key'>
+                <Button
+                  size='small'
+                  icon={<KeyOutlined />}
+                  onClick={() => copy(instance.serverInfo.apiKey)}
                 />
               </Tooltip>
               )

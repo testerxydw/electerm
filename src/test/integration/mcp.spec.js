@@ -9,9 +9,7 @@
  *     since GHSA-vw4q-c6px-w5p3; without it the write tools are not registered
  *     and those cases degrade to no-ops via tolerant().
  *   - ELECTERM_MCP_API_KEY set to the key the widget generated. It is in the
- *     URL the widget copies on start (…/mcp?apiKey=…), or in the instance
- *     detail panel. The server requires it — it no longer runs unauthenticated
- *     (GHSA-45rj-2wq9-r9mr).
+ *     instance detail panel (the URL no longer carries it: header auth only).
  *
  * SSH-dependent tests use an in-process test SSH server (@electerm/ssh2),
  * see src/test/integration/lib/ssh-test-server.js — no external SSH host needed.
@@ -38,9 +36,10 @@ const {
 } = require('./lib/ssh-test-server')
 
 const MCP_API_KEY = process.env.ELECTERM_MCP_API_KEY || ''
-const serverUrl = MCP_API_KEY
-  ? `http://127.0.0.1:30837/mcp?apiKey=${encodeURIComponent(MCP_API_KEY)}`
-  : 'http://127.0.0.1:30837/mcp'
+// Header auth only: the key is never put in the URL (it used to be, and it
+// leaked into logs/history/screenshots).
+const authHeaders = MCP_API_KEY ? { Authorization: `Bearer ${MCP_API_KEY}` } : {}
+const serverUrl = 'http://127.0.0.1:30837/mcp'
 const uid = Date.now()
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +52,7 @@ async function makeHttpRequest (method, urlStr, data = null, headers = {}, { tim
       method: method.toUpperCase(),
       url: urlStr,
       data,
-      headers,
+      headers: { ...authHeaders, ...headers },
       proxy: false,
       // Safety net: no single HTTP call may hang the suite forever.
       // Well under the smallest per-test timeout (30s) for quick protocol
@@ -89,7 +88,7 @@ async function makeStreamGetRequest (urlStr, headers = {}, timeoutMs = 5000) {
       port: url.port,
       path: url.pathname,
       method: 'GET',
-      headers,
+      headers: { ...authHeaders, ...headers },
       agent: false
     }, (res) => {
       let data = ''
