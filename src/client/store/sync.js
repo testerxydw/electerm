@@ -19,43 +19,16 @@ import { collectUncategorizedBookmarks } from '../common/bookmark-uncategorized'
 import dayjs from 'dayjs'
 import parseJsonSafe from '../common/parse-json-safe'
 import { runImportTask } from '../common/import-task'
+// 下载/导入侧的黑名单：覆盖即出事、或属于「本机」语义的键（exec 系列 = 可执行
+// 向量、tokenElecterm、mcpServersAI、apiKeyAI …）。名单与原因见
+// ../common/sync-local-keys.js；那里是纯函数，行为测试直击它。
+import { stripLocalConfigKeys } from '../common/sync-local-keys'
 
 const e = window.translate
 
 const {
   version: packVer
 } = packInfo
-
-// Server- and machine-local config keys that must never be overwritten by an
-// imported/synced config, because they describe *this* install. Overwriting
-// tokenElecterm in particular breaks every subsequent WebSocket connection
-// (terminals, sftp, transfers) because the token no longer matches the
-// server's JWT secret, causing connections to silently fail verification — the
-// terminal appears to connect but input never works until the app is
-// restarted. `sessionLogPath` is the same shape of mistake in the filesystem:
-// a full-data import carries `C:\Users\<someone else>\Documents\electerm` over
-// from the machine that exported it, and an unwritable log dir used to take
-// the session down with it (#4688). Keep the path local to the install, the
-// per-OS default (`default-log-path.js`) covers a machine that has none.
-const localConfigKeys = [
-  'tokenElecterm',
-  'host',
-  'port',
-  'server',
-  'wsHost',
-  'wsPort',
-  'useSystemTitleBar',
-  'sessionLogPath'
-]
-
-function stripLocalConfigKeys (conf) {
-  if (!conf || typeof conf !== 'object') return conf
-  const safe = { ...conf }
-  for (const k of localConfigKeys) {
-    delete safe[k]
-  }
-  return safe
-}
 
 function isJSON (str = '') {
   return str.startsWith('[')
@@ -921,6 +894,9 @@ export default (Store) => {
       'scrollback',
       'fontSize',
       'execWindows',
+      // 注意：这 6 个 exec 键虽仍在上传白名单（老版本落盘兼容），接收侧一律剥离
+      // ——「执行什么二进制」是 per-machine 语义，且是 RCE 向量，见
+      // ../common/sync-local-keys.js。别把两边不一致当漏改。
       'execMac',
       'execLinux',
       'execWindowsArgs',
@@ -952,13 +928,15 @@ export default (Store) => {
       'copyWhenSelect',
       'customCss',
       'dataSyncSelected',
-      'baseURLAI',
+      // baseURLAI / proxyAI 已从上传白名单摘除（D4/A+）：它们描述「用户的 key
+      // 会被发到哪」，而密钥键本身不同步——上传一个接收侧拒绝应用的字段是
+      // 纯噪音，且会把用户内网端点写进 gist（http://192.168.x.x:3000/v1）。
+      // 接收侧剥离清单里仍含它们（旧 gist / 手改 gist），见 sync-local-keys.js。
       'modelAI',
       // 跟着模型走的能力位：不是密钥，换机后模型名还在但能力判定不该重来
       'supportsImageAI',
       'roleAI',
       'languageAI',
-      'proxyAI',
       'disableDeveloperTool',
       'terminalBackgroundText',
       'terminalBackgroundTextSize',
