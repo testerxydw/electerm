@@ -23,21 +23,12 @@ const {
 } = require('./terminal-api')
 const globalState = require('./global-state')
 const wsDec = require('./ws-dec')
+// verify 独立模块：db-client-ws 也用它，留在本文件会成循环依赖环
+// （db-client-ws 拿到半成品 exports，verifyWs undefined，见 ws-verify.js 头注）
+const verify = require('./ws-verify')
 // D2（资源优化 §4.2）：db-client 全家在本子进程运行，/dbclient 是主进程
 // 唯一的 WS RPC 入口（主进程侧客户端见 lib/db-client-remote.js）
 const dbClientWs = require('./db-client-ws')
-
-const { tokenElecterm } = process.env
-
-function verify (req) {
-  const { token: to } = req.query
-  if (to !== tokenElecterm) {
-    throw new Error('not valid request')
-  }
-  if (process.env.requireAuth === 'yes' && !globalState.authed) {
-    throw new Error('auth required')
-  }
-}
 
 const initWs = function (app) {
   // D2：数据库客户端通道（连接池/事务/隧道全在本进程）

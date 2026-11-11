@@ -14,7 +14,9 @@
 
 const log = require('../common/log')
 const wsDec = require('./ws-dec')
-const { verifyWs } = require('./dispatch-center')
+// verify 独立模块（ws-verify.js）：不能反向 require 回 dispatch-center，
+// 那是循环依赖环，拿到的是半成品 exports（verifyWs undefined）
+const verifyWs = require('./ws-verify')
 
 // db-client 惰性 require：本端点加载不等于数据库栈加载（P2 纪律延用）。
 // dbExportOp/dbImportOp（D2 批次二）也在这里执行 —— exporter/importer 内部
