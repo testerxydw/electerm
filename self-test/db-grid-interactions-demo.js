@@ -596,7 +596,7 @@ const main = async () => {
   // （若按位置重排，过滤后那 1 行 key 会变成 '0'，而不是原 id 对应的 pk:...）
   const keysBefore = rowKeysInfo.map(r => r.key)
   await cdp.eval('window.__setPageFilter("short one")')
-  await waitFor(cdp, `window.__rowCount() === 1`, 'N9 filter short one', 4000)
+  await waitFor(cdp, 'window.__rowCount() === 1', 'N9 filter short one', 4000)
   const keysAfter = await json(cdp, `JSON.stringify((() => {
     const trs = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)
     return trs.map(tr => tr.getAttribute('data-row-key'))
@@ -617,7 +617,7 @@ const main = async () => {
     return { key: tr ? tr.getAttribute('data-row-key') : null }
   })())`)
   await cdp.eval('window.__setPageFilter("short one")')
-  await waitFor(cdp, `window.__rowCount() === 1`, 'N9 filter to id2', 4000)
+  await waitFor(cdp, 'window.__rowCount() === 1', 'N9 filter to id2', 4000)
   await cdp.eval(`(() => {
     const tr = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)[0]
     const cb = tr.querySelector('.ant-table-selection-column input[type=checkbox]') || tr.querySelector('input[type=checkbox]')

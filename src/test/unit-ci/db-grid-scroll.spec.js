@@ -28,15 +28,26 @@ const loadCols = () => fs.readFileSync(COLS, 'utf8')
 const GRID_TABLE = path.join(ROOT, 'src/client/components/database/db-grid-table.jsx')
 const loadGridTable = () => fs.readFileSync(GRID_TABLE, 'utf8')
 
-// 从 db-session.jsx 里抽出 DbGridTable 的 y 推导表达式，跑的是发布代码而非拷贝
+// 从 db-grid-table.jsx 里抽出 DbGridTable 的 y 推导三段（measuredY / ESTIMATED_VH / 最终 y 合成），
+// 跑的是发布代码而非拷贝
 const loadCalcScrollY = () => {
   const src = loadGridTable()
   const fnMatch = src.match(/function DbGridTable \([\s\S]*?\n\}/)
   assert.ok(fnMatch, 'DbGridTable definition not found in db-grid-table.jsx')
-  const yMatch = fnMatch[0].match(/const y = (wrapH[^\n]+)$/m)
-  assert.ok(yMatch, 'y derivation not found inside DbGridTable')
+  // measuredY：真实可用高度（wrap - 表头 - 分页器），量到 0 时为 0
+  const mY = fnMatch[0].match(/const measuredY = (wrapH[^\n]+)$/m)
+  assert.ok(mY, 'measuredY derivation not found inside DbGridTable')
+  // ESTIMATED_VH：真实高度不可得时的保守下界（无 window 的测试环境 → max(200, floor(800*0.5))=400）
+  const mE = fnMatch[0].match(/const ESTIMATED_VH = (Math\.max[^\n]+)$/m)
+  assert.ok(mE, 'ESTIMATED_VH derivation not found inside DbGridTable')
+  // 最终 y：measuredY 为正用测量值，否则落保守下界（始终虚拟化）
+  const mFinal = fnMatch[0].match(/const y = (measuredY[^\n]+)$/m)
+  assert.ok(mFinal, 'final y composition not found inside DbGridTable')
   // vm 而非 new Function：跑真实源码表达式，且过 standard 的 no-new-func
-  return vm.runInNewContext('(function (wrapH, headH, pagerH) { return ' + yMatch[1] + ' })', {})
+  return vm.runInNewContext(
+    '(function (wrapH, headH, pagerH) { const measuredY = ' + mY[1] +
+    '; const ESTIMATED_VH = ' + mE[1] +
+    '; return ' + mFinal[1] + ' })', {})
 }
 
 // 在 styl 里取某个顶级选择器的块（到下一个顶级选择器为止；文件是 CRLF 行尾）
@@ -52,13 +63,14 @@ const stylBlock = (styl, selector) => {
 describe('DbGridTable: y derivation (real source)', () => {
   const calc = loadCalcScrollY()
 
-  test('not measured yet (wrapH=0) -> no scroll.y, keeps outer scrolling', () => {
-    assert.equal(calc(0, 0, 0), 0)
-    assert.equal(calc(0, 38, 0), 0)
+  test('not measured yet (wrapH=0) -> y falls back to ESTIMATED_VH (always virtual, never full render)', () => {
+    // 无 window 的测试环境 ESTIMATED_VH = max(200, floor(800*0.5)) = 400
+    assert.equal(calc(0, 0, 0), 400)
+    assert.equal(calc(0, 38, 0), 400)
   })
 
-  test('header not rendered yet (headH=0) -> no scroll.y', () => {
-    assert.equal(calc(702, 0, 0), 0)
+  test('header not rendered yet (headH=0) -> y falls back to ESTIMATED_VH (conservative floor)', () => {
+    assert.equal(calc(702, 0, 0), 400)
   })
 
   test('definite wrap height -> y = wrapH - headH (real sizes from live test)', () => {
@@ -71,8 +83,8 @@ describe('DbGridTable: y derivation (real source)', () => {
     assert.equal(calc(702, 38, 100), 564)
   })
 
-  test('degenerate tiny container (smaller than header) -> no scroll.y', () => {
-    assert.equal(calc(30, 38, 0), 0)
+  test('degenerate tiny container (smaller than header) -> y = ESTIMATED_VH floor, still virtual', () => {
+    assert.equal(calc(30, 38, 0), 400)
   })
 })
 
@@ -102,12 +114,14 @@ describe('DbGridTable: component wiring contract', () => {
     assert.ok(gridTable.includes('<Table'), 'DbGridTable must remain the sole <Table user (now in db-grid-table.jsx)')
   })
 
-  test('scroll prop passes x and conditional y (drift guard)', () => {
+  test('scroll prop passes x and always y (drift guard)', () => {
     const src = loadGridTable()
     assert.ok(
-      src.includes("scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}"),
+      src.includes("scroll={{ x: 'max-content', y }}"),
       'DbGridTable scroll prop drifted'
     )
+    // y 不再条件化：virtual 恒为 true，表体恒内部滚动
+    assert.doesNotMatch(src, /scroll=\{\{[^}]*y\s*>\s*0/, 'scroll.y must not be gated on y>0')
   })
 
   test('measurement effect observes both wrap and thead (transient-height fix)', () => {

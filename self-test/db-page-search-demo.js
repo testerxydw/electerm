@@ -232,7 +232,7 @@ const main = async () => {
   check('S1 点顶栏查找图标 → 查找条出现且输入框拿到焦点',
     open === true && String(focused).includes('input'), { open, focused })
 
-  // 判据口径说明：数据网格开了虚拟滚动（virtual={y > 0}），DOM 里只有渲染出来的那几行，
+  // 判据口径说明：数据网格恒开虚拟滚动（高度未知时由 ESTIMATED_VH 顶上，不退回全量），DOM 里只有渲染出来的那几行，
   // 所以这里钉的是"计数条文案 / DOM 标记数 / 当前命中类"三者**互相自洽**，
   // 而不是钉一个命中数字（钉数字测到的是视口高度，不是查找逻辑本身）
   const state = async () => {

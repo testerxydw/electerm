@@ -439,7 +439,7 @@ const PROBE = `
   // 两个 DOM 事实决定了这里的写法：
   //   · 取"可见的那块 .db-struct-area"而不是第一块——页签切走的 pane 仍挂在 DOM 里，
   //     按顺序取会读到 display:none 的空网格；
-  //   · DbGridTable 是 virtual（y>0 即开），表体只渲染可视区那十几行，行不是 tbody tr。
+  //   · DbGridTable 恒开 virtual（高度未知时由 ESTIMATED_VH 顶上，不退回全量），表体只渲染可视区那十几行，行不是 tbody tr。
   //     所以整表对账必须滚动 + 累积（node 侧 __stScan 循环），单次读只能拿到屏内行。
   //   行上带 data-row-key（值 = structureRows 的位置下标），累积用位置当键：既证明
   //   页 = catalog 的全部列，也证明顺序没被打乱。

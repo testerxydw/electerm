@@ -2,7 +2,8 @@
 // 表体定高滚动（scroll.y）→ 横向滚动条常驻可视区底边、不再沉到全部行之下，表头随之吸顶。
 // 容器/表头高度用 ResizeObserver 实测（覆盖窗口变化/分屏/树宽拖拽/数据渲染）；
 // ResizeObserver 挂载时创建一次；数据/加载态变化时补测一次。
-// 测量未就绪时不传 y，保持原有的外层容器滚动行为（优雅降级）
+// 测量未就绪时用 ESTIMATED_VH（window.innerHeight 的保守下界）顶上一个正的有限 y，
+// virtual 恒为 true —— 任何测量时序下都不退回全量渲染；ResizeObserver 在下一帧实测后回填精确 y。
 //
 // 弹层（Modal）等"外层容器没有确定高度"的场景传 height 给 wrap 定高：
 // ResizeObserver 量到确定高度后走的是同一条 y 推导 → 表体内部滚动 / 表头吸顶 /
@@ -80,17 +81,27 @@ export default function DbGridTable (props) {
   useEffect(() => {
     measureRef.current()
   }, [rest.dataSource, rest.loading])
-  const y = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0
+  // 真实可用高度（wrap - 表头 - 分页器）；wrap / 表头 / 分页器任一量到 0（首帧
+  // ResizeObserver 尚未回填、或非激活页签）时 measuredY 为 0，由下方 ESTIMATED_VH 顶上。
+  const measuredY = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0
+  // 保守下界估算：真实高度不可得时用它顶上，确保 virtual 永不为 false（不退回全量渲染）。
+  // 取 window.innerHeight 的一半 —— 真实使用里必然远小于网格可用高度（网格几乎占满整个面板），
+  // 即便偏保守也只会在首帧表格下方留一小条空白，下一帧 ResizeObserver 实测后即回填精确 y；
+  // 它绝不会大于实际容器高度（否则虚拟视口比容器高、底部行溢出且滚动够不到，是破坏性）。
+  const ESTIMATED_VH = Math.max(200, Math.floor((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.5))
+  const y = measuredY > 0 ? measuredY : ESTIMATED_VH
   return (
     <div className={'db-grid-table-wrap' + (className ? ' ' + className : '')} ref={wrapRef} style={height != null ? { ...style, height } : style}>
       <Table
         {...rest}
         className='db-grid-table'
-        // 行虚拟渲染：DOM 行数与 pageSize 解耦（只渲染可视区），行少自动退化为全渲染
-        virtual={y > 0}
-        // y 生效后表体自己滚动，外层禁掉纵向滚动（子像素取整仍可能溢出 1px → 双滚动条）
-        style={y > 0 ? { overflowY: 'hidden' } : undefined}
-        scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}
+        // 行虚拟渲染：DOM 行数与 pageSize 解耦（只渲染可视区），行少自动退化为全渲染。
+        // 恒为 true —— 即便首帧 y 未知也由 ESTIMATED_VH 顶上一个正的有限值，
+        // 任何测量时序下都不退回全量渲染（验证口径：3 万行页签切走不残留上万 DOM）。
+        virtual
+        // 表体恒自己滚动，外层禁掉纵向滚动（子像素取整仍可能溢出 1px → 双滚动条）
+        style={{ overflowY: 'hidden' }}
+        scroll={{ x: 'max-content', y }}
       />
     </div>
   )

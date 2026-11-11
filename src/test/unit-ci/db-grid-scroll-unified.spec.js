@@ -31,11 +31,19 @@ const fnBody = () => {
   return m[0]
 }
 
-// 跑真实源码的 y 推导表达式
+// 跑真实源码的 y 推导三段（measuredY / ESTIMATED_VH / 最终 y 合成）
 const calcY = () => {
-  const m = fnBody().match(/const y = (wrapH[^\n]+)$/m)
-  assert.ok(m, 'y derivation not found inside DbGridTable')
-  return vm.runInNewContext('(function (wrapH, headH, pagerH) { return ' + m[1] + ' })', {})
+  const fn = fnBody()
+  const mY = fn.match(/const measuredY = (wrapH[^\n]+)$/m)
+  assert.ok(mY, 'measuredY derivation not found inside DbGridTable')
+  const mE = fn.match(/const ESTIMATED_VH = (Math\.max[^\n]+)$/m)
+  assert.ok(mE, 'ESTIMATED_VH derivation not found inside DbGridTable')
+  const mFinal = fn.match(/const y = (measuredY[^\n]+)$/m)
+  assert.ok(mFinal, 'final y composition not found inside DbGridTable')
+  return vm.runInNewContext(
+    '(function (wrapH, headH, pagerH) { const measuredY = ' + mY[1] +
+    '; const ESTIMATED_VH = ' + mE[1] +
+    '; return ' + mFinal[1] + ' })', {})
 }
 
 // 跑真实源码的 wrap style 三元表达式
@@ -68,18 +76,25 @@ describe('统一滚动通道：DbGridTable 是唯一 JS 实现（真实源码）
     )
   })
 
-  test('const y 推导表达式逐字保留', () => {
+  test('const measuredY 推导表达式逐字保留（真实可用高度 = wrap - 表头 - 分页器）', () => {
     const src = read(GRID_TABLE)
     assert.ok(
-      src.includes('const y = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0'),
-      'y derivation drifted'
+      src.includes('const measuredY = wrapH > 0 && headH > 0 && wrapH > headH + pagerH ? wrapH - headH - pagerH : 0'),
+      'measuredY derivation drifted'
     )
+    // 高度未知时由保守下界 ESTIMATED_VH 顶上，最终 y 恒为正（始终虚拟化）
+    assert.ok(src.includes('const ESTIMATED_VH = Math.max(200,'), 'ESTIMATED_VH floor missing')
+    assert.ok(src.includes('const y = measuredY > 0 ? measuredY : ESTIMATED_VH'), 'final y composition drifted')
   })
 
-  test('virtual / scroll 仍由 DbGridTable 统一提供', () => {
+  test('virtual 恒为 true / scroll 恒带 y（DbGridTable 统一提供，不再 virtual={y>0} 退回全量）', () => {
     const src = read(GRID_TABLE)
-    assert.ok(src.includes('virtual={y > 0}'), 'virtual switch drifted')
-    assert.ok(src.includes("scroll={{ x: 'max-content', ...(y > 0 ? { y } : {}) }}"), 'scroll prop drifted')
+    // 行虚拟渲染开关必须恒开，不得再被 y>0 门控（否则首帧 y 未知会退回全量渲染）
+    assert.ok(/\n\s*virtual\s*$/m.test(src), 'virtual switch must stay always-on (DbGridTable)')
+    assert.doesNotMatch(src, /virtual=\{\s*y\s*>\s*0\s*\}/, 'virtual must NOT be gated on y>0')
+    // 表体恒内部滚动：scroll 恒带 y（不再条件化）
+    assert.ok(src.includes("scroll={{ x: 'max-content', y }}"), 'scroll prop drifted')
+    assert.doesNotMatch(src, /scroll=\{\{[^}]*y\s*>\s*0/, 'scroll.y must not be gated on y>0')
   })
 })
 
@@ -106,12 +121,13 @@ describe('统一滚动通道：边界求值（vm 跑真实源码）', () => {
     assert.equal(Object.keys(bare).length, 1)
   })
 
-  test('wrapH=0 / headH=0 / wrapH <= headH+pagerH → y=0（保留外层滚动降级）', () => {
-    assert.equal(calc(0, 0, 0), 0)
-    assert.equal(calc(0, 38, 0), 0)
-    assert.equal(calc(702, 0, 0), 0)
-    assert.equal(calc(30, 38, 0), 0)
-    assert.equal(calc(702, 38, 702), 0)
+  test('measuredY=0（首帧/量到 0/容器小于表头）→ y 落保守下界 ESTIMATED_VH，始终虚拟化', () => {
+    // 无 window 的 node 测试环境：ESTIMATED_VH = max(200, floor(800*0.5)) = 400
+    assert.equal(calc(0, 0, 0), 400)
+    assert.equal(calc(0, 38, 0), 400)
+    assert.equal(calc(702, 0, 0), 400) // headH 未量到 → 保守下界，不退回全量
+    assert.equal(calc(30, 38, 0), 400)
+    assert.equal(calc(702, 38, 702), 400)
   })
 
   test('弹层定高 460/400/380 + headH=38 + pagerH=0 → y=422/362/342', () => {

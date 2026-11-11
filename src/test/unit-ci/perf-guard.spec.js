@@ -240,10 +240,12 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
     assert.ok(src.includes('renderAIIcon()'), 'AI button must stay')
   })
 
-  test('DbGridTable enables row virtualization (DOM rows decoupled from pageSize)', () => {
-    // N11a：DbGridTable 已迁出 db-grid-table.jsx，虚拟化开关随之迁走
+  test('DbGridTable always enables row virtualization (DOM rows decoupled from pageSize, never regresses to full render)', () => {
+    // N11a：DbGridTable 已迁出 db-grid-table.jsx，虚拟化开关随之迁走；
+    // 高度未知时由 ESTIMATED_VH 顶上，virtual 恒为 true —— 任何测量时序下都不退回全量渲染
     const src = fs.readFileSync(DB_GRID_TABLE, 'utf8')
-    assert.ok(src.includes('virtual={y > 0}'), 'row virtualization must stay on')
+    assert.ok(/\n\s*virtual\s*$/m.test(src), 'row virtualization prop must stay always-on (DbGridTable)')
+    assert.doesNotMatch(src, /virtual=\{\s*y\s*>\s*0\s*\}/, 'virtual must NOT be gated on y>0 (would regress to full render on first frame)')
   })
 
   test('dbPageSize config respected with default 20', () => {
