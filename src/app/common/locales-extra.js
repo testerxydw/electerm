@@ -1449,6 +1449,9 @@ const en = {
   // MCP servers 配置分节（T05）
   ready: 'Ready',
   failed: 'Failed',
+  // 状态文案（设计 §2.9）：badge 旁的「重试」按钮 / degraded 档「不稳定」
+  retry: 'Retry',
+  degraded: 'Unstable',
   transport: 'Transport',
   trust: 'Trust',
   oneArgPerLine: 'one argument per line',
@@ -2890,6 +2893,9 @@ const zhCn = {
   // MCP servers 配置分节（T05）
   ready: '就绪',
   failed: '失败',
+  // 状态文案（设计 §2.9）：badge 旁的「重试」按钮 / degraded 档「不稳定」
+  retry: '重试',
+  degraded: '不稳定',
   transport: '传输方式',
   trust: '信任',
   oneArgPerLine: '每行一个参数',

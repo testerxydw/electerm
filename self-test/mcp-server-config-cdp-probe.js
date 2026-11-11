@@ -29,6 +29,20 @@
  *      Save → config trust==='auto'。
  *   ⑥ 资源回收（fake-mcp-server teardown 约束）：删除 server → config 空 →
  *      pgrep 轮询 fake-mcp-server 子进程退出（ESRCH 语义用 pgrep 空表达）。
+ *   ⑦ §4.3 #5 HTTP 鉴权：http server 指向本地假端点（恒 401）→ 状态 failed 且
+ *      lastError 含 HTTP 401 → 6s 窗口内请求 ≤ 2（4xx 不重试刷屏）→ DOM 徽章
+ *      显示失败 → 重试按钮可用（点一次仍收敛，请求增量 ≤ 3）。
+ *   ⑧ §4.3 #3 失败隔离：① `sleep 999` 的 stdio server initialize 永不回包 →
+ *      INIT_TIMEOUT 内 failed，期间弹层仍可操作；② `--hang` server 已 ready，
+ *      调工具在 timeoutMs+5s 内 settle 成 mcp_timeout，连接不被拆掉（agent
+ *      循环拿到结构化错误继续走，不 hang）。
+ *   ⑨ §4.3 #6 回归基线：清空 server 列表 → 外部工具集为空 / 状态空 / 无 warnings，
+ *      内置工具基线仍 36（M10 硬门的源码常量），分节提示区不受影响。
+ *   ⑩ id 稳定（本轮实机抓到的第三个真缺陷）：渲染层必须在保存时就分配 id。
+ *      主进程只在 id 缺失时 nanoid(7) 生成且**不回写** config，所以缺 id 会
+ *      每次 syncConfig 重建子进程（别名漂移）+ 徽章按 id 匹配不上。判据用
+ *      「连续两次 GetTools 后子进程 pid 集合不变」+「状态 id === config id」+
+ *      「DOM 徽章真的渲染出 ready(3)」三面钉死。
  *
  * 环境纪律（与 modal-scroll-cdp-probe.js 同源）：
  *   - 子进程 env 显式 delete ELECTRON_RUN_AS_NODE / NODE_OPTIONS。
@@ -39,6 +53,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const path = require('node:path')
 const net = require('node:net')
+const http = require('node:http')
 const { spawn, execSync } = require('node:child_process')
 const {
   Cdp, getJson, findPageTarget, sleep, waitFor, makeChecker
@@ -46,6 +61,7 @@ const {
 
 const ROOT = path.join(__dirname, '..')
 const PORT = '9396'
+const HTTP_PORT = '9397'
 const DISPLAY = ':150'
 const BIN = path.join(ROOT, 'node_modules/electron/dist/electron')
 const FAKE_SERVER = path.join(ROOT, 'src/test/fixtures/fake-mcp-server.js')
@@ -96,6 +112,29 @@ const fakeServerPids = () => {
   } catch (e) {
     return []
   }
+}
+
+// 假 HTTP MCP 端点：恒 401（§4.3 #5 的「错误 token」）。
+// hits 是「不重试刷屏」判据的唯一证据——4xx 鉴权失败必须一次收敛，退避重连
+// 只允许发生在传输/网络类失败上（设计 §2.7 重试表）。
+function startFakeHttp401 (port) {
+  const stat = { hits: 0, server: null }
+  stat.server = http.createServer((req, res) => {
+    stat.hits += 1
+    req.resume()
+    res.writeHead(401, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized' } }))
+  })
+  return new Promise((resolve, reject) => {
+    stat.server.once('error', reject)
+    stat.server.listen(Number(port), '127.0.0.1', () => resolve(stat))
+  })
+}
+
+const stopFakeHttp = stat => {
+  if (!stat || !stat.server) return
+  try { stat.server.close() } catch (e) {}
+  try { stat.server.unref() } catch (e) {}
 }
 
 // ---------------------------------------------------------------- 页内动作
@@ -169,6 +208,77 @@ async function setReactValue (cdp, findExpr, value, desc) {
   if (!ok) throw new Error('注入失败: ' + desc)
 }
 
+// 表单/按钮选择器只写一份：⑦⑧⑨ 复用 ②③ 的同一套定位，避免各块各自漂移
+const SAVE_BTN = '[...document.querySelectorAll(".mcp-server-config-section button")] ' +
+  '.find(b => /^\\s*(save|保存)\\s*$/i.test(String(b.innerText || "").replace(/\\s+/g, "")))'
+const NEW_BTN = '[...document.querySelectorAll(".mcp-server-config-section button")] ' +
+  '.filter(b => b.innerText && !/refresh/i.test(b.innerText) && ' +
+  '!b.closest(".mcp-fixed-hints") && b.closest(".mcp-server-config-section > div"))[0]'
+const NAME_INPUT = 'document.querySelector(".mcp-server-config-section input[placeholder=\\"fs\\"]")'
+const URL_INPUT = 'document.querySelector(".mcp-server-config-section input[placeholder^=\\"http://\\"]")'
+
+// 真实点开 rc-select 并选中一项（下拉 portal 有隐藏实例，必须排除 hidden）
+async function pickSelectOption (cdp, selectExpr, optionTitle, desc) {
+  const optExpr = 'document.querySelector(".ant-select-dropdown:not(.ant-select-dropdown-hidden) ' +
+    '.ant-select-item-option[title=\\"' + optionTitle + '\\"]")'
+  await clickEl(cdp, selectExpr, desc + ' select')
+  let up = await waitFor(cdp, '!!' + optExpr, desc + ' option', 4000)
+  if (!up) {
+    await clickEl(cdp,
+      '(' + selectExpr + ').querySelector(".ant-select-selector") || (' + selectExpr + ')',
+      desc + ' selector 兜底')
+    up = await waitFor(cdp, '!!' + optExpr, desc + ' option retry', 4000)
+  }
+  if (!up) throw new Error('下拉没打开: ' + desc)
+  await clickEl(cdp, optExpr, desc + ' option')
+  await sleep(300)
+}
+
+// antd InputNumber 的真实输入：native setter 对它无效（受控 + 内部格式化会在
+// onBlur 回写），只能聚焦后全选再 Input.insertText，最后 blur 收敛。
+async function setNumberValue (cdp, findExpr, value, desc) {
+  const focused = await cdp.eval(`(() => { const el = (${findExpr}); if (!el) return false; el.focus(); el.setSelectionRange(0, String(el.value).length); return true })()`)
+  if (!focused) throw new Error('数字输入框不存在: ' + desc)
+  await cdp.call('Input.insertText', { text: String(value) })
+  await sleep(150)
+  await cdp.eval(`(() => { const el = (${findExpr}); if (!el) return false; el.blur(); return true })()`)
+  await sleep(200)
+}
+
+// 走真实表单新增一条 server（New → 填字段 → Save）。http 的 headers 表单没有
+// 字段，401 用例不需要它（错误 token 由服务端恒 401 表达）。
+async function addServerViaUI (cdp, spec) {
+  await jsClick(cdp, NEW_BTN, 'New 按钮')
+  await waitFor(cdp, '!!' + NAME_INPUT, 'draft form', 8000)
+  await setReactValue(cdp, NAME_INPUT, spec.name, 'name')
+  // timeoutMs 必须显式写：表单默认 60000，§4.3 #3 的判据窗口是 timeoutMs+5s，
+  // 用默认值会让「超时收敛」变成一分钟级等待，判据失去意义。
+  // antd InputNumber 不认 native value setter（实测：注入后仍落盘 60000），
+  // 必须走真实键盘输入——聚焦 + 全选 + insertText + blur 触发 onChange/onBlur。
+  if (spec.timeoutMs) {
+    await setNumberValue(cdp,
+      'document.querySelector(".mcp-server-config-section .ant-input-number-input")',
+      spec.timeoutMs, 'timeoutMs')
+  }
+  if (spec.transport === 'http') {
+    // 草稿展开时 section 内恰 2 个 antd-select：文档序 [0]=transport、[1]=trust
+    await pickSelectOption(cdp,
+      '[...document.querySelectorAll(".mcp-server-config-section .ant-select")][0]',
+      'http', 'transport')
+    await waitFor(cdp, '!!' + URL_INPUT, 'url input', 5000)
+    await setReactValue(cdp, URL_INPUT, spec.url, 'url')
+  } else {
+    await setReactValue(cdp,
+      'document.querySelector(".mcp-server-config-section input[placeholder=\\"npx\\"]")',
+      spec.command, 'command')
+    await setReactValue(cdp,
+      'document.querySelector(".mcp-server-config-section textarea")',
+      (spec.args || []).join('\n'), 'args')
+  }
+  await jsClick(cdp, SAVE_BTN, 'Save 按钮')
+  await sleep(900)
+}
+
 // ---------------------------------------------------------------- 主流程
 async function main () {
   const { check, results } = makeChecker()
@@ -177,6 +287,7 @@ async function main () {
   let xvfb = null
   let electron = null
   let cdp = null
+  let httpStat = null
 
   killPortResidual(PORT)
   killFakeServerResidual()
@@ -192,6 +303,7 @@ async function main () {
       try { process.kill(-xvfb.pid, 'SIGKILL') } catch (e) { try { xvfb.kill('SIGKILL') } catch (e2) {} }
     }
     killFakeServerResidual()
+    stopFakeHttp(httpStat)
     if (cdp) { try { cdp.ws.close() } catch (e) {} }
     killPortResidual(PORT)
     rmDisplayLock(DISPLAY)
@@ -448,6 +560,44 @@ async function main () {
       } catch (e) {}
     }
 
+    // ---------------------------------------------- ③b id 稳定 + 徽章真渲染
+    // 主进程 config-validate 只在 id 缺失时才 nanoid(7) 生成，且**从不回写**
+    // config。渲染层若不给 id：① 每次 syncConfig 都按新 id 找不到旧 session →
+    // 杀子进程重新 spawn（连接签名其实没变，别名却随 id 漂移）；② 徽章用
+    // states.find(s => s.id === server.id) 匹配，渲染层 id 恒 '' → DOM 徽章
+    // 永远不出现（store 状态却一直是 ready，只看 store 的断言会假绿）。
+    const idSaved = await cdp.jeval(
+      'String((window.store.config.mcpServersAI[0] || {}).id || "")'
+    )
+    check('③ config.mcpServersAI[0].id 由渲染层分配（缺 id 会让主进程每次重生成）',
+      /^[A-Za-z0-9_-]{3,32}$/.test(idSaved), { got: idSaved })
+
+    const pidsA = fakeServerPids().sort()
+    await cdp.eval('(async () => { ' +
+      'await window.store.mcpClientGetTools(); ' +
+      'await window.store.mcpClientGetTools(); return true })()')
+    await sleep(1500)
+    const pidsB = fakeServerPids().sort()
+    check('③ 连续两次 GetTools 不重建子进程（pid 集合不变 → 签名稳定）',
+      pidsA.length > 0 && pidsA.join(',') === pidsB.join(','),
+      { before: pidsA, after: pidsB })
+
+    const stateIds = await cdp.jeval(
+      '(window.store.mcpClientState() || []).map(s => s.id)'
+    )
+    check('③ 状态快照 id 与 config id 一致（徽章匹配前提）',
+      Array.isArray(stateIds) && stateIds.length === 1 && stateIds[0] === idSaved,
+      { configId: idSaved, stateIds })
+
+    const badgeText = await cdp.jeval(
+      '[...document.querySelectorAll(".mcp-server-config-section .mcp-status")]' +
+      '.map(n => String(n.textContent || ""))'
+    )
+    check('③ DOM 状态徽章渲染 ready(3)（按 id 匹配到真实状态，非只看 store）',
+      Array.isArray(badgeText) &&
+      badgeText.some(t => /(ready|就绪)/i.test(t) && /\(3\)/.test(t)),
+      { got: badgeText })
+
     // ================================================== ④ Refresh（T05-02）
     await clickEl(cdp,
       '[...document.querySelectorAll(".mcp-server-config-section button")] ' +
@@ -618,6 +768,220 @@ async function main () {
       } catch (e) {}
       console.error('ORPHAN DIAG: ' + J(pids) + '\n' + psOut)
     }
+
+    // ============================================ ⑦ §4.3 #5 HTTP 鉴权失败
+    // 判据原文：新增 http server（url + 错误 token）→ 401 →「鉴权失败」，不重试
+    // 刷屏；徽章「失败」+ 重试按钮可用。三面都要证：结构化状态、请求次数、DOM。
+    // 表单没有 headers 字段，错误 token 由「本地端点恒 401」表达（token 是否
+    // 真的发出去由 http-transport 的单元 spec 钉）。
+    httpStat = await startFakeHttp401(HTTP_PORT)
+    await addServerViaUI(cdp, {
+      name: 'probe-http',
+      transport: 'http',
+      url: 'http://127.0.0.1:' + HTTP_PORT + '/mcp',
+      timeoutMs: 5000
+    })
+    const httpCfgTimeout = await cdp.jeval(
+      '(window.store.config.mcpServersAI.find(s => s.name === "probe-http") || {}).timeoutMs')
+    check('⑦ 表单 timeoutMs 真实落盘 = 5000（§4.3 #3 判据窗口的前提）',
+      httpCfgTimeout === 5000, { got: httpCfgTimeout })
+
+    const httpFailed = await waitFor(cdp,
+      '(() => { ' +
+      'const s = (window.store.mcpClientState() || []).find(x => x && x.name === "probe-http"); ' +
+      'return !!(s && s.state === "failed" && /HTTP 401/.test(s.lastError || "")); ' +
+      '})()', 'http 401 failed', 25000)
+    check('⑦ HTTP 401 → 状态 failed 且 lastError 指名 HTTP 401（鉴权失败可读）',
+      httpFailed === true)
+    if (!httpFailed) {
+      console.error('HTTP DIAG: hits=' + httpStat.hits + ' state=' + await cdp.eval(
+        'JSON.stringify((window.store.mcpClientState() || []).find(s => s && s.name === "probe-http") || null)'
+      ))
+    }
+
+    // 4xx 鉴权失败不得进退避重连（设计 §2.7：只允许传输/网络类失败重试）。
+    // 6s 窗口足够跑完 1s/2s 两级退避——真重试的话 hits 会涨到 3 以上。
+    await sleep(6000)
+    const httpHits = httpStat.hits
+    check('⑦ 鉴权失败不重试刷屏（6s 窗口内请求 ≤ 2）',
+      httpHits >= 1 && httpHits <= 2, { hits: httpHits })
+
+    const httpDom = await cdp.jeval(
+      '(() => { const sec = document.querySelector(".mcp-server-config-section"); ' +
+      'if (!sec) return null; ' +
+      'const st = [...sec.querySelectorAll(".mcp-status")].map(n => String(n.textContent || "")); ' +
+      'return { status: st, retry: sec.querySelectorAll(".mcp-retry-btn").length } })()'
+    )
+    check('⑦ DOM 徽章显示「失败：<lastError>」（设计 §2.9 映射）',
+      !!httpDom && httpDom.status.some(t => /(failed|失败)/i.test(t) && /401/.test(t)),
+      { got: httpDom && httpDom.status })
+    check('⑦ 失败行渲染重试按钮（设计 §2.9「+ 重试按钮」）',
+      !!httpDom && httpDom.retry >= 1, { got: httpDom && httpDom.retry })
+
+    // 重试按钮真的可用：点一次 → 仍收敛为 failed（不是无限重连），且请求增量可控。
+    // 增量允许 3：restart 自身一次 initialize + 紧随的 GetTools(force) 再对齐一次。
+    const hitsBeforeRetry = httpStat.hits
+    if (httpDom && httpDom.retry >= 1) {
+      await jsClick(cdp, 'document.querySelector(".mcp-retry-btn")', '重试按钮')
+    }
+    await sleep(9000)
+    const retryStillFailed = await waitFor(cdp,
+      '(() => { ' +
+      'const s = (window.store.mcpClientState() || []).find(x => x && x.name === "probe-http"); ' +
+      'return !!(s && s.state === "failed"); ' +
+      '})()', 'retry still failed', 8000)
+    const retryDelta = httpStat.hits - hitsBeforeRetry
+    check('⑦ 重试按钮可用：单次重试仍收敛为 failed，请求增量 ≤ 3（无循环重连）',
+      retryStillFailed === true && retryDelta >= 1 && retryDelta <= 3,
+      { delta: retryDelta, total: httpStat.hits })
+    stopFakeHttp(httpStat)
+    httpStat = null
+
+    // ============================================ ⑧ §4.3 #3 失败隔离
+    // (a) initialize 永不回包：`sleep 999` 的 stdio server。失败必须收敛在
+    // INIT_TIMEOUT（session.js:22 = 10s）内，且弹层仍可操作。
+    await addServerViaUI(cdp, {
+      name: 'probe-sleep',
+      transport: 'stdio',
+      command: 'sleep',
+      args: ['999'],
+      timeoutMs: 5000
+    })
+    const sleepT0 = Date.now()
+    const sleepFailed = await waitFor(cdp,
+      '(() => { ' +
+      'const s = (window.store.mcpClientState() || []).find(x => x && x.name === "probe-sleep"); ' +
+      'return !!(s && s.state === "failed" && /timed? ?out|timeout|超时/i.test(s.lastError || "")); ' +
+      '})()', 'sleep init timeout', 25000)
+    const sleepMs = Date.now() - sleepT0
+    check('⑧ initialize 永不回包 → failed 且 lastError 为超时（不无限挂起）',
+      sleepFailed === true, { ms: sleepMs })
+    if (!sleepFailed) {
+      console.error('SLEEP DIAG: ' + await cdp.eval(
+        'JSON.stringify((window.store.mcpClientState() || []).find(s => s && s.name === "probe-sleep") || null)'
+      ))
+    }
+
+    const panelAliveRaw = await cdp.eval('(async () => { ' +
+      'const r = await window.store.mcpClientGetTools(); ' +
+      'const refresh = [...document.querySelectorAll(".mcp-server-config-section button")]' +
+      '.find(b => /refresh/i.test(b.innerText || "")); ' +
+      'return JSON.stringify({ servers: (r.servers || []).length, refresh: !!refresh }); })()')
+    let panelAlive = {}
+    try { panelAlive = JSON.parse(panelAliveRaw) } catch (e) { panelAlive = {} }
+    check('⑧ 失败隔离期间弹层仍可操作（GetTools 正常返回 + Refresh 在）',
+      panelAlive.servers === 2 && panelAlive.refresh === true, { got: panelAlive })
+
+    // (b) tools/call 挂死：--hang 的 server 已 ready，调用必须 settle 成
+    // mcp_timeout（≤ timeoutMs+5s，5s 是渲染层看门狗 padding），连接不拆。
+    await addServerViaUI(cdp, {
+      name: 'probe-hang',
+      transport: 'stdio',
+      command: 'node',
+      args: [FAKE_SERVER, '--stdio', '--hang', '--tools=1'],
+      timeoutMs: 5000
+    })
+    const hangReady = await waitFor(cdp,
+      '(() => { ' +
+      'const s = (window.store.mcpClientState() || []).find(x => x && x.name === "probe-hang"); ' +
+      'return !!(s && s.state === "ready"); ' +
+      '})()', 'hang server ready', 25000)
+    const hangAlias = await cdp.eval('(async () => { ' +
+      'const r = await window.store.mcpClientGetTools(); ' +
+      'const s = (r.servers || []).find(x => x && x.name === "probe-hang"); ' +
+      'const t = (r.tools || []).filter(x => x && x.function && ' +
+      'String(x.function.name).indexOf(String(s && s.id)) === 5); ' +
+      'return t.length ? String(t[0].function.name) : ""; })()')
+    check('⑧ --hang server 先 ready 且注册了外部工具（拿到别名用于调用）',
+      hangReady === true && /^mcp__/.test(String(hangAlias)), { alias: hangAlias })
+
+    const callT0 = Date.now()
+    const callRaw = await cdp.eval('(async () => { ' +
+      'const r = await window.store.mcpClientCallTool(' + J(String(hangAlias)) + ', { text: "x" }, { timeoutMs: 5000 }); ' +
+      'return JSON.stringify(r); })()')
+    const callMs = Date.now() - callT0
+    let callRes = {}
+    try { callRes = JSON.parse(callRaw) } catch (e) { callRes = {} }
+    const callCode = callRes && callRes.error && callRes.error.code
+    check('⑧ tools/call 挂死 → timeoutMs+5s 内 settle 成 mcp_timeout（agent 循环不 hang）',
+      callCode === 'mcp_timeout' && callMs <= 5000 + 5000 + 2000,
+      { code: callCode, ms: callMs })
+
+    // 超时只把会话降级（session.js:238-244：consecutiveFailures++ →
+    // ready→degraded，第 2 次才 failed），**不得拆连接**。判据用「再拉一次
+    // GetTools 仍能看到该 server 且工具表仍在」表达，而不是看缓存快照——
+    // 缓存（mcpServerStates）只在 GetTools 结果里更新，直接读它证不了现状。
+    const afterRaw = await cdp.eval('(async () => { ' +
+      'const r = await window.store.mcpClientGetTools(); ' +
+      'const s = (r.servers || []).find(x => x && x.name === "probe-hang") || null; ' +
+      'return JSON.stringify({ state: s ? s.state : "gone", ' +
+      'lastError: s ? String(s.lastError || "").slice(0, 80) : "", ' +
+      'tools: (r.tools || []).length }); })()')
+    let afterCall = {}
+    try { afterCall = JSON.parse(afterRaw) } catch (e) { afterCall = {} }
+    check('⑧ 调用超时未拆连接（仍 degraded/ready 且工具表还在，面板可继续用）',
+      ['ready', 'degraded'].includes(afterCall.state) && afterCall.tools >= 1,
+      { got: afterCall })
+
+    // ============================================ ⑨ §4.3 #6 回归基线
+    // 清空走真实 UI（逐行 Del），而不是直接改 config——判据要求「清空 server
+    // 列表」这条用户路径本身可用。
+    let delRounds = 0
+    while (delRounds < 6) {
+      const left = await cdp.jeval(
+        '[...document.querySelectorAll(".mcp-server-config-section button")]' +
+        '.filter(b => b.classList.contains("ant-btn-dangerous")).length'
+      )
+      if (!left) break
+      await jsClick(cdp,
+        '[...document.querySelectorAll(".mcp-server-config-section button")]' +
+        '.find(b => b.classList.contains("ant-btn-dangerous"))',
+        'Del 按钮 #' + (delRounds + 1))
+      await sleep(900)
+      delRounds += 1
+    }
+    const cfgCleared = await cdp.jeval('(window.store.config.mcpServersAI || []).length')
+    check('⑨ 逐行删除清空列表（UI 路径，不靠改 config）',
+      cfgCleared === 0, { got: cfgCleared, rounds: delRounds })
+
+    const clearedRaw = await cdp.eval('(async () => { ' +
+      'const r = await window.store.mcpClientGetTools(); ' +
+      'return JSON.stringify({ tools: (r.tools || []).length, servers: (r.servers || []).length, ' +
+      'warnings: (r.warnings || []).length }); })()')
+    let cleared = {}
+    try { cleared = JSON.parse(clearedRaw) } catch (e) { cleared = {} }
+    check('⑨ 清空列表 → 外部工具集为空 / 无状态 / 无 warning（内置路径回基线）',
+      cleared.tools === 0 && cleared.servers === 0 && cleared.warnings === 0,
+      { got: cleared })
+
+    // 内置 36 是 M10 硬门：源码常量口径（agentTools 里 type: 'function' 计数），
+    // 与 mcp-builtin-tool-baseline.spec.js 同一事实源，探针只做端到端复核。
+    const builtinSrc = fs.readFileSync(
+      path.join(ROOT, 'src/client/components/ai/agent-tools.js'), 'utf8')
+    const builtinCount = (builtinSrc.match(/type: 'function'/g) || []).length
+    const builtinNames = [...builtinSrc.matchAll(/name: '([a-z0-9_]+)'/g)].map(m => m[1])
+    const collideRaw = await cdp.eval('(async () => { ' +
+      'const r = await window.store.mcpClientGetTools({ builtinToolNames: ' +
+      J(builtinNames) + ' }); ' +
+      'return JSON.stringify({ tools: (r.tools || []).length, warnings: (r.warnings || []).length }); })()')
+    let collide = {}
+    try { collide = JSON.parse(collideRaw) } catch (e) { collide = {} }
+    check('⑨ 内置工具基线 = 36 且无外部工具时 tools 仍为 0（撞名跳过不误报）',
+      builtinCount === 36 && builtinNames.length === 36 &&
+      collide.tools === 0 && collide.warnings === 0,
+      { builtinCount, names: builtinNames.length, got: collide })
+    console.log('NOTE  system prompt 的 §3.3 基线比对属 golden 快照，' +
+      '由 mcp-builtin-tool-baseline.spec.js 覆盖（探针不复刻快照）')
+
+    const rowsAfterClear = await cdp.jeval(
+      'document.querySelectorAll(".mcp-server-config-section .mcp-status").length'
+    )
+    const hintsAfterClear = await cdp.jeval(
+      'document.querySelectorAll(".mcp-server-config-section .mcp-fixed-hints > div").length'
+    )
+    check('⑨ 清空后分节仍正常（无状态行、固定提示仍 3 句）',
+      rowsAfterClear === 0 && hintsAfterClear === 3,
+      { rows: rowsAfterClear, hints: hintsAfterClear })
 
     // ================================================================ 汇总
     const failed = results.filter(r => !r.ok)

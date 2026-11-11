@@ -6,10 +6,12 @@ import Modal from '../common/modal'
 import {
   validateMcpServerDraft,
   newServerDraft,
+  newServerId,
   trustBadgeMeta,
   TRUST_LEVELS,
   DEFAULT_MCP_TRUST
 } from '../../common/mcp-server-form-validate'
+import { mcpStatusText } from '../../common/mcp-status-text'
 
 const e = window.translate
 
@@ -34,19 +36,28 @@ function TrustBadge ({ trust }) {
   )
 }
 
-// 状态徽章：数据来自 mcpClientState（同步缓存，Refresh 后随本地 re-render 更新）
+// 状态徽章：数据来自 mcpClientState（同步缓存，Refresh 后随本地 re-render 更新）。
+// 文案走纯函数 mcpStatusText（设计 §2.9：failed → 失败 + lastError，
+// degraded → 不稳定 + lastError），图标/颜色留在这里（依赖 antd）。
 function statusMeta (st) {
   if (!st) return null
+  const { text } = mcpStatusText(st, e)
   if (st.state === 'ready') {
-    return {
-      icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
-      text: `${e('ready')} (${st.toolCount || 0})`
-    }
+    return { icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />, text }
   }
   if (st.state === 'failed') {
-    return { icon: <CloseCircleOutlined style={{ color: '#ff4d4f' }} />, text: e('failed') }
+    return { icon: <CloseCircleOutlined style={{ color: '#ff4d4f' }} />, text }
   }
-  return { icon: null, text: st.state || '' }
+  if (st.state === 'degraded') {
+    // 不稳定不是死：给橙色感叹号，不误导成「失败」
+    return { icon: <ExclamationCircleOutlined style={{ color: '#fa8c16' }} />, text }
+  }
+  return { icon: null, text }
+}
+
+// 需要「重试」按钮的状态：机器已经起不来（failed）或半死不活（degraded）
+function canRetryState (state) {
+  return !!state && (state.state === 'failed' || state.state === 'degraded')
 }
 
 /**
@@ -71,6 +82,8 @@ export default function McpServersSection () {
   const [draftIndex, setDraftIndex] = useState(-1)
   const [draftErrors, setDraftErrors] = useState([])
   const [refreshing, setRefreshing] = useState(false)
+  // 正在重连的 server id（按钮 loading 用）；null = 空闲
+  const [retrying, setRetrying] = useState(null)
 
   function readServers () {
     const list = window.store && window.store.config && window.store.config.mcpServersAI
@@ -112,7 +125,14 @@ export default function McpServersSection () {
   function startEdit (index) {
     setDraftIndex(index)
     setDraftErrors([])
-    setDraft(copy(servers[index]))
+    const copyDraft = copy(servers[index])
+    // 兼容旧配置：修复前保存的条目 id 是空串（或根本没有）。这里在编辑时
+    // 补一个，下一次保存即写回 config——否则这条 server 永远走主进程的
+    // 现场生成 id 路径（每次校验换 id → 每次重连 + 徽章不渲染）。
+    if (!copyDraft.id) {
+      copyDraft.id = newServerId()
+    }
+    setDraft(copyDraft)
   }
 
   function setField (field, value) {
@@ -170,6 +190,34 @@ export default function McpServersSection () {
       }
     } finally {
       setRefreshing(false)
+    }
+  }
+
+  /**
+   * 单台 server 重连（设计 §2.9：failed 状态给「重试」按钮）。
+   * 走 mcpClientRestart → 主进程按 id 杀旧 session 重新 spawn，store 侧
+   * 随后自动 force 重拉 tools；这里再显式拉一次并回读配置，确保徽章在
+   * 本次交互内刷新（mcpServerStates 只在 GetTools 结果里更新）。
+   */
+  async function handleRetry (index) {
+    const server = servers[index]
+    const id = server && server.id
+    // 没有 id 就无法定位 session（主进程按 id 找），直接放弃
+    if (!id) {
+      return
+    }
+    setRetrying(id)
+    try {
+      if (window.store && typeof window.store.mcpClientRestart === 'function') {
+        await window.store.mcpClientRestart(id)
+      }
+      if (window.store && typeof window.store.mcpClientGetTools === 'function') {
+        await window.store.mcpClientGetTools({ force: true })
+      }
+      // 重新从 store 读配置，触发一次渲染让新状态落到徽章上
+      setServers(copy(readServers()))
+    } finally {
+      setRetrying(null)
     }
   }
 
@@ -298,7 +346,10 @@ export default function McpServersSection () {
       </div>
 
       {servers.map((server, index) => {
-        const st = statusMeta(serverStates.find(s => s && s.id === server.id))
+        // 徽章按 id 匹配：渲染层必须已给 server 分配 id（newServerDraft 里
+        // 的 newServerId），否则主进程现场生成的 id 永远对不上，徽章不渲染。
+        const serverState = serverStates.find(s => s && s.id === server.id)
+        const st = statusMeta(serverState)
         return (
           <div key={server.id || `idx-${index}`}>
             <div style={rowStyle}>
@@ -314,8 +365,20 @@ export default function McpServersSection () {
               <span style={{ fontWeight: 500 }}>{server.name || server.id}</span>
               <span>{server.transport}</span>
               <TrustBadge trust={server.trust} />
-              {st ? <span>{st.icon}{st.text}</span> : null}
+              {st ? <span className='mcp-status'>{st.icon}{st.text}</span> : null}
               <span style={{ flex: 1 }} />
+              {canRetryState(serverState)
+                ? (
+                  <Button
+                    size='small'
+                    className='mcp-retry-btn'
+                    loading={retrying === server.id}
+                    onClick={() => handleRetry(index)}
+                  >
+                    {e('retry')}
+                  </Button>
+                  )
+                : null}
               <Button size='small' onClick={() => startEdit(index)}>{e('edit')}</Button>
               <Button
                 size='small'

@@ -125,6 +125,39 @@ export function validateMcpServerDraft (draft) {
   return { errors }
 }
 
+// id 序列号：同一渲染进程内保证递增，配合随机段避免「连点两次 New 拿到
+// 同一个 id」（纯 Math.random 理论上会撞，撞了就是两台 server 共用一个
+// 子进程）。36^3 = 46656 之后回绕，回绕后仍由随机段兜底。
+const ID_SEQ_MOD = 46656
+let idSeq = 0
+
+/**
+ * 生成一台 server 的 id（渲染层唯一分配点）。
+ *
+ * **id 必须在渲染层就分配并随 config 落盘**：主进程
+ * `src/app/mcp/client/config-validate.js` 的 `normalizeServer()` 只对
+ * **缺失 id** 的条目用 `nanoid(7)` 现场生成，且**从不回写** config——
+ * 于是每次校验（Save / Refresh / GetTools 各一次）都会得到一个新 id，
+ * 后果有二：
+ *   1. `manager.syncConfig` 每次都按新 id 找不到旧 session → 杀子进程 +
+ *      重新 spawn，别名 `mcp__<id>__<tool>` 跟着漂移；
+ *   2. 状态徽章按 id 匹配（`serverStates.find(s => s.id === server.id)`），
+ *      渲染层 id 为空则永远匹配不上，DOM 徽章永不渲染。
+ *
+ * 字符集与长度对齐主进程 `ID_PATTERN`（`/^[A-Za-z0-9_-]{3,32}$/`）；
+ * 自限 ≤ 10 字符，因为 id 会拼进别名 `mcp__<id>__<tool>`，provider 侧
+ * 有 64 字符上限。不引入新依赖（nanoid 只装在主进程）。
+ * @returns {string}
+ */
+export function newServerId () {
+  idSeq = (idSeq + 1) % ID_SEQ_MOD
+  const rand = Math.random().toString(36).slice(2, 6)
+  // 序列号补齐 3 位：极小的 Math.random 只会让随机段变短，序列号保证
+  // 总长 ≥ 'srv' + 3 = 6（满足 ID_PATTERN 的下限 3），且不超 10
+  const seq = idSeq.toString(36).padStart(3, '0')
+  return `srv${rand}${seq}`
+}
+
 /**
  * 新增 server 的默认草稿。`trust` 只来自 `DEFAULT_MCP_TRUST` 常量——
  * 判据（T04-09）：构造上一条 trust='auto' 的列表，这里也必须给 'ask'
@@ -136,7 +169,7 @@ export function newServerDraft (servers = []) {
   // servers 参数故意不读取其 trust（判据：默认值不沿用上一条）；保留形参
   // 是为了让调用点自文档化
   return {
-    id: '',
+    id: newServerId(),
     name: '',
     transport: 'stdio',
     command: '',
