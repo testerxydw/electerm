@@ -87,6 +87,8 @@ function makeWorld (opts = {}) {
     getToolsResult: opts.getToolsResult || emptyToolSet(),
     callToolCalls: [],
     callToolResult: opts.callToolResult || null,
+    hangingCalls: [],
+    cancelRunCalls: [],
     providerRequests: [],
     providerScript: opts.providerScript || [],
     entries: [],
@@ -113,6 +115,27 @@ function makeWorld (opts = {}) {
         return world.callToolResult
       }
       return { ok: true, text: 'external result for ' + alias }
+    },
+    // M30 agent 级：cancelRun 记账；挂起模式的调用由 cancelRun 亲自收敛
+    // （真实 store 里就是 pendingByRun 注册表 → settle mcp_aborted）
+    mcpClientCancelRun: async (runId) => {
+      world.cancelRunCalls.push(runId)
+      for (const resolve of world.hangingCalls.splice(0)) {
+        resolve({
+          ok: false,
+          error: { code: 'mcp_aborted', message: 'external tool call aborted (agent run stopped)' }
+        })
+      }
+      return { ok: true, settled: world.callToolCalls.length }
+    }
+  }
+  if (opts.callToolMode === 'hang') {
+    // 挂起模式：callTool 返回不落定 promise，resolver 交给 world.hangingCalls
+    store.mcpClientCallTool = async (alias, args, callOpts = {}) => {
+      world.callToolCalls.push({ alias, args, opts: callOpts })
+      return new Promise(resolve => {
+        world.hangingCalls.push(resolve)
+      })
     }
   }
   // aiContextInfo 用访问器记账：runAgentLoop 的 finally 会把它清成 null，
@@ -132,7 +155,8 @@ function makeWorld (opts = {}) {
   const pre = {
     runGlobalAsync: async (name, ...args) => {
       if (name === 'AIchatWithTools') {
-        world.providerRequests.push({ messages: args[0], tools: args[6] })
+        // messages 是活引用（响应后 runAgentLoop 还会 push），快照冻结请求时点
+        world.providerRequests.push({ messages: [...args[0]], tools: args[6] })
         const next = world.providerScript.shift()
         if (next === undefined) {
           throw new Error('provider script exhausted at request #' +
@@ -478,6 +502,221 @@ describe('M25 · agent 面：外部工具失败 → 结构化错误 + server 名
       assert.equal(world.callToolCalls[0].alias, alias)
       // 失败不得中断 run：第 2 轮照常发出（provider 收到 tool 结果消息）
       assert.equal(world.providerRequests.length, 2)
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('M27 · 边界包装（agent 面）', () => {
+  it('外部工具结果包进 untrusted 块，server/tool 属性取 meta（主进程校验过 config.name）', async () => {
+    const { mod, cleanup } = await loadAgent()
+    const alias = 'mcp__srv1234__ext_read'
+    const world = makeWorld({
+      getToolsResult: {
+        tools: [{ type: 'function', function: { name: alias, description: 'x', parameters: { type: 'object', properties: {} } } }],
+        // 取值来源判据：meta.serverName 是主进程校验过的 config.name（'fake-srv'）；
+        // 这里故意放一个不同的 serverInfo.name，实现若错取它就会红
+        meta: { [alias]: { serverName: 'fake-srv', originalName: 'ext_read', serverInfo: { name: 'evil-self-reported' } } },
+        servers: [],
+        truncated: { perServer: 0, global: 0 }
+      },
+      callToolResult: { ok: true, text: 'SECRET-DATA' },
+      providerScript: [
+        {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'c1', function: { name: alias, arguments: '{}' } }]
+          }
+        },
+        { message: { role: 'assistant', content: 'done' } }
+      ]
+    })
+    globalThis.window = world.window
+    try {
+      await mod.runAgentLoop(world.chatEntry, world.config, { current: false }, () => {}, null)
+      assert.equal(world.providerRequests.length, 2)
+
+      const toolMsg = world.providerRequests[1].messages
+        .find(msg => msg && msg.role === 'tool' && msg.tool_call_id === 'c1')
+      assert.ok(toolMsg, '第 2 轮请求必须携带外部工具结果消息')
+      assert.ok(
+        toolMsg.content.startsWith('<untrusted-tool-result server="fake-srv" tool="ext_read">'),
+        `包装块开头必须带 meta 来源的 server/tool 属性：${String(toolMsg.content).slice(0, 120)}`
+      )
+      assert.ok(toolMsg.content.includes('SECRET-DATA'), '结果正文必须还在块里')
+      assert.ok(toolMsg.content.endsWith('</untrusted-tool-result>'), '包装块必须闭合')
+      assert.ok(
+        !toolMsg.content.includes('evil-self-reported'),
+        'server 属性不许取 server 自报的 serverInfo.name（SEC-1 取值来源钉死 meta.serverName）'
+      )
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('hasExternal=false：任何结果都不包装——内置原样透传，幻觉出的外部别名也不包', async () => {
+    const { mod, cleanup } = await loadAgent()
+    const world = makeWorld({
+      providerScript: [
+        {
+          message: {
+            role: 'assistant',
+            content: '',
+            // 幻觉：provider 未声明就调了外部别名——路由仍会走外部分支，
+            // 但本次 run 没有外部工具，包装函数必须一次都不执行（M10 第 7 条）
+            tool_calls: [
+              { id: 'b1', function: { name: 'db_insert_sql', arguments: '{"sql":"select 1"}' } },
+              { id: 'b2', function: { name: 'mcp__srv1234__hallucinated', arguments: '{}' } }
+            ]
+          }
+        },
+        { message: { role: 'assistant', content: 'done' } }
+      ]
+    })
+    // 内置 db_insert_sql 走 executeToolCall 内置分支 → store.mcpDbInsertSql
+    world.window.store.mcpDbInsertSql = (args) => ({ ok: true, echoed: args.sql })
+    globalThis.window = world.window
+    try {
+      await mod.runAgentLoop(world.chatEntry, world.config, { current: false }, () => {}, null)
+      const msgs = world.providerRequests[1].messages
+
+      const builtinMsg = msgs.find(msg => msg && msg.role === 'tool' && msg.tool_call_id === 'b1')
+      assert.ok(builtinMsg, '内置工具结果也要进 messages')
+      assert.ok(
+        !builtinMsg.content.includes('<untrusted-tool-result'),
+        `无外部工具时不得包装（M10 第 7 条）：${String(builtinMsg.content).slice(0, 120)}`
+      )
+      assert.deepEqual(JSON.parse(builtinMsg.content), { ok: true, echoed: 'select 1' },
+        '内置结果保持 JSON 原样')
+
+      const ghostMsg = msgs.find(msg => msg && msg.role === 'tool' && msg.tool_call_id === 'b2')
+      assert.ok(ghostMsg, '幻觉别名调用也要有结果消息（provider 需要一条 tool 结果才能继续）')
+      assert.ok(
+        !ghostMsg.content.includes('<untrusted-tool-result'),
+        `无外部 run 里连幻觉别名的结果也不得包进 untrusted 块（包装零次）：${String(ghostMsg.content).slice(0, 120)}`
+      )
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('M29 · 历史回放降级（stale 外部别名）', () => {
+  it('指向已消失别名的历史 tool_call 改占位名 + 占位结果；非 stale 消息保持原引用', async () => {
+    const { mod, cleanup } = await loadAgent()
+    // 工具集为空 → declaredNames 只含内置名 → 历史里的外部别名全是 stale
+    const staleCallMsg = {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { id: 'old-1', function: { name: 'mcp__srv1234__gone', arguments: '{"q":1}' } },
+        { id: 'old-2', function: { name: 'list_tabs', arguments: '{}' } }
+      ]
+    }
+    const staleToolMsg = { role: 'tool', tool_call_id: 'old-1', content: 'old result' }
+    const builtinToolMsg = { role: 'tool', tool_call_id: 'old-2', content: '[]' }
+    const userMsg = { role: 'user', content: 'continue' }
+    const world = makeWorld({
+      providerScript: [
+        { message: { role: 'assistant', content: 'done' } }
+      ]
+    })
+    globalThis.window = world.window
+    try {
+      await mod.runAgentLoop(
+        world.chatEntry, world.config, { current: false }, () => {},
+        [staleCallMsg, staleToolMsg, builtinToolMsg, userMsg]
+      )
+      assert.equal(world.providerRequests.length, 1)
+      const sent = world.providerRequests[0].messages
+      // 消息结构：system + 全部 4 条历史（buildAgentMessages 过滤 system）
+      assert.equal(sent[0].role, 'system')
+      assert.equal(sent.length, 5, `system + 4 条历史：${sent.length}`)
+
+      const callMsg = sent[1]
+      assert.notEqual(callMsg, staleCallMsg, '含 stale 项的消息必须浅拷贝替换')
+      assert.equal(callMsg.tool_calls[0].function.name, 'removed_external_tool',
+        'stale 别名改占位名（provider 不会收到未声明工具名）')
+      assert.equal(callMsg.tool_calls[0].function.arguments, '{"q":1}', 'arguments 保留')
+      assert.equal(callMsg.tool_calls[1].function.name, 'list_tabs', '内置调用不受影响')
+      assert.equal(callMsg.tool_calls[1], staleCallMsg.tool_calls[1], '非 stale tool_call 保持原引用')
+
+      const tool1 = sent.find(msg => msg.role === 'tool' && msg.tool_call_id === 'old-1')
+      assert.notEqual(tool1, staleToolMsg)
+      assert.equal(tool1.content, 'tool no longer available: mcp__srv1234__gone',
+        '占位结果正文（M29）')
+      const tool2 = sent.find(msg => msg.role === 'tool' && msg.tool_call_id === 'old-2')
+      assert.equal(tool2, builtinToolMsg, '非 stale 的 tool 消息保持原引用')
+      assert.equal(sent.find(msg => msg === userMsg), userMsg, '无关消息保持原引用')
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('M30 · 取消收敛（agent 级）', () => {
+  it('stopAgentRun：挂起的外部调用收敛、runId 接线正确、runAbort 真的 abort、run 正常收尾', async () => {
+    const { mod, cleanup } = await loadAgent()
+    const alias = 'mcp__srv1234__ext_read'
+    const world = makeWorld({
+      callToolMode: 'hang',
+      getToolsResult: {
+        tools: [{ type: 'function', function: { name: alias, description: 'x', parameters: { type: 'object', properties: {} } } }],
+        meta: { [alias]: { serverName: 'fake-srv', originalName: 'ext_read' } },
+        servers: [],
+        truncated: { perServer: 0, global: 0 }
+      },
+      providerScript: [
+        {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'c1', function: { name: alias, arguments: '{}' } }]
+          }
+        },
+        { message: { role: 'assistant', content: 'should never be read' } }
+      ]
+    })
+    globalThis.window = world.window
+    const abortRef = { current: false }
+    try {
+      // 与 3s 死线竞速：变异「stop 只置位不 abort」会让 run 永不收敛，
+      // 用这条死线把挂死变成红，而不是拖死整个测试管线
+      const DEADLINE_MS = 3000
+      const runPromise = Promise.race([
+        mod.runAgentLoop(world.chatEntry, world.config, abortRef, () => {}, null),
+        new Promise((resolve, reject) => {
+          setTimeout(() => reject(new Error(
+            `runAgentLoop ${DEADLINE_MS}ms 内未收敛——stopAgentRun 后挂起的外部调用没有被收敛（M30 变异形态：只置位 abortRef.current）`
+          )), DEADLINE_MS)
+        })
+      ])
+
+      // 等 callTool 真的挂起
+      for (let waited = 0; world.hangingCalls.length === 0 && waited < DEADLINE_MS; waited += 20) {
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+      assert.equal(world.hangingCalls.length, 1, '外部调用必须已经挂起')
+
+      await mod.stopAgentRun(abortRef)
+      await runPromise
+
+      assert.equal(abortRef.current, true)
+      assert.equal(world.cancelRunCalls.length, 1, 'stopAgentRun 必须按 runId 通知取消')
+      assert.ok(
+        typeof world.cancelRunCalls[0] === 'string' && world.cancelRunCalls[0].length > 0,
+        'cancelRun 的 runId 必须来自 abortRef.runId（run 级接线）'
+      )
+      assert.equal(world.callToolCalls[0].opts.signal.aborted, true,
+        'runAbort（M30 run 级 AbortController）必须真的 abort，signal 传到了调用点')
+      assert.ok(
+        world.chatEntry.response.includes('Agent stopped by user'),
+        `run 要按 stopped 收尾：${world.chatEntry.response}`
+      )
+      assert.equal(world.window.store.agentRunning, false, 'run 收敛后释放 agentRunning')
+      assert.equal(world.providerRequests.length, 1, '中止后不得把挂起轮的响应再喂进循环')
     } finally {
       cleanup()
     }
