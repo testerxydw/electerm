@@ -1,15 +1,21 @@
 /**
  * 外部 MCP 工具（设计 P0-1）· 渲染层 store 扩展
  *
- * 职责边界：**只做转发与缓存**。别名反查、连接生命周期、审批判定都不在这里
- * ——反查只在主进程（截断/哈希后的名字渲染层无法反解），审批在
- * `common/external-tool-guard.js`（T04）。这样渲染层不持有第二份映射，
- * 也就不会出现两份映射漂移。
+ * 职责边界：**只做转发与缓存**。别名反查、连接生命周期都在主进程；审批
+ * **决策**在 `common/external-tool-guard.js` 的 `decideToolApproval`
+ * （T04 渲染层唯一权威），本模块只做「决策结果 → 确认弹窗」的薄接线。
+ * 弹窗组件（`mcp-tool-approval.jsx`）经 `window.mcpConfirmExternalTool`
+ * 注入而非直接 import：本文件会被单测以真 ESM 动态 import 加载
+ * （`mcp-client-store-cancel.spec.js:63`），import .jsx/antd 会把 node 导入链
+ * 打爆——注入点注册在 `ai-chat.jsx` 模块层（同 `mcp-handler.js` 引
+ * `mcp-transfer-approval.jsx` 的先例，但绕开 node 导入面）。
  *
  * 另一件事是**兜底超时**（M8）：主进程若因为 spawn 卡住、事件循环被占满而长
  * 时间不回包，`ipcRenderer.invoke` 的 promise 会一直挂着，agent 循环随之挂住。
  * 这里给每个 IPC 调用加了一个比业务超时更宽松的看门狗，超时返回结构化错误。
  */
+
+import { decideToolApproval } from '../common/external-tool-guard.js'
 
 // 看门狗常量（T04 审批路径会复用同一套，不许在调用点硬编码数字）：
 // 两者都必须**大于主进程业务超时**——主进程的 mcp_timeout / 钳制值先到，
@@ -304,6 +310,60 @@ export default Store => {
       }
     }
     return { ok: true, settled }
+  }
+
+  /**
+   * 审批接线（T04）：把审批决策变成一次用户确认。
+   *
+   * 两种用法：
+   *   - agent 统一审批门把决策算好传入：`decision = {requireApproval, reason}`，
+   *     本方法只负责弹窗（external 门与 taint 门共用这一个入口）。
+   *   - 兼容直调：`decision` 缺省时按 `meta` 自己跑 `decideToolApproval`。
+   *
+   * **只决策 + 弹窗，绝不调用 server**——server 调用仍在
+   * `mcpClientCallTool`/`executeToolCall`；用户取消时调用方不得执行工具
+   * （T04-02「未确认不调 server 计数 0」的接线前提）。确认入口缺失或弹窗
+   * 抛错一律 fail-closed 视为取消。
+   * @param {string} toolName 工具名（别名或内置原名）
+   * @param {object} [meta] 主进程 meta（serverName/originalName/annotations/trust）
+   * @param {{requireApproval: boolean, reason?: string}} [decision] 调用方算好的决策
+   * @returns {Promise<{approved: boolean, cancelled?: boolean, requireApproval?: boolean, reason?: string}>}
+   */
+  Store.prototype.mcpClientRequestApproval = async function (toolName, meta = {}, decision = null) {
+    let requireApproval
+    let reason
+    if (decision && typeof decision === 'object') {
+      requireApproval = !!decision.requireApproval
+      reason = decision.reason || ''
+    } else {
+      const d = decideToolApproval({ meta, trust: (meta && meta.trust) || 'ask' })
+      requireApproval = d.requireApproval
+      reason = d.reason || ''
+    }
+    if (!requireApproval) {
+      return { approved: true, requireApproval: false }
+    }
+    const confirmer = (typeof window !== 'undefined' && typeof window.mcpConfirmExternalTool === 'function')
+      ? window.mcpConfirmExternalTool
+      : null
+    if (!confirmer) {
+      // fail-closed：确认入口缺失（正常装配下不可达）宁可拦截也不放行
+      return { approved: false, cancelled: true, reason }
+    }
+    try {
+      const ok = await confirmer({
+        serverName: (meta && meta.serverName) || '',
+        toolName: (meta && meta.originalName) || toolName,
+        trust: (meta && meta.trust) || 'ask',
+        readOnlyHint: !!(meta && meta.annotations && meta.annotations.readOnlyHint === true),
+        reason
+      })
+      return ok
+        ? { approved: true, requireApproval: true }
+        : { approved: false, cancelled: true, reason }
+    } catch (_) {
+      return { approved: false, cancelled: true, reason }
+    }
   }
 
   /**

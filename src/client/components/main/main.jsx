@@ -362,6 +362,11 @@ export default auto(function Index (props) {
     showAIConfig: store.showAIConfig,
     rightPanelTab,
     agentRunning: store.agentRunning,
+    // T04/SEC-13：taint 可见 —— 面板常驻提示条的三个数据源（run 内读过外部
+    // 结果后 agentTainted=true，run 结束归 false，见 agent.js 生命周期）
+    agentTainted: store.agentTainted,
+    agentTaintedServer: store.agentTaintedServer,
+    agentTaintedTool: store.agentTaintedTool,
     aiContextInfo: store.aiContextInfo,
     // 外部递交给面板的一句话（终端解释输出 / 数据库页 AI 解释），面板挂载后消费
     pendingAiPrompt: store.pendingAiPrompt,

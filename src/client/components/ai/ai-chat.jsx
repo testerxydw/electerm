@@ -18,6 +18,13 @@ import { resolveImage, putImage, dropImage } from './ai-image-cache'
 import { persistImage, forgetImage, hydrateImages } from './ai-image-persist'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import { buildAiRole } from '../../common/ai-role'
+import AgentTaintBar from './agent-taint-bar'
+// T04 审批确认器注册（SEC-4/SEC-5）：agent.js 的统一审批门经
+// `window.mcpConfirmExternalTool` 调用本弹窗，而不是直接 import——
+// agent.js 与 store/mcp-client.js 会被单测以真 ESM 加载（sandbox / 动态
+// import），import .jsx/antd 会打爆 node 导入链。注入点注册见文件尾
+// （全部 import 之后），import/first 规则要求 import 连续。
+import confirmExternalToolApproval from '../common/mcp-tool-approval.jsx'
 import uid from '../../common/uid'
 import { pick } from 'lodash-es'
 import {
@@ -55,6 +62,16 @@ import {
   IMAGE_MIMES
 } from './ai-image-attachments'
 import './ai.styl'
+
+// T04 审批确认器注册（SEC-4/SEC-5）：agent.js 的统一审批门经
+// `window.mcpConfirmExternalTool` 调用本弹窗，而不是直接 import——
+// agent.js 与 store/mcp-client.js 会被单测以真 ESM 加载（sandbox / 动态
+// import），import .jsx/antd 会打爆 node 导入链。这里在模块装配层把
+// 确认器挂上 window（等价 mcp-handler.js 引 mcp-transfer-approval.jsx 的
+// 先例，只是注入点换到 window）。
+if (typeof window !== 'undefined') {
+  window.mcpConfirmExternalTool = confirmExternalToolApproval
+}
 
 const { TextArea } = Input
 const MAX_HISTORY = 500
@@ -689,6 +706,16 @@ export default function AIChat (props) {
       <Flex className='ai-chat-history' flex='auto'>
         {renderHistory()}
       </Flex>
+
+      {/* T04/SEC-13：run 读过外部工具结果期间的常驻提示条（run 结束消失） */}
+      {props.agentTainted
+        ? (
+          <AgentTaintBar
+            server={props.agentTaintedServer}
+            tool={props.agentTaintedTool}
+          />
+          )
+        : null}
 
       <Flex vertical className='ai-chat-input'>
         <Flex className='ai-chat-toolbar mg1b' align='center' justify='space-between' gap={4}>

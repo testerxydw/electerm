@@ -1,8 +1,8 @@
 import { agentTools, agentToolNames, executeToolCall } from './agent-tools'
 import { appendMandatoryGuardrails } from './ai-guardrails'
 import { replyLanguageInstruction } from '../../common/ai-role'
-import { isExternalAlias } from '../../common/external-tool-guard'
-import { wrapUntrusted } from '../../common/untrusted-block'
+import { isExternalAlias, decideToolApproval, requiresTaintApproval } from '../../common/external-tool-guard'
+import { wrapUntrusted, sanitizeUntrusted } from '../../common/untrusted-block'
 import { buildAgentMessages, summarizeContext, buildUserContent, CONTEXT_DANGER_PERCENT, countContextImages, isImageRequestRejected, stripImageParts } from './ai-context'
 import { resolveImage } from './ai-image-cache'
 import {
@@ -138,6 +138,22 @@ const REMOVED_EXTERNAL_TOOL_NAME = 'removed_external_tool'
 // 指向未声明工具的悬空结果（有的 provider 会直接 400）。
 const REMOVED_EXTERNAL_TOOL_NOTE = 'tool no longer available'
 
+// T04 审批取消：未获授权的工具调用不执行，tool 结果如实告诉模型被取消
+// （实机步骤 #3④：未确认时模型收到 cancelled 并如实说明）。
+const TOOL_CALL_CANCELLED_NOTE = 'tool call cancelled: approval was denied'
+
+// SEC-13-② 实例审计日志（T04）：对象字段 runId/server/tool（判据断言对象
+// 字段，不做文本包含断言）。截断防膨胀；写入失败不影响 run。
+function writeTaintLog (store, entry) {
+  try {
+    const log = Array.isArray(store.aiMcpTaintLog) ? store.aiMcpTaintLog : []
+    log.push(entry)
+    store.aiMcpTaintLog = log.length > 100 ? log.slice(-100) : log
+  } catch (_) {
+    // 审计日志失败不阻塞工具调用
+  }
+}
+
 /**
  * 拉取并合并本次 run 的工具集（M22 run 级冻结的唯一取数点）。
  *
@@ -247,6 +263,10 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
   let autoCompressCount = 0
   let autoCompressAttemptTokens = 0
   let runErrored = false
+  // T04 污染门（SEC-5）：run 级 taint —— 本次 run 出现过**已完成**的外部工具
+  // 结果即置位；此后内置写工具（TAINT_GATED_BUILTIN_TOOLS）每次调用都要再确认。
+  // 变量随 run 作用域重建，天然不跨轮；store.agentTainted 在 finally 归零。
+  let tainted = false
   try {
     let messages = buildAgentMessages({
       systemPrompt: buildAgentSystemPrompt(config, hasExternal),
@@ -426,15 +446,45 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
           toolCalls: [...toolCallsLog]
         })
 
-        let finished
-        try {
-          const toolResult = await executeToolCall(toolCall.function.name, args, {
-            runId,
-            signal: runAbort.signal
+        // T04 统一审批门（SEC-4 + SEC-5）：外部工具按 6 格决策表
+        // （decideToolApproval，签名不含 tainted）；本轮已污染时内置写工具
+        // （requiresTaintApproval）逐次确认。用户取消则**不执行**工具调用
+        // （T04-02：未确认时 server 调用计数 0；确认后恰好 1 次）。
+        // 只有**已声明**的外部别名才走外部门——幻觉别名保持既有路径
+        // （executeToolCall → unknown_external_tool），行为零变更。
+        const toolName = toolCall.function.name
+        const isDeclaredExternal = hasExternal &&
+          isExternalAlias(toolName) &&
+          !!externalMeta[toolName]
+        let decision = { requireApproval: false, reason: '' }
+        if (isDeclaredExternal) {
+          decision = decideToolApproval({
+            meta: externalMeta[toolName],
+            trust: externalMeta[toolName].trust
           })
-          finished = { status: 'completed', result: toolResult }
-        } catch (err) {
-          finished = { status: 'error', result: err.message }
+        } else if (requiresTaintApproval(toolName, tainted)) {
+          decision = { requireApproval: true, reason: 'external-taint' }
+        }
+        let finished = null
+        if (decision.requireApproval) {
+          const approval = (window.store && typeof window.store.mcpClientRequestApproval === 'function')
+            ? await window.store.mcpClientRequestApproval(toolName, externalMeta[toolName] || {}, decision)
+            // fail-closed：审批接线缺失时宁可取消也不放行
+            : { approved: false, cancelled: true }
+          if (!approval.approved) {
+            finished = { status: 'cancelled', result: TOOL_CALL_CANCELLED_NOTE }
+          }
+        }
+        if (!finished) {
+          try {
+            const toolResult = await executeToolCall(toolName, args, {
+              runId,
+              signal: runAbort.signal
+            })
+            finished = { status: 'completed', result: toolResult }
+          } catch (err) {
+            finished = { status: 'error', result: err.message }
+          }
         }
 
         // Swap in a new entry object instead of mutating the running one: the
@@ -448,17 +498,36 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
           toolCalls: [...toolCallsLog]
         })
 
-        // M27 边界包装：外部工具结果一律包进不可信块（消毒在 T04）。取值来源
+        // M27 边界包装 + T04 消毒（M7）：**先消毒文本再包装**（顺序判据见
+        // untrusted-block.js 文件头——消毒在前，我们自己的闭合标记不被误伤）；
+        // 属性位转义在 wrapUntrusted 内（M7-③ 边界侧纵深防御）。取值来源
         // 判据：server 属性取主进程校验过的 meta.serverName，**不是** server
         // 自报的 serverInfo.name。hasExternal=false 时这个分支整段不进，
-        // 包装函数一次都不执行（M10 第 7 条）。
+        // 包装函数一次都不执行（M10 第 7 条）。审批取消的调用不进包装——
+        // 取消说明是我们自己的文本，不是外部内容，必须裸文"如实说明"。
         let resultContent = finished.result
-        if (hasExternal && isExternalAlias(toolCall.function.name)) {
+        if (hasExternal && isExternalAlias(toolCall.function.name) &&
+          finished.status !== 'cancelled') {
           const toolMeta = externalMeta[toolCall.function.name] || {}
-          resultContent = wrapUntrusted(resultContent, {
+          resultContent = wrapUntrusted(sanitizeUntrusted(resultContent), {
             serverLabel: toolMeta.serverName || '',
             toolName: toolMeta.originalName || ''
           })
+          // SEC-5 / SEC-13：外部结果落地即污染本 run——面板提示条 +
+          // 实例审计日志（对象字段 runId/server/tool）。被审批取消或调用
+          // 出错的"结果"不算落地，不置 taint。
+          if (finished.status === 'completed') {
+            tainted = true
+            window.store.agentTainted = true
+            window.store.agentTaintedServer = toolMeta.serverName || ''
+            window.store.agentTaintedTool = toolMeta.originalName || ''
+            writeTaintLog(window.store, {
+              runId,
+              server: toolMeta.serverName || '',
+              tool: toolMeta.originalName || '',
+              time: Date.now()
+            })
+          }
         }
         messages.push({
           role: 'tool',
@@ -482,6 +551,10 @@ export async function runAgentLoop (chatEntry, config, abortRef, setIsStreaming,
     if (ownsRun) {
       activeRunId = null
       window.store.agentRunning = false
+      // T04 / SEC-13：run 结束 taint 归零（不跨轮），面板提示条随之消失
+      window.store.agentTainted = false
+      window.store.agentTaintedServer = ''
+      window.store.agentTaintedTool = ''
       // hand the panel back to the session based estimate: tool results are not
       // carried into the next turn, so the agent figure stops being meaningful
       window.store.aiContextInfo = null

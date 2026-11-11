@@ -125,6 +125,14 @@ export default () => {
     broadcastPickerMode: 'continuous',
     aiChatHistory: [],
     agentRunning: false,
+    // SEC-13（T04）：本次 run 读过外部工具结果后置 true，面板渲染常驻提示条；
+    // run 结束（settle/stop）归 false，不跨轮。server/tool 取最近一次外部
+    // 结果的来源，供提示条展示；aiMcpTaintLog 是对象字段审计日志（截断在
+    // agent.js 写入侧），断言对象字段（runId/server/tool），不做文本包含断言
+    agentTainted: false,
+    agentTaintedServer: '',
+    agentTaintedTool: '',
+    aiMcpTaintLog: [],
     // 外部 MCP 工具（设计 P0-1）。工具集与反查元数据都缓存在这里：
     // - mcpExternalTools：已并入 runTools 的 openaiTools（前缀 mcp__）
     // - mcpExternalToolMeta：alias → { serverId, originalName, annotations,

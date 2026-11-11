@@ -86,6 +86,7 @@ function makeWorld (opts = {}) {
     getToolsOpts: null,
     getToolsResult: opts.getToolsResult || emptyToolSet(),
     callToolCalls: [],
+    approvalCalls: [],
     callToolResult: opts.callToolResult || null,
     hangingCalls: [],
     cancelRunCalls: [],
@@ -99,7 +100,19 @@ function makeWorld (opts = {}) {
     config: { contextLengthAI: 128000 },
     aiAutoCompress: false,
     agentRunning: false,
+    // T04 生命周期字段（与 init-state.js 对齐；本文件只读不断言）
+    agentTainted: false,
+    agentTaintedServer: '',
+    agentTaintedTool: '',
+    aiMcpTaintLog: [],
     getLangName: () => 'english',
+    // T04 统一审批门的落点：默认放行并记账——本文件只测 run 循环本身
+    // （M22/M25/M27/M30），审批语义（计数 0/1、taint 门、取消态）由
+    // agent-taint.spec.js 与 mcp-client-approval.spec.js 钉
+    mcpClientRequestApproval: async (toolName, meta, decision) => {
+      world.approvalCalls.push({ toolName, decision })
+      return { approved: true, requireApproval: true }
+    },
     updateAiHistoryEntry: (id, updates) => {
       world.entries.push({ id, updates })
       Object.assign(world.chatEntry, updates)
