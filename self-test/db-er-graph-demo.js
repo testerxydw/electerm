@@ -81,11 +81,34 @@ const STUB = `
     }
     return { schema: S, tables, edges }
   })()
+  // N12d 专项：40 表、多对多外键，确定性伪随机（与 db-er-crossing.spec.js 同 seed/同算法）
+  // 这张图的价值是"旧口径一定会画成一团麻"，能在真 UI 上量出交叉下降
+  const crossing = (() => {
+    const tables = []
+    const edges = []
+    let s = 20261111
+    const r = () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+      return s / 4294967296
+    }
+    for (let i = 0; i < 40; i++) tables.push({ schema: S, name: 't' + String(i).padStart(3, '0') })
+    for (let i = 0; i < 40; i++) {
+      const k = 1 + Math.floor(r() * 3)
+      for (let j = 0; j < k; j++) {
+        const to = Math.min(39, i + 1 + Math.floor(r() * Math.max(1, 39 - i)))
+        if (to <= i) continue
+        edges.push(mk('fk_c_' + i + '_' + to + '_' + j,
+          't' + String(i).padStart(3, '0'), 't' + String(to).padStart(3, '0'), [['ref_id', 'id']]))
+      }
+    }
+    return { schema: S, tables, edges }
+  })()
   const GRAPHS = {
     normal: withTables(TABLES, EDGES),
     empty: { schema: S, tables: [], edges: [] },
     nofk: withTables(['users', 'orders', 'products', 'audit_log', 'settings'], []),
-    big
+    big,
+    crossing
   }
   window.__erMode = 'normal'
   window.__erThrows = null
@@ -205,6 +228,37 @@ const STUB = `
   window.__erEdgeCount = () => {
     const r = window.__erRoot()
     return r ? r.querySelectorAll('.db-er-edge').length : -1
+  }
+  // N12d：直接量真 UI 画出来的 path，起点/终点与 db-er-view.jsx edgePath 一致。
+  // 不读布局模块的返回值 —— 这里要证明的是"用户看到的线"确实变少了。
+  window.__erCrossings = () => {
+    const r = window.__erRoot()
+    if (!r) return { count: -1, segs: -1 }
+    const segs = []
+    r.querySelectorAll('.db-er-edge').forEach(el => {
+      // .db-er-edge 是 <g>（边上挂高亮类名），真正的 d 在子 <path> 上
+      const p = el.querySelector('path')
+      const d = (p && p.getAttribute('d')) || ''
+      const m = /^M(-?[\\d.]+),(-?[\\d.]+) C(-?[\\d.]+),(-?[\\d.]+) (-?[\\d.]+),(-?[\\d.]+) (-?[\\d.]+),(-?[\\d.]+)/.exec(d)
+      if (!m) return
+      const x1 = +m[1], y1 = +m[2], x2 = +m[7], y2 = +m[8]
+      // 自引用是"从右边绕一圈"：第一个控制点在起点右侧 58px；普通边的首控制点 x 恒等于起点 x。
+      // 不能拿 x1 === x2 判自环 —— 同列上下相连的边也是竖直的，会被误杀。
+      if (+m[3] - x1 > 50) return
+      segs.push({ x1, y1, x2, y2 })
+    })
+    const side = (p, q, s) => (q.x - p.x) * (s.y - p.y) - (q.y - p.y) * (s.x - p.x)
+    let count = 0
+    for (let i = 0; i < segs.length; i++) {
+      for (let j = i + 1; j < segs.length; j++) {
+        const a = segs[i], b = segs[j]
+        if ((a.x1 === b.x1 && a.y1 === b.y1) || (a.x2 === b.x2 && a.y2 === b.y2)) continue
+        const p1 = { x: a.x1, y: a.y1 }, p2 = { x: a.x2, y: a.y2 }
+        const p3 = { x: b.x1, y: b.y1 }, p4 = { x: b.x2, y: b.y2 }
+        if (side(p1, p2, p3) * side(p1, p2, p4) < 0 && side(p3, p4, p1) * side(p3, p4, p2) < 0) count++
+      }
+    }
+    return { count, segs: segs.length }
   }
   window.__erMark = () => {
     const r = window.__erRoot()
@@ -572,6 +626,37 @@ const main = async () => {
   const writes = ops.filter(op => /^(set|del|unlink|hset|insert|update|alter|drop|create|truncate|exec|queryWrite)/i.test(op))
   check('全程零写命令（只有 listForeignKeys 与只读元数据 op）',
     writes.length === 0 && ops.indexOf('listForeignKeys') > -1, { writes, ops: Array.from(new Set(ops)) })
+
+  // ── 12.5 N12d：层间交叉最小化（真 UI DOM 路径量交叉） ──────────
+  // 关掉弹层再开，顺便把前几节拖拽留下的本地 offsets 清干净，
+  // 否则 DOM path 坐标会带上人工偏移，和纯函数算出来的对不上。
+  const LAYOUT = await import('file://' + path.join(__dirname, '../src/client/common/db-er-layout.js'))
+  await cdp.eval('window.__erClose()')
+  await sleep(300)
+  await cdp.eval("window.__erMode = 'crossing'")
+  await cdp.eval('window.__clickEr()')
+  const crossOk = await waitFor(cdp, 'window.__erNames().length === 40', 'crossing graph rendered', 15000)
+  const graph = await cdp.jeval('JSON.stringify(window.__graph())')
+  const baseCross = LAYOUT.countErCrossings(LAYOUT.layoutErGraph(graph, { minimizeCrossings: false }))
+  const optCross = LAYOUT.countErCrossings(LAYOUT.layoutErGraph(graph))
+  const ui = await cdp.jeval('JSON.stringify(window.__erCrossings())')
+  const domEdges = await cdp.eval('window.__erEdgeCount()')
+  check('N12d：40 表多对多图在真 UI 渲染，边数与图一致',
+    crossOk && ui.segs === graph.edges.length && domEdges === graph.edges.length,
+    { crossOk, uiSegs: ui.segs, graphEdges: graph.edges.length, domEdges })
+  check('N12d：真 UI 连线交叉数 = 新算法纯函数值（DOM 与布局同源）',
+    ui.count === optCross, { ui: ui.count, optCross, baseCross })
+  check('N12d：真 UI 交叉数显著低于旧口径（minimizeCrossings:false 基线）',
+    ui.count < baseCross && ui.count <= baseCross * 0.6,
+    { ui: ui.count, baseCross, drop: ((baseCross - ui.count) / baseCross * 100).toFixed(1) + '%' })
+  await shot('er-crossing-minimized')
+  await cdp.eval('window.__erClose()')
+  await sleep(300)
+  await cdp.eval('window.__clickEr()')
+  await waitFor(cdp, 'window.__erNames().length === 40', 'crossing graph reopened', 15000)
+  const ui2 = await cdp.jeval('JSON.stringify(window.__erCrossings())')
+  check('N12d：关掉重开，交叉数与连线数不变（确定性真机回归）',
+    ui2.count === ui.count && ui2.segs === ui.segs, { first: ui, second: ui2 })
 
   // ── 13. 浅色主题 ───────────────────────────────────────────────
   await cdp.eval("window.__erMode = 'normal'")
