@@ -31,9 +31,12 @@ const SERVER_ID = 'srv1234' // 7 字符，同生产 nanoid(7)
 /**
  * 一个带 ScriptedTransport 的 manager + 一台假 server。
  * @param {Array<{name: string, inputSchema?: object, description?: string}>} tools
+ * @param {{limits?: object}} [opts] 经 manager 的 limits 注入参数隔离测试
+ *   （manager.js:81 `{...LIMITS, ...limits}`，mcp-client-manager.spec.js:144
+ *   有同款用法）
  * @returns {{manager: McpClientManager, transport: ScriptedTransport}}
  */
-function makeManager (tools) {
+function makeManager (tools, opts = {}) {
   const transport = new ScriptedTransport({
     tools: tools.map(tool => ({
       name: tool.name,
@@ -42,7 +45,8 @@ function makeManager (tools) {
     }))
   })
   const manager = new McpClientManager({
-    transportFactory: () => transport
+    transportFactory: () => transport,
+    limits: opts.limits
   })
   return { manager, transport }
 }
@@ -384,10 +388,16 @@ describe('M28 · 两层上限各司其职', () => {
 
   it('单 server 超 LIMITS.perServerTools → perServer 截断计数暴露', async () => {
     const tools = Array.from({ length: LIMITS.perServerTools + 10 }, (_, i) => ({ name: `tool_${String(i).padStart(3, '0')}` }))
-    const { manager } = makeManager(tools)
+    // 经 limits 注入抬高 globalTools（派生值 perServerTools*2，非断言对象、
+    // 纯测试装置参数）：两层上限是 min 语义，若不隔离，globalTools 变异态
+    // （如 100→20）会合法地先于 perServer 截断，测试红是前提噪声非实现缺陷
+    const { manager } = makeManager(tools, {
+      limits: { globalTools: LIMITS.perServerTools * 2 }
+    })
     await connectOne(manager)
     const toolSet = manager.getToolSet({})
     assert.equal(toolSet.openaiTools.length, LIMITS.perServerTools)
     assert.equal(toolSet.truncated.perServer, 10, 'perServer 截断要暴露：' + JSON.stringify(toolSet.truncated))
+    assert.equal(toolSet.truncated.global, 0, '隔离下不得有全局截断干扰')
   })
 })
