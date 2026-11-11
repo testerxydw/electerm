@@ -486,15 +486,18 @@ function initIpc () {
     loadSshConfig,
     init,
     listSerialPorts,
-    testDbConnection: (...args) => require('./db-client').testDbConnection(...args),
-    openDbTab: (...args) => require('./db-client').openDbTab(...args),
-    dbClientOp: (...args) => require('./db-client').dbClientOp(...args),
-    setDbReadOnly: (...args) => require('./db-client').setDbReadOnly(...args),
-    closeDbTab: (...args) => require('./db-client').closeDbTab(...args),
-    closeAllDbTabs: (...args) => require('./db-client').closeAllDbTabs(...args),
-    // C 批流式导出/导入：任务型入口（start/status/cancel），见 db-exporter/db-importer
-    dbExportOp: (action, arg) => require('./db-exporter').dbExportOp(action, arg),
-    dbImportOp: (action, arg) => require('./db-importer').dbImportOp(action, arg),
+    // D2（资源优化 §4.2）：db-client 运行在 server 子进程，主进程只留 WS 转发
+    // （lib/db-client-remote.js）；签名与原 db-client 完全一致，渲染层零改动
+    testDbConnection: (...args) => require('./db-client-remote').testDbConnection(...args),
+    openDbTab: (...args) => require('./db-client-remote').openDbTab(...args),
+    dbClientOp: (...args) => require('./db-client-remote').dbClientOp(...args),
+    setDbReadOnly: (...args) => require('./db-client-remote').setDbReadOnly(...args),
+    closeDbTab: (...args) => require('./db-client-remote').closeDbTab(...args),
+    closeAllDbTabs: (...args) => require('./db-client-remote').closeAllDbTabs(...args),
+    // D2 批次二：导出/导入任务循环在 server 子进程执行（与连接池同进程，
+    // getDbTabContext/dialectOf 才能同步读实例内存）；主进程只转发
+    dbExportOp: (action, arg) => require('./db-client-remote').dbExportOp(action, arg),
+    dbImportOp: (action, arg) => require('./db-client-remote').dbImportOp(action, arg),
     loadFontList,
     createRecordFile,
     appendRecFile,

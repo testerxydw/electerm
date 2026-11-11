@@ -23,6 +23,9 @@ const {
 } = require('./terminal-api')
 const globalState = require('./global-state')
 const wsDec = require('./ws-dec')
+// D2（资源优化 §4.2）：db-client 全家在本子进程运行，/dbclient 是主进程
+// 唯一的 WS RPC 入口（主进程侧客户端见 lib/db-client-remote.js）
+const dbClientWs = require('./db-client-ws')
 
 const { tokenElecterm } = process.env
 
@@ -37,6 +40,9 @@ function verify (req) {
 }
 
 const initWs = function (app) {
+  // D2：数据库客户端通道（连接池/事务/隧道全在本进程）
+  dbClientWs(app)
+
   // upgrade
   app.ws('/upgrade/:id', (ws, req) => {
     verify(req)
