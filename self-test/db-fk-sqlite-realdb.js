@@ -34,7 +34,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const {
-  getJson, Cdp, sleep, waitFor, makeChecker, findPageTarget, clearDbTabs, preStubState
+  getJson, Cdp, sleep, waitFor, makeChecker, findPageTarget, clearDbTabs, preStubState, ensureRealDbLayer
 } = require('./db-ui-helpers')
 const fk = require('./db-fk-fixture')
 
@@ -130,6 +130,31 @@ const PROBE = `(() => {
     const g = window.__erNode(name)
     if (!g) return null
     return window.__xy(g.querySelector('rect') || g)
+  }
+  // no-node 取证：ER 弹层是"真关了"（Modal 卸载）还是"还在但被 display:none"
+  //（__vis 沿祖先链查 display，找到第一个藏起来的祖先就知道是谁藏的）
+  window.__erForensics = () => {
+    const all = [...document.querySelectorAll('.db-er')]
+    const vis = all.filter(window.__vis)
+    let hiddenWhy = null
+    if (all.length && !vis.length) {
+      let n = all[0]
+      while (n && n !== document.body) {
+        if (getComputedStyle(n).display === 'none') {
+          hiddenWhy = String(n.className || n.tagName).slice(0, 120)
+          break
+        }
+        n = n.parentElement
+      }
+    }
+    return {
+      erInDom: all.length,
+      erVisible: vis.length,
+      hiddenWhy,
+      modalCls: [...document.querySelectorAll('.db-er-modal')]
+        .map(m => String(m.className).slice(0, 160)),
+      bodyModalCount: document.querySelectorAll('.ant-modal-wrap').length
+    }
   }
   window.__erNodeSub = name => {
     const g = window.__erNode(name)
@@ -572,7 +597,15 @@ const main = async () => {
   }
 
   // ── 0. 前置门：桥接必须是原装的 ────────────────────────────────────
-  const gate = await preStubState(cdp)
+  // 实例刚起时 window.pre 还没注进来，读一次会拿到 no-pre（时序竞态，实测
+  // 踩过）：先走 ensureRealDbLayer 的轮询自愈（no-pre/read-error 等待+重载），
+  // 桩则直接抛（等不掉），保持"桩上不跑"的原语义
+  let gate = 'unknown'
+  try {
+    gate = (await ensureRealDbLayer(cdp)).state
+  } catch (e) {
+    gate = 'stub:' + (e && e.message)
+  }
   check('开跑前桥接是原装的（没有别的脚本留桩）', gate === 'ok', gate)
   if (gate !== 'ok') {
     console.log('整批不跑：桥接上有桩（' + gate + '），换顺序或先还原')
@@ -745,9 +778,20 @@ const main = async () => {
 
   const detailOf = async name => {
     const p = await cdp.eval(`window.__erNodeXY(${J(name)})`)
-    if (!p) return { err: 'no-node:' + name }
+    if (!p) {
+      const forensics = await cdp.jeval('JSON.stringify(window.__erForensics())')
+      return { err: 'no-node:' + name, forensics }
+    }
     await click(p, 600)
-    return await cdp.jeval('JSON.stringify(window.__erDetail())')
+    const d = await cdp.jeval('JSON.stringify(window.__erDetail())')
+    // jeval 对字符串会再解一层 JSON：弹层开着时 d 已是对象，关了时是 null。
+    // 字符串形态（旧语义）也兜住，两个世界都不炸
+    const dd = typeof d === 'string' ? JSON.parse(d) : d
+    if (!dd || dd === 'null') {
+      const forensics = await cdp.jeval('JSON.stringify(window.__erForensics())')
+      return { err: 'detail-missing-after-click', forensics }
+    }
+    return dd
   }
   const cmpRows = async name => {
     const d = await detailOf(name)
