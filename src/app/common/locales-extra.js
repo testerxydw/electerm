@@ -1445,7 +1445,19 @@ const en = {
   // 本地终端监控：Web 版没有 window.pre.osInfo() 时给一句友好提示
   localMonitorUnavailable: 'Local system monitoring is not available in this build',
   // 书签导入按钮 hover 提示：与 bookmark-upload.js 的分流能力一一对应
-  importFormatsSupported: 'Import from file. Supported: electerm bookmarks JSON, Navicat .ncx, DBeaver data-sources.json'
+  importFormatsSupported: 'Import from file. Supported: electerm bookmarks JSON, Navicat .ncx, DBeaver data-sources.json',
+  // MCP servers 配置分节（T05）
+  ready: 'Ready',
+  failed: 'Failed',
+  transport: 'Transport',
+  trust: 'Trust',
+  oneArgPerLine: 'one argument per line',
+  mcpTrustAutoConfirm: 'Switch to auto-approve?',
+  mcpTrustAutoConfirmText: 'Tool calls of this server (including writes) will no longer ask for approval.',
+  mcpTrustAutoInlineWarn: 'Tool calls of this server (including writes) will no longer ask.',
+  mcpHintStdio: 'stdio servers run commands on this machine as your user; only add servers you trust.',
+  mcpHintAuto: 'When trust is auto-approve, tool calls of that server (including writes) will no longer ask.',
+  mcpHintCredential: 'Server credentials are stored with the same scheme as other local secrets; without a system keyring they are saved as marked plaintext.'
 }
 
 // 简体中文
@@ -2874,7 +2886,19 @@ const zhCn = {
   // 本地终端监控：Web 版没有 window.pre.osInfo() 时给一句友好提示
   localMonitorUnavailable: '当前版本不支持本地系统监控',
   // 书签导入按钮 hover 提示：与 bookmark-upload.js 的分流能力一一对应
-  importFormatsSupported: '从文件导入书签，支持：electerm 书签 JSON、Navicat .ncx、DBeaver data-sources.json'
+  importFormatsSupported: '从文件导入书签，支持：electerm 书签 JSON、Navicat .ncx、DBeaver data-sources.json',
+  // MCP servers 配置分节（T05）
+  ready: '就绪',
+  failed: '失败',
+  transport: '传输方式',
+  trust: '信任',
+  oneArgPerLine: '每行一个参数',
+  mcpTrustAutoConfirm: '切换为自动放行？',
+  mcpTrustAutoConfirmText: '该 server 的工具调用（含写操作）将不再询问确认。',
+  mcpTrustAutoInlineWarn: '该 server 的工具调用（含写操作）将不再询问。',
+  mcpHintStdio: 'stdio server 会以当前用户身份在本机执行命令，只添加你信任的 server。',
+  mcpHintAuto: '信任设为自动放行后，该 server 的工具调用（含写操作）将不再询问。',
+  mcpHintCredential: 'server 凭据与其他本地机密使用同一套存储方案；无系统 keyring 时会以标记明文保存。'
 }
 
 module.exports = {

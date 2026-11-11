@@ -155,6 +155,13 @@ export default Store => {
     if (Array.isArray(opts.builtinToolNames)) {
       payload.builtinToolNames = opts.builtinToolNames
     }
+    if (opts && opts.force) {
+      // T05-02 修复：mcpClientRefresh 传了 {force:true}，但 payload 组装
+      // 一直把它丢掉——主进程 index.js:131 的 force 死参数修复只修了半边，
+      // IPC 跳线仍断，Refresh 实际刷新不出服务端运行期新增的工具。
+      // 由 mcp-server-config.spec.js 的 store 面 spec 钉死。
+      payload.force = true
+    }
     let res
     try {
       res = await withWatchdog(

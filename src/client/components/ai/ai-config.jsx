@@ -22,6 +22,7 @@ import message from '../common/message'
 import { showErrorModal } from '../common/error-modal'
 import { getAIPresets, getAIModelOptions, findAIPreset, getPresetBaseURLs, normalizeAIBaseURL } from './ai-presets'
 import { appendMandatoryGuardrails } from './ai-guardrails'
+import McpServersSection from './mcp-server-config'
 import './ai-config.styl'
 
 const STORAGE_KEY_CONFIG = 'ai_config_history'
@@ -479,6 +480,17 @@ export default function AIConfigForm ({ initialValues, onSubmit, showAIConfig })
           >
             <Input placeholder='e.g. Authorization: Bearer' />
           </AutoComplete>
+        </Form.Item>
+
+        {/* MCP servers 分节（设计 §2.9，T05）：放在 roleAI 之前；自管状态、
+            不参与本表单提交（保存走 setConfig + mcpClientSyncConfig），所以
+            不含任何 Form.Item name，不会改现有 name 作用域 */}
+        <Form.Item
+          label='MCP servers'
+          colon={false}
+          style={{ marginBottom: 0 }}
+        >
+          <McpServersSection />
         </Form.Item>
 
         <Form.Item
