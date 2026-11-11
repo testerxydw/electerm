@@ -82,8 +82,23 @@ export default function McpServersSection () {
     if (window.store && typeof window.store.setConfig === 'function') {
       window.store.setConfig({ mcpServersAI: list })
     }
+    // setConfig 只改渲染层内存；主进程 config（mcpClientGetTools 的
+    // readServers 数据源）平时靠 autoRun(debounce 100ms) 的 saveUserConfig
+    // 异步落盘。这里显式同步一次，否则紧随的 GetTools 读到旧 config →
+    // syncConfig([]) 按空列表把刚建立的连接拆掉，徽章永远空
+    // （实机探针抓到的第二个竞态：syncConfig 直接回传 ready，但 GetTools 空）。
+    if (window.pre && typeof window.pre.runGlobalAsync === 'function') {
+      await window.pre.runGlobalAsync('saveUserConfig', window.store.config)
+    }
     if (window.store && typeof window.store.mcpClientSyncConfig === 'function') {
       await window.store.mcpClientSyncConfig(list)
+    }
+    // syncConfig 只触发主进程按 signature 重连，**不回传状态**；
+    // mcpServerStates（徽章数据源）只在 mcpClientGetTools 的结果里更新，
+    // 所以保存/启停后必须拉一次，否则 ready/toolCount 徽章永远空
+    // （实机探针抓到：单元 spec 只钉了调用链，没测状态最终到达 UI）。
+    if (window.store && typeof window.store.mcpClientGetTools === 'function') {
+      await window.store.mcpClientGetTools()
     }
   }
 
