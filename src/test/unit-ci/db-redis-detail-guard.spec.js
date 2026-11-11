@@ -18,13 +18,19 @@ const DETAIL = path.join(ROOT, 'src/client/components/database/db-redis-detail.j
 const loadJsx = () => fs.readFileSync(JSX, 'utf8') + '\n' + fs.readFileSync(DETAIL, 'utf8')
 
 // 从真实源码抽出信息栏渲染条件并执行（跑发布代码而非拷贝，同 db-grid-scroll 口径）
+// N5d：判断归一成 isStringLike（string + ReJSON 模块键同走值面板），
+// 抽源码里的 isStringLike 定义真跑，null guard（d &&）语义不变
 const loadBarCond = () => {
   const src = loadJsx()
   assert.ok(
-    src.includes("d && d.type !== 'string'"),
-    "detail bar condition must keep the null guard (d && d.type !== 'string')"
+    src.includes('d && !isStringLike(d)'),
+    'detail bar condition must keep the null guard (d && !isStringLike(d))'
   )
-  return vm.runInNewContext("(function (d) { return d && d.type !== 'string' })", {})
+  const def = /const isStringLike = (d => [^\n]+)/.exec(src)
+  assert.ok(def, 'isStringLike 定义没找到（归一判断被移走了？）')
+  const ctx = vm.createContext({})
+  vm.runInContext('const isStringLike = ' + def[1], ctx)
+  return vm.runInContext('(function (d) { return d && !isStringLike(d) })', ctx)
 }
 
 describe('redis detail: null guard (real source)', () => {
@@ -46,15 +52,19 @@ describe('redis detail: null guard (real source)', () => {
     assert.equal(cond({ type: 'string' }), false)
   })
 
-  test('every d.type !== string occurrence is null-guarded (regression shape)', () => {
+  test('ReJSON module keys also take the value-pane branch (N5d)', () => {
+    assert.equal(cond({ type: 'ReJSON-RL' }), false)
+    assert.equal(cond({ type: 'ReJSON-RLType' }), false)
+  })
+
+  test('exclusion is normalized into isStringLike (no bare d.type !== string left)', () => {
     const src = loadJsx()
-    const all = src.match(/d\.type !== 'string'/g) || []
-    const guarded = src.match(/d && d\.type !== 'string'/g) || []
-    assert.ok(all.length > 0, 'expected at least one detail-bar condition')
-    assert.equal(
-      all.length, guarded.length,
-      'found an unguarded d.type !== string (null detail crashes on key click)'
-    )
+    assert.ok(!src.includes("d.type !== 'string'"),
+      '排除判断必须归一进 isStringLike，不留裸比较')
+    const bare = (src.match(/(?<!d && )!isStringLike\(d\)/g) || []).length
+    const guarded = (src.match(/d && !isStringLike\(d\)/g) || []).length
+    assert.equal(bare, 0, 'isStringLike 排除必须全部带 d && 空值守卫')
+    assert.ok(guarded >= 2, '信息栏与 SplitPane 两处排除都要在')
   })
 
   test('renderRedisDetail keeps the if (!d) early-out for body', () => {

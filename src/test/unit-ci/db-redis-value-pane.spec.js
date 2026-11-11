@@ -72,8 +72,9 @@ describe('Redis 详情值面板：折叠与容器接线', () => {
 
   test('只有 hash/list/set/zset 四类套分区：string 详情本身就是面板，不套两层', () => {
     const src = codeOf(jsx())
-    assert.match(src, /d && d\.type !== 'string'\n {12}\?\s*\(\n {14}<DbSplitPane/)
-    assert.match(src, /d && d\.type !== 'string'\n {12}\?\s*\(\n {14}<DbSplitPane[\s\S]*?\n {12}: body/)
+    // N5d：排除判断归一成 isStringLike（string + ReJSON 模块键同走值面板，都不套分区）
+    assert.match(src, /d && !isStringLike\(d\)\n {12}\?\s*\(\n {14}<DbSplitPane/)
+    assert.match(src, /d && !isStringLike\(d\)\n {12}\?\s*\(\n {14}<DbSplitPane[\s\S]*?\n {12}: body/)
   })
 
   test('面板只读：editable=false、不传 onSave、× 就是取消选中', () => {

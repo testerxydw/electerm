@@ -21,6 +21,8 @@ const TYPE_NORM = require(path.join(ROOT, 'src/app/common/db-type-normalize.js')
 const DB_TLS = require(path.join(ROOT, 'src/app/lib/db-client/db-tls.js'))
 // N5a：适配器新增依赖 './redis-console'（只依赖纯策略模块），沙箱同样给真模块
 const REDIS_CONSOLE = require(path.join(ROOT, 'src/app/lib/db-client/redis-console.js'))
+// N5d：适配器新增依赖 './redis-json'（纯函数零依赖），沙箱同样给真模块
+const REDIS_JSON = require(path.join(ROOT, 'src/app/lib/db-client/redis-json.js'))
 const INDEX = path.join(ROOT, 'src/app/lib/db-client/index.js')
 const REDIS = path.join(ROOT, 'src/app/lib/db-client/redis.js')
 const PG = path.join(ROOT, 'src/app/lib/db-client/postgres.js')
@@ -40,6 +42,7 @@ function loadSource (file, fakeModules, extraSandbox = {}) {
       if (name === '../../common/db-type-normalize') return TYPE_NORM
       if (name === './db-tls') return DB_TLS
       if (name === './redis-console') return REDIS_CONSOLE
+      if (name === './redis-json') return REDIS_JSON
       throw new Error('unexpected require: ' + name)
     },
     console,

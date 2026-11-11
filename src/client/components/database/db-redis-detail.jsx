@@ -184,12 +184,15 @@ export default function DbRedisDetail (props) {
   }
 
   // 键详情：按类型渲染（string 文本框；hash/list/set/zset 网格）
+  // N5d：ReJSON-RL（RedisJSON 模块键）的值也是 JSON 文本，与 string 同走值面板，
+  // 编辑保存走同一 setKey（server 侧按 TYPE 自动分发 JSON.SET）
+  const isStringLike = d => d.type === 'string' || String(d.type || '').startsWith('ReJSON-RL')
   const renderRedisDetail = () => {
     const d = redisDetail
     let body = null
     if (!d) {
       body = detailLoading ? <Spin size='small' /> : null
-    } else if (d.type === 'string') {
+    } else if (isStringLike(d)) {
       // 统一值面板：键信息（type/ttl/删除）与高亮/格式化/复制/编辑全部收进 DbValuePane
       // 单栏展示（编辑保存走 redis setKey，只读模式被主进程拦截）
       body = (
@@ -711,7 +714,7 @@ export default function DbRedisDetail (props) {
         {
           // string 键的信息栏已并入 DbValuePane 头部（extra），避免出现两条重复栏
           // d 可能为 null（详情加载中），沿用原空值守卫
-          d && d.type !== 'string'
+          d && !isStringLike(d)
             ? (
               <div className='db-redis-detail-bar'>
                 <span className='db-grid-title db-redis-key-name'>{redisKey}</span>
@@ -851,7 +854,7 @@ export default function DbRedisDetail (props) {
           // 详情四张表的"单击一格 → 底部值面板"：没选中时折叠（bottom 按内容高 = 0，
           // 不给拖拽手柄），选中才把表格压出一截 —— 与数据页/SQL 结果同一交互。
           // string 键的 body 本身就是那只面板，不再套一层分区容器
-          d && d.type !== 'string'
+          d && !isStringLike(d)
             ? (
               <DbSplitPane
                 storageKey={REDIS_VALUE_SPLIT_KEY}

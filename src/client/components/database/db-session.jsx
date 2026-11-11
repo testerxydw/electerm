@@ -687,12 +687,15 @@ export default auto(function DbSession (props) {
 
   // string 键原始值（值预览面板渲染/编辑；格式化与高亮缓存内聚在 DbValuePane）
   // 注意：必须放在下面那些提前 return 之前 —— hooks 数量不能在渲染间变化
-  const stringValue = redisDetail && redisDetail.type === 'string'
+  // N5d：ReJSON-RL（RedisJSON 模块键）的值也是 JSON 文本，与 string 同走值面板
+  // （编辑保存 setKey 在 server 侧按 TYPE 自动分发 JSON.SET）
+  const isReJsonDetail = !!(redisDetail && String(redisDetail.type || '').startsWith('ReJSON-RL'))
+  const stringValue = redisDetail && (redisDetail.type === 'string' || isReJsonDetail)
     ? String(redisDetail.value ?? '')
     : ''
   // 大 string 截断标记（后端 fields=['truncated']，total=完整字节数）：
   // 预览非全量，必须禁编辑防截断值覆盖写回真实键
-  const stringTruncated = !!(redisDetail && redisDetail.type === 'string' &&
+  const stringTruncated = !!(redisDetail && (redisDetail.type === 'string' || isReJsonDetail) &&
     (redisDetail.fields || []).includes('truncated'))
 
   // 解析 SSH 隧道书签（tab 建自书签时携带 sshTunnelBookmarkId）

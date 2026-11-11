@@ -11,6 +11,8 @@ const clients = new Map()
 
 // N1：TLS 档位（校验模式）的唯一口径，与 mysql/postgres 同一份实现
 const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
+// N5d：RedisJSON（ReJSON 模块）的类型识别与 JSON.SET 写入校验
+const redisJson = require('./redis-json')
 // N5a：受限命令控制台的执行层（策略在 redis-command-policy.js，本模块只注入 useDb）
 const redisConsole = require('./redis-console')
 // sig → per-tab 引用计数：同签名连接被多个 tab 共享，最后一个 tab 关闭时才真正断开
@@ -590,6 +592,21 @@ async function getKeyDetail (conn, { dbIndex, key, cursor, pageSize }) {
         : nextStreamStart(rows, size)
       break
     }
+    // N5d RedisJSON：JSON.GET 取原始紧凑文本（ioredis 无内建命令，走 call），
+    // 截断口径与 string 完全一致（total 复用为完整字节数，fields=['truncated']
+    // → 前端禁编辑，防截断 JSON 覆盖写回真实文档）
+    case 'ReJSON-RL':
+    case 'ReJSON-RLType': {
+      const raw = await c.call('JSON.GET', key)
+      if (typeof raw === 'string' && Buffer.byteLength(raw) > MAX_STRING_PREVIEW_BYTES) {
+        value = Buffer.from(raw, 'utf8').subarray(0, MAX_STRING_PREVIEW_BYTES).toString('utf8')
+        total = Buffer.byteLength(raw)
+        fields.push('truncated')
+      } else {
+        value = raw
+      }
+      break
+    }
     default:
       value = null
   }
@@ -608,10 +625,16 @@ function checkWritable (readOnly) {
   }
 }
 
-// string 值编辑（值预览面板保存）：整键覆盖 SET
+// string 值编辑（值预览面板保存）：整键覆盖 SET。
+// ReJSON 键（N5d）例外：模块键不能用 SET 覆盖（WRONGTYPE），走 JSON.SET $ 整文档
+// 替换；写前 validateJsonText 拒非法 JSON（模块也会拒，但这里的错误信息可读，
+// 且提前拦下省一次无谓的写往返）。路径用 '$'（RedisJSON v2+ 的根路径写法）
 async function setKey (conn, { dbIndex, key, value, readOnly }) {
   checkWritable(readOnly)
   const c = await useDb(conn, dbIndex)
+  if (redisJson.isReJsonType(await c.type(key))) {
+    return c.call('JSON.SET', key, '$', redisJson.validateJsonText(value))
+  }
   return c.set(key, value)
 }
 

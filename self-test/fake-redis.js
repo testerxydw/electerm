@@ -47,7 +47,9 @@ const KNOWN = new Set([
   'ZRANGE', 'ZCARD', 'ZADD', 'ZREM',
   'SLOWLOG', 'COMMAND', 'ECHO', 'QUIT',
   // N5b 大 Key 扫描（scanBigKeys 的第二段 pipeline）与 N5c Profiler（MONITOR 流）
-  'MEMORY', 'MONITOR'
+  'MEMORY', 'MONITOR',
+  // N5d RedisJSON：键详情 JSON.GET / 值面板保存 JSON.SET（最小语义替身）
+  'JSON.GET', 'JSON.SET'
 ])
 
 const pad3 = n => String(n).padStart(3, '0')
@@ -195,6 +197,13 @@ function seed (store) {
     type: 'zset',
     value: [['m1', 1], ['m2', 2], ['m3', 3]]
   })
+  // N5d RedisJSON 夹具键：TYPE 应报 ReJSON-RL，键详情走 JSON.GET，
+  // 值面板编辑保存走 JSON.SET。存原始 JSON 文本而非 JS parse 树：
+  // JS number 会吞 >2^53 整数的精度，原始文本才与真实 RedisJSON 的保真语义对齐
+  db0.set('smoke:json:user', {
+    type: 'ReJSON-RL',
+    value: '{"id":1,"name":"alice","big":9007199254740993,"tags":["a","b"]}'
+  })
 }
 
 function infoText (store, section) {
@@ -331,7 +340,10 @@ const COMMAND_TABLE = [
   ['zrange', -4, ['readonly'], 1, 1, 1],
   ['zcard', 2, ['readonly', 'fast'], 1, 1, 1],
   ['zadd', -4, ['write', 'denyoom', 'fast'], 1, 1, 1],
-  ['zrem', -3, ['write', 'fast'], 1, 1, 1]
+  ['zrem', -3, ['write', 'fast'], 1, 1, 1],
+  // N5d RedisJSON：flags 与真实 RedisJSON 模块自述对齐（get 只读 / set 写）
+  ['json.get', -2, ['readonly', 'fast'], 1, 1, 1],
+  ['json.set', -3, ['write', 'denyoom'], 1, 1, 1]
 ]
 
 function makeStats () {
@@ -452,6 +464,38 @@ function handle (args, ctx) {
     case 'SET': {
       store.db(db).set(str(0), { type: 'string', value: str(1) })
       store.clearTtl(db, str(0))
+      return 'OK'
+    }
+    // N5d RedisJSON（最小语义替身）：存储保持原始 JSON 文本（parse 只为校验），
+    // TYPE 经记录的 type 字段自动报 ReJSON-RL。路径参数只认根路径 $/.，
+    // 与产品侧 JSON.SET key '$' 的用法对齐；WRONGTYPE 口径与真实模块一致
+    case 'JSON.GET': {
+      const rec = store.alive(db, str(0))
+      if (!rec) {
+        return null
+      }
+      if (rec.type !== 'ReJSON-RL') {
+        throw new RespError('WRONGTYPE Operation against a key holding the wrong kind of value')
+      }
+      return rec.value
+    }
+    case 'JSON.SET': {
+      const key = str(0)
+      const path = str(1)
+      if (path !== '$' && path !== '.') {
+        throw new RespError('ERR only root path $ is supported (fake)')
+      }
+      const rec = store.alive(db, key)
+      if (rec && rec.type !== 'ReJSON-RL') {
+        throw new RespError('WRONGTYPE Operation against a key holding the wrong kind of value')
+      }
+      try {
+        JSON.parse(str(2))
+      } catch (e) {
+        throw new RespError('ERR expected value but found invalid JSON text')
+      }
+      store.db(db).set(key, { type: 'ReJSON-RL', value: str(2) })
+      store.clearTtl(db, key)
       return 'OK'
     }
     case 'STRLEN': {
