@@ -37,7 +37,11 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const crypto = require('node:crypto')
 const path = require('node:path')
-const { pathToFileURL } = require('node:url')
+
+// Node 解析不了 agent.js 的无扩展名 import（bundler 语义），直连 import 会
+// ERR_MODULE_NOT_FOUND —— 导出路径改用沙箱夹具：闭包拷到临时目录、补 .js
+// 后动态加载（代码逐字节同源，仅 specifier 不同）。见 fixtures/agent-esm-sandbox.js
+const { buildAgentSandbox } = require('../fixtures/agent-esm-sandbox')
 
 const ROOT = path.join(__dirname, '..', '..')
 const AGENT = path.join(ROOT, 'client/components/ai/agent.js')
@@ -104,9 +108,10 @@ function extractFunction (source, name) {
 /**
  * 抽取路径：四个函数 + window 桩，在 vm 里跑出 prompt。
  * @param {object} [win] window 桩
+ * @param {boolean} [hasExternal] 透传 buildAgentSystemPrompt 第二参（缺省 false）
  * @returns {string}
  */
-function buildViaExtraction (win) {
+function buildViaExtraction (win, hasExternal) {
   const sandbox = { window: win, console }
   sandbox.globalThis = sandbox
   vm.createContext(sandbox)
@@ -129,27 +134,40 @@ function buildViaExtraction (win) {
     sandbox
   )
 
-  return sandbox.buildAgentSystemPrompt({ ...GOLDEN_INPUT })
+  return sandbox.buildAgentSystemPrompt({ ...GOLDEN_INPUT }, hasExternal)
 }
 
 /**
- * 导出路径：优先用具名导出。返回 null 表示当前还不能走这条路。
+ * 导出路径（T03-01/M17）：**源码声明了导出就必须走这条路**，任何失败显式红，
+ * 不许静默回落抽取 —— 回落会掩盖「导出存在但模块求值抛错/签名被改坏」，
+ * 恰好是这条路径要抓的缺陷。
  * @param {object} [win] window 桩
- * @returns {Promise<Function|null>}
+ * @returns {Promise<Function|null>} null = 源码还没有导出（回落抽取）
  */
 async function loadViaExport (win) {
+  const source = fs.readFileSync(AGENT, 'utf8')
+  if (!/export function buildAgentSystemPrompt/.test(source)) {
+    return null
+  }
+  const sandbox = buildAgentSandbox()
   const previous = globalThis.window
   globalThis.window = win
   try {
-    const mod = await import(pathToFileURL(AGENT).href)
+    const mod = await import(sandbox.url)
     const fn = mod && mod.buildAgentSystemPrompt
-    return typeof fn === 'function' ? fn : null
-  } catch (_) {
-    // 导出不存在（当前状态）、或模块顶层就碰了浏览器侧对象——都回落到抽取法。
-    return null
+    if (typeof fn !== 'function') {
+      throw new Error('agent.js 求值成功，但 buildAgentSystemPrompt 不是具名导出（导出被删或改名）')
+    }
+    return fn
+  } catch (err) {
+    throw new Error(
+      '导出存在但 export 路径失败——说明模块求值抛错或签名被改坏，先修那个错：' +
+      ((err && err.message) || String(err))
+    )
   } finally {
     if (previous === undefined) delete globalThis.window
     else globalThis.window = previous
+    sandbox.cleanup()
   }
 }
 
@@ -172,7 +190,17 @@ describe('agent system prompt golden (M10-③)', () => {
       via = 'export'
       let exportedPrompt = ''
       try {
-        exportedPrompt = exported({ ...GOLDEN_INPUT })
+        // 导出函数在调用时也要读 window.store.getLangName：调用期间同样要
+        // 桩着 window（loadViaExport 只在 import 求值期间设置它）
+        const callWin = makeWindow()
+        const previousWindow = globalThis.window
+        globalThis.window = callWin
+        try {
+          exportedPrompt = exported({ ...GOLDEN_INPUT })
+        } finally {
+          if (previousWindow === undefined) delete globalThis.window
+          else globalThis.window = previousWindow
+        }
       } catch (err) {
         exportMismatch = `导出版抛错：${err && err.message}`
       }
@@ -240,5 +268,30 @@ describe('agent system prompt golden (M10-③)', () => {
     assert.doesNotMatch(custom.slice(0, 5), /^;/, 'roleAI 为空时不得留下前导分号')
     assert.match(custom, /Reply in en language\.$/, 'languageAI=en 时末句必须是 `Reply in en language.`')
     assert.ok(!/Reply in {2,}language/.test(custom), '语言缺失时不得出现空档（历史 bug 形态）')
+  })
+
+  it('路径自证（M17/T03-01）：export function buildAgentSystemPrompt 必须可用（via=export）', () => {
+    // 本 spec 源码文本命中 /export function buildAgentSystemPrompt/ —— 具名导出
+    // 是设计 `:502` 的硬要求，因此 via 无条件必须是 export：
+    // - 导出被删/改回私有 → via='extraction' → 这里红（变异：把导出改回私有）；
+    // - 导出存在但模块求值抛错 → before() 直接抛「先修那个错」；
+    // 不存在任何一种「导出坏了但本 spec 仍绿」的组合。
+    assert.equal(
+      via,
+      'export',
+      'buildAgentSystemPrompt 必须以具名导出可用（导出存在但 spec 走了抽取 = ' +
+      '模块求值抛错/签名被改坏，先修那个错，不许静默回落抽取）'
+    )
+  })
+
+  it('缺省参数与显式 false 逐字节相同（M18/T03-02 增补）', () => {
+    const win = makeWindow()
+    const implicit = buildViaExtraction(win)
+    const explicit = buildViaExtraction(win, false)
+    assert.equal(
+      implicit,
+      explicit,
+      'hasExternal 缺省值必须等效 false，否则「不传参的老调用」与「显式 false 的新调用』分叉'
+    )
   })
 })

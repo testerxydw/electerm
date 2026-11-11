@@ -562,6 +562,8 @@ function initIpc () {
     mcpClientGetState: mcpClient.mcpClientGetState,
     mcpClientRestart: mcpClient.mcpClientRestart,
     mcpClientOnConfigChange: mcpClient.mcpClientOnConfigChange,
+    // M30：agent stop 时按 runId 收敛挂起的外部工具调用
+    mcpClientCancelRun: mcpClient.mcpClientCancelRun,
     setTitle: (title) => {
       const win = globalState.get('win')
       win && win.setTitle(packInfo.name + ' - ' + title)

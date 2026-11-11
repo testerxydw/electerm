@@ -275,6 +275,22 @@ exports.mcpClientOnConfigChange = async (servers = null) => {
 }
 
 /**
+ * Abort every in-flight external tool call of one agent run (M30).
+ * Wired from the renderer's stop button via `store.mcpClientCancelRun`.
+ * Unknown runId is a no-op (returns cancelled: 0), never a throw.
+ * @param {string} runId
+ * @returns {Promise<{ok: boolean, cancelled: number, error?: object}>}
+ */
+exports.mcpClientCancelRun = async (runId) => {
+  try {
+    const manager = ensureManager()
+    return { ok: true, cancelled: manager.cancelRun(runId) }
+  } catch (err) {
+    return { ok: false, cancelled: 0, error: toErrorObject(err) }
+  }
+}
+
+/**
  * App shutdown (wired to `will-quit` in `ipc.js`): no child process may outlive
  * the app (M9).
  *

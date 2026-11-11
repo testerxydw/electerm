@@ -1,5 +1,6 @@
 import { z } from '../../common/zod'
 import { bookmarkSchemas } from '../../common/bookmark-schemas'
+import { isExternalAlias } from '../../common/external-tool-guard'
 
 function buildAddBookmarkParameters () {
   const typeProperties = {}
@@ -739,7 +740,51 @@ export const agentTools = [
   }
 ]
 
-export async function executeToolCall (toolName, args) {
+// M10 基线锚点：内置工具名清单（36 个，见设计 §1-S6）。`agentTools` 的顺序
+// 与内容不许变；spec（mcp-builtin-tool-baseline.spec.js）拿它做快照与
+// executeToolCall 的 case 覆盖检查，也作为 getToolSet 内置优先的冲突名单传入。
+export const agentToolNames = agentTools.map(tool => tool && tool.function && tool.function.name)
+
+/**
+ * Execute one tool call.
+ *
+ * 路由（M24）：名字以 `mcp__` 开头 = 外部 MCP 工具别名，走
+ * `store.mcpClientCallTool`（主进程做反查/校验/调用，**永不 throw**，失败也是
+ * 结构化结果）；其余 36 个名字走内置 switch。外部分支必须在 switch 之前：
+ * 内置名永远不含 `mcp__`（S7），不会被误分流。
+ *
+ * `opts`：`runId`（主进程按 run 取消挂起的调用，M30）、`timeoutMs`（per-call
+ * 覆盖，M25 —— config-validate 把 server 级 timeoutMs 钳在 ≥5000，循环层的
+ * 用例要更快收敛必须走这条覆盖）、`signal`（run 中止，M30）。
+ * @param {string} toolName
+ * @param {object} args
+ * @param {{runId?: string, timeoutMs?: number, signal?: AbortSignal}} [opts]
+ * @returns {Promise<string>} tool result text (always a string, like builtin tools)
+ */
+export async function executeToolCall (toolName, args, opts = {}) {
+  if (isExternalAlias(toolName)) {
+    const store = window.store
+    const res = await store.mcpClientCallTool(toolName, args, {
+      runId: (opts && opts.runId) || '',
+      timeoutMs: opts && opts.timeoutMs,
+      signal: opts && opts.signal
+    })
+    if (res && res.ok) {
+      return typeof res.text === 'string' ? res.text : JSON.stringify(res.text)
+    }
+    const error = (res && res.error) || {
+      code: 'mcp_internal_error',
+      message: 'external tool call failed'
+    }
+    // M25：错误文案必须能让用户看出是哪台 server 出的问题。server 名取
+    // 渲染层缓存的 meta.serverName（主进程校验过的 config.name）。
+    const meta = (store.mcpExternalToolMeta && store.mcpExternalToolMeta[toolName]) || {}
+    const serverName = meta.serverName || ''
+    const message = error.message && serverName && !error.message.includes(serverName)
+      ? `${error.message} (server "${serverName}")`
+      : error.message
+    return JSON.stringify({ error: { ...error, message } })
+  }
   const store = window.store
   switch (toolName) {
     case 'send_terminal_command': {

@@ -97,6 +97,10 @@ export function estimateContentTokens (content) {
   return total
 }
 
+// 导出（M23 判据）：toolsTokens 公式断言要与实现共用同一个估算系数，
+// 禁止在 spec 里写字面量 3.5 / 4。
+export const CHARS_PER_TOKEN_VALUE = CHARS_PER_TOKEN
+
 // Tokens for a message array in the OpenAI chat shape (which is also what the
 // anthropic / responses builders are fed before they re-shape it).
 export function estimateMessagesTokens (messages) {

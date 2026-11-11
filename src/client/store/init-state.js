@@ -130,11 +130,11 @@ export default () => {
     // - mcpExternalToolMeta：alias → { serverId, originalName, annotations,
     //   needsApproval, degraded, degradationNotes }，供审批与徽章读取
     // - mcpServerStates：每台 server 的状态徽章
-    // - mcpToolsFetchedAt：上次拉取时间戳，用于 TTL 刷新
+    // （曾有 mcpToolsFetchedAt 时间戳，是只写不读的死字段，随 T03/F6 三点同删；
+    // 门面没有 stale 缓存语义，不要在没有读取方之前把它加回来）
     mcpExternalTools: [],
     mcpExternalToolMeta: {},
     mcpServerStates: [],
-    mcpToolsFetchedAt: 0,
     // ask turns and the agent loop compact their conversation when the window
     // gets full; persisted here so the toggle survives a reload
     // (see components/ai/ai-compress.js)

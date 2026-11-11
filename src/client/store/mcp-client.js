@@ -11,9 +11,57 @@
  * 这里给每个 IPC 调用加了一个比业务超时更宽松的看门狗，超时返回结构化错误。
  */
 
+// 看门狗常量（T04 审批路径会复用同一套，不许在调用点硬编码数字）：
+// 两者都必须**大于主进程业务超时**——主进程的 mcp_timeout / 钳制值先到，
+// 这里的看门狗只兜「主进程整个事件循环卡死」的底，先于它触发就会把主进程
+// 还能收敛的结果误杀成超时。
 const GET_TOOLS_TIMEOUT_MS = 20000
 const CALL_TIMEOUT_PADDING_MS = 5000
 const DEFAULT_CALL_TIMEOUT_MS = 60000
+// M30：run 被 stop 时，renderer 侧挂起的外部调用立刻按这个码 settle，不等
+// 主进程超时（主进程侧由 `mcpClientCancelRun` → manager.cancelRun abort）。
+const ABORTED_CODE = 'mcp_aborted'
+const ABORTED_MESSAGE = 'external tool call aborted (agent run stopped)'
+
+// runId → Set<{settle}>：本次 run 仍挂着的 mcpClientCallTool。stop 时由
+// mcpClientCancelRun 全部 settle 掉，保证 agent 循环的 await 收敛、不遗留
+// 悬挂 promise/看门狗 timer。
+const pendingByRun = new Map()
+
+/**
+ * @param {string} runId
+ * @returns {{promise: Promise, settle: Function}}
+ */
+function registerPendingCall (runId) {
+  let settle
+  const promise = new Promise(resolve => {
+    settle = resolve
+  })
+  let set = pendingByRun.get(runId)
+  if (!set) {
+    set = new Set()
+    pendingByRun.set(runId, set)
+  }
+  const entry = { settle }
+  set.add(entry)
+  return { promise, entry }
+}
+
+/**
+ * @param {string} runId
+ * @param {{entry: object}} reg
+ * @returns {void}
+ */
+function unregisterPendingCall (runId, reg) {
+  const set = pendingByRun.get(runId)
+  if (!set) {
+    return
+  }
+  set.delete(reg.entry)
+  if (!set.size) {
+    pendingByRun.delete(runId)
+  }
+}
 
 /**
  * 空工具集。每次返回新对象，避免调用方改到缓存。
@@ -130,7 +178,6 @@ export default Store => {
         ? result.meta
         : {}
       store.mcpServerStates = Array.isArray(result.servers) ? result.servers : []
-      store.mcpToolsFetchedAt = Date.now()
     }
     return result
   }
@@ -146,9 +193,13 @@ export default Store => {
   /**
    * 调用一个外部工具。**永不 reject**：失败也是 `{ok:false, error}`，
    * agent 循环把它当工具结果渲染即可（M8）。
+   *
+   * 收敛（M30）：`opts.signal` 中止或 `mcpClientCancelRun(runId)` 触发时，
+   * 本 promise 立刻以 `mcp_aborted` settle（看门狗 timer 在 finally 清掉），
+   * 并 best-effort 通知主进程 abort 真正的 tools/call。
    * @param {string} alias `mcp__<serverId>__<tool>`
    * @param {object} [args]
-   * @param {{runId?: string, timeoutMs?: number}} [opts]
+   * @param {{runId?: string, timeoutMs?: number, signal?: AbortSignal}} [opts]
    * @returns {Promise<object>}
    */
   Store.prototype.mcpClientCallTool = async function (alias, args = {}, opts = {}) {
@@ -166,10 +217,26 @@ export default Store => {
       ? opts.timeoutMs
       : DEFAULT_CALL_TIMEOUT_MS
     const watchdogMs = timeoutMs + CALL_TIMEOUT_PADDING_MS
+    const runId = typeof opts.runId === 'string' && opts.runId ? opts.runId : ''
+    const signal = opts.signal || null
+    const reg = runId ? registerPendingCall(runId) : null
+    // signal → 竞速 promise；不占 timer（事件监听挂在 signal 上，finally 移除）
+    let onAbort = null
+    const abortPromise = new Promise(resolve => {
+      if (!signal) {
+        return
+      }
+      if (signal.aborted) {
+        resolve(true)
+        return
+      }
+      onAbort = () => resolve(true)
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
     try {
-      const res = await withWatchdog(
+      const mainCall = withWatchdog(
         invoke('mcpClientCallTool', alias, args, {
-          runId: opts.runId || '',
+          runId,
           timeoutMs
         }),
         watchdogMs,
@@ -178,6 +245,20 @@ export default Store => {
           `MCP tool call did not finish within ${watchdogMs} ms`
         )
       )
+      const racers = [mainCall, abortPromise]
+      if (reg) {
+        racers.push(reg.promise)
+      }
+      const winner = await Promise.race(racers)
+      if (winner === true) {
+        // signal 中止：best-effort 让主进程也停（真正的主进程侧取消由
+        // stopAgentRun → mcpClientCancelRun 完成，这里是兜底）
+        if (runId) {
+          Promise.resolve(invoke('mcpClientCancelRun', runId)).catch(() => {})
+        }
+        return failure(ABORTED_CODE, ABORTED_MESSAGE)
+      }
+      const res = winner
       if (!res || typeof res !== 'object') {
         return failure('mcp_internal_error', 'MCP client returned an empty result')
       }
@@ -187,7 +268,42 @@ export default Store => {
         'mcp_internal_error',
         (err && err.message) || 'MCP tool call failed'
       )
+    } finally {
+      if (onAbort && signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort)
+      }
+      if (reg) {
+        unregisterPendingCall(runId, reg)
+      }
     }
+  }
+
+  /**
+   * 取消一次 run 挂着的全部外部工具调用（M30，stopAgentRun 调用）。
+   * renderer 侧立刻 settle（agent 循环的 await 马上收敛），主进程侧由
+   * manager.cancelRun 按 runId abort 真正的 tools/call。
+   * @param {string} runId
+   * @returns {Promise<{ok: boolean, settled: number, error?: object}>}
+   */
+  Store.prototype.mcpClientCancelRun = async function (runId) {
+    const set = typeof runId === 'string' ? pendingByRun.get(runId) : null
+    let settled = 0
+    if (set) {
+      for (const entry of set) {
+        entry.settle(failure(ABORTED_CODE, ABORTED_MESSAGE))
+        settled++
+      }
+      pendingByRun.delete(runId)
+    }
+    const invoke = getInvoker()
+    if (invoke) {
+      try {
+        await invoke('mcpClientCancelRun', runId)
+      } catch (err) {
+        return { ok: false, settled, error: failure('mcp_internal_error', (err && err.message) || 'cancel failed').error }
+      }
+    }
+    return { ok: true, settled }
   }
 
   /**

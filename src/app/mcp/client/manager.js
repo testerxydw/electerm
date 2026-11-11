@@ -89,6 +89,10 @@ class McpClientManager {
     // alias → registry entry (the only reverse map that exists)
     this.registry = new Map()
     this.warnings = []
+    // runId → Set<AbortController>：agent 循环在跑的外部调用（M30）。
+    // stopAgentRun → mcpClientCancelRun(runId) → 这里逐个 abort，挂起的
+    // tools/call 以 mcp_aborted 收敛，peer.pendingCount 归零。
+    this.pendingByRun = new Map()
   }
 
   /**
@@ -258,9 +262,14 @@ class McpClientManager {
         globalTruncated++
         continue
       }
-      if (builtin.has(entry.alias)) {
+      // 内置优先（M5 / M21）：比较对象是**清洗后的原始名**（小写），不是 alias
+      // —— alias 恒带 `mcp__<id>__` 前缀，永远不等于内置名，只比 alias 的检查
+      // 在前缀隔离下是死代码。外部提供 `db_insert_sql`（或大小写变体）都必须
+      // 跳过 + warn（含 alias），内置实现保持逐字符不变。
+      const originalLower = String(entry.originalName || '').toLowerCase()
+      if (builtin.has(originalLower) || builtin.has(entry.alias)) {
         // 内置优先：never overwrite a tool the model already knows
-        this._warn(`tool name collides with a built-in tool, skipped: ${entry.alias}`)
+        this._warn(`tool name collides with a built-in tool, skipped: ${entry.alias} (original: ${entry.originalName})`)
         continue
       }
       if (entry.overPerServerLimit) {
@@ -341,10 +350,23 @@ class McpClientManager {
         }
       }
     }
+    // runId → controller 注册（M30）：stopAgentRun 按 runId 取消挂起的调用
+    let controller = null
+    let runSet = null
+    const runId = typeof opts.runId === 'string' && opts.runId ? opts.runId : ''
+    if (runId) {
+      controller = new AbortController()
+      runSet = this.pendingByRun.get(runId)
+      if (!runSet) {
+        runSet = new Set()
+        this.pendingByRun.set(runId, runSet)
+      }
+      runSet.add(controller)
+    }
     try {
       const result = await record.session.callTool(entry.originalName, args || {}, {
         timeoutMs: opts.timeoutMs || record.config.timeoutMs,
-        signal: opts.signal
+        signal: opts.signal || (controller ? controller.signal : undefined)
       })
       return {
         ok: true,
@@ -356,7 +378,38 @@ class McpClientManager {
     } catch (err) {
       const error = normalizeError(err)
       return { ok: false, error: error.toErrorObject() }
+    } finally {
+      if (controller && runSet) {
+        runSet.delete(controller)
+        if (!runSet.size) {
+          this.pendingByRun.delete(runId)
+        }
+      }
     }
+  }
+
+  /**
+   * Abort every in-flight external call belonging to one agent run (M30).
+   * Pending `tools/call`s settle as `mcp_aborted` and `peer.pendingCount`
+   * returns to zero; the call is idempotent for unknown runIds.
+   * @param {string} runId
+   * @returns {number} how many in-flight calls were aborted
+   */
+  cancelRun (runId) {
+    const key = String(runId === undefined || runId === null ? '' : runId)
+    const runSet = this.pendingByRun.get(key)
+    if (!runSet) {
+      return 0
+    }
+    this.pendingByRun.delete(key)
+    for (const controller of runSet) {
+      try {
+        controller.abort()
+      } catch (_) {
+        // aborting must never throw out of the cancel path
+      }
+    }
+    return runSet.size
   }
 
   /**
