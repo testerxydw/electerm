@@ -33,7 +33,7 @@ const loadLocales = () => fs.readFileSync(LOCALES, 'utf8')
 const loadFilteredRows = () => {
   const src = loadJsx()
   const m = src.match(
-    /const filteredRows = useMemo\(\(\) => \{([\s\S]*?)\n\s{2}\}, \[grid\.rows, pageFilterKw\]\)/
+    /const filteredRows = useMemo\(\(\) => \{([\s\S]*?)\n\s{2}\}, \[grid\.rows, pageFilterKw, pkColumn, sel\]\)/
   )
   assert.ok(m, 'filteredRows derivation not found in db-session.jsx')
   const cw = fs.readFileSync(path.join(ROOT, 'src/client/common/db-column-width.js'), 'utf8')
@@ -49,7 +49,20 @@ const loadFilteredRows = () => {
     '})()',
     {}
   )
-  return vm.runInNewContext('(function (grid, pageFilterKw) {' + m[1] + '})', { cellText })
+  // N9-③：filteredRows 工厂体现在还引用 sel / pkColumn / ROW_ID_KEY /
+  // buildRowIdentities；VM 沙箱必须把这些闭包变量一起桩上，否则抠出来执行会
+  // ReferenceError。buildRowIdentities 用 stub 实现（只验证过滤行为，不测指纹本身——
+  // 指纹由 db-row-identity.spec.js 单独钉），sel=null / pkColumn='' 走回落分支。
+  return vm.runInNewContext(
+    '(function (grid, pageFilterKw) {' + m[1] + '})',
+    {
+      cellText,
+      ROW_ID_KEY: '__rowId',
+      buildRowIdentities: (rows) => rows.map((_, i) => 'stub-' + i),
+      sel: null,
+      pkColumn: ''
+    }
+  )
 }
 
 // N11b-#24 之后 visibleMetadata 的真源是 use-db-tree-data.jsx（不再是 db-session.jsx），

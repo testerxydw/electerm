@@ -344,7 +344,7 @@ describe('B1 wiring: renderer 接线', () => {
   })
 
   test('rowSelection 仅主数据网格透传一次', () => {
-    assert.equal((src.match(/rowSelection=\{rowSelection\}/g) || []).length, 1)
+    assert.equal((src.match(/rowSelection=\{gridRowSelection\}/g) || []).length, 1)
     // 重新取数（切表/翻页/刷新）必须清空选中
     const block = src.match(/const loadPage = [\s\S]*?\n {2}\}/)
     assert.ok(block, 'loadPage not found')

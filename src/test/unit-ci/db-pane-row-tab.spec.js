@@ -49,12 +49,15 @@ describe('H2 底部"行"页签', () => {
     assert.match(body, /types=\{colTypeByName\}/)
   })
 
-  test('rowColumnNames 剔掉 __rowKey（不是数据列，只是网格定位键）', () => {
+  test('rowColumnNames 剔掉 __rowKey 与 __rowId（两个网格辅助键都不是数据列）', () => {
     const src = readSession()
+    // N9-③：稳定行标识 [ROW_ID_KEY] 附到行上给主网格当 React key 后，
+    // 它与 __rowKey 一样不能漏进"行"页签 / 复制整行。这里仍钉住完整过滤表达式，
+    // 且必须用 ROW_ID_KEY 常量（不是写死 '__rowId' 字面量），维持单一真源
     assert.match(
       src,
-      /const rowColumnNames = \(row\) => visibleColumnNames\(\s*Object\.keys\(row \|\| \{\}\)\.filter\(k => k !== '__rowKey'\)/,
-      'rowColumnNames 必须过滤 __rowKey，否则行详情/复制整行会多出一列内部下标'
+      /const rowColumnNames = \(row\) => visibleColumnNames\(\s*Object\.keys\(row \|\| \{\}\)\.filter\(k => k !== '__rowKey' && k !== ROW_ID_KEY\)/,
+      'rowColumnNames 必须同时过滤 __rowKey 与 ROW_ID_KEY，否则行详情/复制整行会多出内部列'
     )
   })
 

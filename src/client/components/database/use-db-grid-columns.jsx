@@ -28,6 +28,8 @@ import { fitColumnWidths, cellText } from '../../common/db-column-width'
 import { buildCopyStatements, toTsv } from '../../common/db-csv'
 import { copy } from '../../common/clipboard'
 import { formatCellValue } from '../../common/db-format-value'
+// N9-③：稳定行标识是网格辅助键，与 __rowKey 一样不能混进数据列（单一真源）
+import { ROW_ID_KEY } from '../../common/db-row-identity'
 
 const e = window.translate
 
@@ -188,11 +190,11 @@ export function useDbGridColumns ({
       .filter(k => !hidden.has(String(k).toLowerCase()))
   }
 
-  // 数据页行对象上的 __rowKey 是网格辅助键（选中/编辑/过滤定位），不是数据列：
-  // 从 Object.keys(row) 取列时会跟着进来，复制整行/行详情必须剔掉，
-  // 否则导出的那一列是一串与表结构无关的内部下标
+  // 数据页行对象上的 __rowKey（页内下标）与 __rowId（N9-③ 内容指纹）都是网格
+  // 辅助键，不是数据列：从 Object.keys(row) 取列时会跟着进来，复制整行/行详情
+  // 必须剔掉，否则导出的那一列是一串与表结构无关的内部值
   const rowColumnNames = (row) => visibleColumnNames(
-    Object.keys(row || {}).filter(k => k !== '__rowKey')
+    Object.keys(row || {}).filter(k => k !== '__rowKey' && k !== ROW_ID_KEY)
   )
 
   // H2：数据页单元格右键菜单。落点与菜单项在这里生成，浮层本身是全站单例

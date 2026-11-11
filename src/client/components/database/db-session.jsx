@@ -149,6 +149,9 @@ import { delPercent } from '../../common/db-redis-del'
 // E2 结果集视角：条件体/排序的生成与解析都是纯函数（零依赖，单测逐条钉死）。
 // 这里只消费，不在这里拼 SQL —— 渲染层拼字符串是注入的经典入口
 import { normalizeView } from '../../common/db-grid-view'
+// N9-③：稳定行标识（纯函数，零依赖）。主网格 React key 改按行身份取值，
+// 位置型 __rowKey 只留作外部 5 处消费的页内下标；两者在下面做一层映射
+import { ROW_ID_KEY, buildRowIdentities } from '../../common/db-row-identity'
 // 视角持久化走主进程文件（userData/db-grid-views.json）：localStorage 会因
 // UI server 动态端口导致 origin 漂移，跨启动读空
 // E2-3b：展示层本地化（数值千分位/日期时间格式）。三条边界写在模块头注释里，
@@ -284,14 +287,37 @@ export default auto(function DbSession (props) {
   // B1 行选择（checkbox 列）：按 __rowKey（当前页原始索引）定位；
   // 任何重新取数（切表/翻页/排序/刷新）都会重排索引 → loadPage 里统一清空
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
-  // 过滤后的行保留原始 __rowKey（选中单元格 / 行内编辑 / UPDATE 仍按原页索引定位）
+  // 表结构（describetable）
+  const [structure, setStructure] = useState({ loading: false, rows: [] })
+  // 行定位列：MySQL 的 DESC 结果含 Key='PRI'，PG 由 describeTable 补 is_primary_key。
+  // N9-③：主键同时也是稳定行标识的首选指纹列，下面 filteredRows 的 useMemo 要读它。
+  // useMemo 工厂在渲染期**立即执行**，引用后面才声明的 const 会 TDZ 抛错，
+  // 所以这里提前派生（原位置在 canEditCell 之前，行为不变，只是声明前移）
+  const pkColumn = (structure.rows || [])
+    .filter(r => String(r.Key || '').toUpperCase() === 'PRI' || r.is_primary_key === true)
+    .map(r => r.Field || r.column_name)[0] || ''
+  // 过滤后的行保留原始 __rowKey（选中单元格 / 行内编辑 / UPDATE 仍按原页索引定位）。
+  // N9-③：额外附一份稳定行标识 [ROW_ID_KEY]，只给主网格当 React key ——
+  // 翻页/排序/过滤重渲时 DOM 复用按"行身份"而不是"第几行"，勾选框与编辑态不错行。
+  // 指纹对**未过滤的原始页**计算：同一行不会因过滤词变化换 id（否则筛选时
+  // 选中态又变成位置相关）；namespace 只带表定位，绝不含页码/页内下标
   const filteredRows = useMemo(() => {
-    const rows = grid.rows.map((r, i) => ({ ...r, __rowKey: i }))
+    const names = Object.keys(grid.rows[0] || {})
+    const namespace = sel && sel.database
+      ? sel.database + '.' + (sel.schema ? sel.schema + '.' : '') + sel.table
+      : ''
+    const ids = buildRowIdentities(grid.rows, names, {
+      keyColumns: pkColumn ? [pkColumn] : [],
+      namespace
+    })
+    const rows = grid.rows.map((r, i) => ({ ...r, __rowKey: i, [ROW_ID_KEY]: ids[i] }))
     if (!pageFilterKw) {
       return rows
     }
     return rows.filter(r => Object.keys(r).some(k => {
-      if (k === '__rowKey') {
+      // 两个辅助键都不是数据列：__rowKey 是页内下标，__rowId 是内容指纹，
+      // 放进去会让一串内部字符串被当成可见单元格搜到
+      if (k === '__rowKey' || k === ROW_ID_KEY) {
         return false
       }
       // H2：按"格子里看到的文本"匹配（cellText）。原来对象列走 String(v)
@@ -301,16 +327,30 @@ export default auto(function DbSession (props) {
         .toLowerCase()
         .includes(pageFilterKw)
     }))
-  }, [grid.rows, pageFilterKw])
+  }, [grid.rows, pageFilterKw, pkColumn, sel])
+
+  // N9-③ id ↔ 页内下标：来源刻意取**过滤后的可见行**。antd 全选/反选只会
+  // 报可见行的 id，映射回数字下标后，删除/批量改值/导出那 5 处消费的语义
+  // 完全不变；过滤掉的行不在两个 Map 里，也就不会被误选。
+  const { rowIdToIndex, indexToRowId } = useMemo(() => {
+    const idToIndex = new Map()
+    const indexToId = new Map()
+    for (const r of filteredRows) {
+      const id = r[ROW_ID_KEY]
+      if (id === undefined) {
+        continue
+      }
+      idToIndex.set(id, r.__rowKey)
+      indexToId.set(r.__rowKey, id)
+    }
+    return { rowIdToIndex: idToIndex, indexToRowId: indexToId }
+  }, [filteredRows])
 
   // 元数据树宽度（可拖拽；持久化到 localStorage，避免污染用户配置）
   const [treeWidth, setTreeWidth] = useState(() => {
     const v = Number(window.localStorage.getItem(TREE_WIDTH_KEY))
     return v >= TREE_MIN_W && v <= TREE_MAX_W ? v : 240
   })
-
-  // 表结构（describetable）
-  const [structure, setStructure] = useState({ loading: false, rows: [] })
 
   // ---- E2 结果集视角（设计 §7.2 / §7.4）----
   // 方言：mysql 家族（tidb/oceanbase 走 mysql 协议，词法同 mysql）、pg、sqlite 三套词法。
@@ -1091,11 +1131,8 @@ export default auto(function DbSession (props) {
     }
   }
 
-  // 行定位列：MySQL 的 DESC 结果含 Key='PRI'，PG 由 describeTable 补 is_primary_key。
-  // 取不到主键就不开单元格编辑，否则 UPDATE 的 WHERE 无法唯一定位行，可能一次改掉多行。
-  const pkColumn = (structure.rows || [])
-    .filter(r => String(r.Key || '').toUpperCase() === 'PRI' || r.is_primary_key === true)
-    .map(r => r.Field || r.column_name)[0] || ''
+  // 取不到主键就不开单元格编辑：UPDATE 的 WHERE 无法唯一定位行，可能一次改掉多行。
+  // N9-③：pkColumn 已在 filteredRows 之前派生（那里要给稳定 id 当指纹列）
   const canEditCell = !isReadonly && !isRedis && !!pkColumn
 
   // ---- F2 手动事务：连接钉住 + 待提交清单 ----
@@ -1274,6 +1311,25 @@ export default auto(function DbSession (props) {
     filteredRows,
     editHistoryBase
   })
+
+  // N9-③：稳定 id 只做 React key，对外（useDbInsert / 批量改值 / 导出 / 工具栏）
+  // selectedRowKeys 仍是**数字页内下标**，那 5 处消费一律零改动。这里只把
+  // antd 报上来的 id 翻回下标、把 selectedRowKeys 翻成 antd 要的 id。
+  // 因此也不加 preserveSelectedRowKeys：重新取数清空勾选的既有纪律保持不变，
+  // 否则跨页残留的勾选会指向另一页的主键，删除时变成误删。
+  // useDbInsert 每轮返回新的 rowSelection，这个 memo 每轮也会重算 —— 它只为
+  // 单次渲染内给出稳定对象形状，不追求跨轮缓存；原接线本来也是每轮新对象
+  const gridRowSelection = useMemo(() => ({
+    ...rowSelection,
+    selectedRowKeys: selectedRowKeys
+      .map(i => indexToRowId.get(i))
+      .filter(Boolean),
+    onChange: (ids, rows, info) => rowSelection.onChange(
+      ids.map(id => rowIdToIndex.get(id)).filter(i => i !== undefined),
+      rows,
+      info
+    )
+  }), [rowSelection, selectedRowKeys, indexToRowId, rowIdToIndex])
 
   // ---- #4 单元格编辑拆到 use-db-cell-edit（行为零变更）----
   // ⚠️ 必须在 confirmRowWrite（E1 执行闸门）定义之后调用：hook 形参是即时取值，
@@ -3188,9 +3244,9 @@ export default auto(function DbSession (props) {
             loading={grid.loading}
             columns={columns}
             dataSource={filteredRows}
-            rowKey='__rowKey'
+            rowKey={ROW_ID_KEY}
             pagination={false}
-            rowSelection={rowSelection}
+            rowSelection={gridRowSelection}
             locale={{
               emptyText: grid.error
                 ? e('queryFailed')

@@ -427,8 +427,8 @@ const main = async () => {
   await sleep(200)
   const tsv = String(await cdp.eval('window.__copied') || '')
   const tsvHead = tsv.split('\n')[0]
-  check('复制整行 TSV：首行=屏幕列名且不含 __rowKey',
-    tsvHead === heads.join('\t') && !tsvHead.includes('__rowKey'), { tsvHead, heads })
+  check('复制整行 TSV：首行=屏幕列名且不含 __rowKey/__rowId',
+    tsvHead === heads.join('\t') && !tsvHead.includes('__rowKey') && !tsvHead.includes('__rowId'), { tsvHead, heads })
   check('复制整行 TSV：取值对应该行（id=2）', String(tsv).split('\n')[1] === ['2', 'no', 'n2', 'short one', '[object Object]'].join('\t'), { row: String(tsv).split('\n')[1] })
   await menuGone(cdp)
 
@@ -438,8 +438,8 @@ const main = async () => {
   await sleep(200)
   const rowJson = JSON.parse(String(await cdp.eval('window.__copied') || '[]'))
   const rowKeys = Object.keys(rowJson[0] || {})
-  check('复制整行 JSON：字段与屏幕列一致且不含 __rowKey',
-    rowKeys.join(',') === heads.join(',') && rowJson[0].id === 2, { rowKeys, row: rowJson[0] })
+  check('复制整行 JSON：字段与屏幕列一致且不含 __rowKey/__rowId',
+    rowKeys.join(',') === heads.join(',') && rowJson[0].id === 2 && !rowKeys.includes('__rowKey') && !rowKeys.includes('__rowId'), { rowKeys, row: rowJson[0] })
   await menuGone(cdp)
 
   // ---- 4) 查看完整值 / 编辑 ----
@@ -559,9 +559,9 @@ const main = async () => {
   check('切到"行"页签', (await cdp.eval('window.__clickTab("行")')) === 'ok' &&
     await waitFor(cdp, '!![...document.querySelectorAll(".db-pane-tabs .db-row-detail")].filter(window.__vis)[0]', 'row detail'))
   const fields = await json(cdp, 'window.__rowDetailFields()')
-  check('行页签字段数 = 屏幕列数（不带 __rowKey）',
+  check('行页签字段数 = 屏幕列数（不带 __rowKey/__rowId）',
     fields.open === 1 && fields.fields.length === heads.length &&
-      !fields.fields.some(f => f.name === '__rowKey'), { fields: fields.fields.map(f => f.name), heads })
+      !fields.fields.some(f => f.name === '__rowKey') && !fields.fields.some(f => f.name === '__rowId'), { fields: fields.fields.map(f => f.name), heads })
   check('行页签值对应当前行', (fields.fields.find(f => f.name === 'note') || {}).value === 'n2',
     fields.fields.find(f => f.name === 'note'))
   const rowTab = await cdp.eval(`
@@ -574,6 +574,67 @@ const main = async () => {
   check('底部页签至少 值/行 两个（有外键列时再挂关联）',
     JSON.parse(rowTab).slice(0, 2).join(',') === '值,行', { rowTab })
   console.log('shot ->', await cdp.shot(path.join(SHOT_DIR, '4-row-tab-dark.png')))
+
+  // ---- 10) N9-③ 稳定行标识（内容派生 data-row-key + 过滤不重排 + 勾选不漂移 + 无 __rowId 泄露）----
+  // 这一块直接对 DOM 钉 N9-③ 要治的漂移：原方案拿页内下标 __rowKey 当 rowKey，
+  // 虚拟滚动 / 过滤 / 翻页复用 DOM 后"第 3 行还是第 3 行"，勾选框与编辑态会错到
+  // 另一条记录。现在 rowKey 换成内容派生稳定 id（pk: 前缀=按主键，h:=整行指纹），
+  // 见 db-row-identity.js + db-session.jsx 的 filteredRows/gridRowSelection。
+  const rowKeysInfo = await json(cdp, `JSON.stringify((() => {
+    const trs = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)
+    return trs.map(tr => {
+      const c = [...tr.querySelectorAll('.ant-table-cell')].find(x => x.getAttribute('aria-label') === 'id')
+      return { key: tr.getAttribute('data-row-key'), id: c ? c.innerText.trim() : null }
+    })
+  })())`)
+  check('N9-③ 主网格 data-row-key 为内容派生稳定 id（pk:/h: + 16hex，非位置下标）',
+    rowKeysInfo.length === baseRows &&
+    rowKeysInfo.every(r => /^(pk|h):[0-9a-f]{16}$/.test(r.key)) &&
+    rowKeysInfo.every(r => r.key !== r.id), { sample: rowKeysInfo.slice(0, 3) })
+
+  // 过滤不重排：把页滤到只剩 1 行，存活行的 data-row-key 必须是原全量集合的子集
+  // （若按位置重排，过滤后那 1 行 key 会变成 '0'，而不是原 id 对应的 pk:...）
+  const keysBefore = rowKeysInfo.map(r => r.key)
+  await cdp.eval('window.__setPageFilter("short one")')
+  await waitFor(cdp, `window.__rowCount() === 1`, 'N9 filter short one', 4000)
+  const keysAfter = await json(cdp, `JSON.stringify((() => {
+    const trs = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)
+    return trs.map(tr => tr.getAttribute('data-row-key'))
+  })())`)
+  check('N9-③ 过滤不重排 data-row-key（存活行 key 是原集合子集，非位置 0/1..）',
+    keysAfter.length === 1 && keysBefore.includes(keysAfter[0]), { keysAfter, keysBeforeLen: keysBefore.length })
+  await cdp.eval('window.__setPageFilter("")')
+  await waitFor(cdp, `window.__rowCount() === ${baseRows}`, 'N9 filter cleared', 4000)
+
+  // 勾选不漂移：过滤到只剩 id=2 并勾选它，清空过滤恢复全量后，被勾的仍应是 id=2
+  // （按内容 id 定位），首行（id=1）不应被误勾 —— 正是 N9-③ 要治的漂移
+  const info2 = await json(cdp, `JSON.stringify((() => {
+    const trs = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)
+    const tr = trs.find(r => {
+      const c = [...r.querySelectorAll('.ant-table-cell')].find(x => x.getAttribute('aria-label') === 'id')
+      return c && c.innerText.trim() === '2'
+    })
+    return { key: tr ? tr.getAttribute('data-row-key') : null }
+  })())`)
+  await cdp.eval('window.__setPageFilter("short one")')
+  await waitFor(cdp, `window.__rowCount() === 1`, 'N9 filter to id2', 4000)
+  await cdp.eval(`(() => {
+    const tr = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)[0]
+    const cb = tr.querySelector('.ant-table-selection-column input[type=checkbox]') || tr.querySelector('input[type=checkbox]')
+    if (cb) cb.click()
+    return 'ok'
+  })()`)
+  await sleep(300)
+  await cdp.eval('window.__setPageFilter("")')
+  await waitFor(cdp, `window.__rowCount() === ${baseRows}`, 'N9 filter cleared 2', 4000)
+  const drift = await json(cdp, `JSON.stringify((() => {
+    const cbChecked = el => { const cb = el.querySelector('input[type=checkbox]'); return cb ? (cb.checked || cb.getAttribute('aria-checked') === 'true') : false }
+    const trs = [...document.querySelectorAll('.db-grid-area .ant-table-tbody .ant-table-row')].filter(window.__vis)
+    const hit = trs.find(r => r.getAttribute('data-row-key') === ${JSON.stringify(info2.key)})
+    return { hitChecked: hit ? cbChecked(hit) : null, firstChecked: trs[0] ? cbChecked(trs[0]) : null }
+  })())`)
+  check('N9-③ 过滤后勾选清空过滤不漂移（被勾的仍是 id=2，首行不误勾）',
+    drift.hitChecked === true && drift.firstChecked === false, drift)
 
   // 收尾：关掉本次打开的 tab，不给后续脚本留脏状态
   await cdp.eval(`(async () => { await window.store.delTab(${JSON.stringify(openRes.id)}) })()`)
