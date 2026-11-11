@@ -1,5 +1,8 @@
 # db-batch3 CDP 实机三维度验证报告（2026-11-09）
 
+> 📦 **2026-11-11 归档说明**：本文件记录的工作已闭环，已从 `doc/` 根移入 `doc/已完成/`，此后**不再维护状态、勾选框不再更新**。
+> 活跃未完成项已按主题集中到 [`../TODO-AI与MCP未完成项-2026-11-11.md`](../TODO-AI与MCP未完成项-2026-11-11.md) 与 [`../TODO-数据功能未完成项-2026-11-11.md`](../TODO-数据功能未完成项-2026-11-11.md)，请勿在本文追加新待办。
+
 > 对象：今天第三批数据库提交（ddd241df N5a 控制台 / 9692eeaf N5b 大 Key / 3ba91309 N5c Profiler）。
 > 方法：CDP（Chrome DevTools Protocol）实机探针——真 Electron + 真 ioredis + fake-redis（RESP2 假服务器，支持 MONITOR 广播与 MEMORY USAGE）。
 > 产物：`self-test/db-batch3-cdp-report.json`、截图 `self-test/2026-11-09-batch3-shots/`、探针 `self-test/db-batch3-cdp-probe.js`。

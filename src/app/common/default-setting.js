@@ -83,7 +83,7 @@ module.exports = exports.default = {
   // 模型能不能收图片：auto = 看预置标注和模型名猜；on/off = 用户显式覆盖。
   // 判定只影响输入侧提示与发送前闸门，不构成任何保证（中转站改名后名字读不出来）
   supportsImageAI: 'auto',
-  // 外部 MCP server 列表（见 doc/设计-MCP-client-P0-1-*.md §1 S13/S15）。
+  // 外部 MCP server 列表（见 doc/已完成/设计-MCP-client-P0-1-*.md §1 S13/S15）。
   // 整行落在 data 表 userConfig 里，因此跟着该行一起走 enc:/safeEncrypt 加密，
   // 不新建表（决策 D2-A）；默认空数组 = 未接入任何外部工具。
   mcpServersAI: [],
