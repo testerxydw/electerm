@@ -18,7 +18,7 @@ import { classifySql } from './db-sql-risk.js'
 import { buildImportMapping } from './db-import-mapping.js'
 
 // 与 src/app/lib/db-import/parsers.js 的 IMPORT_FORMAT_IDS 同集同序
-export const IMPORT_FORMAT_IDS = ['csv', 'tsv', 'jsonl', 'sql']
+export const IMPORT_FORMAT_IDS = ['csv', 'tsv', 'jsonl', 'xlsx', 'sql']
 
 // '' = 不指定，让主进程按扩展名推断
 export const FORMAT_AUTO = ''
@@ -114,6 +114,8 @@ export function buildStartPayload (state = {}) {
   return {
     ...base,
     table,
+    // xlsx 多 sheet：只在该格式下回传选中的 sheet（主进程按名匹配，匹配不到回落第一个）
+    ...(file.format === 'xlsx' && file.sheetName ? { sheetName: file.sheetName } : {}),
     mapping: buildImportMapping(rows),
     mode,
     batchSize

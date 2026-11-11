@@ -243,8 +243,8 @@ describe('mapObjectToInsert：按键名取值', () => {
 })
 
 describe('resolveFormat：格式判定唯一口径', () => {
-  test('注册表覆盖 csv/tsv/jsonl/sql', () => {
-    assert.deepEqual(IMPORT_FORMAT_IDS, ['csv', 'tsv', 'jsonl', 'sql'])
+  test('注册表覆盖 csv/tsv/jsonl/xlsx/sql', () => {
+    assert.deepEqual(IMPORT_FORMAT_IDS, ['csv', 'tsv', 'jsonl', 'xlsx', 'sql'])
   })
 
   test('显式格式优先于扩展名（.txt 里放 JSONL 的场景）', () => {
@@ -280,15 +280,15 @@ describe('resolveFormat：格式判定唯一口径', () => {
 })
 
 describe('dialogFilters：打开对话框的过滤器', () => {
-  test('首条是"全部支持"，聚合所有扩展名', () => {
+  test('首条是"全部支持"，聚合所有扩展名（名字从注册表动态拼）', () => {
     const f = dialogFilters()
-    assert.equal(f[0].name, 'CSV/TSV/JSONL/SQL')
-    assert.deepEqual(f[0].extensions, ['csv', 'txt', 'tsv', 'jsonl', 'ndjson', 'sql'])
+    assert.equal(f[0].name, 'CSV/TSV/JSONL/XLSX/SQL')
+    assert.deepEqual(f[0].extensions, ['csv', 'txt', 'tsv', 'jsonl', 'ndjson', 'xlsx', 'sql'])
   })
 
   test('每种格式各一条，可按名选中', () => {
     const names = dialogFilters().slice(1).map(x => x.name)
-    assert.deepEqual(names, ['CSV', 'TSV', 'JSONL', 'SQL'])
+    assert.deepEqual(names, ['CSV', 'TSV', 'JSONL', 'XLSX', 'SQL'])
   })
 })
 

@@ -165,6 +165,17 @@ describe('buildStartPayload：两条通道的载荷', () => {
     assert.equal('statements' in p, false)
   })
 
+  test('xlsx 通道：sheetName 只在该格式回传（N4b）', () => {
+    const p = P.buildStartPayload({
+      ...rowsState,
+      file: { filePath: '/tmp/x.xlsx', format: 'xlsx', kind: 'rows', sheetName: 'S2' }
+    })
+    assert.equal(p.sheetName, 'S2')
+    // 非 xlsx 不带 sheetName（主进程匹配不到时回落第一个 sheet，但这里根本不该有）
+    const q = P.buildStartPayload(rowsState)
+    assert.equal('sheetName' in q, false)
+  })
+
   test('脚本通道：只带 statements，不带 table/mapping/mode/batchSize', () => {
     const p = P.buildStartPayload({
       file: { filePath: '/tmp/x.sql', format: 'sql', kind: 'script' },

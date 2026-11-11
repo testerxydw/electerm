@@ -511,8 +511,8 @@ const en = {
   dbExportCancelled: 'Export cancelled: {n} rows written',
   dbExportStart: 'Start export',
   dbExportCancel: 'Cancel export',
-  dbImportTitle: 'Import CSV/TSV/JSONL/SQL',
-  dbImportPickFile: 'Choose CSV/TSV/JSONL/SQL file…',
+  dbImportTitle: 'Import CSV/TSV/JSONL/XLSX/SQL',
+  dbImportPickFile: 'Choose CSV/TSV/JSONL/XLSX/SQL file…',
   dbImportNoFile: 'No file selected',
   dbImportFile: 'File',
   dbImportMapping: 'Column mapping',
@@ -545,6 +545,9 @@ const en = {
   // N4a：格式选择 + JSONL/SQL 通道
   dbImportFormatAuto: 'Detect by extension',
   dbImportSize: '{n} KB',
+  // N4b：xlsx 导入（sheet 选择 + 数据规模提示）
+  dbImportSheet: 'Sheet',
+  dbImportRowsTotal: '{n} data row(s)',
   dbImportStatements: 'Statements',
   dbImportStatementsCount: '{n} statement(s) to run',
   dbImportPerStatementNote: 'This engine takes one statement per request, so they are sent one by one',
@@ -1941,8 +1944,8 @@ const zhCn = {
   dbExportCancelled: '已取消导出：已写 {n} 行',
   dbExportStart: '开始导出',
   dbExportCancel: '取消导出',
-  dbImportTitle: '导入 CSV/TSV/JSONL/SQL',
-  dbImportPickFile: '选择 CSV/TSV/JSONL/SQL 文件…',
+  dbImportTitle: '导入 CSV/TSV/JSONL/XLSX/SQL',
+  dbImportPickFile: '选择 CSV/TSV/JSONL/XLSX/SQL 文件…',
   dbImportNoFile: '未选择文件',
   dbImportFile: '文件',
   dbImportMapping: '列映射',
@@ -1975,6 +1978,9 @@ const zhCn = {
   // N4a：格式选择 + JSONL/SQL 通道
   dbImportFormatAuto: '按扩展名判断',
   dbImportSize: '{n} KB',
+  // N4b：xlsx 导入（sheet 选择 + 数据规模提示）
+  dbImportSheet: '工作表',
+  dbImportRowsTotal: '共 {n} 行数据',
   dbImportStatements: '语句清单',
   dbImportStatementsCount: '将执行 {n} 条语句',
   dbImportPerStatementNote: '该引擎一次只接受一条语句，因此逐条下发执行',

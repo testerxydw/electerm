@@ -2,8 +2,13 @@
  * 导入向导（C 批「导入 CSV/TSV」§10 + N4a「JSONL/SQL 导入闭环」§N4）
  *
  * 步骤按通道编排（stepsOf）：
- * - 行通道（csv/tsv/jsonl）：选文件 → 列映射 → 写入模式 → 执行
+ * - 行通道（csv/tsv/jsonl/xlsx）：选文件 → 列映射 → 写入模式 → 执行
  * - 脚本通道（sql）：选文件 → 语句清单 → 执行
+ *
+ * xlsx（N4b）的差异只有一处：预览响应带 sheets/sheetName/totalRows，选中
+ * xlsx 后显示 sheet 下拉，切换 sheet 时带 sheetName 重新预览（列随 sheet 变化，
+ * 主进程是唯一解析方，渲染层只回传选择）。列映射界面按 columns/sampleRows
+ * 工作，与 csv/tsv 同构，无需第二套界面。
  *
  * 职责边界：文件选择与源解析都在主进程（dbImportOp openFile/preview 返回
  * kind + 列/样例/脚本文本，渲染层不读文件）；映射折算、载荷折算、步骤编排、
@@ -61,6 +66,7 @@ export default function DbImportDialog (props) {
   const [formatChoice, setFormatChoice] = useState(FORMAT_AUTO)
   const [fileLoading, setFileLoading] = useState(false)
   // file: { filePath, format, kind, columns, sampleRows, scriptText, totalBytes }
+  // xlsx 预览额外带 sheets / sheetName / totalRows（见文件头注释）
   const [file, setFile] = useState(null)
   // 映射行（UI 形态），见 db-import-mapping.js 头注释
   const [rows, setRows] = useState([])
@@ -75,6 +81,7 @@ export default function DbImportDialog (props) {
   const stepIds = stepsOf(kind)
   const stepId = stepIds[step] || 'file'
   const isScript = kind === 'script'
+  const isXlsx = Boolean(file && file.format === 'xlsx')
 
   const targetNames = useMemo(
     () => (columns || []).map(c => c && c.name).filter(n => typeof n === 'string' && n),
@@ -217,6 +224,27 @@ export default function DbImportDialog (props) {
     }
   }
 
+  // xlsx 换 sheet = 带显式 format + sheetName 重新预览（选中 sheet 是预览入参，
+  // 判定与解析仍在主进程，与 onFormatChange 同一个口径）
+  const onSheetChange = async val => {
+    if (!file || !file.filePath) {
+      return
+    }
+    setFileLoading(true)
+    try {
+      const res = await window.pre.runGlobalAsync('dbImportOp', 'preview', {
+        filePath: file.filePath,
+        format: 'xlsx',
+        sheetName: val
+      })
+      applyPreview(res)
+    } catch (err) {
+      showErrorModal({ error: err })
+    } finally {
+      setFileLoading(false)
+    }
+  }
+
   const setRow = (idx, patch) => {
     setRows(prev => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   }
@@ -334,6 +362,32 @@ export default function DbImportDialog (props) {
                 {' · '}
                 {e('dbImportSize').replace('{n}', String(Math.ceil((file.totalBytes || 0) / 1024)))}
               </div>
+              {
+                // xlsx 的 sheet 选择（单 sheet 也显示：选项即当前选中，向用户明示）
+                isXlsx && (file.sheets || []).length
+                  ? (
+                    <div className='db-import-batch'>
+                      <span>{e('dbImportSheet')}</span>
+                      <Select
+                        size='small'
+                        value={file.sheetName}
+                        onChange={onSheetChange}
+                        options={(file.sheets || []).map(n => ({ value: n, label: n }))}
+                      />
+                    </div>
+                    )
+                  : null
+              }
+              {
+                // xlsx 的数据规模提示（预览只解析选中的 sheet，这里的行数就是它）
+                isXlsx
+                  ? (
+                    <div className='db-import-script-meta'>
+                      {e('dbImportRowsTotal').replace('{n}', String(file.totalRows || 0))}
+                    </div>
+                    )
+                  : null
+              }
               {
                 file.kind === 'script'
                   ? (

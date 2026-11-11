@@ -15,6 +15,8 @@
  * - csv/tsv（rowShape=array）：首行表头，按下标取值，走 insertRows 分批
  * - jsonl（rowShape=object）：每行一个 JSON 对象，按键名取值并还原类型，
  *   同样走 insertRows 分批 —— 与导出侧 JSONL 严格对称（见 parsers.js 头注释）
+ * - xlsx（N4b，rowShape=array）：zip 二进制不走文本流，整簿解析后一次性喂入
+ *   同一条 takeRows/feed/flush 分批管线（xlsx 空行过滤在 parsers 里）
  * - sql（kind=script）：不写映射、不分批，逐条 dbClientOp('executeSql')
  *
  * SQL 导入的三条口径为什么这样定：
@@ -37,6 +39,7 @@ const {
   feedRows,
   finishRows,
   previewSample,
+  previewXlsx,
   isEmptyRow
 } = require('./db-import/parsers')
 const {
@@ -101,6 +104,23 @@ function previewImportFile (filePath, arg = {}) {
   // 格式判定只在注册表做一次：旧版在预览与执行两处各猜一次定界符，
   // 界面显式选了格式而文件名扩展名不一致时，两处会给出不同答案
   const fmt = resolveFormat(filePath, arg.format)
+  if (fmt.id === 'xlsx') {
+    // xlsx 不是文本，不能 readHead：整簿解析由 parseXlsxSheets 完成（含双护栏），
+    // 返回多 sheet 信息 + 选中 sheet 的列/样例。渲染层切 sheet 后带 sheetName 重预览
+    const res = previewXlsx(filePath, arg)
+    return {
+      filePath,
+      format: 'xlsx',
+      kind: 'rows',
+      delimiter: null,
+      sheets: res.sheets,
+      sheetName: res.sheetName,
+      columns: res.columns,
+      sampleRows: res.sampleRows,
+      totalRows: res.totalRows,
+      totalBytes: stat.size
+    }
+  }
   if (fmt.kind === 'script') {
     if (stat.size > MAX_SCRIPT_BYTES) {
       throw new Error(
@@ -137,7 +157,7 @@ function previewImportFile (filePath, arg = {}) {
   }
 }
 
-// ================================ 行数据导入（csv/tsv/jsonl） ================================
+// ================================ 行数据导入（csv/tsv/jsonl/xlsx） ================================
 
 async function runRowImport (a, task, ctx, dialect, fmt) {
   const fs = require('fs')
@@ -254,23 +274,45 @@ async function runRowImport (a, task, ctx, dialect, fmt) {
     return rows
   }
 
-  const stream = fs.createReadStream(a.filePath, {
-    encoding: 'utf8',
-    highWaterMark: IMPORT_CHUNK_BYTES
-  })
-  for await (const chunk of stream) {
-    if (task.cancelRequested) {
-      break
+  if (fmt.id === 'xlsx') {
+    // xlsx 是 zip 二进制，无法按字符块流式：整簿解析后一次性喂入同一条
+    // takeRows/feed/flush 管线（takeRows 跳首行表头，feed 内部有取消检查与分批）。
+    // sheetName 不传或匹配不到回落第一个 sheet（与预览选中逻辑一致）
+    const { parseXlsxSheets, xlsxSheetRows, xlsxIsEmptyRow } = require('./db-import/parsers')
+    const sheets = parseXlsxSheets(a.filePath)
+    const sheet = sheets.find(s => s.name === a.sheetName) || sheets[0]
+    if (!sheet || !sheet.data.length) {
+      task.status = 'done'
+      return
     }
-    await feed(takeRows(feedRows(fmt.id, state, chunk)))
+    // 行折算必须走 xlsxSheetRows（预览同一条）：尾部补 null + Date→字符串
+    // 都在那一个点。喂 raw sheet.data 的话，日期单元格的 Date 对象和缺失的
+    // 尾部列会原样进映射层。空行过滤用 xlsxIsEmptyRow 而不是 isEmptyRow：
+    // 补 null 后空行不再是"单个空字段"，takeRows 里那条判定对 xlsx 会漏
+    // （所以喂入前自己滤）
+    await feed(takeRows(xlsxSheetRows(sheet).filter(r => !xlsxIsEmptyRow(r))))
+  } else {
+    const stream = fs.createReadStream(a.filePath, {
+      encoding: 'utf8',
+      highWaterMark: IMPORT_CHUNK_BYTES
+    })
+    for await (const chunk of stream) {
+      if (task.cancelRequested) {
+        break
+      }
+      await feed(takeRows(feedRows(fmt.id, state, chunk)))
+    }
+    if (!task.cancelRequested) {
+      // 收尾：最后一条无换行行 / 悬空引号的宽松收口。
+      // xlsx 不走状态机，这句对它是 no-op（收尾分支只在文本路径执行）
+      await feed(takeRows(finishRows(fmt.id, state)))
+    }
   }
-  if (!task.cancelRequested) {
-    // 收尾：最后一条无换行行 / 悬空引号的宽松收口
-    await feed(takeRows(finishRows(fmt.id, state)))
+  if (task.cancelRequested) {
+    task.status = 'cancelled'
+  } else {
     await flush()
     task.status = 'done'
-  } else {
-    task.status = 'cancelled'
   }
 }
 

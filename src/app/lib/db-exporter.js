@@ -34,7 +34,12 @@ const MAX_RUNNING_EXPORTS = 4
 // 过期记录由 sweepDoneTasks 在 status 查询时惰性清理，不为清理单独挂定时器
 const DONE_TTL_MS = 5 * 60 * 1000
 
-const FORMATS = ['csv', 'tsv', 'json', 'jsonl', 'sql', 'markdown']
+const FORMATS = ['csv', 'tsv', 'json', 'jsonl', 'sql', 'markdown', 'xlsx']
+
+// xlsx 单次导出行上限：xlsx 是二进制单文件，流式 writer 只产文本块，只能
+// "累积 + 尾部一次性 build"（见 formatWriters 的 xlsx 分支），全量数据驻留内存。
+// 实测 5 万行 ΔRSS ~270M，10 万行约翻倍——GUI 主进程撑不住再多，超过就引导用 CSV。
+const XLSX_MAX_EXPORT_ROWS = 100000
 
 // 任务表：exportId → task（done 记录保留 DONE_TTL_MS 供查询，之后惰性清除）
 const tasks = new Map()
@@ -89,6 +94,40 @@ function tsvCell (v) {
 // markdown 表格单元格：竖线转义（表格定界符）、换行压成空格（表格内不允许裸换行）
 function mdCell (v) {
   return binCell(v).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+}
+
+// xlsx 单元格值折算（与文本格式的 binCell 同口径处理二进制信封）：
+// - null/undefined → null（xlsx 空单元格原生语义）
+// - 信封 → binCell 文本（与 csv/tsv 同一字符串，截断信封也是显式标记）
+// - number 原样（NaN/Infinity 不是 xlsx 数值，写字符串保住"看得见"）
+// - boolean 原样；bigint → 字符串（xlsx 数值是 double，直接写会丢精度）
+// - Date 保留对象（SheetJS 自动转 Excel 日期序列）
+// - 其余 → String(v)
+function xlsxCell (v) {
+  if (v === null || v === undefined) {
+    return null
+  }
+  if (isBinEnvelope(v)) {
+    return binCell(v)
+  }
+  const t = typeof v
+  if (t === 'number') {
+    return Number.isFinite(v) ? v : String(v)
+  }
+  if (t === 'boolean' || t === 'bigint') {
+    return t === 'bigint' ? String(v) : v
+  }
+  if (t === 'object' && Object.prototype.toString.call(v) === '[object Date]') {
+    return v
+  }
+  return String(v)
+}
+
+// Excel 工作表名约束：≤31 字符、不含 []:*?/\。表名直接当 sheet 名（导出的
+// 文件里能看出是哪张表），清洗非法字符、截断、空回落 Sheet1（纯函数，spec 直接测）
+function xlsxSheetName (table) {
+  const s = String(table || '').replace(/[[\]:*?/\\]/g, '_').slice(0, 31)
+  return s || 'Sheet1'
 }
 
 // 标识符引用：mysql 系反引号，pg 与 sqlite 双引号（与 db-csv.sqlQuoteIdent 口径一致）
@@ -176,7 +215,9 @@ function projectRow (row, headers) {
 
 // 每种格式的 头 / 行块 / 尾。json 特殊：'[\n' 头 + 行间 ',\n' + '\n]' 尾；
 // 零行时 '[\n' + '\n]' 仍是合法空数组。所有块都以换行收尾，跨块拼接即整文件。
-function formatWriters (format, dialect, { fullTable, headers }) {
+// xlsx 是例外：zip 二进制无法增量写，chunk 只累积不产出（返回空串让 writeChunk
+// 不写盘），tail 里一次性 build 出 Buffer。取消/超限在 chunk 边界即抛错/止步。
+function formatWriters (format, dialect, { fullTable, headers, table }) {
   if (format === 'csv') {
     return {
       header: () => '\uFEFF' + headers.map(h => csvEscapeField(h)).join(',') + '\r\n',
@@ -219,6 +260,35 @@ function formatWriters (format, dialect, { fullTable, headers }) {
         .map(r => rowToInsertSql({ fullTable, headers, row: r, dialect }))
         .join('\n') + '\n',
       tail: () => sqlTail(dialect)
+    }
+  }
+  if (format === 'xlsx') {
+    // 表头进数据首行（不单独产出），chunk 返回空串让 writeChunk 不写任何东西
+    // —— 数据驻留内存是这个方案的固有代价，XLSX_MAX_EXPORT_ROWS 封顶后在
+    // chunk 即抛错使任务转 failed（此时 task.bytes 一直是 0、rowsWritten 正常
+    // 累加：进度对 xlsx 只看行数不看字节，可接受）。
+    // node-xlsx 只有 xlsx 路径用得到，tail 里懒 require。
+    const acc = [headers.map(h => String(h))]
+    return {
+      header: () => '',
+      chunk: rows => {
+        for (const r of rows) {
+          acc.push(headers.map(h => xlsxCell(r ? r[h] : null)))
+          if (acc.length - 1 > XLSX_MAX_EXPORT_ROWS) {
+            throw new Error(
+              `xlsx 导出上限 ${XLSX_MAX_EXPORT_ROWS} 行，超大表请用 CSV 导出`
+            )
+          }
+        }
+        return ''
+      },
+      tail: () => {
+        const xlsx = require('node-xlsx')
+        return xlsx.build(
+          [{ name: xlsxSheetName(table), data: acc }],
+          { writeOptions: { compression: true } }
+        )
+      }
     }
   }
   // markdown
@@ -335,7 +405,7 @@ async function runExport (task, tabId, args) {
     let writer = null
     if (headers) {
       writer = formatWriters(args.format, dialect, {
-        fullTable: fullTableName(args, dialect), headers
+        fullTable: fullTableName(args, dialect), headers, table: args.table
       })
       await writeChunk(task, stream, writer.header())
     }
@@ -353,7 +423,7 @@ async function runExport (task, tabId, args) {
       if (!headers) {
         headers = Object.keys(rows[0])
         writer = formatWriters(args.format, dialect, {
-          fullTable: fullTableName(args, dialect), headers
+          fullTable: fullTableName(args, dialect), headers, table: args.table
         })
         await writeChunk(task, stream, writer.header())
       }
@@ -494,12 +564,15 @@ module.exports = {
   EXPORT_PAGE_SIZE,
   MAX_RUNNING_EXPORTS,
   DONE_TTL_MS,
+  XLSX_MAX_EXPORT_ROWS,
   // 纯函数导出仅供单测（格式化器 / 信封展示 / dump 头尾）
   isBinEnvelope,
   binCell,
   csvEscapeField,
   tsvCell,
   mdCell,
+  xlsxCell,
+  xlsxSheetName,
   sqlQuoteIdent,
   sqlQuoteVal,
   sqlHeader,

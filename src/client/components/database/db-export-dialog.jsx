@@ -10,6 +10,9 @@
  *
  * 组件只管收集与展示：格式/列的合法性由主进程 db-exporter 兜底（列白名单、
  * 路径非空），这里不做第二套判定。
+ *
+ * xlsx（N4b）：二进制单文件在主进程收尾时一次性 build，导出期间进度只累加
+ * 行数（bytes 迟迟为 0 是格式特性不是卡死）；超 10 万行任务转 failed 提示用 CSV。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -18,7 +21,7 @@ import { FolderOpenOutlined } from '@ant-design/icons'
 
 const e = window.translate
 
-const FORMATS = ['csv', 'tsv', 'json', 'jsonl', 'sql', 'markdown']
+const FORMATS = ['csv', 'tsv', 'json', 'jsonl', 'sql', 'markdown', 'xlsx']
 
 // 格式 → 保存对话框元信息（扩展名/过滤器名；markdown 落盘用 .md 更通用）
 const FORMAT_META = {
@@ -27,7 +30,8 @@ const FORMAT_META = {
   json: { ext: 'json', label: 'JSON' },
   jsonl: { ext: 'jsonl', label: 'JSONL' },
   sql: { ext: 'sql', label: 'SQL' },
-  markdown: { ext: 'md', label: 'Markdown' }
+  markdown: { ext: 'md', label: 'Markdown' },
+  xlsx: { ext: 'xlsx', label: 'XLSX' }
 }
 
 function formatBytes (n) {

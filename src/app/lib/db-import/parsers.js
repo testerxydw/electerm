@@ -21,8 +21,10 @@
  * 全项目唯一口径 —— 判定风险的切分与实际执行的切分必须是同一个函数，
  * 否则"用户确认的语句"和"数据库执行的语句"可能不是同一批）。
  *
- * 流式：所有解析器都是 createState / feed(chunk) / finish() 三段，块边界任意
- * 切分都必须与整串一次喂入结果一致（单测差分验证）。
+ * 流式：csv/tsv/jsonl 的解析器都是 createState / feed(chunk) / finish() 三段，
+ * 块边界任意切分都必须与整串一次喂入结果一致（单测差分验证）。
+ * xlsx 是例外（见下方 XLSX 一节的头注释）：zip 容器无法按字符块流式，
+ * 走整文件解析 + 双护栏，不参与 createState/feed/finish 契约。
  */
 
 'use strict'
@@ -334,6 +336,147 @@ function parseJsonlSample (text, opts = {}) {
   return { columns, sampleRows }
 }
 
+// ================================ XLSX：整文件解析（不走文本流契约） ================================
+// 为什么 xlsx 不走 createState/feed/finish：xlsx 是 zip 容器（二进制），无法像文本
+// 那样按字符块切分流式喂入——块边界语义在 zip 里不存在。改为整文件解析，用两道
+// 护栏替代流式的内存安全性：文件大小护栏（zip 解压前的第一道闸）与总单元格数
+// 护栏（zip 炸弹的第二道闸：压缩包可以很小但解出天文数字的单元格）。
+
+// 文件大小护栏：32MB 压缩包对表格文件已经非常宽裕（xlsx 压缩率通常 >2x）
+const XLSX_MAX_BYTES = 32 * 1024 * 1024
+// 总单元格数护栏：2000 万单元格约当 10 万行 x 200 列，再大解析的内存与时延
+// 都不适合 GUI 交互，引导改用 CSV 流式导入
+const XLSX_MAX_CELLS = 20 * 1000 * 1000
+
+// 大小护栏（纯函数，spec 直接测）：超限报出上限与当前值，与 MAX_SCRIPT_BYTES 同款文案
+function assertXlsxSize (size) {
+  const n = Number(size) || 0
+  if (n > XLSX_MAX_BYTES) {
+    throw new Error(
+      `xlsx 导入上限 ${Math.floor(XLSX_MAX_BYTES / 1024 / 1024)}MB（当前 ${Math.ceil(n / 1024 / 1024)}MB），请改用 CSV/TSV 导入`
+    )
+  }
+}
+
+// 单元格数护栏（纯函数，spec 直接测）：zip 炸弹表现为"文件很小、单元格很多"，
+// 大小护栏拦不住，必须按 parseMetadata 估算的解压后规模再拦一道
+function assertXlsxCells (count) {
+  const n = Number(count) || 0
+  if (n > XLSX_MAX_CELLS) {
+    throw new Error(
+      `xlsx 导入单元格数上限 ${XLSX_MAX_CELLS}（估算 ${n}），文件可能过大或异常，请改用 CSV 导入`
+    )
+  }
+}
+
+/**
+ * 解析整个工作簿，返回 sheets 数组（[{ name, data }]，data 含表头行）。
+ * node-xlsx 较大且只有 xlsx 路径用得到，懒 require（与 db-importer.js 的
+ * 函数内 require 惯例一致），避免无关导入路径背上这个包。
+ * 解析前先 statSync 过大小护栏、parseMetadata 估算总单元格过炸弹护栏：
+ * parseMetadata 只读维度信息不解析单元格，代价远小于整簿 parse。
+ */
+function parseXlsxSheets (filePath) {
+  const fs = require('fs')
+  const stat = fs.statSync(filePath)
+  assertXlsxSize(stat.size)
+  const xlsx = require('node-xlsx')
+  const metas = xlsx.parseMetadata(filePath)
+  const totalCells = metas.reduce((n, m) => {
+    const d = (m && m.data) || {}
+    const rows = ((d.e && d.e.r) || 0) + 1
+    const cols = ((d.e && d.e.c) || 0) + 1
+    return n + rows * cols
+  }, 0)
+  assertXlsxCells(totalCells)
+  // cellDates: true 必传 —— 缺省时真实日期单元格（非文本）还原成 Excel 序列号
+  // 裸数字（如 2024-01-15 → 45306.33），按数字绑进 DATE/DATETIME 列要么报错
+  // 要么存进脏数据。开了之后日期格还原成 Date，再由 xlsxSheetRows 统一折算成字符串
+  return xlsx.parse(filePath, { cellDates: true })
+}
+
+/**
+ * Date 单元格 → 字符串的折算（与 CSV 导入"日期是字符串、DB 折算"同体验）。
+ * 为什么折算成字符串而不是保留 Date：绑定层跨方言兼容 —— sqlite 的绑定不收
+ * Date 对象。为什么不是 toISOString()：ISO 串末尾的 'Z' 时区标记 MySQL 的
+ * DATETIME 解析不认（8.0.19 起只认 ±HH:MM 偏移），'YYYY-MM-DD HH:mm:ss'
+ * 空白分隔写法 mysql/pg/sqlite 三家通吃：
+ * - 纯日期（UTC 零点）→ 'YYYY-MM-DD'
+ * - 带时刻 → 'YYYY-MM-DD HH:mm:ss'
+ * Excel 序列号是浮点秒，cellDates 还原的毫秒可能带漂移（08:30:05 读成 .999s），
+ * 先就近取整到秒再格式化，否则秒级时刻会差 1 秒。
+ */
+function xlsxDateCell (d) {
+  const ms = d.getUTCMilliseconds()
+  const t = ms >= 500 ? d.getTime() + (1000 - ms) : d.getTime() - ms
+  const iso = new Date(t).toISOString()
+  return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.slice(0, 19).replace('T', ' ')
+}
+
+/**
+ * xlsx 的格式坑在这里修（也是"解析值 → 行数据"的唯一折算点）：
+ * ①尾部空单元格不落盘：xlsx 格式特性不是库 bug，解析 [null,2,null] 回来是
+ *   [null,2]（长度 2）。按表头行长度把每行尾部缺失补 null，否则按下标取值的
+ *   映射层会读到 undefined（与"缺列"语义混淆）。
+ * ②行内 undefined → null。
+ * ③Date 单元格（cellDates 还原）→ 数据库友好字符串（见 xlsxDateCell）。
+ * 预览与执行两条路都必须经过这里（执行层喂 raw sheet.data 会漏掉全部折算）。
+ * 空行不在这里过滤：纯函数只负责形状，空行判定交给 xlsxIsEmptyRow 由调用方过滤。
+ */
+function xlsxSheetRows (sheet) {
+  const data = (sheet && sheet.data) || []
+  // 期望列数 = 首行（表头）长度：短行补齐、长行截断（超出表头的列没有映射依据，
+  // 按下标取值的映射层永远读不到它们，留在行里只会造成假象）
+  const expect = data[0] ? data[0].length : 0
+  return data.map(row => {
+    const cells = Array.isArray(row) ? row : []
+    const out = []
+    for (let i = 0; i < expect; i++) {
+      const v = cells[i]
+      out.push(v === undefined
+        ? null
+        : (v instanceof Date ? xlsxDateCell(v) : v))
+    }
+    return out
+  })
+}
+
+// 空行判定：整行每个单元格都是 null 或空串（与 csv 的"单个空字段"判定不同——
+// 补 null 后的空行长度等于列数，isEmptyRow 那条判定对 xlsx 永远不成立）
+function xlsxIsEmptyRow (row) {
+  return (Array.isArray(row) ? row : []).every(c => c === null || c === '')
+}
+
+/**
+ * xlsx 预览：返回多 sheet 信息 + 选中 sheet 的列与样例。
+ * 选中逻辑：opts.sheetName 按名精确匹配，匹配不到回落第一个（与执行层一致）。
+ * 样例/列名都是展示文本（预览是给人核对的，与 parseSample/parseJsonlSample 同口径）。
+ */
+function previewXlsx (filePath, opts = {}) {
+  const sheets = parseXlsxSheets(filePath)
+  const sheet = sheets.find(s => s.name === opts.sheetName) || sheets[0]
+  const rows = sheet ? xlsxSheetRows(sheet) : []
+  const display = v => {
+    if (v === null || v === undefined) {
+      return ''
+    }
+    return String(v)
+  }
+  const columns = rows.length ? rows[0].map(display) : []
+  const maxRows = Math.max(0, Number(opts.maxRows) || 50)
+  const sampleRows = rows
+    .slice(1, 1 + maxRows)
+    .map(r => r.map(display))
+  return {
+    format: 'xlsx',
+    sheets: sheets.map(s => s.name),
+    sheetName: sheet ? sheet.name : '',
+    columns,
+    sampleRows,
+    totalRows: Math.max(0, rows.length - 1)
+  }
+}
+
 // ================================ 注册表 ================================
 
 /**
@@ -349,6 +492,8 @@ const IMPORT_FORMATS = [
   { id: 'csv', rowShape: 'array', delimiter: ',', extensions: ['csv', 'txt'], kind: 'rows' },
   { id: 'tsv', rowShape: 'array', delimiter: '\t', extensions: ['tsv'], kind: 'rows' },
   { id: 'jsonl', rowShape: 'object', extensions: ['jsonl', 'ndjson'], kind: 'rows' },
+  // xlsx：rowShape=array 但不走 createState/feed/finish（整文件解析，见 XLSX 一节）
+  { id: 'xlsx', rowShape: 'array', extensions: ['xlsx'], kind: 'rows' },
   { id: 'sql', rowShape: 'script', extensions: ['sql'], kind: 'script' }
 ]
 
@@ -383,14 +528,15 @@ function resolveFormat (filePath, argFormat) {
   return byExt || FORMAT_BY_ID.csv
 }
 
-// 打开对话框的过滤器：一个"全部支持"条目 + 每格式一条
+// 打开对话框的过滤器：一个"全部支持"条目 + 每格式一条。
+// "全部支持"的名字从注册表动态拼——硬编码的话，加一个格式它就在撒谎了
 function dialogFilters () {
   const all = IMPORT_FORMATS.reduce((acc, f) => acc.concat(f.extensions), [])
   const named = IMPORT_FORMATS.map(f => ({
     name: f.id.toUpperCase(),
     extensions: f.extensions
   }))
-  return [{ name: 'CSV/TSV/JSONL/SQL', extensions: all }].concat(named)
+  return [{ name: IMPORT_FORMATS.map(f => f.id.toUpperCase()).join('/'), extensions: all }].concat(named)
 }
 
 /** 行解析器统一入口：按格式建状态 */
@@ -450,5 +596,14 @@ module.exports = {
   feedJsonlChunk,
   finishJsonl,
   parseJsonlSample,
-  jsonValueToCell
+  jsonValueToCell,
+  // xlsx（N4b）：护栏常量与整文件解析路径
+  XLSX_MAX_BYTES,
+  XLSX_MAX_CELLS,
+  assertXlsxSize,
+  assertXlsxCells,
+  parseXlsxSheets,
+  xlsxSheetRows,
+  xlsxIsEmptyRow,
+  previewXlsx
 }
