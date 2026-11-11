@@ -308,9 +308,10 @@ describe('M25 · per-call 超时绕钳制', () => {
     assert.equal(res.error.code, 'mcp_timeout',
       `per-call 覆盖必须生效（收敛码 mcp_timeout）：${JSON.stringify(res.error)}`)
     assert.ok(
-      elapsed < 3000,
+      elapsed < 1500,
       `必须在 per-call 150ms 量级收敛（实际 ${elapsed}ms）——` +
-      '若被 server 级 ≥5000 钳制值拖住，agent 循环每个挂死工具都要等 5 秒'
+      '上界收在 1500（10× 余量）：`>3000` 会放过「覆盖被硬编码成几百 ms」的变异' +
+      '（QA-2 复验发现：硬编码 800ms 可穿过 >3000 上界），1500 钉死真的走了 150ms 路径'
     )
   })
 
