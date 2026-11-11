@@ -469,9 +469,8 @@ class Transfer {
 
 module.exports = {
   Transfer,
-  transferKeys: [
-    'pause',
-    'resume',
-    'destroy'
-  ]
+  // 白名单常量真源在 transfer-keys.js（零依赖），这里转发保持兼容；
+  // 只要常量的调用方（dispatch-center / ipc-sync）改 require transfer-keys，
+  // ssh2-scp/tar/original-fs 就不会进 server 子进程与主进程的启动图（资源优化 P2）
+  transferKeys: require('./transfer-keys').transferKeys
 }

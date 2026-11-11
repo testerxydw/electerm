@@ -27,7 +27,7 @@ const testers = {
   postgres: opts => require('./postgres').testPostgresConnection(opts),
   kingbase: opts => require('./postgres').testPostgresConnection(opts),
   redis: opts => require('./redis').testRedisConnection(opts),
-  sqlite: opts => require('./sqlite').testSqliteConnection(opts)
+  sqlite: opts => require('./sqlite-async').testSqliteConnection(opts)
 }
 
 // per-tab client instances: { tabId: { dbType, conn, close, tunnel } }
@@ -144,7 +144,11 @@ function getAdapter (dbType) {
   if (!name) {
     throw new Error(`unsupported db type: ${dbType}`)
   }
-  return require('./' + name)
+  // D1（资源优化 §4.2）：sqlite 适配器跑在 worker_threads 里 —— node:sqlite
+  // 只有同步 DatabaseSync，直接在主进程跑会阻塞所有 tab（大查询/导入期间
+  // 连终端都卡）。sqlite-async 与 ./sqlite 导出面完全一致（纯函数/常量同步
+  // 直出，async 方法走 worker RPC），dialectOf 仍按 DB_ADAPTER 的方言名判定。
+  return require(name === 'sqlite' ? './sqlite-async' : './' + name)
 }
 
 // 建连/元数据/键操作走快路径；executeSql/getPageData 给足时间，
@@ -996,7 +1000,7 @@ async function closeAllDbTabs () {
     require('./mysql').closeMysqlConnection(),
     require('./postgres').closePostgresConnection(),
     require('./redis').closeRedisConnection(),
-    require('./sqlite').closeSqliteConnection()
+    require('./sqlite-async').closeSqliteConnection()
   ].map(p => p.catch(() => {})))
 }
 

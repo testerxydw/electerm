@@ -825,7 +825,8 @@ describe('sqlite adapter · registration & main-process gates', () => {
 
   test('DB_ADAPTER / testers 登记 sqlite', () => {
     assert.match(indexSrc, /sqlite:\s*'sqlite'/)
-    assert.match(indexSrc, /sqlite:\s*opts => require\('\.\/sqlite'\)\.testSqliteConnection\(opts\)/)
+    // D1：testers 走 sqlite-async proxy（sqlite 同步适配器跑在 worker_threads）
+    assert.match(indexSrc, /sqlite:\s*opts => require\('\.\/sqlite-async'\)\.testSqliteConnection\(opts\)/)
   })
 
   test('OP_MAP.sqlite 覆盖适配器全部 op', () => {
@@ -844,7 +845,8 @@ describe('sqlite adapter · registration & main-process gates', () => {
   test('主进程闸门：sqlite 不走隧道、方言独立、全量关闭包含 sqlite', () => {
     assert.match(indexSrc, /useTunnel = !!sshBookmark && dbType !== 'sqlite'/)
     assert.match(indexSrc, /adapter === 'sqlite'/)
-    assert.match(indexSrc, /require\('\.\/sqlite'\)\.closeSqliteConnection\(\)/)
+    // D1：全量关闭同样走 sqlite-async proxy
+    assert.match(indexSrc, /require\('\.\/sqlite-async'\)\.closeSqliteConnection\(\)/)
   })
 
   test('safe-clause 认识 sqlite：反斜杠不是转义，双引号是标识符', () => {

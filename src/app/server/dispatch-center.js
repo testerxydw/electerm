@@ -6,7 +6,7 @@
 const fs = require('./fs')
 const log = require('../common/log')
 const { Upgrade } = require('./download-upgrade')
-const { transferKeys } = require('./transfer')
+const { transferKeys } = require('./transfer-keys')
 const fetch = require('./fetch')
 const sync = require('./sync')
 const {

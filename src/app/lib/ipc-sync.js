@@ -9,7 +9,7 @@ const {
 const log = require('../common/log')
 const constants = require('../common/runtime-constants')
 const globalState = require('./glob-state')
-const { transferKeys } = require('../server/transfer')
+const { transferKeys } = require('../server/transfer-keys')
 const os = require('os')
 const {
   isTest
