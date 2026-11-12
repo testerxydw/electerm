@@ -631,7 +631,8 @@ export default class AttachAddonCustom {
     inflightBytes: this._inflightBytes,
     suppressedBytes: this._suppressedBytes,
     droppedBytes: this._droppedBytes,
-    archivePath: this._archivePath
+    archivePath: this._archivePath,
+    archiveParts: this._archiveParts.slice()
   })
 
   // Best-effort bookkeeping of what sits on the current command line. Only
