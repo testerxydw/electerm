@@ -57,7 +57,7 @@ const ISSUE_KEY = {
 }
 
 export default function DbTableDesign (props) {
-  const { open, loc, dialect, loadStructure, onApplySql, onClose, createMode } = props
+  const { open, loc, dialect, loadStructure, onApplySql, onClose, createMode, createDatabases } = props
   const [current, setCurrent] = useState(null)
   const [loadedKey, setLoadedKey] = useState('')
   const [draft, setDraft] = useState(null)
@@ -66,6 +66,9 @@ export default function DbTableDesign (props) {
   const [picked, setPicked] = useState([])
   // N7 新建表：表名由本弹层收（只在 create 模式出现）
   const [newTableName, setNewTableName] = useState('')
+  // N7 新建表：目标库默认跟随打开的那张表，弹层里可下拉换（只影响生成 SQL 的
+  // 全限定前缀 db.table；执行仍走 SQL 编辑器，语义不变）
+  const [createDb, setCreateDb] = useState('')
   const tokenRef = useRef(0)
 
   const key = locKey(loc)
@@ -123,6 +126,7 @@ export default function DbTableDesign (props) {
     if (createMode) {
       setDraft(emptyDraft())
       setNewTableName('')
+      setCreateDb((loc && loc.database) || '')
       setPicked([])
     } else {
       setDraft(null)
@@ -168,7 +172,7 @@ export default function DbTableDesign (props) {
         return null
       }
       const res = createTableDdl(draft, dialect, {
-        database: (loc && loc.database) || '',
+        database: createDb || (loc && loc.database) || '',
         table: newTableName.trim()
       })
       return {
@@ -186,7 +190,13 @@ export default function DbTableDesign (props) {
       return null
     }
     return designPreview({ current, draft, dialect, loc })
-  }, [draft, loadedKey, key, current, dialect, loc, createMode, newTableName])
+  }, [draft, loadedKey, key, current, dialect, loc, createMode, newTableName, createDb])
+
+  // 目标库下拉：owner 打开弹层时拉好的库列表；没拉到就退化为当前库一项
+  const createDbOptions = useMemo(() => ((createDatabases && createDatabases.length
+    ? createDatabases
+    : [createDb || (loc && loc.database) || '']
+  ).filter(Boolean).map(n => ({ value: n, label: n }))), [createDatabases, createDb, loc])
 
   const items = preview ? preview.items : []
   const issues = preview ? preview.issues : []
@@ -351,6 +361,16 @@ export default function DbTableDesign (props) {
           createMode
             ? (
               <div className='db-design-comment'>
+                <span className='db-design-label'>{e('dbCreateTableDb')}</span>
+                <Select
+                  size='small'
+                  className='db-design-db-select'
+                  value={createDb}
+                  options={createDbOptions}
+                  onChange={v => setCreateDb(v)}
+                  showSearch
+                  optionFilterProp='label'
+                />
                 <span className='db-design-label'>{e('dbCreateTableName')}</span>
                 <Input
                   size='small'

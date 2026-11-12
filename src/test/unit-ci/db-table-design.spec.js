@@ -376,26 +376,35 @@ describe('N3b 组件边界：只呈现，不生成、不执行', () => {
     assert.match(view, /setPicked\(\[\]\)\s*\n\s*\}, \[preview\]\)/, '草稿一改就作废勾选')
   })
 
-  test('入口按钮在结构页工具行，视图没有入口（Redis 整个不挂）', () => {
+  test('入口按钮在会话页签栏右侧，结构区不再重复', () => {
     const area = read(AREA)
     assert.match(area, /\{e\('dbDesign'\)\}/, '工具条按钮文案缺失')
     assert.match(area, /onClick=\{openTableDesign\}/)
     assert.match(area, /structureV2\.type !== 'view'/, '视图没有可 ALTER 的列与索引')
-    // N7 新建表：常驻入口（不依赖已选表），能力开关走 canCreateTable
-    assert.match(area, /canCreateTable\s*\?/, '新建表按钮缺失')
-    assert.match(area, /onClick=\{openCreateTable\}/)
+    // N7 迭代：新建表入口从结构区工具行迁到顶部页签栏（tabBarExtraContent，
+    // 会话页签之后），结构区不再有第二个入口
+    assert.doesNotMatch(area, /dbCreateTable/, '结构区不该再有新建表按钮')
     const s = read(SESSION)
+    assert.match(s, /createTableExtra = dialect === 'mysql'/, '新建表方言开关只在 owner 一处')
+    assert.match(s, /tabBarExtraContent=\{createTableExtra\}/, '入口要挂在页签栏右侧')
     assert.match(s, /<DbTableDesign[\s\S]{0,600}open=\{structDesign\.open\}/)
-    assert.match(s, /<DbTableDesign[\s\S]{0,600}createMode=\{structDesign\.create === true\}/)
-    assert.match(s, /<DbTableDesign[\s\S]{0,600}loadStructure=\{loadFreshStructure\}/)
-    assert.match(s, /<DbTableDesign[\s\S]{0,600}onApplySql=\{s => applyGeneratedSql\(s, closeTableDesign\)\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,700}createMode=\{structDesign\.create === true\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,700}createDatabases=\{structDesign\.databases\}/, '库列表要传进设计器')
+    assert.match(s, /<DbTableDesign[\s\S]{0,700}loadStructure=\{loadFreshStructure\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,700}onApplySql=\{s => applyGeneratedSql\(s, closeTableDesign\)\}/)
     assert.match(s, /!isRedis\s*\?\s*\(\s*<DbTableDesign/, 'Redis 实例不该有表设计器')
     assert.match(s, /openTableDesign=\{openTableDesign\}/, '入口要接到 owner 的 handler')
-    assert.match(s, /canCreateTable=\{dialect === 'mysql'\}/, '新建表方言开关只在 owner 一处')
     // N7 修复：没打开过表时 sel 为 null，不许静默返回（用户视角=点了没反应）
     assert.match(read(HOOK),
       /message\.warning\(window\.translate\('dbCreateTableNeedDb'\)\)/,
       '无库上下文要给可行动提示')
+    // N7 迭代：弹层里目标库可下拉换（默认跟随打开的表）；库列表打开时拉一次
+    assert.match(read(HOOK), /'show databases'/, 'openCreateTable 要拉库列表')
+    assert.match(read(HOOK), /databases\s*,\s*\n\s*loc:/, '库列表要落进 structDesign')
+    const view = read(VIEW)
+    assert.match(view, /createDatabases/, '设计器要接库列表 prop')
+    assert.match(view, /database: createDb \|\| \(loc && loc\.database\) \|\| ''/, '生成 SQL 的库名走下拉选中值')
+    assert.match(view, /db-design-db-select/, '目标库下拉要渲染出来')
   })
 
   test('N7 create 模式草稿形状自守：foreignKeys 缺失不许炸渲染', () => {

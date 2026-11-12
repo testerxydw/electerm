@@ -4158,8 +4158,6 @@ export default auto(function DbSession (props) {
       openErGraph={openErGraph}
       openStructureDiff={openStructureDiff}
       openTableDesign={openTableDesign}
-      openCreateTable={openCreateTable}
-      canCreateTable={dialect === 'mysql'}
       structureV2={structureV2}
       exportDictionary={exportDictionary}
       structColumns={structColumns}
@@ -4291,6 +4289,24 @@ export default auto(function DbSession (props) {
     />
   )
 
+  // N7 新建表入口放页签栏右侧（会话页签之后）：不依赖已选表（建新表恰恰发生在
+  // 没有表可选的时候）。能力开关只看方言——只读连接里点开弹层仍能浏览设计，
+  // 写入走既有的 apply/写护栏
+  const createTableExtra = dialect === 'mysql'
+    ? (
+      <Button
+        size='small'
+        type='primary'
+        ghost
+        className='db-create-table-extra'
+        icon={<PlusOutlined />}
+        onClick={openCreateTable}
+      >
+        {e('dbCreateTable')}
+      </Button>
+      )
+    : null
+
   const mainArea = isRedis
     ? redisArea
     : (
@@ -4327,6 +4343,7 @@ export default auto(function DbSession (props) {
             children: <DbSessions tabId={tabId} dbType={tab.dbType} />
           }
         ]}
+        tabBarExtraContent={createTableExtra}
       />
       )
 
@@ -4809,6 +4826,7 @@ export default auto(function DbSession (props) {
               open={structDesign.open}
               loc={structDesign.loc}
               createMode={structDesign.create === true}
+              createDatabases={structDesign.databases}
               dialect={dialect}
               loadStructure={loadFreshStructure}
               onApplySql={s => applyGeneratedSql(s, closeTableDesign)}

@@ -179,12 +179,9 @@ async function main () {
       await waitExpr(PU, 'document.querySelector(\'.db-tabs\')', 'tabs'))
 
     // ---- 1. 没打开过表：点新建表必须出提示，不许静默也不许崩 ----
-    // 先切到「表结构」页签（forceRender 已挂载，未激活的 pane 点不到里面）
-    check('切到表结构页签',
-      await cdpEval(PU, clickByText('.ant-tabs-tab', ['表结构', 'Table structure'])),
-      'tab label 未找到')
-    check('未开表时点「新建表」有响应',
-      await cdpEval(PU, clickByText('.db-struct-area button', ['新建表', 'new table'])),
+    // 入口在顶部页签栏右侧（tabBarExtraContent），不依赖任何页签
+    check('未开表时点「新建表」有响应（页签栏入口）',
+      await cdpEval(PU, clickByText('.db-create-table-extra', ['新建表', 'new table'])),
       '按钮未找到')
     check('warning 提示出现',
       await waitExpr(PU,
@@ -223,8 +220,14 @@ async function main () {
       })()`)
     check('展开库节点', !!dbClicked, { dbNames })
     await wait(1200)
+    // 只点基础表：视图进设计器没有结构行（探针上一版踩过 sel 落位假失败）
     const tbls = parse(await cdpEval(PU, op('dbClientOp', bm.id, 'executeSql',
-      { sql: 'show tables from `' + dbClicked + '`', database: dbClicked })))
+      {
+        sql: 'select table_name t from information_schema.tables ' +
+          "where table_schema = '" + dbClicked.replace(/'/g, "''") + "' " +
+          "and table_type = 'BASE TABLE' order by table_name limit 1",
+        database: dbClicked
+      })))
     const tblName = tbls.results[0].rows.length
       ? String(Object.values(tbls.results[0].rows[0])[0])
       : ''
@@ -241,21 +244,23 @@ async function main () {
         return false
       })(),
       tblName + ' leaf 未找到')
-    // 打开一张表后 sel 落位：结构区第二行工具（DDL 等）只在 structure.rows
-    // 有行时渲染 —— .ant-table 在工作台首页就存在，不能当判据（假阳性教训）
+    // 打开一张表后 sel 落位：data 页签（默认激活）的 workspaceHome 被 dataArea
+    // 替换，网格出现。.ant-table 在工作台首页就存在，不能当判据（假阳性教训）
     check('表已打开（sel 落位）',
       await waitExpr(PU,
-        'document.querySelectorAll(\'.db-struct-area .db-struct-tools\').length >= 2', 'structrows'),
-      '结构行未出现')
+        'document.querySelector(\'.db-grid-table-wrap\')', 'gridwrap'),
+      '网格未出现')
 
     // ---- 3. 再点新建表：弹层必须打开且无渲染错误（原 TypeError 回归锁） ----
-    // 打开表后主区切回 data 页签，先切回结构区再点（与用户操作同序）；
-    // 页签切换与 React 重渲染有竞态，重试直到弹层标题出现
+    // 入口在页签栏，任何页签下都可见可点；弹层打开条件与页签切换解耦，
+    // 只剩 React 渲染时序竞态，重试直到弹层标题出现。
+    // 备选库：保证下拉至少两个选项，切换判据可执行
+    const ALT_DB = 'ui_probe_alt_db'
+    parse(await cdpEval(PU, op('dbClientOp', bm.id, 'executeSql',
+      { sql: 'CREATE DATABASE IF NOT EXISTS `' + ALT_DB + '`', database: dbClicked })))
     let modalOpen = false
     for (let i = 0; i < 8 && !modalOpen; i++) {
-      await cdpEval(PU, clickByText('.ant-tabs-tab', ['表结构', 'Table structure']))
-      await wait(800)
-      await cdpEval(PU, clickByText('.db-struct-area button', ['新建表', 'new table']))
+      await cdpEval(PU, clickByText('.db-create-table-extra', ['新建表', 'new table']))
       await wait(1500)
       modalOpen = await cdpEval(PU,
         '[...document.querySelectorAll(\'.ant-modal-title\')].some(x => /新建表|new table/.test(x.textContent))')
@@ -264,6 +269,75 @@ async function main () {
     const errs2 = await cdpEval(PU, 'window.__uiErrors')
     check('create 模式渲染无 TypeError（emptyDraft.foreignKeys 回归锁）',
       errs2.length === 0, errs2)
+
+    // ---- 3.5 目标库下拉：默认跟随打开的表，可切到其它库 ----
+    check('目标库下拉在', await waitExpr(PU,
+      'document.querySelector(\'.db-design-db-select\')', 'dbselect'), '下拉未渲染')
+    check('目标库默认=打开表的库',
+      await cdpEval(PU, `
+        (function () {
+          const sel = document.querySelector('.db-design-db-select')
+          // antd6 单选显示值在 .ant-select-content（title 属性=选中值）
+          const v = sel && sel.querySelector('.ant-select-content')
+          return v && v.getAttribute('title') === ${JSON.stringify(dbClicked)}
+        })()`),
+      {
+        want: dbClicked,
+        title: (await cdpEval(PU, `
+          (function () {
+            const c = document.querySelector('.db-design-db-select .ant-select-content')
+            return c ? c.getAttribute('title') : 'NO-CONTENT'
+          })()`)),
+        treeHit: dbClicked
+      })
+    // antd6 Select 的打开事件路径与 antd5 不同（mousedown/click 落点不一），
+    // 多策略尝试，以 aria-expanded=true 为准
+    const openDbSelect = `
+      (function () {
+        const root = document.querySelector('.db-design-db-select')
+        if (!root) return 'NO-SELECT'
+        const input = root.querySelector('.ant-select-input')
+        const ev = type => new MouseEvent(type, { bubbles: true, cancelable: true })
+        root.dispatchEvent(ev('mousedown'))
+        if (input) input.dispatchEvent(ev('mousedown'))
+        root.dispatchEvent(ev('click'))
+        return root.querySelector('.ant-select-input') &&
+          root.querySelector('.ant-select-input').getAttribute('aria-expanded')
+      })()`
+    const isOpen = async () => await cdpEval(PU, `
+      (function () {
+        const i = document.querySelector('.db-design-db-select .ant-select-input')
+        return !!(i && i.getAttribute('aria-expanded') === 'true')
+      })()`)
+    // antd6 下拉：aria 镜像 div（无事件）与真实项并存。真实项文本含 icon 的
+    // 零宽空格，必须按 .ant-select-item-option-content 精确匹配后点其父项
+    const pickOption = alt => `
+      (function () {
+        const sel = ${JSON.stringify(alt)}
+        const contents = [...document.querySelectorAll('.ant-select-item-option-content')]
+        const c = contents.find(x => (x.textContent || '').trim() === sel)
+        const el = c && c.closest('.ant-select-item')
+        if (!el) return false
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+        return true
+      })()`
+    // 打开下拉的重试封装
+    const ensureOpen = async () => {
+      for (let i = 0; i < 5; i++) {
+        await cdpEval(PU, openDbSelect)
+        if (await isOpen()) return true
+        await wait(800)
+      }
+      return false
+    }
+    check('打开下拉', await ensureOpen(), '下拉打不开')
+    await wait(600)
+    check('备选库选项在', await cdpEval(PU, pickOption(ALT_DB)), '下拉选项未找到')
+    check('切到备选库生效',
+      await waitExpr(PU,
+        `document.querySelector('.db-design-db-select .ant-select-content') && document.querySelector('.db-design-db-select .ant-select-content').getAttribute('title') === ${JSON.stringify(ALT_DB)}`,
+        'alt-selected'),
+      '选中值未变成备选库')
 
     // ---- 4. 填表名 + 填预置列名 → 预览渲染 CREATE TABLE（渲染链完整） ----
     // 只填表名时预置空列会被 createTableDdl 判 bad-column-name（reason 展示，
@@ -292,10 +366,34 @@ async function main () {
         '[...document.querySelectorAll(\'.db-design-sql\')].some(x => x.textContent.includes(\'CREATE TABLE\'))',
         'preview'),
       '预览未出现')
+    // 3.5 已切到备选库 —— 预览的全限定前缀必须跟着走
+    check('切换库后预览前缀跟着变',
+      await waitExpr(PU,
+        '[...document.querySelectorAll(\'.db-design-sql\')].some(x => x.textContent.includes(\'`ui_probe_alt_db`.`ui_probe_t`\'))',
+        'alt-prefix'),
+      '前缀未变成备选库')
+    // 切回原库，验证双向
+    check('再开下拉', await ensureOpen(), '下拉打不开')
+    await wait(600)
+    check('切回原库',
+      await cdpEval(PU, pickOption(dbClicked)) &&
+        await waitExpr(PU,
+          `document.querySelector('.db-design-db-select .ant-select-content') && document.querySelector('.db-design-db-select .ant-select-content').getAttribute('title') === ${JSON.stringify(dbClicked)}`,
+          'back-selected'),
+      '原库选项未找到')
+    check('切回后前缀还原',
+      await waitExpr(PU,
+        '[...document.querySelectorAll(\'.db-design-sql\')].some(x => x.textContent.includes(\'`' + dbClicked + '`.`ui_probe_t`\'))',
+        'back-prefix'),
+      '前缀未还原')
     const errs3 = await cdpEval(PU, 'window.__uiErrors')
     check('全程零渲染错误', errs3.length === 0, errs3)
 
     // ---- 清理 ----
+    try {
+      parse(await cdpEval(PU, op('dbClientOp', bm.id, 'executeSql',
+        { sql: 'DROP DATABASE IF EXISTS `ui_probe_alt_db`', database: dbClicked })))
+    } catch (e) {}
     await cdpEval(PU, op('closeDbTab', bm.id))
     console.log('\n== 清理完成 ==')
   } catch (e) {

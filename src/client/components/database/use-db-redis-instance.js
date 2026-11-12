@@ -111,15 +111,32 @@ export function useDbRedisInstance ({ tabId, sel }) {
 
   // N7 新建表：设计器的 create 模式（空基准 + 表名输入框）。库取当前选中的
   // database 段 —— 没有库上下文时不能静默返回（用户视角就是"点了没反应"），
-  // 给一条可行动的提示：目标库跟着"打开的那张表"走
-  const openCreateTable = () => {
+  // 给一条可行动的提示：目标库跟着"打开的那张表"走。库列表顺手拉一次
+  // （show databases），弹层里下拉可换目标库；拉取失败不拦着开弹层，
+  // 退化为只有当前库一项（CREATE TABLE 带全限定前缀，执行语义不变）
+  const openCreateTable = async () => {
     if (!sel || !sel.database) {
       message.warning(window.translate('dbCreateTableNeedDb'))
       return
     }
+    let databases = []
+    try {
+      const r = await window.pre.runGlobalAsync(
+        'dbClientOp', tabId, 'executeSql', { sql: 'show databases', database: sel.database }
+      )
+      databases = ((r && r.results && r.results[0] && r.results[0].rows) || [])
+        .map(row => String(Object.values(row)[0]))
+        .filter(n => !/^(information_schema|performance_schema|sys|mysql)$/i.test(n))
+      if (!databases.includes(sel.database)) {
+        databases.unshift(sel.database)
+      }
+    } catch (err) {
+      databases = [sel.database]
+    }
     setStructDesign({
       open: true,
       create: true,
+      databases,
       loc: { database: sel.database, schema: sel.schema || '', table: '' }
     })
   }

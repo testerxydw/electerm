@@ -12,8 +12,7 @@ import {
   NodeIndexOutlined,
   DiffOutlined,
   BuildOutlined,
-  DownloadOutlined,
-  PlusOutlined
+  DownloadOutlined
 } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 
@@ -30,8 +29,6 @@ export default function DbStructureArea ({
   openErGraph,
   openStructureDiff,
   openTableDesign,
-  openCreateTable,
-  canCreateTable,
   structureV2,
   exportDictionary,
   structColumns,
@@ -39,26 +36,6 @@ export default function DbStructureArea ({
 }) {
   return (
     <div className='db-struct-area'>
-      {
-        // N7 新建表：常驻入口，不依赖"已选中一张表"（建新表恰恰发生在没有表可选的
-        // 时候）。能力开关走 canCreateTable（目前只放 mysql，方言拼串在
-        // db-ddl-generate.createTableDdl 里以白名单把关）
-        canCreateTable
-          ? (
-            <div className='db-struct-tools'>
-              <Button
-                size='small'
-                type='primary'
-                ghost
-                icon={<PlusOutlined />}
-                onClick={openCreateTable}
-              >
-                {e('dbCreateTable')}
-              </Button>
-            </div>
-            )
-          : null
-      }
       {
         // 工具行：只要结构表有行就留着。原来只在 mysql 系（有 DDL 按钮）时渲染，
         // 那样 PG 就没有任何地方点"自适应全部列"（H1a-2）—— 行集有列就该有列宽工具

@@ -446,6 +446,7 @@ const en = {
   dbRedisCreateKeyHintset: 'one member per line; duplicate members are ignored by SADD',
   // N7 新建表（设计器 create 模式 → CREATE TABLE 候选脚本）
   dbCreateTable: 'new table',
+  dbCreateTableDb: 'database',
   dbCreateTableName: 'table name',
   dbCreateTableNeedDb: 'open a table first — the target database follows the table you opened',
   dbCreateReasonDialect: 'CREATE TABLE is not generated for this dialect yet (mysql only for now)',
@@ -1922,6 +1923,7 @@ const zhCn = {
   dbRedisCreateKeyHintset: '每行一个成员，重复成员会被 SADD 自动去重',
   // N7 新建表（设计器 create 模式 → CREATE TABLE 候选脚本）
   dbCreateTable: '新建表',
+  dbCreateTableDb: '目标库',
   dbCreateTableName: '表名',
   dbCreateTableNeedDb: '请先打开一张表——新建表的目标库跟随当前打开的表',
   dbCreateReasonDialect: '该方言暂不支持生成 CREATE TABLE（目前仅 MySQL）',
