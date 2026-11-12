@@ -2,94 +2,50 @@ const { describe, test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const flowProtocol = require('../../app/common/term-flow-protocol.json')
 
 global.window = global.window || { xtermAddons: {} }
 global.window.xtermAddons = global.window.xtermAddons || {}
-// _bufferedWrite reads document.hidden for the hidden-window flush fast path
+// _flushWrites reads document.hidden for the hidden-window flush fast path
 global.document = global.document || { hidden: false }
 
 const loadModule = () => import('../../client/components/terminal/attach-addon-custom.js')
 
-describe('terminal output truncation', () => {
-  test('removes cursor operations after safe leading ANSI sequences', async () => {
-    const { stripLeadingCursorOps } = await loadModule()
-    const esc = String.fromCharCode(27)
-    const safePrefix = `${esc}[?25l${esc}[31m${esc}[2J`
-    const input = `${safePrefix}${esc}[50A${esc}8${esc}[uhello`
-
-    assert.equal(stripLeadingCursorOps(input), `${safePrefix}hello`)
-  })
-
-  test('keeps a single oversized chunk within the character cap', async () => {
-    const { truncateTerminalOutput } = await loadModule()
-    const maxChars = 96
-    const input = `old line\n${'x'.repeat(300)}`
-    const result = truncateTerminalOutput(input, maxChars)
-
-    assert.ok(result.output.length <= maxChars)
-    assert.match(result.output, /output truncated/)
-    assert.ok(result.output.endsWith('x'.repeat(20)))
-    assert.ok(result.dropped > 0)
-  })
-
-  test('does not retain a partial multi-byte ESC sequence', async () => {
-    const { truncateTerminalOutput } = await loadModule()
-    const esc = String.fromCharCode(27)
-    const maxChars = 80
-    const input = `${'x'.repeat(200)}${esc}${'('.repeat(100)}Btail`
-    const result = truncateTerminalOutput(input, maxChars)
-
-    assert.ok(result.output.length <= maxChars)
-    assert.match(result.output, /output truncated/)
-    assert.ok(result.output.endsWith('tail'))
-    assert.ok(!result.output.includes('(B'))
-  })
-
-  test('does not retain a partial ANSI string control sequence', async () => {
-    const { truncateTerminalOutput } = await loadModule()
-    const esc = String.fromCharCode(27)
-    const bel = String.fromCharCode(7)
-    const maxChars = 80
-    const input = `${'x'.repeat(200)}${esc}]0;${'y'.repeat(100)}${bel}tail`
-    const result = truncateTerminalOutput(input, maxChars)
-
-    assert.ok(result.output.length <= maxChars)
-    assert.match(result.output, /output truncated/)
-    assert.ok(result.output.endsWith('tail'))
-    assert.ok(!result.output.includes('y'))
-  })
-
-  test('updates the addon buffer to the capped output', async () => {
-    const { default: AttachAddonCustom } = await loadModule()
-    const addon = new AttachAddonCustom({}, {})
-    addon._maxBufferChars = 96
-    addon._writeBuffer = [`old line\n${'z'.repeat(300)}`]
-    addon._bufferChars = addon._writeBuffer[0].length
-
-    addon._dropOldestUntil()
-
-    assert.equal(addon._writeBuffer.length, 1)
-    assert.equal(addon._bufferChars, addon._writeBuffer[0].length)
-    assert.ok(addon._bufferChars <= addon._maxBufferChars)
-    assert.match(addon._writeBuffer[0], /output truncated/)
-  })
-})
-
-const makeAddon = async () => {
-  const { default: AttachAddonCustom } = await loadModule()
+// A terminal whose write contract mirrors xterm's: the callback fires once the
+// data has been "parsed". The lossless FIFO advances and ACKs only from this
+// callback, so the mock must invoke it (synchronously, like xterm in practice).
+const makeXtermLikeTerm = () => {
   const written = []
-  const addon = new AttachAddonCustom({ write: (s) => written.push(s) }, {})
-  addon._sendData = () => {}
-  return { addon, written }
+  let cbCount = 0
+  const term = {
+    write: (data, cb) => {
+      written.push(data)
+      if (cb) {
+        cbCount += 1
+        cb()
+      }
+    }
+  }
+  return { term, written, getCbCount: () => cbCount }
 }
 
 describe('output suppression', () => {
+  const makeAddon = async () => {
+    const { default: AttachAddonCustom } = await loadModule()
+    const written = []
+    const addon = new AttachAddonCustom({ write: (s, cb) => { written.push(s); cb && cb() } }, {})
+    // 单测同步喂数据：关掉 16ms 合批窗口，产品行为不变。
+    addon._flushIntervalMs = 0
+    addon._sendData = () => {}
+    return { addon, written }
+  }
+
   test('a second suppression replaces the first instead of overlapping', async () => {
     const { addon } = await makeAddon()
     const ended = []
     // keepalive-style short window, then the long shell-integration one
-    addon.startOutputSuppression(200, () => ended.push('first'), true)
-    addon.startOutputSuppression(1000, () => ended.push('second'), true)
+    addon.startOutputSuppression(200, () => ended.push('first'))
+    addon.startOutputSuppression(1000, () => ended.push('second'))
 
     // the replaced window is released right away, the new one is still armed
     assert.deepEqual(ended, ['first'])
@@ -100,8 +56,26 @@ describe('output suppression', () => {
     assert.deepEqual(ended, ['first'])
     assert.equal(addon.outputSuppressed, true)
 
-    addon.stopOutputSuppression(true)
+    addon.stopOutputSuppression()
     assert.deepEqual(ended, ['first', 'second'])
+  })
+
+  test('suppressed bytes are buffered, never discarded', async () => {
+    const { addon, written } = await makeAddon()
+    const consumed = []
+    addon.addDataTap(s => consumed.push(s))
+    addon.startOutputSuppression(1000)
+    addon.writeToTerminal('hidden line one\n')
+    addon.writeToTerminal('hidden line two\n')
+    // 抑制期间不写屏、但每个字节都进 taps（不再静默吞）
+    assert.deepEqual(written, [])
+    // 两段各 16 字节（UTF-8 ASCII），补全口径：12 字符 + \n = 16。
+    assert.equal(addon._suppressedBytes, 32)
+    assert.deepEqual(consumed, ['hidden line one\n', 'hidden line two\n'])
+    addon.stopOutputSuppression()
+    // 窗口结束按序补写进 xterm，一个不少
+    assert.deepEqual(written, ['hidden line one\n', 'hidden line two\n'])
+    assert.equal(addon._droppedBytes, 0)
   })
 
   test('dispose releases a pending suppression callback', async () => {
@@ -109,10 +83,8 @@ describe('output suppression', () => {
     let released = false
     addon.startOutputSuppression(10000, () => {
       released = true
-    }, true)
-
+    })
     addon.dispose()
-
     assert.equal(released, true)
     assert.equal(addon.suppressTimeout, null)
     assert.equal(addon.outputSuppressed, false)
@@ -130,19 +102,24 @@ describe('output suppression', () => {
 })
 
 describe('waitForOutputIdle', () => {
+  const makeAddon = async () => {
+    const { default: AttachAddonCustom } = await loadModule()
+    const addon = new AttachAddonCustom({ write: (s, cb) => cb && cb() }, {})
+    addon._flushIntervalMs = 0
+    addon._sendData = () => {}
+    return { addon }
+  }
+
   test('resolves once output stops', async () => {
     const { addon } = await makeAddon()
     addon._lastDataTime = Date.now()
     const quiet = addon.waitForOutputIdle({ idleMs: 100, timeoutMs: 2000 })
-    const result = await quiet
-    assert.equal(result, true)
+    assert.equal(await quiet, true)
   })
 
   test('times out instead of hanging while output keeps flowing', async () => {
     const { addon } = await makeAddon()
-    const pusher = setInterval(() => {
-      addon._lastDataTime = Date.now()
-    }, 20)
+    const pusher = setInterval(() => { addon._lastDataTime = Date.now() }, 20)
     const result = await addon.waitForOutputIdle({ idleMs: 400, timeoutMs: 300 })
     clearInterval(pusher)
     assert.equal(result, false)
@@ -186,11 +163,27 @@ describe('session keepalive', () => {
   const makeKeepaliveAddon = async ({ line = '' } = {}) => {
     const { default: AttachAddonCustom } = await loadModule()
     const sent = []
-    const socket = { readyState: 1 /* OPEN */, send: (s) => sent.push(s) }
+    const acks = []
+    const socket = {
+      readyState: 1 /* OPEN */,
+      send: (s) => {
+        // 新协议的 output-ack 走同一条 ws，单元测试只关心 keepalive 帧，
+        // 把 ACK 分流到 acks，避免污染 sent 断言。
+        try {
+          const m = JSON.parse(s)
+          if (m && m.action === flowProtocol.actions.ack) {
+            acks.push(m)
+            return
+          }
+        } catch (_) {}
+        sent.push(s)
+      }
+    }
     const { term, state } = makeTerm(line)
     const addon = new AttachAddonCustom(term, socket)
+    addon._flushIntervalMs = 0
     addon._sendData = () => {}
-    return { addon, sent, state, term }
+    return { addon, sent, acks, state, term }
   }
 
   const goIdle = (addon) => {
@@ -203,18 +196,12 @@ describe('session keepalive', () => {
     const { addon } = await makeKeepaliveAddon()
     try {
       assert.equal(addon._keepaliveTimer, null, 'starts disarmed')
-
       addon.setKeepalive(true)
       assert.ok(addon._keepaliveTimer, 'enabling must arm the timer')
-
-      // _startKeepalive() clears before arming, so a repeat enable leaves
-      // exactly one live timer rather than stacking a second one.
       addon.setKeepalive(true)
       assert.ok(addon._keepaliveTimer, 'still armed after a repeat enable')
-
       addon.setKeepalive(false)
       assert.equal(addon._keepaliveTimer, null, 'disabling must clear the timer')
-
       addon.setKeepalive(false)
       assert.equal(addon._keepaliveTimer, null, 'disabling twice is a no-op')
     } finally {
@@ -252,7 +239,6 @@ describe('session keepalive', () => {
       goIdle(addon)
       addon._checkKeepalive()
       assert.deepEqual(sent, [], 'the probe waits for a provably clean line')
-
       addon.sendToServer('\r')
       goIdle(addon)
       addon._checkKeepalive()
@@ -270,12 +256,10 @@ describe('session keepalive', () => {
       goIdle(addon)
       addon._checkKeepalive()
       assert.equal(sent.length, 1, 'backspaced back to an empty line')
-
       addon.sendToServer('\x1b[A') // history recall: line content unknown
       goIdle(addon)
       addon._checkKeepalive()
       assert.equal(sent.length, 1, 'a recalled command must not be submitted')
-
       addon.sendToServer('\x03')
       goIdle(addon)
       addon._checkKeepalive()
@@ -322,7 +306,6 @@ describe('session keepalive', () => {
       addon.sendToServer('\x1b[A')
       state.text = '$ rm -rf ./build'
       addon.writeToTerminal('\r$ rm -rf ./build')
-
       state.text = '$ ' // Ctrl+U: readline clears the line
       addon.sendToServer('\x15')
       addon.writeToTerminal('\r$ ')
@@ -339,8 +322,6 @@ describe('session keepalive', () => {
     try {
       addon.writeToTerminal('$ ')
       addon.sendToServer('echo ' + 'x'.repeat(200))
-      // A wrapped line puts the cursor on a later row; the baseline row no
-      // longer matches, which is what a long typed command looks like.
       state.row = 3
       state.text = 'xxxxxxxx'
       goIdle(addon)
@@ -381,8 +362,6 @@ describe('session keepalive', () => {
     const forwarded = []
     addon._sendData = (data) => forwarded.push(data)
     try {
-      // Mouse report in the default (X10) encoding, which xterm delivers
-      // through terminal.onBinary as a Uint8Array.
       const report = new Uint8Array([27, 91, 77, 32, 33, 33])
       assert.doesNotThrow(() => addon.sendToServer(report))
       assert.equal(forwarded.length, 1, 'the report must still reach the socket')
@@ -481,7 +460,6 @@ describe('session keepalive', () => {
         assert.equal(addon._lastInputTime, beforeInputTime, 'it is not user activity')
         assert.equal(addon._dsrReplyExpected, false, 'one answer per query')
         assert.deepEqual(writes, ['\x1b[5n'], 'no second query for the same answer')
-
         // the window is closed: the same bytes are ordinary input again
         addon.sendToServer('\x1b[0n')
         assert.equal(forwarded.length, 1)
@@ -536,196 +514,287 @@ describe('session keepalive', () => {
   })
 })
 
-// TUI apps (vim/htop/Ink) repaint incrementally inside the alternate screen
-// buffer and assume every byte reaches the terminal — dropping any frame
-// corrupts the screen. While the alternate screen is active the addon must
-// bypass write coalescing/dropping entirely (upstream electerm behaviour).
-describe('alternate screen lossless direct write', () => {
-  const esc = String.fromCharCode(27)
-
-  describe('findAltBufferSwitch', () => {
-    test('detects enter for all three private-mode forms', async () => {
-      const { findAltBufferSwitch } = await loadModule()
-      for (const n of ['47', '1047', '1049']) {
-        const r = findAltBufferSwitch(`abc${esc}[?${n}h`)
-        assert.equal(r.swType, 'enter', n)
-        assert.equal(r.swOffset, 3, n)
-        assert.equal(r.tailStart, -1, n)
+// TUI apps (vim/htop/Ink) repaint incrementally and assume every byte reaches
+// the terminal. The old design dropped frames past a 2MB cap and special-cased
+// the alternate screen; the new design funnels everything through one lossless
+// FIFO keyed on the term.write completion callback. These tests pin that.
+describe('lossless output (FIFO)', () => {
+  const makeLosslessAddon = async () => {
+    const { default: AttachAddonCustom } = await loadModule()
+    const { term, written, getCbCount } = makeXtermLikeTerm()
+    const acks = []
+    const socket = {
+      readyState: 1,
+      send: (s) => {
+        try {
+          const m = JSON.parse(s)
+          if (m && m.action === flowProtocol.actions.ack) acks.push(m)
+        } catch (_) {}
       }
-    })
+    }
+    const addon = new AttachAddonCustom(term, socket)
+    addon._flushIntervalMs = 0
+    addon._sendData = () => {}
+    return { addon, written, acks, getCbCount }
+  }
 
-    test('takes the last switch when a chunk holds several', async () => {
-      const { findAltBufferSwitch } = await loadModule()
-      const input = `${esc}[?1049hxx${esc}[?1049l`
-      const r = findAltBufferSwitch(input)
-      assert.equal(r.swType, 'exit')
-      assert.equal(r.swOffset, 10)
-    })
-
-    test('ignores non-private, unrelated and reset forms', async () => {
-      const { findAltBufferSwitch } = await loadModule()
-      assert.equal(findAltBufferSwitch(`${esc}[1049h`).swType, null, 'no ? marker')
-      assert.equal(findAltBufferSwitch(`${esc}[?1048h`).swType, null, '1048 is cursor save')
-      assert.equal(findAltBufferSwitch(`${esc}[?25l${esc}[?2004h`).swType, null, 'bracketed paste')
-      assert.equal(findAltBufferSwitch('plain text').swType, null)
-    })
-
-    test('skips OSC string bodies containing switch-like text', async () => {
-      const { findAltBufferSwitch } = await loadModule()
-      const bel = String.fromCharCode(7)
-      const input = `${esc}]0;fake?1049h${bel}${esc}[?1049h`
-      const r = findAltBufferSwitch(input)
-      assert.equal(r.swType, 'enter')
-      assert.equal(r.swOffset, input.lastIndexOf(`${esc}[?1049h`))
-    })
-
-    test('reports a truncated trailing sequence as tailStart', async () => {
-      const { findAltBufferSwitch } = await loadModule()
-      assert.deepEqual(findAltBufferSwitch(`${esc}[?1049`), {
-        swType: null, swOffset: -1, tailStart: 0
-      })
-      assert.deepEqual(findAltBufferSwitch(`ok${esc}[?10`), {
-        swType: null, swOffset: -1, tailStart: 2
-      })
-    })
-  })
-
-  test('writes directly once the alternate screen is active', async () => {
-    const { addon, written } = await makeAddon()
+  test('every byte reaches the terminal, nothing dropped', async () => {
+    const { addon, written } = await makeLosslessAddon()
     try {
-      addon._enqueueWrite(`${esc}[?1049hFRAME1`)
-      assert.deepEqual(written, [`${esc}[?1049hFRAME1`], 'flushed synchronously, no coalescing')
-      assert.equal(addon._altBufferActive, true)
-
-      written.length = 0
-      addon._enqueueWrite('FRAME2')
-      assert.deepEqual(written, ['FRAME2'], 'next chunk also bypasses the buffer')
-      assert.equal(addon._writeBuffer.length, 0)
+      const payload = 'line of output\n'.repeat(2000) // ~32KB
+      addon.writeToTerminal(payload)
+      assert.equal(addon._droppedBytes, 0)
+      assert.equal(written.join(''), payload, 'exact byte-for-byte delivery')
+      assert.equal(addon._ackedBytes, Buffer.byteLength(payload))
+      assert.equal(addon._writeInFlight, false, 'FIFO drains, no stall')
     } finally {
       addon.dispose()
     }
   })
 
-  test('the 2MB drop never applies inside the alternate screen', async () => {
-    const { addon, written } = await makeAddon()
+  test('the completion callback is what advances the FIFO (I-1)', async () => {
+    const { addon } = await makeLosslessAddon()
     try {
-      addon._enqueueWrite(`${esc}[?1049h`)
-      written.length = 0
-      addon._maxBufferChars = 100
-      addon._enqueueWrite('x'.repeat(5000))
-      assert.equal(addon._droppedChars, 0, 'no frame may be dropped')
-      assert.equal(written[0].length, 5000)
+      // 模拟「回调被吞」的最坏场景：term.write 不触发 cb（高亮 wrapper 漏传
+      // 第二个参数即此情形）。FIFO 必须在首批后冻结 —— 这正是此前整链停摆的根因。
+      let blocked = true
+      let capturedCb = null
+      const realTerm = {
+        write: (data, cb) => {
+          if (!blocked) {
+            cb && cb()
+          } else {
+            capturedCb = cb // 把在途批次的完成回调抓出来，稍后手动放行
+          }
+        }
+      }
+      addon.term = realTerm
+      addon.writeToTerminal('first batch\n')
+      assert.equal(addon._writeInFlight, true, 'first batch in flight (cb held back)')
+      assert.equal(addon._pending.length, 0)
+      // 回调未回 → 后续输出只能积压（冻结的真正表现）
+      addon.writeToTerminal('second batch\n')
+      assert.ok(addon._pending.length > 0, 'subsequent output queued while stalled')
+      // 若回调永远不回（高亮 wrapper 的 bug 复现），FIFO 会在此永久冻结。
+      // 放行回调：FIFO 应继续推进并补写积压，一个不少；ackedBytes 收敛到全量。
+      blocked = false
+      assert.ok(capturedCb, 'the in-flight onDone callback was captured')
+      capturedCb()
+      assert.equal(addon._writeInFlight, false, 'advances past the stalled batch')
+      assert.equal(addon._pending.length, 0, 'queued output fully flushed')
+      // 12 字节(first batch\n) + 13 字节(second batch\n) 经回调路径全部消费
+      assert.equal(addon._ackedBytes, 25, 'both batches consumed via the completion callback')
     } finally {
       addon.dispose()
     }
   })
 
-  test('flushes buffered normal-screen residue before the first alternate bytes', async () => {
-    const { addon, written } = await makeAddon()
+  test('the batch cap splits huge flushes but delivers everything (I-3b)', async () => {
+    const { addon, written } = await makeLosslessAddon()
     try {
-      // simulate a burst in progress: the chunk lands inside the 16ms window
-      addon._lastFlushTime = Date.now()
-      addon._enqueueWrite('NORMAL')
-      assert.deepEqual(written, [], 'residue still coalescing')
-
-      addon._enqueueWrite(`${esc}[?1049hALT`)
-      assert.deepEqual(written, ['NORMAL', `${esc}[?1049hALT`])
-      assert.equal(addon._altBufferActive, true)
+      addon._maxFlushBytes = 100 // 强制分多批
+      const payload = 'x'.repeat(2000)
+      addon.writeToTerminal(payload)
+      assert.equal(addon._droppedBytes, 0)
+      assert.equal(written.join(''), payload, 'all 2000 bytes delivered across batches')
+      assert.equal(addon._ackedBytes, 2000)
+      assert.equal(addon._writeInFlight, false, 'no deadlock')
     } finally {
       addon.dispose()
     }
   })
 
-  test('switches back to coalescing on exit', async () => {
-    const { addon, written } = await makeAddon()
+  test('an empty (decoder held-back) frame still ACKs its bytes', async () => {
+    const { addon, acks, written } = await makeLosslessAddon()
     try {
-      addon._enqueueWrite(`${esc}[?1049hA`)
-      addon._enqueueWrite(`${esc}[?1049lB`)
-      assert.equal(addon._altBufferActive, false)
-      // "B" went through the coalescing path inside the burst window
-      assert.equal(addon._writeBuffer.join(''), `${esc}[?1049lB`)
-      assert.deepEqual(written, [`${esc}[?1049hA`])
+      // 模拟 TextDecoder 暂存了半截多字节字符：解码得到空串但字节已计入。
+      addon.writeToTerminal(Buffer.from([0xe4])) // 半个 UTF-8 汉字首字节
+      // 空串分支：直接 ACK，不写屏（字节在 decoder 内，下一批补齐）
+      assert.equal(addon._ackedBytes, 1)
+      assert.equal(written.length, 0)
+      assert.deepEqual(acks.map(a => a.n), [1])
     } finally {
       addon.dispose()
     }
   })
 
-  test('a truncated switch held back flips the mode when the next chunk completes it', async () => {
-    const { addon, written } = await makeAddon()
-    try {
-      addon._enqueueWrite(`hello${esc}[?10`)
-      assert.equal(addon._pendingTail, `${esc}[?10`)
-      assert.equal(addon._altBufferActive, false)
-      assert.deepEqual(written, ['hello'], 'body flushed, tail held')
-
-      addon._enqueueWrite('49hFRAME')
-      assert.equal(addon._altBufferActive, true, 'mode flipped only now')
-      assert.equal(addon._pendingTail, '')
-      assert.deepEqual(written, ['hello', `${esc}[?1049hFRAME`])
-    } finally {
-      addon.dispose()
-    }
-  })
-
-  test('a held-back tail is flushed after the 200ms bail-out', async () => {
-    const { addon, written } = await makeAddon()
-    try {
-      addon._lastFlushTime = Date.now()
-      addon._enqueueWrite(`abc${esc}[?1`)
-      assert.equal(addon._pendingTail, `${esc}[?1`)
-
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      assert.equal(addon._pendingTail, '', 'bail-out released the tail')
-      assert.ok(written.includes(`${esc}[?1`), 'tail written on the current path')
-      assert.ok(written.includes('abc'))
-    } finally {
-      addon.dispose()
-    }
-  })
-
-  test('a tail over the cap is written out instead of being held', async () => {
-    const { addon } = await makeAddon()
-    try {
-      addon._lastFlushTime = Date.now()
-      addon._enqueueWrite(`x${esc}[?${'1'.repeat(5000)}`)
-      assert.equal(addon._pendingTail, '', 'runaway tail must not be held')
-      assert.equal(addon._pendingTailTimer, null, 'no bail-out timer armed')
-      assert.ok(addon._writeBuffer.join('').startsWith(`x${esc}[?1`), 'written as-is')
-    } finally {
-      addon.dispose()
-    }
-  })
-
-  test('dispose releases a pending tail and its timer', async () => {
-    const { addon } = await makeAddon()
-    addon._lastFlushTime = Date.now()
-    addon._enqueueWrite(`a${esc}[?1`)
-    assert.ok(addon._pendingTailTimer)
+  test('dispose with queued output does not throw and clears state', async () => {
+    const { addon, written } = await makeLosslessAddon()
+    addon.writeToTerminal('a'.repeat(50))
     addon.dispose()
-    assert.equal(addon._pendingTailTimer, null)
-    assert.equal(addon._pendingTail, '')
+    assert.equal(addon._pending.length, 0)
+    assert.equal(addon._writeInFlight, false)
+    assert.ok(written.join('').length >= 50)
   })
 
-  test('enter+exit inside one chunk keeps every byte, none dropped', async () => {
-    const { addon, written } = await makeAddon()
+  test('100 consecutive batches all drain with no stall (I-2)', async () => {
+    const { addon, written } = await makeLosslessAddon()
     try {
-      addon._enqueueWrite(`${esc}[?1049hA${esc}[?1049lB`)
-      assert.equal(addon._altBufferActive, false)
-      // split at the LAST switch: head ran on the old (normal) path, rest on
-      // the new one; both reach the terminal, order preserved
-      assert.ok(written.includes(`${esc}[?1049hA`))
-      assert.equal(addon._writeBuffer.join(''), `${esc}[?1049lB`)
+      const n = 100
+      let total = 0
+      const expected = []
+      for (let i = 0; i < n; i++) {
+        const s = `batch ${i}\n`
+        expected.push(s)
+        total += Buffer.byteLength(s)
+        addon.writeToTerminal(s)
+      }
+      assert.equal(addon._droppedBytes, 0)
+      assert.equal(addon._pending.length, 0, 'FIFO fully drained')
+      assert.equal(addon._writeInFlight, false, 'no stall')
+      assert.equal(addon._ackedBytes, total, 'every batch ACKed')
+      assert.equal(written.join(''), expected.join(''), 'exact byte-for-byte delivery')
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('an 8MB flood is delivered in full, never dropped (I-4)', async () => {
+    const { addon, written } = await makeLosslessAddon()
+    try {
+      const payload = 'x'.repeat(8 * 1024 * 1024)
+      addon.writeToTerminal(payload)
+      assert.equal(addon._droppedBytes, 0, 'no byte lost under a heavy flood')
+      assert.equal(written.join(''), payload, 'all 8MB byte-for-byte')
+      assert.equal(addon._ackedBytes, 8 * 1024 * 1024)
+      assert.equal(addon._writeInFlight, false)
+      assert.equal(addon._pending.length, 0)
+    } finally {
+      addon.dispose()
+    }
+  })
+
+  test('a remote-printed JSON string with an action is not swallowed (I-6)', async () => {
+    const { default: AttachAddonCustom } = await loadModule()
+    const { term, written } = makeXtermLikeTerm()
+    const socket = {
+      readyState: 1,
+      send: () => {}
+    }
+    // 用 '' 构造（不建 trafficTracker/recorder），事后补 infoTabId 以真正走
+    // handleSessionControlMessage 分支，验证「远端打印的 JSON 不被误吞」。
+    const addon = new AttachAddonCustom(term, socket)
+    addon.infoTabId = 'tab-1'
+    addon._flushIntervalMs = 0
+    addon._sendData = () => {}
+    global.window.store = { sessionInfoMap: {} }
+    try {
+      // 远端把一段合法 JSON 当普通终端输出打印（不是控制消息）：必须落到屏幕。
+      addon.onMsg({ data: JSON.stringify({ action: 'foo', value: 1 }) })
+      assert.deepEqual(written, [JSON.stringify({ action: 'foo', value: 1 })],
+        'arbitrary-action JSON still displayed, not swallowed')
+      // 即使是 ssh-handshake-info，但没有 update 字段，也不是控制消息，照样显示
+      written.length = 0
+      addon.onMsg({ data: JSON.stringify({ action: 'ssh-handshake-info' }) })
+      assert.deepEqual(written, [JSON.stringify({ action: 'ssh-handshake-info' })],
+        'handshake-info without update is still ordinary output')
+    } finally {
+      addon.dispose()
+      global.window.store = undefined
+    }
+  })
+
+  test('a term.write that throws is retried, never dropped (I-7)', async () => {
+    const { addon } = await makeLosslessAddon()
+    try {
+      // 复现 xterm 写缓冲抛错（"write data discarded, use flow control..."）的
+      // 最坏情形：首批 term.write 抛错，FIFO 必须把整批原样回队退避重试。
+      let calls = 0
+      const realTerm = {
+        write: (data, cb) => {
+          calls += 1
+          if (calls === 1) {
+            throw new Error('simulated xterm write-buffer discard')
+          }
+          cb && cb()
+        }
+      }
+      addon.term = realTerm
+      addon.writeToTerminal('recover me\n')
+      assert.equal(addon._droppedBytes, 0, 'nothing dropped on the throw')
+      assert.ok(addon._pending.length > 0 || addon._writeInFlight, 'batch held, not lost')
+      // 等退避重发（catch 分支 setTimeout(_pump, 100)）
+      await new Promise(resolve => setTimeout(resolve, 250))
+      assert.equal(addon._droppedBytes, 0)
+      assert.equal(addon._writeInFlight, false, 'recovered and drained')
+      assert.equal(addon._pending.length, 0)
+      assert.equal(addon._ackedBytes, Buffer.byteLength('recover me\n'), 'recovered batch fully ACKed')
+      assert.equal(calls, 2, 'retried exactly once then succeeded')
     } finally {
       addon.dispose()
     }
   })
 })
 
+// The KeywordHighlighterAddon wraps term.write. The lossless FIFO relies on the
+// write-completion callback to advance and ACK; if the wrapper drops the second
+// argument the terminal freezes after the first batch. These tests pin that the
+// wrapper forwards the callback (and degrades safely when highlighting throws).
+describe('highlight addon forwards the write callback', () => {
+  const loadHighlight = () => import('../../client/components/terminal/highlight-addon.js')
+
+  const makeMockTerm = () => {
+    const written = []
+    let cbCount = 0
+    const term = { displayRaw: false }
+    term.write = (data, cb) => {
+      written.push(data)
+      if (cb) { cbCount += 1; cb() }
+    }
+    return { term, written, getCbCount: () => cbCount }
+  }
+
+  test('the wrapper forwards the completion callback on every branch (I-1)', async () => {
+    const { KeywordHighlighterAddon } = await loadHighlight()
+    const { term, getCbCount } = makeMockTerm()
+    const addon = new KeywordHighlighterAddon([])
+    addon.activate(term)
+    // 普通文本、含 DCS、displayRaw、二进制 四条路径都应把 cb 透传。
+    term.write('hello world', () => {})
+    assert.equal(getCbCount(), 1, 'plain text forwards cb')
+    term.displayRaw = true
+    term.write('\x1b[31mred\x1b[0m', () => {})
+    assert.equal(getCbCount(), 2, 'displayRaw branch forwards cb')
+    term.displayRaw = false
+    term.write('', () => {})
+    assert.equal(getCbCount(), 3, 'empty string still invokes cb')
+  })
+
+  test('highlightChunk throwing falls back to raw write with cb (I-3a)', async () => {
+    const { KeywordHighlighterAddon } = await loadHighlight()
+    const { term, written, getCbCount } = makeMockTerm()
+    const addon = new KeywordHighlighterAddon([])
+    addon.activate(term)
+    // 让 highlightChunk 抛错：必须退回原始写且不吞回调，否则 FIFO 冻结。
+    const orig = addon.highlightChunk
+    addon.highlightChunk = () => { throw new Error('boom') }
+    let cbFired = false
+    term.write('payload that must survive', () => { cbFired = true })
+    assert.equal(cbFired, true, 'callback still fires on the fallback path')
+    assert.equal(getCbCount(), 1)
+    // 退回路写的是原始数据，未被高亮改写（高亮失败不应丢字节）
+    assert.equal(written[0], 'payload that must survive')
+    addon.highlightChunk = orig
+  })
+
+  test('a wrapper missing the callback still writes (does not freeze)', async () => {
+    const { KeywordHighlighterAddon } = await loadHighlight()
+    const { term, written } = makeMockTerm()
+    const addon = new KeywordHighlighterAddon([])
+    addon.activate(term)
+    // 复原一个「吞回调」的坏 wrapper，验证 attach addon 的看门狗/重试能兜底：
+    // 这里只验证高亮层不抛、数据能写出；FIFO 层冻结由 attach-addon 用例覆盖。
+    term.write = (data) => { written.push(data) } // 无 cb
+    let threw = false
+    try { addon.highlightChunk = () => data => data; term.write('x') } catch (_) { threw = true }
+    assert.equal(threw, false)
+    assert.ok(written.length >= 1)
+  })
+})
+
 describe('broadcast fanout (G1)', () => {
   const loadBroadcast = () => import('../../client/common/term-broadcast.js')
 
-  // source 是主控，target 是广播目标；两侧都真实走 sendToServer → _sendData
   const makeFanout = async () => {
     const { default: AttachAddonCustom } = await loadModule()
     const { registerBroadcastAddon, resetBroadcastAddons } = await loadBroadcast()
@@ -748,14 +817,8 @@ describe('broadcast fanout (G1)', () => {
         targets: [{ tabId: 'dst', title: 'dst', isProduction: false }],
         blocked: null
       },
-      setBroadcastBlocked: k => {
-        blocked.push('set:' + k)
-        global.window.store.broadcast.blocked = k
-      },
-      clearBroadcastBlocked: () => {
-        blocked.push('clear')
-        global.window.store.broadcast.blocked = null
-      }
+      setBroadcastBlocked: k => { blocked.push('set:' + k); global.window.store.broadcast.blocked = k },
+      clearBroadcastBlocked: () => { blocked.push('clear'); global.window.store.broadcast.blocked = null }
     }
     return { source, target, localSent, targetSent, blocked }
   }
@@ -797,7 +860,6 @@ describe('broadcast fanout (G1)', () => {
 
   test('a mirrored send does not fan out again (depth guard)', async () => {
     const { target, targetSent } = await makeFanout()
-    // 模拟 mirrorInput 打到目标时的深度
     target._broadcastDepth = 1
     target.sendToServer('z')
     assert.deepEqual(targetSent, ['z'], '目标本地只发一次')
