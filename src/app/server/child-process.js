@@ -46,6 +46,12 @@ module.exports = (config, env, sysLocale) => {
         requireAuth: config.requireAuth || '',
         tokenElecterm: config.tokenElecterm,
         sshKeysPath: env.sshKeysPath,
+        // 子进程 fork 出去即纯 node（无 electron 模块），common/app-props 在
+        // 子进程 require 必炸（2026-11-12 db-import openFile 实机事故）。
+        // 数据目录必须在主进程解析好经 env 传入：widgets/paths、instance-log、
+        // terminal-output-archive 的 DATA_PATH 分支都吃这个值；
+        // session-server（孙进程）整链继承。用户显式 DATA_PATH 优先。
+        DATA_PATH: env.DATA_PATH || (env.appPath ? resolve(env.appPath, 'electerm') : ''),
         // the child opens its log level from this at load time (../common/log.js),
         // so the ssh2 protocol trace is captured from the first session on
         ELECTERM_DEBUG: config.debug ? '1' : '',

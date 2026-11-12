@@ -16,8 +16,12 @@
  */
 
 const http = require('http')
+const { dialog } = require('electron')
 const WebSocket = require('ws')
 const globalState = require('./glob-state')
+// 只取 dialogFilters（纯 node 模块，主进程/子进程都能加载），不引 db-importer ——
+// 那是子进程侧的模块，主进程引它会拖起整个导入任务栈
+const { dialogFilters } = require('./db-import/parsers')
 
 let conn = null
 let connecting = null
@@ -146,10 +150,28 @@ for (const action of [
   'closeAllDbTabs',
   // D2 批次二：导出/导入任务循环整体在 server 进程执行（任务状态/文件 IO/
   // dbClientOp 与连接池同进程），主进程只转发
-  'dbExportOp',
-  'dbImportOp'
+  'dbExportOp'
 ]) {
   remote[action] = (...args) => rpc(action, ...args)
+}
+
+// dbImportOp 不走通用转发：openFile 的 dialog 只能在主进程开 —— db-client
+// 子进程是 fork 出来的纯 Node 环境（ELECTRON_RUN_AS_NODE），require('electron')
+// 直接抛 Cannot find module（实机 /opt/electerm 验证过）。这里选完文件后把
+// preview 连同 filePath 转发给子进程，渲染层 op 面（openFile/preview/...）不变
+remote.dbImportOp = (action, arg) => {
+  if (action === 'openFile') {
+    const res = dialog.showOpenDialogSync({
+      title: '选择要导入的文件',
+      properties: ['openFile'],
+      filters: dialogFilters()
+    })
+    if (!res || !res.length) {
+      return Promise.resolve({ filePath: null })
+    }
+    return rpc('dbImportOp', 'preview', { ...(arg || {}), filePath: res[0] })
+  }
+  return rpc('dbImportOp', action, arg)
 }
 
 module.exports = remote

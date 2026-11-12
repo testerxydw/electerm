@@ -58,6 +58,11 @@ function resolveLogDir () {
   if (process.env.DATA_PATH) {
     return join(process.env.DATA_PATH, LOG_DIR_NAME)
   }
+  // server fork 子进程拿主进程传入的 appPath（见 server/child-process.js），
+  // 算出与主进程一致的数据目录，避免静默落到 tmp
+  if (process.env.appPath) {
+    return join(process.env.appPath, 'electerm', LOG_DIR_NAME)
+  }
   try {
     const { appPath } = require('../common/app-props')
     return join(appPath, 'electerm', LOG_DIR_NAME)

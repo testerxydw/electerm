@@ -17,6 +17,11 @@ function getDataDir () {
   if (process.env.DATA_PATH) {
     return process.env.DATA_PATH
   }
+  // server fork 子进程拿主进程传入的 appPath（见 server/child-process.js），
+  // 也能算出与主进程一致的同一数据目录 —— 子进程 require app-props 必炸
+  if (process.env.appPath) {
+    return path.join(process.env.appPath, 'electerm')
+  }
   try {
     const { appPath } = require('../common/app-props')
     return path.join(appPath, 'electerm')

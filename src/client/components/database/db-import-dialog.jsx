@@ -10,7 +10,8 @@
  * 主进程是唯一解析方，渲染层只回传选择）。列映射界面按 columns/sampleRows
  * 工作，与 csv/tsv 同构，无需第二套界面。
  *
- * 职责边界：文件选择与源解析都在主进程（dbImportOp openFile/preview 返回
+ * 职责边界：文件选择在主进程（db-client-remote 的 openFile），源解析在
+ * db-client 子进程（dbImportOp preview 返回
  * kind + 列/样例/脚本文本，渲染层不读文件）；映射折算、载荷折算、步骤编排、
  * 语句切分都在纯函数层（db-import-mapping / db-import-plan / db-sql-risk）；
  * 列映射与语句清单各自是独立组件。本组件只管编排与状态。

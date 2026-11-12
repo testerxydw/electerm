@@ -604,3 +604,74 @@ describe('runRowImport 分批提交：overwrite 只在首批清空目标表', ()
     assert.deepEqual(calls.map(c => c.clearTarget), [false, false])
   })
 })
+
+// ================================ 子进程纯度契约（实机回归锁） ================================
+// 起因：2026-11-12 实机 /opt/electerm 报 Cannot find module 'electron' ——
+// db-importer 运行在 db-client fork 子进程（纯 node），openFile 里的
+// require('electron') 在打包产物（asar 无 electron npm 包）下必炸。
+// 文件选择已上移到主进程 db-client-remote.dbImportOp，本文件从此禁止再引 electron。
+
+describe('db-client 子进程纯度契约', () => {
+  const readSrc = p => fs.readFileSync(
+    path.join(__dirname, '../../app', p), 'utf8'
+  )
+
+  test('db-importer.js 不允许 require electron（fork 子进程无 electron 模块）', () => {
+    const src = readSrc('lib/db-importer.js')
+    assert.ok(!src.includes("require('electron')"), 'db-importer.js 不得 require electron')
+    assert.ok(!src.includes('require("electron")'), 'db-importer.js 不得 require electron')
+  })
+
+  test('openFile 的 dialog 拦截必须在主进程 db-client-remote（含取消转发口径）', () => {
+    const src = readSrc('lib/db-client-remote.js')
+    // openFile 特判存在且不进通用转发循环
+    assert.ok(src.includes("action === 'openFile'"), 'db-client-remote 须特判 openFile')
+    assert.ok(src.includes('dialog.showOpenDialogSync'), '主进程侧须真实调用 dialog')
+    assert.ok(src.includes('dialogFilters'), '过滤口径须复用 parsers 的 SSOT')
+    // 通用转发循环里不得再有 dbImportOp（避免 openFile 被转发进子进程）
+    const loop = src.slice(src.indexOf('const remote = {}'), src.indexOf('remote.dbImportOp'))
+    assert.ok(loop.includes('dbExportOp') && !loop.includes("'dbImportOp'"),
+      'dbImportOp 不得留在通用转发列表')
+    // 取消（未选文件）与 preview 转发口径
+    assert.ok(src.includes('filePath: null'), '未选文件须返回 filePath: null')
+    assert.ok(src.includes("'preview'"), '选中文件须以 preview + filePath 转发子进程')
+  })
+})
+
+// ================================ 子进程数据目录契约（同类问题回归锁） ================================
+// 起因：2026-11-12 同类排查 —— fork 子进程无 electron，app-props 必炸，
+// widgets/paths、instance-log、terminal-output-archive 都可能静默落 /tmp。
+// 治本口径：主进程 child-process.js 解析好 DATA_PATH 经 fork env 传入，
+// 孙进程（session-server）整链继承；兜底模块吃 DATA_PATH → env.appPath 两级。
+
+describe('子进程数据目录契约', () => {
+  const readSrc = p => fs.readFileSync(
+    path.join(__dirname, '../../app', p), 'utf8'
+  )
+
+  test('child-process.js fork env 必须携带 DATA_PATH（由 appPath 解析，显式 DATA_PATH 优先）', () => {
+    const src = readSrc('server/child-process.js')
+    assert.ok(src.includes('DATA_PATH:'), 'fork env 须显式传 DATA_PATH')
+    assert.ok(src.includes('env.DATA_PATH ||'), '用户显式 DATA_PATH 优先')
+    assert.ok(src.includes("resolve(env.appPath, 'electerm')"), '须由 appPath 解析数据目录')
+  })
+
+  test('terminal-output-archive 不得在 DATA_PATH 下再拼一层 electerm（双 electerm 目录），且须有 appPath 兜底', () => {
+    const src = readSrc('server/terminal-output-archive.js')
+    assert.ok(!src.includes('process.env.DATA_PATH || os.tmpdir()'), '旧的双层拼法必须移除')
+    assert.ok(src.includes('process.env.appPath'), '子进程须吃 env.appPath 兜底')
+    assert.ok(src.includes('process.env.DATA_PATH ||'), 'DATA_PATH 语义 = 数据目录本身')
+  })
+
+  test('widgets/paths 与 instance-log 的兜底链须为 DATA_PATH → env.appPath → app-props → tmp', () => {
+    for (const f of ['widgets/paths.js', 'widgets/instance-log.js']) {
+      const src = readSrc(f)
+      assert.ok(src.includes('process.env.DATA_PATH'), f + ' 须先吃 DATA_PATH')
+      assert.ok(src.includes('process.env.appPath'), f + ' 须有 env.appPath 层（子进程无 electron）')
+      // app-props 只能出现在 try/catch 内的最后一层（主进程才可用）
+      const appPropsPos = src.indexOf('../common/app-props')
+      const tmpPos = src.indexOf('os.tmpdir()')
+      assert.ok(appPropsPos > -1 && tmpPos > appPropsPos, f + ' tmp 兜底须在 app-props 之后')
+    }
+  })
+})

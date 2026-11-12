@@ -26,7 +26,13 @@ function safePartName (pid, index) {
 class TerminalOutputArchive {
   constructor ({ pid, dir, maxPartBytes = MAX_PART_BYTES, onError = null } = {}) {
     this.pid = pid || 'session'
-    this.dir = dir || path.join(process.env.DATA_PATH || os.tmpdir(), 'electerm', 'lossless_output')
+    // DATA_PATH 全项目语义 = 数据目录本身（command-line.js 文档 / sqlite.js 同款），
+    // 旧写法 join(DATA_PATH, 'electerm', ...) 会拼出 electerm/electerm 双层目录；
+    // server fork 子进程无 electron，app-props 不可用，走主进程传入的 env.appPath 兜底
+    const dataRoot = process.env.DATA_PATH ||
+      (process.env.appPath ? path.join(process.env.appPath, 'electerm') : '') ||
+      path.join(os.tmpdir(), 'electerm')
+    this.dir = dir || path.join(dataRoot, 'lossless_output')
     this.maxPartBytes = maxPartBytes
     this.onError = typeof onError === 'function' ? onError : null
     this.bytes = 0 // 实际落盘且参与 hash 的字节（可逐字节对账）

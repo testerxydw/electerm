@@ -7,7 +7,8 @@
  *   mapping 把"一行" + 映射配置折成"待插入行"
  *   本文件负责流式喂块、分批提交、进度/取消/错误、任务表
  *
- * 任务生命周期（dbImportOp）：openFile / preview（选文件 + 样例预览）→
+ * 任务生命周期（dbImportOp）：openFile（主进程选文件，见 db-client-remote）→
+ * preview（样例预览）→
  * start（映射 + 分批写入 或 逐条执行脚本）→ status / cancel。
  * 任务上限 4；取消是"止步"不是回滚 —— 已提交批次保留，未提交的累积批次丢弃。
  *
@@ -34,7 +35,6 @@
 const log = require('../common/log')
 const {
   resolveFormat,
-  dialogFilters,
   createRowState,
   feedRows,
   finishRows,
@@ -84,18 +84,13 @@ function readHead (filePath, limit, size) {
 }
 
 function openImportFile (arg = {}) {
-  // 参照 ipc.js show-open-dialog-sync 的过滤写法；asyncGlobals 拿不到 webContents，
-  // 这里用应用级模态打开
-  const { dialog } = require('electron')
-  const res = dialog.showOpenDialogSync({
-    title: '选择要导入的文件',
-    properties: ['openFile'],
-    filters: dialogFilters()
-  })
-  if (!res || !res.length) {
+  // openFile 的文件选择已上移到主进程（db-client-remote.dbImportOp）：本模块
+  // 运行在 db-client fork 子进程（纯 Node，无 electron 模块），主进程选完文件
+  // 后以 preview + filePath 转发进来。这里保留取消（filePath 为空）的口径。
+  if (!arg.filePath) {
     return { filePath: null }
   }
-  return previewImportFile(res[0], arg)
+  return previewImportFile(arg.filePath, arg)
 }
 
 function previewImportFile (filePath, arg = {}) {
