@@ -392,6 +392,21 @@ describe('N3b 组件边界：只呈现，不生成、不执行', () => {
     assert.match(s, /!isRedis\s*\?\s*\(\s*<DbTableDesign/, 'Redis 实例不该有表设计器')
     assert.match(s, /openTableDesign=\{openTableDesign\}/, '入口要接到 owner 的 handler')
     assert.match(s, /canCreateTable=\{dialect === 'mysql'\}/, '新建表方言开关只在 owner 一处')
+    // N7 修复：没打开过表时 sel 为 null，不许静默返回（用户视角=点了没反应）
+    assert.match(read(HOOK),
+      /message\.warning\(window\.translate\('dbCreateTableNeedDb'\)\)/,
+      '无库上下文要给可行动提示')
+  })
+
+  test('N7 create 模式草稿形状自守：foreignKeys 缺失不许炸渲染', () => {
+    const view = read(VIEW)
+    // emptyDraft 与 createDraft（db-table-design.js）形状对齐，补了 foreignKeys
+    assert.match(view, /foreignKeys: \[\]/, 'emptyDraft 必须带 foreignKeys 空数组')
+    // 渲染守卫自守：草稿形状不齐时只少一块展示，不能整个弹层 TypeError
+    assert.match(view, /draft && draft\.foreignKeys && draft\.foreignKeys\.length/,
+      '外键块读取必须三段守卫')
+    assert.equal(/draft && draft\.foreignKeys\.length/.test(view.replace('draft && draft.foreignKeys && draft.foreignKeys.length', '')),
+      false, '不得残留无守卫的 foreignKeys.length 读取')
   })
 
   test('取数与勾选落地都复用既有通道，不另起炉灶', () => {

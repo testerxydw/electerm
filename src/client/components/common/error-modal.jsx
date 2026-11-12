@@ -25,14 +25,20 @@ import './error-modal.styl'
 
 const e = window.translate
 
-// 归一化错误文本：error 对象优先取其 message，其次是 message/description/children
+// 归一化错误文本：error 对象优先取其 message，其次是 message/description/children；
+// Error 对象带 stack 时保留堆栈 —— 排障靠 message 定不了位，notification 的错误
+// 通知同口径展示堆栈，两处不能分叉
 function resolveErrorText (options) {
   const { error, message, description, children } = options
   if (error !== undefined && error !== null) {
     if (typeof error === 'string' || typeof error === 'number') {
       return String(error)
     }
-    return error && error.message ? String(error.message) : String(error)
+    if (error && error.message !== undefined) {
+      const msg = String(error.message)
+      return error.stack ? msg + '\n' + String(error.stack) : msg
+    }
+    return String(error)
   }
   return message || description || children || ''
 }

@@ -23,6 +23,7 @@
 // 紧贴原 state 位置调用，与搬迁前的 TDZ 处境完全一致）。
 import { useCallback, useRef, useState } from 'react'
 import { cleanDbError } from './db-conn-error'
+import message from '../common/message'
 
 export function useDbRedisInstance ({ tabId, sel }) {
   // H3b-3：ER 图。图是整个库/schema 的一张快照，与"当前在看哪张表"无关，
@@ -109,9 +110,11 @@ export function useDbRedisInstance ({ tabId, sel }) {
   }
 
   // N7 新建表：设计器的 create 模式（空基准 + 表名输入框）。库取当前选中的
-  // database 段 —— 没选中任何对象时给不出库，让 CREATE 报错不如干脆不开
+  // database 段 —— 没有库上下文时不能静默返回（用户视角就是"点了没反应"），
+  // 给一条可行动的提示：目标库跟着"打开的那张表"走
   const openCreateTable = () => {
     if (!sel || !sel.database) {
+      message.warning(window.translate('dbCreateTableNeedDb'))
       return
     }
     setStructDesign({

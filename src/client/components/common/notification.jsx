@@ -118,7 +118,12 @@ function NotificationItem ({ message, descriptions = [], type, onClose, duration
 
   const handleCopy = (e) => {
     e.stopPropagation()
-    const pieces = [getTextFromReactChildren(message), ...validDescriptions]
+    // description 可能是 React 元素（error-handler 把 stack 包成 <div>），
+    // 不做文本还原的话 join 时会变成 "[object Object]" —— 复制出去只剩消息没有堆栈
+    const pieces = [
+      getTextFromReactChildren(message),
+      ...validDescriptions.map(d => getTextFromReactChildren(d))
+    ]
     copy(pieces.filter(Boolean).join('\n'))
   }
 

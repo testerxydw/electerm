@@ -447,6 +447,7 @@ const en = {
   // N7 新建表（设计器 create 模式 → CREATE TABLE 候选脚本）
   dbCreateTable: 'new table',
   dbCreateTableName: 'table name',
+  dbCreateTableNeedDb: 'open a table first — the target database follows the table you opened',
   dbCreateReasonDialect: 'CREATE TABLE is not generated for this dialect yet (mysql only for now)',
   dbCreateReasonTableName: 'table name is missing or invalid (letters/digits/_/$, must not start with a digit)',
   dbCreateReasonNoColumn: 'at least one column is required',
@@ -1922,6 +1923,7 @@ const zhCn = {
   // N7 新建表（设计器 create 模式 → CREATE TABLE 候选脚本）
   dbCreateTable: '新建表',
   dbCreateTableName: '表名',
+  dbCreateTableNeedDb: '请先打开一张表——新建表的目标库跟随当前打开的表',
   dbCreateReasonDialect: '该方言暂不支持生成 CREATE TABLE（目前仅 MySQL）',
   dbCreateReasonTableName: '表名缺失或非法（字母/数字/_/$，且不能以数字开头）',
   dbCreateReasonNoColumn: '至少需要一列',

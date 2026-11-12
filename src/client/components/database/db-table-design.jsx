@@ -75,7 +75,11 @@ export default function DbTableDesign (props) {
   const emptyDraft = useCallback(() => ({
     comment: '',
     columns: [newColumn()],
-    indexes: []
+    indexes: [],
+    // 与 createDraft（db-table-design.js:83）形状对齐：渲染层读
+    // draft.foreignKeys.length 时不能因为字段缺失炸掉（N7 首版漏了这里，
+    // 新建表弹层一打开就 TypeError: reading 'length'）
+    foreignKeys: []
   }), [])
 
   // 关掉就作废在途请求：再打开时先看到上一张表的结果，用户会当成就长这样
@@ -459,7 +463,8 @@ export default function DbTableDesign (props) {
         {
           // 外键在这里只读：设计器不做外键编辑（§7 要点 3），但必须让人看见它存在，
           // 否则改被引用的那一列时没有任何地方提示"下面挂着外键"
-          draft && draft.foreignKeys.length
+          // （foreignKeys 也要自守：草稿形状不齐时不许把整个弹层炸掉）
+          draft && draft.foreignKeys && draft.foreignKeys.length
             ? (
               <div className='db-design-fks'>
                 <span className='db-design-block-title'>{e('dbStructDiffFks')}</span>
