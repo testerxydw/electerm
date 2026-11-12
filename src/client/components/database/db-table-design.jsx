@@ -28,7 +28,7 @@ import {
   newIndex,
   designPreview
 } from '../../common/db-table-design'
-import { buildScript } from '../../common/db-ddl-generate'
+import { buildScript, createTableDdl } from '../../common/db-ddl-generate'
 import { ddlReasonKey } from '../../common/db-ddl-reason'
 import { capabilityOf } from '../../common/sql-dialects'
 import { cleanDbError } from './db-conn-error'
@@ -57,19 +57,32 @@ const ISSUE_KEY = {
 }
 
 export default function DbTableDesign (props) {
-  const { open, loc, dialect, loadStructure, onApplySql, onClose } = props
+  const { open, loc, dialect, loadStructure, onApplySql, onClose, createMode } = props
   const [current, setCurrent] = useState(null)
   const [loadedKey, setLoadedKey] = useState('')
   const [draft, setDraft] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState([])
+  // N7 新建表：表名由本弹层收（只在 create 模式出现）
+  const [newTableName, setNewTableName] = useState('')
   const tokenRef = useRef(0)
 
   const key = locKey(loc)
 
+  // N7 新建表：没有"当前结构"可取 —— 基准就是一张空表，草稿从空白开始
+  // （预置一个空列行，让用户看到编辑行的形状而不是对着空屏猜）
+  const emptyDraft = useCallback(() => ({
+    comment: '',
+    columns: [newColumn()],
+    indexes: []
+  }), [])
+
   // 关掉就作废在途请求：再打开时先看到上一张表的结果，用户会当成就长这样
   const load = useCallback(() => {
+    if (createMode) {
+      return
+    }
     if (!loc || !loc.table) {
       return
     }
@@ -94,18 +107,24 @@ export default function DbTableDesign (props) {
       setLoading(false)
       setError(cleanDbError(err && err.message ? err.message : err))
     })
-  }, [loc, loadStructure])
+  }, [loc, loadStructure, createMode])
 
   useEffect(() => {
     if (!open) {
       return
     }
     setCurrent(null)
-    setDraft(null)
     setLoadedKey('')
     setError('')
-    load()
-  }, [open, key, load])
+    if (createMode) {
+      setDraft(emptyDraft())
+      setNewTableName('')
+      setPicked([])
+    } else {
+      setDraft(null)
+      load()
+    }
+  }, [open, key, load, createMode, emptyDraft])
 
   const close = useCallback(() => {
     tokenRef.current++
@@ -138,16 +157,38 @@ export default function DbTableDesign (props) {
     .map(c => ({ value: c.name.trim(), label: c.name.trim() })), [draft])
 
   const preview = useMemo(() => {
+    if (createMode) {
+      // N7 新建表：不走差异比较，一条 CREATE TABLE 就是全部条目；
+      // supported=false 时 reason 走 ddlReasonKey 出人话
+      if (!draft || loadedKey !== '') {
+        return null
+      }
+      const res = createTableDdl(draft, dialect, {
+        database: (loc && loc.database) || '',
+        table: newTableName.trim()
+      })
+      return {
+        items: [{
+          id: 'create-table',
+          entry: null,
+          sqls: res.sqls,
+          supported: res.supported,
+          reason: res.reason
+        }],
+        issues: []
+      }
+    }
     if (!draft || loadedKey !== key || !current) {
       return null
     }
     return designPreview({ current, draft, dialect, loc })
-  }, [draft, loadedKey, key, current, dialect, loc])
+  }, [draft, loadedKey, key, current, dialect, loc, createMode, newTableName])
 
   const items = preview ? preview.items : []
   const issues = preview ? preview.issues : []
   const generatable = useMemo(() => items.filter(i => i.supported).map(i => i.id), [items])
-  const script = useMemo(() => buildScript(items, picked), [items, picked])
+  // 新建表没有"勾选差异"语义：整张表就是一条语句，直接全量生成
+  const script = useMemo(() => buildScript(items, createMode ? generatable : picked), [items, picked, generatable, createMode])
   const statementCount = script ? script.split('\n').length : 0
 
   // 草稿一改，勾选就可能对不上号（原来那条差异没了 / id 变了），整体清空比留着安全：
@@ -269,20 +310,24 @@ export default function DbTableDesign (props) {
       open={open}
       width={1040}
       style={{ top: 32 }}
-      title={e('dbDesign') + (loc ? ' — ' + locLabel(loc) : '')}
+      title={createMode ? e('dbCreateTable') : e('dbDesign') + (loc ? ' — ' + locLabel(loc) : '')}
       // 草稿是编辑到一半的东西：点遮罩就丢掉比多一步确认更伤人
       maskClosable={false}
       onCancel={close}
       footer={[
-        <Button
-          key='reload'
-          size='small'
-          icon={<ReloadOutlined />}
-          loading={loading}
-          onClick={load}
-        >
-          {e('refresh')}
-        </Button>,
+        ...(createMode
+          ? []
+          : [
+            <Button
+              key='reload'
+              size='small'
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={load}
+            >
+              {e('refresh')}
+            </Button>
+            ]),
         <Button key='close' size='small' onClick={close}>
           {e('close')}
         </Button>,
@@ -299,7 +344,23 @@ export default function DbTableDesign (props) {
     >
       <div className='db-design'>
         {
-          readonlyDialect
+          createMode
+            ? (
+              <div className='db-design-comment'>
+                <span className='db-design-label'>{e('dbCreateTableName')}</span>
+                <Input
+                  size='small'
+                  className='db-design-table-name'
+                  value={newTableName}
+                  placeholder='new_table'
+                  onChange={v => setNewTableName(v.target.value)}
+                />
+              </div>
+              )
+            : null
+        }
+        {
+          readonlyDialect && !createMode
             ? (
               <Alert
                 className='db-design-alert'

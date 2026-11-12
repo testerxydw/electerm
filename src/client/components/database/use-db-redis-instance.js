@@ -103,12 +103,26 @@ export function useDbRedisInstance ({ tabId, sel }) {
   const openTableDesign = () => {
     setStructDesign({
       open: true,
+      create: false,
       loc: sel ? { database: sel.database, schema: sel.schema || '', table: sel.table } : null
     })
   }
 
+  // N7 新建表：设计器的 create 模式（空基准 + 表名输入框）。库取当前选中的
+  // database 段 —— 没选中任何对象时给不出库，让 CREATE 报错不如干脆不开
+  const openCreateTable = () => {
+    if (!sel || !sel.database) {
+      return
+    }
+    setStructDesign({
+      open: true,
+      create: true,
+      loc: { database: sel.database, schema: sel.schema || '', table: '' }
+    })
+  }
+
   const closeTableDesign = () => {
-    setStructDesign({ open: false, loc: null })
+    setStructDesign({ open: false, create: false, loc: null })
   }
   return {
     er,
@@ -121,6 +135,7 @@ export function useDbRedisInstance ({ tabId, sel }) {
     openStructureDiff,
     closeStructureDiff,
     openTableDesign,
+    openCreateTable,
     closeTableDesign
   }
 }

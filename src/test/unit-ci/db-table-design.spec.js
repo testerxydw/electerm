@@ -367,7 +367,9 @@ describe('N3b 组件边界：只呈现，不生成、不执行', () => {
     const view = read(VIEW)
     assert.match(view, /from '\.\.\/\.\.\/common\/db-table-design'/)
     assert.match(view, /designPreview\(\{ current, draft, dialect, loc \}\)/)
-    assert.match(view, /buildScript\(items, picked\)/)
+    // N7 新建表：create 模式没有"勾选差异"语义，直接全量生成；ALTER 模式仍吃 picked
+    assert.match(view, /buildScript\(items, createMode \? generatable : picked\)/)
+    assert.match(view, /createTableDdl\(draft, dialect, \{/, 'CREATE 生成的方言拼串只在 db-ddl-generate')
     assert.match(view, /e\(ddlReasonKey\(item\.reason\)\)/,
       'reason→词条只能有 db-ddl-reason 一份')
     assert.equal(/const REASON_KEY = \{/.test(view), false, '组件里不得自带一份映射')
@@ -379,12 +381,17 @@ describe('N3b 组件边界：只呈现，不生成、不执行', () => {
     assert.match(area, /\{e\('dbDesign'\)\}/, '工具条按钮文案缺失')
     assert.match(area, /onClick=\{openTableDesign\}/)
     assert.match(area, /structureV2\.type !== 'view'/, '视图没有可 ALTER 的列与索引')
+    // N7 新建表：常驻入口（不依赖已选表），能力开关走 canCreateTable
+    assert.match(area, /canCreateTable\s*\?/, '新建表按钮缺失')
+    assert.match(area, /onClick=\{openCreateTable\}/)
     const s = read(SESSION)
     assert.match(s, /<DbTableDesign[\s\S]{0,600}open=\{structDesign\.open\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,600}createMode=\{structDesign\.create === true\}/)
     assert.match(s, /<DbTableDesign[\s\S]{0,600}loadStructure=\{loadFreshStructure\}/)
     assert.match(s, /<DbTableDesign[\s\S]{0,600}onApplySql=\{s => applyGeneratedSql\(s, closeTableDesign\)\}/)
     assert.match(s, /!isRedis\s*\?\s*\(\s*<DbTableDesign/, 'Redis 实例不该有表设计器')
     assert.match(s, /openTableDesign=\{openTableDesign\}/, '入口要接到 owner 的 handler')
+    assert.match(s, /canCreateTable=\{dialect === 'mysql'\}/, '新建表方言开关只在 owner 一处')
   })
 
   test('取数与勾选落地都复用既有通道，不另起炉灶', () => {

@@ -400,3 +400,95 @@ export function buildScript (items, selectedIds) {
   }
   return lines.join('\n')
 }
+
+// ================================ CREATE TABLE（新建表，N7） ================================
+
+// 首版只放 mysql：PG 的 CREATE TABLE 细节（序列/默认值方言）还没实测口径，
+// 盲生成最容易错 —— 宁可先不放，报差异让人手写。判定看方言 id 而不是能力位，
+// 因为 CREATE 的安全边界与 ALTER（alterDdl）不同源。
+const CREATE_SUPPORTED_DIALECTS = new Set(['mysql'])
+
+// 标识符口径：字母/下划线开头，只含字母数字下划线 $。点号一律不收 ——
+// 表名带库名前缀该由 loc（database 段）表达，列名带点没有合法解释
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_$]*$/
+
+/**
+ * 新建表草稿 → CREATE TABLE 候选脚本（纯函数）。
+ *
+ * 与 diffToDdl 同三条安全边界：只生成不执行（落编辑器走危险分级）、方言白名单、
+ * 结构不对就 supported=false 只报原因。列定义复用 colDefTail（与 ALTER 的
+ * MODIFY COLUMN 同一份拼串 —— 建表和改表对"一列长什么样"的看法不允许分叉）。
+ *
+ * 主键/索引来自草稿 indexes：primary 内联 PRIMARY KEY，unique 内联 UNIQUE KEY，
+ * 普通索引内联 INDEX（MySQL 允许全部内联进 CREATE，一条语句建完）。
+ * @param {object} draft createDraft 形状 { comment, columns, indexes }
+ * @param {string} dialect 引擎名
+ * @param {object} loc { database, table }（table 来自新建表输入框）
+ * @returns {{sqls: string[], supported: boolean, reason: string}}
+ */
+export function createTableDdl (draft, dialect, loc) {
+  const d = getDialect(dialect)
+  if (!d) {
+    return unsupported('unknown-dialect')
+  }
+  if (!CREATE_SUPPORTED_DIALECTS.has(d.id)) {
+    return unsupported('create-unsupported-dialect')
+  }
+  if (!loc || !IDENT_RE.test(String(loc.table || ''))) {
+    return unsupported('bad-table-name')
+  }
+  const cols = (draft && Array.isArray(draft.columns)) ? draft.columns.filter(Boolean) : []
+  if (!cols.length) {
+    return unsupported('no-column')
+  }
+  // hasDefault=false → defaultValue 按 null 处理，与 ALTER 路径 draftToStructure
+  // （db-table-design.js:132）同口径 —— 否则建表会给每列拼一个 DEFAULT ''，
+  // 而改表同一列却是"没有默认"，两边分叉
+  const normCols = cols.map(c => ({
+    ...c,
+    defaultValue: c.hasDefault === false ? null : c.defaultValue
+  }))
+  for (const c of normCols) {
+    if (!IDENT_RE.test(String(c.name || ''))) {
+      return unsupported('bad-column-name')
+    }
+    if (!String(c.type || '').trim()) {
+      return unsupported('missing-column-type')
+    }
+  }
+  const names = normCols.map(c => String(c.name))
+  if (new Set(names).size !== names.length) {
+    return unsupported('duplicate-column')
+  }
+  // 索引引用的列必须真实存在（拼出 CREATE 的那一刻就拦，不留给 MySQL 报）
+  const nameSet = new Set(names)
+  const ixs = ((draft && Array.isArray(draft.indexes)) ? draft.indexes : []).filter(ix => ix && Array.isArray(ix.columns) && ix.columns.length)
+  for (const ix of ixs) {
+    for (const col of ix.columns) {
+      if (!nameSet.has(String(col))) {
+        return unsupported('index-column-missing')
+      }
+    }
+  }
+  const tbl = tableRef({ database: loc.database, table: loc.table }, d.id)
+  const lines = normCols.map(c => '  ' + quoteIdent(c.name, d.id) + ' ' + colDefTail(c))
+  for (const ix of ixs) {
+    const colsSql = ix.columns.map(cn => quoteIdent(String(cn), d.id)).join(', ')
+    if (ix.primary) {
+      lines.push('  PRIMARY KEY (' + colsSql + ')')
+    } else if (ix.unique) {
+      lines.push('  UNIQUE KEY ' + quoteIdent(String(ix.name || loc.table + '_uk'), d.id) + ' (' + colsSql + ')')
+    } else {
+      lines.push('  INDEX ' + quoteIdent(String(ix.name || loc.table + '_ix'), d.id) + ' (' + colsSql + ')')
+    }
+  }
+  const comment = String((draft && draft.comment) || '').trim()
+  // 表注释是表选项，必须放在右括号之后（括号内只允许列定义和索引定义，
+  // 拼成 ", COMMENT='...'" 会被 MySQL 直接拒：syntax near '='）
+  const tail = comment ? ' COMMENT=' + strLit(comment) : ''
+  return {
+    sqls: ['CREATE TABLE ' + tbl + ' (\n' + lines.join(',\n') + '\n)' + tail],
+    supported: true,
+    reason: ''
+  }
+}

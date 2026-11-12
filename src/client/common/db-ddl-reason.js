@@ -17,6 +17,14 @@ export const DdlReasonKey = {
   'fk-not-generated': 'dbStructDiffDdlReasonFk',
   'unknown-dialect': 'dbStructDiffDdlReasonDialect',
   'missing-target-loc': 'dbStructDiffDdlReasonLoc',
+  // N7 新建表（createTableDdl）
+  'create-unsupported-dialect': 'dbCreateReasonDialect',
+  'bad-table-name': 'dbCreateReasonTableName',
+  'no-column': 'dbCreateReasonNoColumn',
+  'bad-column-name': 'dbCreateReasonColumnName',
+  'missing-column-type': 'dbCreateReasonColumnType',
+  'duplicate-column': 'dbCreateReasonDupColumn',
+  'index-column-missing': 'dbCreateReasonIndexCol',
   other: 'dbStructDiffDdlReasonOther'
 }
 

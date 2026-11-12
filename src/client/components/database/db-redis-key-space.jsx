@@ -18,13 +18,15 @@
  * 详情渲染走 renderDetail() 回调；JSX 与原内联块逐字等价（仅此一处差异）。
  */
 import React, { useState, useEffect, useRef } from 'react'
-import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Alert, Space, Tag } from 'antd'
-import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCircleOutlined, PauseCircleOutlined, CopyOutlined, ApiOutlined, SendOutlined } from '@ant-design/icons'
+import { Segmented, Input, Button, Tooltip, Tree, Empty, Modal, Alert, Space, Tag, Select, InputNumber } from 'antd'
+import { CodeOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, PlayCircleOutlined, PauseCircleOutlined, CopyOutlined, ApiOutlined, SendOutlined, PlusOutlined } from '@ant-design/icons'
 import DbGridTable from './db-grid-table'
 import DbSplitPane from './db-split-pane'
 import { DbGridPager } from './db-grid-pager'
 import { REDIS_SPLIT_KEY, REDIS_TREE_MAX_KEYS, REDIS_PROFILER_VIEW_MAX } from '../../common/db-session-const'
 import { scanBigKeys, startRedisProfiler, getRedisProfilerData, toggleRedisProfilerPause, stopRedisProfiler, startRedisPubSub, getRedisPubSubData, toggleRedisPubSubPause, stopRedisPubSub } from './use-db-redis-keys'
+import { buildCreateKeyPlan } from '../../common/db-redis-create-key'
+import { cleanDbError } from './db-conn-error'
 
 const e = window.translate
 
@@ -102,6 +104,72 @@ export function DbRedisKeySpace ({
     })
   }
   const closeBigKeyModal = () => setBigKeyModal(s => ({ ...s, open: false }))
+
+  // ---- 新建键（页面建键）：string/hash/list/set/zset ----
+  // 服务端写 op 全部齐备（T12 类型化写 + setKey + expireKey），且 Redis 写命令
+  // 对不存在的键自动建键 —— 所以这里纯 UI 组装，不加任何 server op。
+  // 值解析与调用序列下沉到 common/db-redis-create-key.js（纯模块，单测钉口径），
+  // 本组件只负责收集输入、按计划顺序调 op、把机器码错误翻成人话。
+  const [createKeyModal, setCreateKeyModal] = useState({ open: false, saving: false, error: '' })
+  const [ckKey, setCkKey] = useState('')
+  const [ckType, setCkType] = useState('string')
+  const [ckValue, setCkValue] = useState('')
+  const [ckTtl, setCkTtl] = useState('')
+
+  const CK_VALUE_PLACEHOLDER = {
+    string: 'hello electerm',
+    hash: 'field1=value1\nfield2=value2',
+    list: 'item1\nitem2\nitem3',
+    set: 'member1\nmember2',
+    zset: '90 alice\n85 bob'
+  }
+
+  const openCreateKey = () => {
+    if (!tabId || redisDb < 0) {
+      return
+    }
+    setCkKey('')
+    setCkType('string')
+    setCkValue('')
+    setCkTtl('')
+    setCreateKeyModal({ open: true, saving: false, error: '' })
+  }
+
+  const closeCreateKey = () => {
+    // 保存中不允许 Esc/遮罩关掉（半路放弃会留下建了一半的键，不如让用户看到错误）
+    if (createKeyModal.saving) return
+    setCreateKeyModal(s => ({ ...s, open: false }))
+  }
+
+  const submitCreateKey = async () => {
+    setCreateKeyModal(s => ({ ...s, saving: true, error: '' }))
+    try {
+      const plan = buildCreateKeyPlan({
+        key: ckKey,
+        type: ckType,
+        value: ckValue,
+        ttlSeconds: ckTtl
+      })
+      if (plan.error) {
+        throw new Error(e(plan.error))
+      }
+      for (const c of plan.calls) {
+        await window.pre.runGlobalAsync('dbClientOp', tabId, c.op, {
+          dbIndex: redisDb,
+          key: ckKey.trim(),
+          ...c.args
+        })
+      }
+      setCreateKeyModal({ open: false, saving: false, error: '' })
+      refreshRedisView()
+    } catch (err) {
+      setCreateKeyModal(s => ({
+        ...s,
+        saving: false,
+        error: cleanDbError((err && err.message) || String(err))
+      }))
+    }
+  }
 
   // N5c：Profiler (MONITOR) —— 独立 monitor client + 渲染侧定时器 200ms 拉流
   // state 全在这里：handleId 主进程句柄，rows 全量累计（overwrite 时 reset），
@@ -511,6 +579,18 @@ export function DbRedisKeySpace ({
                       </>
                       )
                 }
+                {/* 新建键：走 T12 类型化写 op（写命令对不存在的键自动建键）。
+                    只读时禁用（主进程还会按权威只读位再拦一道）；未选 db 禁用 */}
+                <Tooltip title={isReadonly ? e('dbRedisCreateKeyReadonly') : (redisDb < 0 ? e('dbSelectDb') : e('dbRedisCreateKey'))}>
+                  <Button
+                    size='small'
+                    icon={<PlusOutlined />}
+                    disabled={isReadonly || redisDb < 0}
+                    onClick={openCreateKey}
+                  >
+                    {e('dbRedisCreateKey')}
+                  </Button>
+                </Tooltip>
                 {/* 刷新放在翻页之后，与 MySQL 网格头一致；两种视图共用这一个入口 */}
                 <Button
                   size='small'
@@ -673,6 +753,83 @@ export function DbRedisKeySpace ({
                 </>
                 )
               : <Empty description={e('dbRedisBigKeysEmpty')} />}
+      </Modal>
+      {/* 新建键 Modal：按类型给对应值编辑器，保存中禁关（避免半途留脏键） */}
+      <Modal
+        open={createKeyModal.open}
+        title={e('dbRedisCreateKey')}
+        onCancel={closeCreateKey}
+        width={560}
+        maskClosable={!createKeyModal.saving}
+        footer={[
+          <Button key='cancel' disabled={createKeyModal.saving} onClick={closeCreateKey}>
+            {e('cancel')}
+          </Button>,
+          <Button
+            key='ok'
+            type='primary'
+            loading={createKeyModal.saving}
+            onClick={submitCreateKey}
+          >
+            {e('dbRedisCreateKeySave')}
+          </Button>
+        ]}
+      >
+        <div className='db-redis-create-key-form'>
+          <div className='db-redis-create-key-row'>
+            <span className='db-redis-create-key-label'>{e('dbRedisCreateKeyName')}</span>
+            <Input
+              value={ckKey}
+              disabled={createKeyModal.saving}
+              maxLength={1024}
+              onChange={ev => setCkKey(ev.target.value)}
+              placeholder='user:1001:name'
+            />
+          </div>
+          <div className='db-redis-create-key-row'>
+            <span className='db-redis-create-key-label'>{e('dbRedisCreateKeyType')}</span>
+            <Select
+              value={ckType}
+              disabled={createKeyModal.saving}
+              style={{ width: 160 }}
+              onChange={v => setCkType(v)}
+              options={[
+                { value: 'string', label: 'string' },
+                { value: 'hash', label: 'hash' },
+                { value: 'list', label: 'list' },
+                { value: 'set', label: 'set' },
+                { value: 'zset', label: 'zset' }
+              ]}
+            />
+            <span className='db-redis-create-key-label'>{e('dbRedisCreateKeyTtl')}</span>
+            <InputNumber
+              value={ckTtl === '' ? undefined : Number(ckTtl)}
+              disabled={createKeyModal.saving}
+              min={1}
+              style={{ width: 120 }}
+              placeholder={e('dbRedisCreateKeyTtlOptional')}
+              onChange={v => setCkTtl(v === undefined || v === null ? '' : String(v))}
+            />
+          </div>
+          <div className='db-redis-create-key-row'>
+            <span className='db-redis-create-key-label'>{e('dbRedisCreateKeyValue')}</span>
+            <Input.TextArea
+              value={ckValue}
+              disabled={createKeyModal.saving}
+              rows={ckType === 'string' ? 6 : 8}
+              onChange={ev => setCkValue(ev.target.value)}
+              placeholder={CK_VALUE_PLACEHOLDER[ckType] || ''}
+            />
+          </div>
+          {
+            ckType !== 'string'
+              ? <Alert type='info' showIcon message={e('dbRedisCreateKeyHint' + ckType)} style={{ marginTop: 4 }} />
+              : null
+          }
+          {createKeyModal.error
+            ? <Alert type='error' showIcon message={createKeyModal.error} style={{ marginTop: 8 }} />
+            : null}
+        </div>
       </Modal>
       {/* N5c：Profiler (MONITOR) Modal。顶部 Alert 警告 + 控制 Space + 过滤 + 实时 Table */}
       <Modal

@@ -652,6 +652,7 @@ export default auto(function DbSession (props) {
     openStructureDiff,
     closeStructureDiff,
     openTableDesign,
+    openCreateTable,
     closeTableDesign
   } = useDbRedisInstance({ tabId, sel })
 
@@ -4157,6 +4158,8 @@ export default auto(function DbSession (props) {
       openErGraph={openErGraph}
       openStructureDiff={openStructureDiff}
       openTableDesign={openTableDesign}
+      openCreateTable={openCreateTable}
+      canCreateTable={dialect === 'mysql'}
       structureV2={structureV2}
       exportDictionary={exportDictionary}
       structColumns={structColumns}
@@ -4805,6 +4808,7 @@ export default auto(function DbSession (props) {
             <DbTableDesign
               open={structDesign.open}
               loc={structDesign.loc}
+              createMode={structDesign.create === true}
               dialect={dialect}
               loadStructure={loadFreshStructure}
               onApplySql={s => applyGeneratedSql(s, closeTableDesign)}

@@ -4141,3 +4141,23 @@ body.db-col-resizing
     word-break break-all
   .db-redis-pubsub-kind
     margin 0
+  .db-redis-create-key-form
+    display flex
+    flex-direction column
+    gap 10px
+    // 行内布局：label 固定宽，控件吃剩余宽度；不定高，滚动回归弹层 SSOT
+    .db-redis-create-key-row
+      display flex
+      align-items center
+      gap 8px
+      .db-redis-create-key-label
+        flex 0 0 auto
+        min-width 52px
+        color var(--text-muted)
+        font-size 12px
+      .ant-input,
+      .ant-input-number,
+      .ant-select
+        flex 1 1 auto
+      textarea.ant-input
+        flex 1 1 auto
