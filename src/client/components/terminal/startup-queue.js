@@ -442,7 +442,7 @@ export class StartupQueue {
       const safetyTimer = setTimeout(() => {
         if (addon.outputSuppressed) {
           // Unfreeze the screen rather than keep hiding output.
-          addon.stopOutputSuppression(false)
+          addon.stopOutputSuppression()
         }
         finish()
       }, suppressionTimeout + 2000)

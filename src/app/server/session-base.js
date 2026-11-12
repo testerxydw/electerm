@@ -53,6 +53,44 @@ class TerminalBase {
     // Implemented by subclasses - removes a listener added via on()
   }
 
+  /**
+   * 输出流控句柄：按会话类型找出真正的数据源。node-pty / ssh2 Channel /
+   * net.Socket / SerialPort 都实现了 Readable 的 pause/resume，暂停读取后
+   * 内核缓冲会把背压传导到远端，字节留在对端而不是被本进程丢掉。
+   * 子类若有额外数据源（如 ssh 的 stderr）在这里一并列出即可。
+   */
+  outputSources () {
+    const sources = []
+    if (this.channel) {
+      sources.push(this.channel, this.channel.stderr)
+    }
+    if (this.port) {
+      sources.push(this.port)
+    }
+    if (this.term && this.term !== this.channel && this.term !== this.port) {
+      sources.push(this.term)
+    }
+    return sources.filter(s => s && typeof s.pause === 'function' && typeof s.resume === 'function')
+  }
+
+  pauseOutput () {
+    for (const source of this.outputSources()) {
+      try {
+        source.pause()
+      } catch (_) {
+        // 单个源不支持 pause 不应影响其它源，也不该让会话崩掉。
+      }
+    }
+  }
+
+  resumeOutput () {
+    for (const source of this.outputSources()) {
+      try {
+        source.resume()
+      } catch (_) {}
+    }
+  }
+
   _initVtParser () {
     this._vtTerm = createVtParser(this.initOptions.cols || 4096)
     this._vtLastRow = 0

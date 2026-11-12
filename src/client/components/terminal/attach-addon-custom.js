@@ -2,27 +2,21 @@ import { loadAttachAddon } from './xterm-loader.js'
 import { handleSessionControlMessage } from '../../common/session-bar-data.js'
 import SessionTrafficTracker from '../../common/session-traffic.js'
 import SessionRecorder from '../../common/session-recorder.js'
+import { FLOW_ACTIONS, bytesOf } from '../../common/term-flow.js'
 import {
   registerBroadcastAddon,
   unregisterBroadcastAddon,
   mirrorInput
 } from '../../common/term-broadcast.js'
 
-// Cursor-positioning sequences stripped from the head of surviving output
-// after a drop. These are either relative (ESC[nA rewinds n rows) or restore
-// state saved by content we just discarded (ESC[8 / CSI u); left in place
-// they yank the cursor back into already-rendered history and overwrite it.
-// Safe leading sequences (colours, erase, cursor visibility, etc.) are kept.
+// 零丢弃写入通道（2026-11-12 重新设计）：
+// 旧实现在 normal screen 洪流时按 2MB 上限丢最旧数据，alternate screen 只
+// 用「直写」打补丁绕过；抑制窗口、200K 缓冲上限、zmodem 早退又各自吞数据。
+// 现在只有一条 FIFO：ws 帧解码后入队，一次只把一个批次交给 xterm，
+// term.write 的回调（xterm 已解析完该批）回 ACK 驱动下一批并给服务端回补
+// credit。没有截断、没有「丢最旧」、没有 truncated 标记，也不再有
+// alternate screen 特判 —— 不丢帧，TUI 增量重绘自然不会错乱。
 const ESC = String.fromCharCode(27)
-const CURSOR_CSI_FINALS = new Set([
-  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', '`', 'a', 'd', 'e', 'f', 's', 'u'
-])
-const CURSOR_ESC_FINALS = new Set(['7', '8', 'D', 'E', 'M'])
-
-// Upper bound on output buffered while suppression is active (UTF-16 code
-// units). Past this the rest of the hidden output is dropped instead of
-// growing the buffer without limit.
-const MAX_SUPPRESSED_CHARS = 200000
 
 // #4628 保活探针。保活过去让服务端往 PTY 写 '\n\r\x1b[K' 去唤醒 bash
 // （防 TMOUT 登出），那等于替用户按键：回车会提交半截命令、自动应答
@@ -36,174 +30,11 @@ const DSR_REPLY = ESC + '[0n'
 // 查询发下去后等应答的窗口；超时只丢掉这次探针，不重试。
 const DSR_REPLY_TIMEOUT = 1000
 
-function ansiSequenceEnd (str, start) {
-  const type = str[start + 1]
-  if (!type) {
-    return -1
-  }
-  if (type === '[') {
-    for (let i = start + 2; i < str.length; i++) {
-      const code = str.charCodeAt(i)
-      if (code >= 0x40 && code <= 0x7e) {
-        return i + 1
-      }
-    }
-    return -1
-  }
-  if (type === ']' || type === 'P' || type === '^' || type === '_') {
-    for (let i = start + 2; i < str.length; i++) {
-      if (str.charCodeAt(i) === 7) {
-        return i + 1
-      }
-      if (str[i] === ESC && str[i + 1] === '\\') {
-        return i + 2
-      }
-    }
-    return -1
-  }
-  for (let i = start + 1; i < str.length; i++) {
-    const code = str.charCodeAt(i)
-    if (code >= 0x30 && code <= 0x7e) {
-      return i + 1
-    }
-    if (code < 0x20 || code > 0x2f) {
-      return start + 2
-    }
-  }
-  return -1
-}
-
-export function stripLeadingCursorOps (str) {
-  let index = 0
-  let safePrefix = ''
-  while (index < str.length) {
-    if (str[index] === '\r') {
-      index += 1
-      continue
-    }
-    if (str[index] !== ESC) {
-      break
-    }
-    const end = ansiSequenceEnd(str, index)
-    if (end < 0) {
-      break
-    }
-    const type = str[index + 1]
-    const final = str[end - 1]
-    const isCursorOp = type === '['
-      ? CURSOR_CSI_FINALS.has(final)
-      : CURSOR_ESC_FINALS.has(type)
-    if (!isCursorOp) {
-      safePrefix += str.slice(index, end)
-    }
-    index = end
-  }
-  return safePrefix + str.slice(index)
-}
-
-function startAfterPartialAnsi (str, start) {
-  if (start <= 0) {
-    return start
-  }
-  const esc = str.lastIndexOf(ESC, start - 1)
-  const newline = str.lastIndexOf('\n', start - 1)
-  if (esc <= newline) {
-    return start
-  }
-  const end = ansiSequenceEnd(str, esc)
-  return end < 0 || end > start ? Math.max(start, end < 0 ? str.length : end) : start
-}
-
-function truncationMarker (dropped) {
-  const kb = Math.round(dropped / 1024)
-  return `\r\n...[electerm] output truncated, ${kb}K skipped...\r\n`
-}
-
-export function truncateTerminalOutput (str, maxChars) {
-  if (str.length <= maxChars) {
-    return { output: str, dropped: 0 }
-  }
-  if (maxChars < truncationMarker(str.length).length) {
-    return { output: '', dropped: str.length }
-  }
-  let marker = truncationMarker(str.length - maxChars)
-  let output = ''
-  let dropped = str.length
-  for (let i = 0; i < 3; i++) {
-    const payloadBudget = Math.max(0, maxChars - marker.length)
-    let start = Math.max(0, str.length - payloadBudget)
-    const newline = str.indexOf('\n', start)
-    if (newline >= 0 && newline < str.length - 1) {
-      start = newline + 1
-    } else {
-      start = startAfterPartialAnsi(str, start)
-      if (start > 0 && str.charCodeAt(start) >= 0xdc00 && str.charCodeAt(start) <= 0xdfff) {
-        start += 1
-      }
-    }
-    output = stripLeadingCursorOps(str.slice(start))
-    dropped = str.length - output.length
-    const nextMarker = truncationMarker(dropped)
-    if (nextMarker === marker && marker.length + output.length <= maxChars) {
-      break
-    }
-    marker = nextMarker
-  }
-  if (marker.length + output.length > maxChars) {
-    output = output.slice(marker.length + output.length - maxChars)
-    dropped = str.length - output.length
-    marker = truncationMarker(dropped)
-  }
-  return {
-    output: (marker + output).slice(0, maxChars),
-    dropped
-  }
-}
-
-// Alternate screen buffer 切换检测 (DECSET/DECRST 47 / 1047 / 1049)。
-// TUI 应用 (vim/htop/Ink 类) 进入 alternate screen 后按"自己维护的屏幕模型"
-// 做增量重绘 (ESC[nA 回退 + 覆写), 假设发出的每个字节都被终端处理——丢帧后
-// 其下一帧仍按它的模型回退定位, 指向从未写入的内容, 必然错乱
-// (stripLeadingCursorOps 无法恢复增量语义)。因此 alternate 激活期间必须绕过
-// 合批丢弃层逐 chunk 直写 (与上游 electerm 原生行为一致)。
-// 返回 { swType, swOffset, tailStart }:
-//   swType    'enter' | 'exit' | null (最后一个切换序列的语义)
-//   swOffset  该序列的起点 (-1 = 无切换); 同一 chunk 内在它之前的部分仍属旧模式
-//   tailStart 尾部被 chunk 边界截断的未闭合序列起点 (-1 = 无); 调用方须暂存
-//             并与下一 chunk 拼接, 否则被截断的 1049h 会漏检导致状态不同步
-const ALT_BUFFER_MODES = { h: 'enter', l: 'exit' }
-const ALT_BUFFER_PARAMS = new Set(['47', '1047', '1049'])
-
-export function findAltBufferSwitch (str) {
-  let index = 0
-  let swType = null
-  let swOffset = -1
-  while (index < str.length) {
-    const esc = str.indexOf(ESC, index)
-    if (esc < 0) {
-      break
-    }
-    const end = ansiSequenceEnd(str, esc)
-    if (end < 0) {
-      return { swType, swOffset, tailStart: esc }
-    }
-    if (str[esc + 1] === '[') {
-      const params = str.slice(esc + 2, end - 1)
-      const mode = ALT_BUFFER_MODES[str[end - 1]]
-      if (mode && params.startsWith('?') && ALT_BUFFER_PARAMS.has(params.slice(1))) {
-        swType = mode
-        swOffset = esc
-      }
-    }
-    index = end
-  }
-  return { swType, swOffset, tailStart: -1 }
-}
-
-// 被截断序列的暂存上限: 真实转义序列远小于此; 超出视为异常流, 放弃暂存直接写出
-const MAX_PENDING_TAIL_CHARS = 4096
-// 暂存尾巴的兜底冲出延时: 服务器空闲时不能让屏幕末尾永远缺一段序列
-const PENDING_TAIL_FLUSH_MS = 200
+// 旧通道的纯函数（ansiSequenceEnd / stripLeadingCursorOps /
+// truncateTerminalOutput / startAfterPartialAnsi / findAltBufferSwitch）全部随
+// 「丢帧」一起移除：它们存在的唯一理由是「丢了数据之后尽量少错乱」。零丢弃后
+// FIFO 天然保序，xterm 自己的 parser 会跨 term.write 调用保持转义序列状态，
+// 不需要再手工拼接被 chunk 边界截断的尾巴。
 
 export default class AttachAddonCustom {
   constructor (term, socket, isWindowsShell, infoTabId = '') {
@@ -228,6 +59,12 @@ export default class AttachAddonCustom {
     this._bidirectional = true
     this._disposables = []
     this._socket = socket
+    // 同步设置 binaryType：@xterm/addon-attach 的构造函数也会设，但它要等
+    // loadAttachAddon 动态 import 完成（activate 里的 await）才开始。趁早设好，
+    // 避免连接建立到 addon 就绪之间到达的二进制帧（登录 banner）被当成 Blob 丢弃。
+    if (socket && typeof socket.binaryType !== 'undefined') {
+      try { socket.binaryType = 'arraybuffer' } catch (_) {}
+    }
     this.decoder = new TextDecoder('utf-8')
     this._lastDataTime = Date.now()
     this._lastInputTime = Date.now()
@@ -258,51 +95,45 @@ export default class AttachAddonCustom {
     this._passwordPromptDetected = false
     this._pendingEchoCheck = null
     this._echoCheckTimer = null
-    // Write coalescing: terminal output is buffered and flushed on a short
-    // timer so that heavy bursts (e.g. `yum install` download progress, which
-    // rewrites the same line with \r + clear-line thousands of times per
-    // second) collapse into a few term.write() calls per frame instead of
-    // blocking the main thread on every WebSocket message.
-    this._writeBuffer = []
-    this._bufferChars = 0
-    this._flushScheduled = false
+    // 零丢弃 FIFO：ws 帧解码后进队，一次只有一个批次交给 xterm，
+    // term.write 的回调（xterm 已解析完该批）回 ACK 并驱动下一批。
+    // 无上限截断、无「丢最旧」、无 truncated 标记。credit 窗口由服务端管，
+    // 已发未 ACK 的字节有界，因此 xterm 的 50MB 写缓冲永远够不到。
+    this._pending = []
+    this._pendingBytes = 0
+    this._writeInFlight = false
+    this._inflightBytes = 0
     this._flushTimer = null
-    // Alternate screen 直写模式 (见 findAltBufferSwitch 注释): alternate 激活
-    // 期间跳过合批丢弃层, 逐 chunk 直写保证 TUI 重绘流无损。_pendingTail 暂存
-    // 被 chunk 边界截断的序列尾部, 与下一 chunk 拼接后再扫描。
-    this._altBufferActive = false
-    this._pendingTail = ''
-    this._pendingTailTimer = null
-    // Coalescing window. Output is flushed at most once per interval.
-    // 16ms ~= one frame; low enough that interactive echo feels instant,
-    // high enough to merge a multi-MB/s flood into ~60 writes/s.
+    this._flushScheduled = false
+    this._retryTimer = null
     this._flushIntervalMs = 16
-    // Time of the last actual flush. Drives the interactive fast path in
-    // _enqueueWrite: output arriving after an idle gap (keystroke echo,
-    // command result) is flushed immediately instead of paying the
-    // coalescing delay. 0 = the first chunk ever flushes immediately.
     this._lastFlushTime = 0
-    // Soft cap on buffered-but-unflushed characters (UTF-16 code units, not
-    // bytes — see _enqueueWrite). Under a sustained flood the producer outruns
-    // the renderer; once pending output exceeds this we drop the OLDEST data
-    // (preserving the newest, visible tail and the line currently being
-    // rewritten). Normal interactive output is many orders of magnitude
-    // smaller and is never dropped.
-    //
-    // 2M, up from 256K: TUI apps (claude, codex, ...) repaint by rewinding
-    // with ESC[nA, and Ink-style rewinds reach 50+ rows. At 256K the cap was
-    // tripped routinely by ordinary TUI output, and dropping out of the middle
-    // of such a stream corrupted the screen — surviving frames still carried
-    // rewinds that then pointed at output we never wrote (see
-    // _dropOldestUntil, which now strips them). 2M is ~200 full-screen
-    // repaints of a 200x50 terminal, so only genuinely runaway output (yes,
-    // `cat` of a huge file) trips it.
-    this._maxBufferChars = 2 * 1024 * 1024
-    this._droppedChars = 0
-    this._droppedWarned = false
-    // Automation taps: subscribers receive the decoded string BEFORE write
-    // coalescing (see writeToTerminal). Suppressed output never reaches taps.
+    // 单批写入上限：远低于 xterm 50MB 写缓冲硬阈值，从源头杜绝
+    // "write data discarded, use flow control..." 抛错（该抛错在回调入队前同步
+    // 发生，会让 _writeInFlight 永不复位、FIFO 永久停摆）。
+    this._maxFlushBytes = 4 * 1024 * 1024
+    // 在途批次令牌 + 看门狗：回调丢失时 10s 后把批次回队重发并复位推进位，
+    // 避免 FIFO 冻结；迟到的旧回调凭令牌被丢弃，不会双写 / 双 ACK。
+    this._inflightToken = 0
+    this._inflightBatch = null
+    this._retryCount = 0
+    this._writeWatchdog = null
+    // 逐字节账本：received（ws 帧）/ written（进 xterm）/ acked（解析完）
+    // 三者应收敛到同一数值；droppedBytes 恒为 0。
+    this._receivedBytes = 0
+    this._writtenBytes = 0
+    this._ackedBytes = 0
+    this._suppressedBytes = 0
+    this._droppedBytes = 0
+    this._archivePath = null
+    this._archiveParts = []
+    // Automation taps: 解码后的字符串，抑制窗口的输出也会送到（不再静默吞）。
     this._dataTaps = new Set()
+    // CDP 探针 / UI 读取逐字节账本的唯一入口。
+    if (typeof window !== 'undefined' && infoTabId) {
+      window.__termFlowStats = window.__termFlowStats || {}
+      window.__termFlowStats[infoTabId] = () => this.getLosslessStats()
+    }
     // G1 广播输入：>0 表示本次 sendToServer 是别的终端镜像过来的，不再二次扇出
     this._broadcastDepth = 0
   }
@@ -376,15 +207,20 @@ export default class AttachAddonCustom {
     })
   }
 
-  startOutputSuppression = (timeout = 3000, onEnd = null, discardOnTimeout = false) => {
+  /**
+   * 输出抑制窗口：只延后显示，绝不丢弃。
+   * shell integration 注入期间到达的每个字节都进 taps / 录制 / 服务端归档，
+   * 窗口结束时按序补写进 xterm。屏幕上会多出注入脚本的回显，这是「一个
+   * 字符都不丢」的代价；旧实现用 discard=true 把整段输出直接扔掉。
+   */
+  startOutputSuppression = (timeout = 3000, onEnd = null) => {
     if (this.disposed) {
       onEnd?.()
       return
     }
     // A suppression may already be running (e.g. the 500ms keepalive one).
-    // Starting another must end it first - otherwise its timer stays armed
-    // and fires in the middle of the new window, ending it early and
-    // flushing half-collected output (the shell integration echo) to screen.
+    // Starting another must end it first, otherwise its timer stays armed and
+    // fires in the middle of the new window, flushing half-collected output.
     if (this.outputSuppressed) {
       const previous = this.onSuppressionEndCallback
       this.onSuppressionEndCallback = null
@@ -400,29 +236,26 @@ export default class AttachAddonCustom {
     this.suppressedChars = 0
     this.onSuppressionEndCallback = onEnd
     this.suppressTimeout = setTimeout(() => {
-      if (!discardOnTimeout) {
-        console.warn('[AttachAddon] Output suppression timeout reached, resuming')
-      }
-      this.stopOutputSuppression(discardOnTimeout)
+      this.stopOutputSuppression()
     }, timeout)
   }
 
-  stopOutputSuppression = (discard = true) => {
+  stopOutputSuppression = () => {
     if (this.suppressTimeout) {
       clearTimeout(this.suppressTimeout)
       this.suppressTimeout = null
     }
     this.outputSuppressed = false
-
     const pending = this.suppressedData
     this.suppressedData = []
     this.suppressedChars = 0
-    if (!discard && pending.length > 0 && this.term) {
-      for (const data of pending) {
-        this.writeToTerminalDirect(data)
+    // 按序补写：窗口内每个字节原样交给 xterm，一个不少。连接已关闭时
+    // 不再写屏幕（term 即将销毁），字节仍在服务端无损归档里。
+    if (!this.disposed) {
+      for (const item of pending) {
+        this._enqueueWrite(item.str, item.bytes)
       }
     }
-
     if (this.onSuppressionEndCallback) {
       const callback = this.onSuppressionEndCallback
       this.onSuppressionEndCallback = null
@@ -431,8 +264,10 @@ export default class AttachAddonCustom {
   }
 
   activate = async (terminal = this.term) => {
-    await this._initBase()
+    // 消息监听必须在 await loadAttachAddon 之前挂上：动态 import 期间到达的帧
+    // 仍能被接收，避免首屏 banner 在监听就绪前丢失。
     this.addSocketListener(this._socket, 'message', this.onMsg)
+    await this._initBase()
     // 广播目标按 tab 查找真实连接：注册点在 activate，未连上的 tab 天然收不到
     registerBroadcastAddon(this.infoTabId, this)
 
@@ -460,6 +295,19 @@ export default class AttachAddonCustom {
         ]
         if (msg.action === 'keepalive-probe') {
           this._startDsrProbe()
+          return
+        }
+        // 服务端告知本会话无损归档文件位置；该消息不是终端输出。
+        if (msg.action === FLOW_ACTIONS.archive) {
+          this._archivePath = typeof msg.dir === 'string' ? msg.dir : (typeof msg.path === 'string' ? msg.path : null)
+          this._archiveParts = Array.isArray(msg.parts) ? msg.parts : (msg.path ? [msg.path] : [])
+          return
+        }
+        // 无损归档降级（磁盘不可用 / 写失败）：已在服务端记账，这里只提示用户，
+        // 屏幕输出不受影响。
+        if (msg.action === 'output-archive-error') {
+          console.warn('[AttachAddon] lossless output archive degraded:', msg.message)
+          window.store?.onTerminalArchiveError?.(this.infoTabId, msg.message)
           return
         }
         if (controlActions.includes(msg.action)) {
@@ -534,22 +382,29 @@ export default class AttachAddonCustom {
     return str.indexOf(ESC + ']633;')
   }
 
-  writeToTerminalDirect = (data) => {
-    const { term } = this
-    if (!term || term.parent?.onZmodem) {
-      return
+  /** 解码后的字符串与原始字节一起进完整账本：taps / 录制一个不落。 */
+  _notifyDataConsumers = (str) => {
+    if (this._dataTaps.size) {
+      for (const fn of this._dataTaps) {
+        try {
+          fn(str)
+        } catch (e) {
+          console.error('[dataTap]', e)
+        }
+      }
     }
-    if (typeof data === 'string') {
-      return term.write(data, this._recordLineBaseline)
-    }
-    term.write(data, this._recordLineBaseline)
+    this.recorder?.onData(str)
   }
 
   writeToTerminal = (data) => {
-    const { term } = this
-    if (term.parent?.onZmodem) {
+    const bytes = bytesOf(data)
+    this._receivedBytes += bytes
+    if (this.disposed || !this.term) {
+      // 连接已关闭：字节在服务端无损归档里，账本照记，绝不静默吞。
       return
     }
+    // term.parent.onZmodem 早退已删除：全仓从未给它赋值，这个死分支
+    // 过去会静默吞掉整段输出。
 
     if (!this.hasReceivedInitialData) {
       this.hasReceivedInitialData = true
@@ -560,20 +415,11 @@ export default class AttachAddonCustom {
       }
     }
 
-    // Decode once, synchronously. The previous implementation routed binary
-    // chunks through `new Blob()` + `FileReader.readAsArrayBuffer()` and decoded
-    // in an async `onRead` callback; that async round-trip (plus a per-chunk
-    // Blob allocation) showed up in the profile and fragmented main-thread work.
-    // We already hold a TextDecoder, so decode inline like the suppression path.
+    // Decode once, synchronously, in streaming mode: a multi-byte UTF-8 char
+    // split across TCP segments must be carried over, not turned into U+FFFD.
     let str = data
     if (typeof data !== 'string') {
       try {
-        // Decode in streaming mode: slow SSH servers (e.g. embedded router
-        // CLIs) often deliver a multi-byte UTF-8 char (CJK = 3 bytes) split
-        // across TCP segments, and the server-side idle fast path may forward
-        // the first segment immediately. Without { stream: true } the decoder
-        // would turn each partial fragment into U+FFFD instead of carrying the
-        // trailing bytes over to the next chunk and reassembling the char.
         str = this.decoder.decode(
           data instanceof ArrayBuffer ? data : new Uint8Array(data),
           { stream: true }
@@ -583,188 +429,68 @@ export default class AttachAddonCustom {
       }
     }
 
+    // 抑制窗口只「延后显示」，不再丢弃。窗口内每个字节都进 taps / 录制 /
+    // 服务端归档，窗口结束（OSC 633 或超时）时按序补写进 xterm。
     if (this.outputSuppressed) {
-      const oscIdx = this.indexOfShellIntegration(str)
-      if (oscIdx !== -1) {
-        // Shell integration is confirmed active. The pty often coalesces the
-        // tail of the echoed injection command and the first OSC 633 output
-        // into one chunk, so write only from the first OSC sequence on —
-        // everything before it is echo and stays hidden. A leading newline
-        // keeps the fresh prompt off the injection-time prompt line.
-        this.stopOutputSuppression(true)
-        this._enqueueWrite('\r\n' + str.slice(oscIdx))
+      if (this.indexOfShellIntegration(str) !== -1) {
+        this.stopOutputSuppression()
+      } else {
+        this._notifyDataConsumers(str)
+        this.suppressedData.push({ str, bytes })
+        this.suppressedChars += str.length
+        this._suppressedBytes += bytes
         return
       }
-      // Bounded: a slow login banner or a chatty MOTD during the injection
-      // window must not buffer without limit while output is hidden.
-      if (this.suppressedChars < MAX_SUPPRESSED_CHARS) {
-        this.suppressedChars += str.length
-        this.suppressedData.push(data)
-      }
-      return
     }
 
-    // Prompt/echo detection runs per chunk (cheap) so password prompts and
-    // shell integration are still detected promptly.
+    this._notifyDataConsumers(str)
     this._handleEchoDetection(str)
     if (this._checkPasswordPrompt(str) && !this._passwordPromptDetected) {
       this._passwordPromptDetected = true
-      // 广播红条提示"密码输入中 · 已暂停广播"（非主控时 store 侧 no-op）
       window.store?.setBroadcastBlocked?.('password')
-      // 密码提示出现: 录制立刻避录（recordAvoidPassword 关闭时不避录），
-      // 直到回车/回显确认提示结束
       if (window.store?.config?.recordAvoidPassword !== false) {
         this.recorder?.pause()
       }
-      // Show password dropdown immediately after terminal renders the prompt
       setTimeout(() => {
         this.term?.parent?.onPasswordPromptDetected?.()
       }, 100)
     }
-
-    // Coalesce the actual write (see _enqueueWrite). notifyOnData /
-    // onTerminalWrite fire once per flush instead of once per chunk.
-    // Automation taps run here on the decoded string, before coalescing
-    // (and after the suppression early-return above, so suppressed
-    // keepalive/shell-integration echo never triggers automations).
-    if (this._dataTaps.size) {
-      for (const fn of this._dataTaps) {
-        try {
-          fn(str)
-        } catch (e) {
-          console.error('[dataTap]', e)
-        }
-      }
-    }
-    // 录制在 taps 同位挂接（解码后、coalescing 前, suppressed 输出已被
-    // early-return 拦住不录）
-    this.recorder?.onData(str)
-    this._enqueueWrite(str)
+    this._enqueueWrite(str, bytes)
   }
 
-  // Entry point for terminal output. Detects alternate screen switches and
-  // routes each part of the chunk to the matching write path; see
-  // findAltBufferSwitch for why alternate-screen output must never be dropped.
-  _enqueueWrite = (str) => {
-    if (!this.term || !str) {
+  /**
+   * 唯一写入入口。bytes 是 ws 帧原始字节数；解码得到空串（UTF-8 分片被
+   * TextDecoder 暂时吞下）时字节不能从账本消失，直接回 ACK —— 该字节已在
+   * decoder 里被消费，补齐后会出现在下一个非空 chunk 中。
+   */
+  _enqueueWrite = (str, bytes = 0) => {
+    if (this.disposed) {
       return
     }
-    // A truncated sequence held back from the previous chunk completes here:
-    // prepend it so the scanner sees the whole sequence. (xterm's own parser
-    // keeps state across term.write calls, but OUR scanner does not.)
-    if (this._pendingTail) {
-      str = this._pendingTail + str
-      this._pendingTail = ''
-      clearTimeout(this._pendingTailTimer)
-      this._pendingTailTimer = null
-    }
-    const { swType, swOffset, tailStart } = findAltBufferSwitch(str)
-    const hasTail = tailStart >= 0
-    // Body = everything except a truncated trailing sequence; the switch
-    // offsets split it into "old mode" head / "new mode" rest. term.write is
-    // FIFO, so head→rest ordering holds even when the paths differ.
-    const bodyEnd = hasTail ? tailStart : str.length
-    const head = swOffset >= 0 ? str.slice(0, swOffset) : str.slice(0, bodyEnd)
-    const rest = swOffset >= 0 ? str.slice(swOffset, bodyEnd) : ''
-    if (this._altBufferActive) {
-      if (head) {
-        this._writeDirect(head)
-      }
-    } else if (head) {
-      this._bufferedWrite(head)
-    }
-    if (swType === 'enter') {
-      this._altBufferActive = true
-      // Flush normal-buffer residue BEFORE the first alternate-screen bytes:
-      // from here on the 2MB drop must never apply to this stream.
-      this._flushWrites()
-      if (rest) {
-        this._writeDirect(rest)
-      }
-    } else if (swType === 'exit') {
-      this._altBufferActive = false
-      if (rest) {
-        this._bufferedWrite(rest)
-      }
-    }
-    if (!hasTail) {
-      return
-    }
-    const tail = str.slice(tailStart)
-    if (tail.length > MAX_PENDING_TAIL_CHARS) {
-      // Runaway "sequence": give up on holding it and write it out as-is
-      // (xterm's parser tolerates the garbage; correctness of the switch
-      // state is not affected since no complete switch was seen).
-      if (this._altBufferActive) {
-        this._writeDirect(tail)
-      } else {
-        this._bufferedWrite(tail)
+    if (!str) {
+      if (bytes > 0) {
+        this._ackedBytes += bytes
+        this._sendAck(bytes)
       }
       return
     }
-    this._pendingTail = tail
-    clearTimeout(this._pendingTailTimer)
-    this._pendingTailTimer = setTimeout(this._flushPendingTail, PENDING_TAIL_FLUSH_MS)
+    this._pending.push({ str, bytes })
+    this._pendingBytes += bytes
+    this._pump()
   }
 
-  // Bail-out for a held-back tail that never got completed: write it out on
-  // the current path so a quiet server can't leave the screen missing its
-  // last bytes forever.
-  _flushPendingTail = () => {
-    this._pendingTailTimer = null
-    const tail = this._pendingTail
-    if (!tail || !this.term) {
-      this._pendingTail = ''
+  _pump = () => {
+    if (this.disposed || this._writeInFlight || !this._pending.length) {
       return
     }
-    this._pendingTail = ''
-    if (this._altBufferActive) {
-      this._writeDirect(tail)
-    } else {
-      this._bufferedWrite(tail)
-    }
-  }
-
-  // Lossless path: write straight through, no coalescing, no dropping. Used
-  // while the alternate screen is active. notifyOnData is debounced (1s) in
-  // term-attach, so the per-chunk call cost is fine.
-  _writeDirect = (str) => {
-    if (!this.term || !str) {
-      return
-    }
-    this._lastFlushTime = Date.now()
-    this.term.write(str)
-    this.term?.parent?.notifyOnData()
-    this.term?.parent?.onTerminalWrite?.()
-  }
-
-  // Coalescing path (normal screen): buffer decoded output and flush it on a
-  // short timer so a burst of messages becomes a single (size-capped)
-  // term.write() call, keeping the main thread free to handle UI events and
-  // input between flushes.
-  _bufferedWrite = (str) => {
-    this._writeBuffer.push(str)
-    this._bufferChars += str.length
-    if (this._bufferChars > this._maxBufferChars) {
-      this._dropOldestUntil()
-    }
-    // A hidden window gets its timers throttled by Chromium (Electron's
-    // backgroundThrottling defaults to true), which would stall the flush
-    // timer and force the cap to drop real output. Nothing is painted
-    // while hidden, so coalescing buys nothing — flush synchronously.
-    if (document.hidden) {
-      clearTimeout(this._flushTimer)
+    // 隐藏窗口的定时器被 Chromium 节流，等 16ms 没有意义：直接写，
+    // 由 term.write 回调继续驱动，绝不靠丢数据追平。
+    if (typeof document !== 'undefined' && document.hidden) {
       this._flushWrites()
       return
     }
-    // Interactive fast path: if the last flush was longer ago than the
-    // coalescing window (keystroke echo, command result after idle), flush
-    // immediately so typing adds zero latency. Only output arriving inside
-    // a burst window pays the coalescing delay — which is exactly the flood
-    // case coalescing exists for.
     const elapsed = Date.now() - this._lastFlushTime
     if (elapsed >= this._flushIntervalMs) {
-      clearTimeout(this._flushTimer)
       this._flushWrites()
       return
     }
@@ -774,56 +500,139 @@ export default class AttachAddonCustom {
     }
   }
 
-  // Under heavy flood the producer outruns the renderer; once pending output
-  // exceeds the cap we drop the OLDEST chunks (preserving the newest, visible
-  // tail and the line currently being rewritten). The first kept chunk is
-  // trimmed to the next newline so we never render a half line / broken escape.
-  //
-  // Dropping is lossy but must never corrupt the stream. The discarded tail
-  // usually ended mid-repaint, so a surviving frame can still open with a
-  // rewind (ESC[nA) or a cursor restore (ESC[8) aimed at output we never
-  // wrote — left in, those yank the cursor back over already-rendered history
-  // and overwrite it, which is far worse than the dropped data. Stripping them
-  // (see stripLeadingCursorOps) degrades output to appending from wherever the
-  // cursor actually is.
-  _dropOldestUntil = () => {
-    const buffered = this._writeBuffer.join('')
-    if (buffered.length <= this._maxBufferChars) {
+  _flushWrites = () => {
+    this._flushScheduled = false
+    clearTimeout(this._flushTimer)
+    this._flushTimer = null
+    if (this._writeInFlight || !this._pending.length || !this.term) {
       return
     }
-    const { output, dropped } = truncateTerminalOutput(buffered, this._maxBufferChars)
-    this._writeBuffer = [output]
-    this._bufferChars = output.length
-    this._droppedChars += dropped
-    if (!this._droppedWarned) {
-      this._droppedWarned = true
-      console.warn('[AttachAddon] Heavy output detected; coalescing writes and dropping intermediate output to keep the UI responsive.')
+    // 取出不超过上限的前缀；其余留队下次发，严格保序，绝不丢。
+    let batch
+    let bytes
+    if (this._pendingBytes > this._maxFlushBytes) {
+      batch = []
+      let acc = 0
+      while (this._pending.length && acc < this._maxFlushBytes) {
+        const item = this._pending.shift()
+        batch.push(item)
+        acc += item.bytes
+      }
+      this._pendingBytes -= acc
+      bytes = acc
+    } else {
+      batch = this._pending
+      this._pending = []
+      this._pendingBytes = 0
+      bytes = batch.reduce((n, b) => n + b.bytes, 0)
+    }
+    const data = batch.length === 1 ? batch[0].str : batch.map(b => b.str).join('')
+    const { term } = this
+    const token = ++this._inflightToken
+    this._lastFlushTime = Date.now()
+    this._writeInFlight = true
+    this._inflightBytes = bytes
+    this._writtenBytes += bytes
+    this._inflightBatch = { data, bytes, token }
+    this._armWriteWatchdog()
+    const onDone = () => {
+      // 批次已被看门狗接管重发：忽略迟到的旧回调，避免双 ACK / 双推进。
+      if (this._inflightToken !== token) {
+        return
+      }
+      this._clearWriteWatchdog()
+      this._writeInFlight = false
+      this._inflightBytes = 0
+      this._inflightBatch = null
+      this._retryCount = 0
+      // xterm 已解析完这一批 —— 这才是「消费完成」的可靠信号。
+      this._recordLineBaseline()
+      this._ackedBytes += bytes
+      this._sendAck(bytes)
+      term?.parent?.notifyOnData?.()
+      term?.parent?.onTerminalWrite?.()
+      this._pump()
+    }
+    try {
+      term.write(data, onDone)
+    } catch (e) {
+      // xterm 内部写缓冲抛错（理论上已被 _maxFlushBytes 杜绝）：整批原样回队
+      // 重试，带退避上限，绝不丢。
+      this._clearWriteWatchdog()
+      this._writeInFlight = false
+      this._inflightBytes = 0
+      this._writtenBytes -= bytes
+      this._inflightBatch = null
+      this._pending.unshift({ str: data, bytes })
+      this._pendingBytes += bytes
+      this._retryCount += 1
+      if (this._retryCount > 100) {
+        // 降级：绕过可能出问题的 wrapper，直接交原始 write 尝试写屏，仍不丢批。
+        console.error('[AttachAddon] term.write repeatedly failed; last-resort direct write', e)
+        this._retryCount = 0
+        try {
+          (term.__originalWrite || term.write)(data, onDone)
+        } catch (_) {}
+        return
+      }
+      console.error('[AttachAddon] term.write failed, output kept queued:', e)
+      clearTimeout(this._retryTimer)
+      this._retryTimer = setTimeout(this._pump, 100)
     }
   }
 
-  _flushWrites = () => {
-    this._flushScheduled = false
-    this._flushTimer = null
-    const buf = this._writeBuffer
-    if (!buf.length || !this.term) {
-      this._writeBuffer = []
-      this._bufferChars = 0
+  // 兜底看门狗：正常路径下 term.write 回调毫秒级触发；若某批回调长时间未到
+  // （极端回调丢失），10s 后把该批回队重发并复位 _writeInFlight，防止 FIFO 冻结。
+  _armWriteWatchdog = () => {
+    this._clearWriteWatchdog()
+    this._writeWatchdog = setTimeout(() => {
+      if (!this._writeInFlight || this.disposed) {
+        return
+      }
+      const stuck = this._inflightBatch
+      console.error('[AttachAddon] term.write callback stalled >10s; re-queuing batch', stuck && stuck.bytes)
+      this._writeInFlight = false
+      this._inflightBytes = 0
+      this._writtenBytes -= (stuck ? stuck.bytes : 0)
+      if (stuck) {
+        this._inflightBatch = null
+        this._pending.unshift({ str: stuck.data, bytes: stuck.bytes })
+        this._pendingBytes += stuck.bytes
+      }
+      this._pump()
+    }, 10000)
+  }
+
+  _clearWriteWatchdog = () => {
+    if (this._writeWatchdog) {
+      clearTimeout(this._writeWatchdog)
+      this._writeWatchdog = null
+    }
+  }
+
+  _sendAck = (bytes) => {
+    const sock = this._socket
+    if (bytes <= 0 || !sock || sock.readyState !== 1 /* OPEN */) {
       return
     }
-    this._writeBuffer = []
-    this._bufferChars = 0
-    const data = buf.length === 1 ? buf[0] : buf.join('')
-    const { term } = this
-    this._lastFlushTime = Date.now()
-    // The callback fires once xterm has parsed the chunk into the buffer; that
-    // is the moment the prompt (and any echo) is actually on screen, which is
-    // what _recordLineBaseline samples.
-    term.write(data, this._recordLineBaseline)
-    // Notify parent that the terminal buffer has been updated (echo received),
-    // once per flush instead of once per chunk.
-    term?.parent?.notifyOnData()
-    term?.parent?.onTerminalWrite?.()
+    try {
+      sock.send(JSON.stringify({ action: FLOW_ACTIONS.ack, n: bytes }))
+    } catch (e) {
+      console.debug('[AttachAddon] flow ack failed:', e.message)
+    }
   }
+
+  /** 逐字节账本：droppedBytes 恒为 0；CDP 探针据此做零丢弃验收。 */
+  getLosslessStats = () => ({
+    receivedBytes: this._receivedBytes,
+    writtenBytes: this._writtenBytes,
+    ackedBytes: this._ackedBytes,
+    pendingBytes: this._pendingBytes,
+    inflightBytes: this._inflightBytes,
+    suppressedBytes: this._suppressedBytes,
+    droppedBytes: this._droppedBytes,
+    archivePath: this._archivePath
+  })
 
   // Best-effort bookkeeping of what sits on the current command line. Only
   // answers "could there be input we saw no printable character for?"; whether
@@ -847,6 +656,11 @@ export default class AttachAddonCustom {
         this._pendingInputUnknown = false
       } else if (ch === '\x7f' || ch === '\b') {
         this._pendingInputLength = Math.max(0, this._pendingInputLength - 1)
+        // Backspacing back to an empty line means the content is known again,
+        // so a later idle probe is safe to run.
+        if (this._pendingInputLength === 0) {
+          this._pendingInputUnknown = false
+        }
       } else if (ch >= ' ') {
         this._pendingInputLength += 1
       }
@@ -1085,6 +899,7 @@ export default class AttachAddonCustom {
     this.recorder?.stop()
     this.recorder = null
     this._stopKeepalive()
+    this._clearWriteWatchdog()
     clearTimeout(this._echoCheckTimer)
     this._echoCheckTimer = null
     // A probe awaiting its answer dies with the connection.
@@ -1093,21 +908,26 @@ export default class AttachAddonCustom {
     this._dsrReplyExpected = false
     // End any pending suppression *before* dropping `term`, so the callback
     // (and the promise the startup queue is awaiting) is released instead of
-    // hanging forever on a connection that is already gone.
-    this.stopOutputSuppression(true)
+    // hanging forever on a connection that is already gone. 连接已断时窗口内
+    // 的字节不再补写屏幕，但服务端无损归档已逐字节收下，不是静默丢弃。
+    this.stopOutputSuppression()
     this.onInitialDataCallback = null
-    if (this._flushTimer) {
-      clearTimeout(this._flushTimer)
-      this._flushTimer = null
-    }
+    clearTimeout(this._flushTimer)
+    this._flushTimer = null
+    clearTimeout(this._retryTimer)
+    this._retryTimer = null
     this._flushScheduled = false
-    this._writeBuffer = []
-    this._bufferChars = 0
-    clearTimeout(this._pendingTailTimer)
-    this._pendingTailTimer = null
-    this._pendingTail = ''
-    this._altBufferActive = false
+    if (this._pendingBytes || this._inflightBytes) {
+      console.warn(`[AttachAddon] connection closed with ${this._pendingBytes + this._inflightBytes} output bytes still queued; full stream is in the lossless archive: ${this._archivePath || '(path not reported)'}`)
+    }
+    this._pending = []
+    this._pendingBytes = 0
+    this._writeInFlight = false
+    this._inflightBytes = 0
     this._dataTaps.clear()
+    if (typeof window !== 'undefined' && window.__termFlowStats && this.infoTabId) {
+      delete window.__termFlowStats[this.infoTabId]
+    }
     // Reset the streaming decoder so any partial multi-byte sequence held
     // over from this connection can not leak into a reused instance.
     this.decoder = new TextDecoder('utf-8')

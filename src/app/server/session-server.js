@@ -32,6 +32,15 @@ const wsDec = require('./ws-dec')
 const { zmodemManager } = require('./zmodem')
 const { trzszManager } = require('./trzsz')
 const { xmodemManager } = require('./xmodem')
+const path = require('path')
+const { TerminalOutputArchive } = require('./terminal-output-archive')
+const flowProtocol = require('../common/term-flow-protocol.json')
+const flowControl = require('../common/term-flow-control')
+
+// ws 发送端背压水位：Node 侧 ws 发送队列堆积时暂存字节（不进 credit 记账），
+// 等队列回落再发；与 credit 窗口（渲染层消费背压）互为两层，不能互替。
+const WS_HIGH_WATER = 16 * 1024 * 1024
+const WS_LOW_WATER = 4 * 1024 * 1024
 
 const {
   tokenElecterm,
@@ -161,6 +170,101 @@ if (type === 'rdp') {
     const { pid } = term
     log.debug('ws: connected to terminal ->', pid)
 
+    // 无损归档：数据离开会话的第一现场就逐字节落盘，任何后续分支
+    // （10ms 合批、协议接管、credit 暂停发货、连接关闭）都不可能再丢字节。
+    const sessionLogDir = term.initOptions && term.initOptions.sessionLogPath
+    const archive = new TerminalOutputArchive({
+      pid,
+      dir: sessionLogDir ? path.join(sessionLogDir, 'lossless_output') : undefined,
+      onError: (msg) => {
+        // 归档降级立刻通知渲染层，避免"看起来成功实则有空洞"。
+        try {
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ action: 'output-archive-error', message: msg }))
+          }
+        } catch (_) {}
+      }
+    })
+    const canPause = () => typeof term.outputSources === 'function' && term.outputSources().length > 0
+    let credit = flowControl.createCreditState()
+    const outQueue = []
+
+    const setPaused = (paused) => {
+      if (credit.paused === paused || !canPause()) {
+        return
+      }
+      credit = flowControl.markPause(credit, paused)
+      if (paused) {
+        term.pauseOutput()
+      } else {
+        term.resumeOutput()
+      }
+    }
+
+    const trySend = (buf) => {
+      if (credit.paused) {
+        // 只暂存，绝不丢；resume 后按序发出。
+        outQueue.push(buf)
+        return
+      }
+      // Node 侧 ws 发送队列堆积：字节留在 outQueue，等 drain（不进 credit 记账）。
+      if (ws.readyState === 1 && ws.bufferedAmount != null && ws.bufferedAmount > WS_HIGH_WATER) {
+        outQueue.push(buf)
+        return
+      }
+      if (ws.readyState !== 1) {
+        // 连接已断：字节已在无损归档，不重发也不丢；重连按归档回放。
+        return
+      }
+      try {
+        ws.send(buf)
+        credit = flowControl.applySend(credit, buf.length)
+        if (flowControl.shouldPause(credit)) {
+          setPaused(true)
+        }
+      } catch (e) {
+        // 发送失败（背压 / 异常）：回 outQueue 暂存，绝不放弃，连接恢复后重发。
+        outQueue.push(buf)
+        log.warn('ws.send failed, output kept queued:', e.message)
+      }
+    }
+
+    const drainOutQueue = () => {
+      while (outQueue.length && !credit.paused) {
+        trySend(outQueue.shift())
+      }
+    }
+
+    // ACK 丢失 / 渲染层卡住时的兜底：shouldPause 自带超时，宁可让队列
+    // 暂时超过窗口也不能让会话看起来死机；归档仍逐字节收。
+    // 同时把因 ws 发送队列堆积而暂存的字节，在水位回落时周期性发出。
+    const flowTimer = setInterval(() => {
+      if (credit.paused) {
+        if (!flowControl.shouldPause(credit)) {
+          setPaused(false)
+          drainOutQueue()
+        }
+        return
+      }
+      if (outQueue.length && ws.readyState === 1 &&
+          (ws.bufferedAmount == null || ws.bufferedAmount <= WS_LOW_WATER)) {
+        drainOutQueue()
+      }
+    }, 200)
+
+    // 把归档文件位置告知渲染层，供「完整输出」入口与逐字节对账使用。
+    try {
+      const info = archive.stats()
+      ws.send(JSON.stringify({
+        action: flowProtocol.actions.archive,
+        path: info.parts[0] || info.dir,
+        dir: info.dir,
+        parts: info.parts
+      }))
+    } catch (e) {
+      log.error('ws archive info failed', e)
+    }
+
     const dataBuffer = []
     let sendTimeout = null
     // Time of the last actual flush. Lets a chunk arriving after an idle gap
@@ -208,7 +312,7 @@ if (type === 'rdp') {
       }
 
       // Not zmodem, trzsz, or xmodem data, send to WebSocket
-      ws.send(combinedData)
+      trySend(combinedData)
       sendTimeout = null
     }
 
@@ -260,6 +364,8 @@ if (type === 'rdp') {
     }
 
     const onTermData = function (data) {
+      // 无条件逐字节归档：必须在任何 early-return / 协议接管 / 暂停发货之前。
+      archive.write(data)
       // Check if zmodem session is active and handle data
       if (zmodemManager.isActive(pid)) {
         // Let zmodem handle the data, but still log it
@@ -318,7 +424,7 @@ if (type === 'rdp') {
         if (xmodemConsumed) {
           return
         }
-        ws.send(chunk)
+        trySend(chunk)
         return
       }
 
@@ -434,7 +540,16 @@ if (type === 'rdp') {
         clearTimeout(sendTimeout)
         sendTimeout = null
       }
+      // dataBuffer / outQueue 里未发出的字节不是「丢弃」：onTermData 一进来
+      // 就已写进无损归档。连接已关，清队列只回收内存。
       dataBuffer.length = 0
+      outQueue.length = 0
+      clearInterval(flowTimer)
+      if (credit.paused && canPause()) {
+        term.resumeOutput()
+      }
+      const archived = archive.close()
+      log.debug(`lossless output archived: ${archived.bytes}/${archived.producedBytes} bytes written/produced, lost=${archived.lostBytes}, parts=${archived.parts.length}, sha256=${archived.sha256}, error=${archived.error || 'none'}`)
       // Clean up zmodem session
       zmodemManager.destroySession(pid)
       // Clean up trzsz session
@@ -476,6 +591,14 @@ if (type === 'rdp') {
             }
             if (parsed.action === 'xmodem-event') {
               xmodemManager.handleMessage(pid, parsed, term, ws)
+              return
+            }
+            if (parsed.action === flowProtocol.actions.ack) {
+              credit = flowControl.applyAck(credit, parsed.n)
+              if (credit.paused && !flowControl.shouldPause(credit)) {
+                setPaused(false)
+                drainOutQueue()
+              }
               return
             }
             if (parsed.action === 'keepalive') {

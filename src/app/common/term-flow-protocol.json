@@ -1,0 +1,12 @@
+{
+  "actions": {
+    "ack": "output-ack",
+    "archive": "output-archive"
+  },
+  "limits": {
+    "windowBytes": 8388608,
+    "resumeBytes": 2097152,
+    "pauseTimeoutMs": 30000,
+    "maxBatchBytes": 524288
+  }
+}

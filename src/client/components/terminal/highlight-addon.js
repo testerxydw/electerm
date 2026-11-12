@@ -283,23 +283,38 @@ export class KeywordHighlighterAddon {
 
   activate (terminal) {
     this.terminal = terminal
-    // Store the original write method properly bound to terminal
+    // Store the original write method properly bound to terminal. Also stash it
+    // on the terminal so the attach addon's last-resort bypass can reach it.
     this.originalWrite = terminal.write.bind(terminal)
+    terminal.__originalWrite = this.originalWrite
     const self = this
-    terminal.write = function (data) {
+    // CRITICAL: forward the second argument (the write-completion callback).
+    // The attach addon's lossless FIFO advances and ACKs only from this
+    // callback; dropping it freezes the whole terminal after the first batch.
+    terminal.write = function (data, cb) {
       if (typeof data !== 'string') {
-        return self.originalWrite(data)
+        return self.originalWrite(data, cb)
       }
       if (self.containsDcsSequence(data)) {
-        return self.originalWrite(data)
+        return self.originalWrite(data, cb)
       }
       // displayRaw applies to every write regardless of size: raw mode shows
       // escape sequences as text, so skipping escape() for large chunks would
       // let raw ESC bytes be interpreted by xterm instead of displayed.
       if (terminal.displayRaw) {
-        return self.originalWrite(self.escape(data))
+        try {
+          return self.originalWrite(self.escape(data), cb)
+        } catch (e) {
+          return self.originalWrite(data, cb)
+        }
       }
-      self.originalWrite(self.highlightChunk(data))
+      // highlightChunk rewrites the stream and could throw on degenerate input;
+      // on any failure fall back to the unhighlighted write and never swallow cb.
+      try {
+        return self.originalWrite(self.highlightChunk(data), cb)
+      } catch (e) {
+        return self.originalWrite(data, cb)
+      }
     }
   }
 
