@@ -84,9 +84,9 @@ const plainNewlineIndexes = (text) => {
 
 export class KeywordHighlighterAddon {
   constructor (keywords, opts = {}) {
-    // 密度闸默认开；纯「规则形状/配色」契约探针可传 { coverageGate: false } 关掉，
-    // 断言「某正则染成某色」时不受密度策略干扰（密度策略由 keyword-density.spec.js 单独验收）。
-    this.coverageGate = opts.coverageGate !== false
+    // 覆盖率闸默认关闭：structure 命中（时间戳/路径/数字/URL）在密集行不再被
+    // 35% 占比闸整段压掉，改为「全部渲染」。恢复密度治理：传 opts.coverageGate === true。
+    this.coverageGate = opts.coverageGate === true
     this.coverageThreshold = opts.coverageThreshold
     // 编译走进程级共享缓存（keyword-compile.js）：同一份配置开 N 个页签、
     // 断线重连 N 次都只编译一次，不再每个终端常驻一套 RegExp。
@@ -102,7 +102,10 @@ export class KeywordHighlighterAddon {
     // Writes larger than this bypass keyword highlighting entirely: a command
     // flood or download progress, where scanning every byte (and rebuilding the
     // result string) is pure overhead.
-    this.maxHighlightChunkLength = 256 * 1024
+    // 整块跳过阈值 256KB → 4MB：history / cat 大文件 / grep 大量结果这类
+    // 「一次性吐出大量行」的命令整块输出不再被整块跳过（此类输出通常 < 几 MB，并非持续洪水）。
+    // 单段 4096 跳过（maxHighlightLength）仍保留，防止单条超长行炸扫描。
+    this.maxHighlightChunkLength = 4 * 1024 * 1024
     // Upper bound on match objects collected per text segment. A flooded line
     // ("error error error...") otherwise allocates one record per hit; with the
     // DB grid the same rule of thumb (see db-highlight.jsx), hits past the cap
