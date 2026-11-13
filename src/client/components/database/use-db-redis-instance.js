@@ -25,7 +25,17 @@ import { useCallback, useRef, useState } from 'react'
 import { cleanDbError } from './db-conn-error'
 import message from '../common/message'
 
-export function useDbRedisInstance ({ tabId, sel }) {
+// 打开新建表弹层时一次拉齐「可复制的源表」（本库 + 外库）。只查
+// information_schema：跨库、不切连接、一次往返；排除系统库与视图（视图没有
+// 可复制的 BASE TABLE 结构）。MySQL 系专用 —— createTableDdl 能力位只对 mysql
+// 放行，PG / SQLite 的入口根本不渲染，不会拿到这条 SQL。
+const CREATE_SOURCE_TABLES_SQL = `SELECT TABLE_SCHEMA AS db, TABLE_NAME AS tbl
+  FROM information_schema.TABLES
+ WHERE TABLE_TYPE = 'BASE TABLE'
+   AND TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'sys', 'mysql')
+ ORDER BY TABLE_SCHEMA, TABLE_NAME`
+
+export function useDbRedisInstance ({ tabId, sel, defaultDatabase }) {
   // H3b-3：ER 图。图是整个库/schema 的一张快照，与"当前在看哪张表"无关，
   // 所以打开时按当前库拉一次即可；令牌管"连点刷新时旧响应不覆盖新响应"
   const [er, setEr] = useState({ open: false, loading: false, error: '', graph: null })
@@ -33,8 +43,19 @@ export function useDbRedisInstance ({ tabId, sel }) {
   // H4：结构对比。两张表的选择、取数与差异状态都在弹层里；这里只提供表清单、
   // 取数通道和"从哪张表开始比"
   const [structDiff, setStructDiff] = useState({ open: false, base: null })
-  // N3b：表设计器。这里只记"在给哪张表做设计"，草稿、预览、勾选全在弹层内部
-  const [structDesign, setStructDesign] = useState({ open: false, loc: null })
+  // N3b / N7 表设计器：owner 只记「给哪张表、以什么模式做设计」——
+  // mode: 'alter'（改当前表）| 'create'（新建 / 复制表）
+  // target: 目标定位。alter 是当前表 {db,schema,table}；create 是
+  //         {database,table:''}，表名由弹层输入，目标库可在弹层里换
+  // databases/sourceTables: create 打开时一次拉好的目标库与复制源清单
+  // 草稿、预览、勾选、复制取数全在弹层内部，不回流到 owner。
+  const [structDesign, setStructDesign] = useState({
+    open: false,
+    mode: 'alter',
+    target: null,
+    databases: [],
+    sourceTables: []
+  })
 
   // H3b-3：ER 图取数。只发 listForeignKeys（MySQL 走 information_schema，
   // PG 走 pg_constraint），范围是当前库/schema —— 图里的表与本页选中的表无关，
@@ -104,45 +125,82 @@ export function useDbRedisInstance ({ tabId, sel }) {
   const openTableDesign = () => {
     setStructDesign({
       open: true,
-      create: false,
-      loc: sel ? { database: sel.database, schema: sel.schema || '', table: sel.table } : null
+      mode: 'alter',
+      target: sel
+        ? { database: sel.database, schema: sel.schema || '', table: sel.table }
+        : null,
+      databases: [],
+      sourceTables: []
     })
   }
 
-  // N7 新建表：设计器的 create 模式（空基准 + 表名输入框）。库取当前选中的
-  // database 段 —— 没有库上下文时不能静默返回（用户视角就是"点了没反应"），
-  // 给一条可行动的提示：目标库跟着"打开的那张表"走。库列表顺手拉一次
-  // （show databases），弹层里下拉可换目标库；拉取失败不拦着开弹层，
-  // 退化为只有当前库一项（CREATE TABLE 带全限定前缀，执行语义不变）
+  // N7 新建表 / 复制表：设计器的 create 模式。
+  //
+  // 目标库降级链：打开的表所在库 → 连接默认库（tab.dbName）→ 库清单首项。
+  // 不再要求「先打开一张表」—— sel 只在 openTable 成功后才有值，空库里一张表
+  // 都没有时恰恰最需要新建表，旧实现只会弹一条 warning 把人挡在外面。
+  // 库清单与可复制的源表清单一次并发拉齐；任一失败都不拦着开弹层：目标库退回
+  // 连接默认库，复制选择器显示"清单不可用"，空白新建完全不受影响。
   const openCreateTable = async () => {
-    if (!sel || !sel.database) {
+    const seedDb = (sel && sel.database) || defaultDatabase || ''
+    let databases = []
+    let sourceTables = []
+    try {
+      const [dbs, tbls] = await Promise.all([
+        window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', {
+          sql: 'show databases', database: seedDb || 'mysql'
+        }),
+        window.pre.runGlobalAsync('dbClientOp', tabId, 'executeSql', {
+          sql: CREATE_SOURCE_TABLES_SQL, database: seedDb || 'mysql'
+        })
+      ])
+      databases = ((dbs && dbs.results && dbs.results[0] && dbs.results[0].rows) || [])
+        .map(row => String(Object.values(row)[0]))
+        .filter(n => !/^(information_schema|performance_schema|sys|mysql)$/i.test(n))
+      sourceTables = ((tbls && tbls.results && tbls.results[0] && tbls.results[0].rows) || [])
+        .map(row => {
+          const v = Object.values(row)
+          return { database: String(v[0]), table: String(v[1]) }
+        })
+        .filter(t => t.database && t.table)
+    } catch (err) {
+      databases = []
+      sourceTables = []
+    }
+    const database = seedDb || databases[0] || ''
+    if (!database) {
+      // 连库清单都看不到（权限极窄）且连接没带默认库：真给不出目标库，
+      // 这时才提示，文案是可行动的"选一个库"而不是"先打开一张表"
       message.warning(window.translate('dbCreateTableNeedDb'))
       return
     }
-    let databases = []
-    try {
-      const r = await window.pre.runGlobalAsync(
-        'dbClientOp', tabId, 'executeSql', { sql: 'show databases', database: sel.database }
-      )
-      databases = ((r && r.results && r.results[0] && r.results[0].rows) || [])
-        .map(row => String(Object.values(row)[0]))
-        .filter(n => !/^(information_schema|performance_schema|sys|mysql)$/i.test(n))
-      if (!databases.includes(sel.database)) {
-        databases.unshift(sel.database)
+    if (!databases.includes(database)) {
+      databases.unshift(database)
+    }
+    // 复制源可能在外库：把清单里出现过的库也补进目标库候选，
+    // 免得"想复制到那个库"却选不到它
+    for (const t of sourceTables) {
+      if (!databases.includes(t.database)) {
+        databases.push(t.database)
       }
-    } catch (err) {
-      databases = [sel.database]
     }
     setStructDesign({
       open: true,
-      create: true,
+      mode: 'create',
+      target: { database, schema: '', table: '' },
       databases,
-      loc: { database: sel.database, schema: sel.schema || '', table: '' }
+      sourceTables
     })
   }
 
   const closeTableDesign = () => {
-    setStructDesign({ open: false, create: false, loc: null })
+    setStructDesign({
+      open: false,
+      mode: 'alter',
+      target: null,
+      databases: [],
+      sourceTables: []
+    })
   }
   return {
     er,

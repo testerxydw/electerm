@@ -117,7 +117,7 @@ import {
   sqlFileTabLabel
 } from '../../common/sql-file'
 import { dbTypeLabelMap } from '../../common/constants'
-import { dialectIdOf } from '../../common/sql-dialects'
+import { dialectIdOf, capabilityOf } from '../../common/sql-dialects'
 // N11a-#7：危险 SQL 分级（classifySql）与安全带判定（shouldConfirm/markAsked/
 // createGuardState/bypass*）随执行闸门迁入 use-db-guard；readOnlyHintKey 随 #16
 // 顶栏迁入 db-session-head-bar；owner 只剩渲染侧要用的 muteLowWrite（弹窗"仍要执行并静音"）
@@ -654,7 +654,7 @@ export default auto(function DbSession (props) {
     openTableDesign,
     openCreateTable,
     closeTableDesign
-  } = useDbRedisInstance({ tabId, sel })
+  } = useDbRedisInstance({ tabId, sel, defaultDatabase: currentDbName })
 
   // D 批：EXPLAIN 弹窗（对当前选区/整段语句做只读计划分析）
   const [explainOpen, setExplainOpen] = useState(false)
@@ -4289,22 +4289,33 @@ export default auto(function DbSession (props) {
     />
   )
 
-  // N7 新建表入口放页签栏右侧（会话页签之后）：不依赖已选表（建新表恰恰发生在
-  // 没有表可选的时候）。能力开关只看方言——只读连接里点开弹层仍能浏览设计，
+  // N7 新建表入口：紧随「会话」页签之后的一个页签样式项（不是页签栏最右端）。
+  // 不依赖已选表（建新表恰恰发生在没有表可选的时候）。点击即开弹层、不切页签
+  // （受控 activeKey 不认它；label 上的 stopPropagation 防 rc-tabs 把它当普通
+  // 页签激活）。能力开关走 createTableDdl 声明，与设计器生成器的放行判据同源，
+  // 不在 UI 里再写一份引擎名白名单。只读连接点开弹层仍能浏览设计，
   // 写入走既有的 apply/写护栏
-  const createTableExtra = dialect === 'mysql'
-    ? (
-      <Button
-        size='small'
-        type='primary'
-        ghost
-        className='db-create-table-extra'
-        icon={<PlusOutlined />}
-        onClick={openCreateTable}
-      >
-        {e('dbCreateTable')}
-      </Button>
-      )
+  const createTableTab = capabilityOf(dialect, 'createTableDdl')
+    ? {
+        key: 'createTable',
+        label: (
+          <Button
+            size='small'
+            type='primary'
+            ghost
+            className='db-create-table-extra'
+            icon={<PlusOutlined />}
+            onMouseDown={ev => ev.stopPropagation()}
+            onClick={ev => {
+              ev.stopPropagation()
+              openCreateTable()
+            }}
+          >
+            {e('dbCreateTable')}
+          </Button>
+        ),
+        children: null
+      }
     : null
 
   const mainArea = isRedis
@@ -4313,7 +4324,14 @@ export default auto(function DbSession (props) {
       <Tabs
         className='db-tabs'
         activeKey={mainTab}
-        onChange={setMainTab}
+        onChange={k => {
+          // 兜底：label 的 stopPropagation 已拦住冒泡，这里再挡一次
+          // 防止 activeKey 落到伪页签上
+          if (k === 'createTable') {
+            return
+          }
+          setMainTab(k)
+        }}
         items={[
           // U1c：没选中表时数据页显示工作台首页，而不是一张标题为空的网格
           { key: 'data', label: e('dbDataTab'), forceRender: true, children: sel ? dataArea : workspaceHome },
@@ -4341,9 +4359,11 @@ export default auto(function DbSession (props) {
             key: 'sessions',
             label: e('dbSessionsTab'),
             children: <DbSessions tabId={tabId} dbType={tab.dbType} />
-          }
+          },
+          // 新建表：伪页签，紧跟「会话」；点击走 label 的 onClick 开弹层，
+          // activeKey 永不落在它上面（见 onChange 拦截）
+          ...(createTableTab ? [createTableTab] : [])
         ]}
-        tabBarExtraContent={createTableExtra}
       />
       )
 
@@ -4824,9 +4844,10 @@ export default auto(function DbSession (props) {
           ? (
             <DbTableDesign
               open={structDesign.open}
-              loc={structDesign.loc}
-              createMode={structDesign.create === true}
-              createDatabases={structDesign.databases}
+              mode={structDesign.mode}
+              target={structDesign.target}
+              databases={structDesign.databases}
+              sourceTables={structDesign.sourceTables}
               dialect={dialect}
               loadStructure={loadFreshStructure}
               onApplySql={s => applyGeneratedSql(s, closeTableDesign)}

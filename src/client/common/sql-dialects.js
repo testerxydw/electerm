@@ -221,7 +221,11 @@ export const dialectMap = {
       editableStaging: true,
       // 逐列/逐索引 ALTER 能否安全回写（N3b 表设计器入口）。MySQL 的 ALTER TABLE
       // 什么都能改，PG 分动作改，SQLite 只有四形（删列/改类型要重建整表）→ 只读预览。
-      alterDdl: true
+      alterDdl: true,
+      // 能否生成 CREATE TABLE（N7 新建表）。与 alterDdl 不同源：CREATE 要内联
+      // PK/UNIQUE/INDEX 与表选项，PG 的序列/默认值、SQLite 的重建语义都还没实测
+      // 口径，盲生成最容易错 —— 宁可先不放，报原因让人手写。
+      createTableDdl: true
     },
     // 族间类型改写（N8）：从另一家族读到某类型时，映射到本方言的口径。
     // 场景：结构对比 / 跨引擎 DDL 时，PG 的 UUID ↔ MySQL 的 CHAR(36) 这类翻译。
@@ -266,7 +270,9 @@ export const dialectMap = {
       treeDepth: 2,
       editableStaging: true,
       // 见 mysql 条：逐列 ALTER 分动作发，形状齐全
-      alterDdl: true
+      alterDdl: true,
+      // CREATE TABLE 内联索引 + 表选项的 PG 口径（序列/默认值）未实测 → 不放行
+      createTableDdl: false
     },
     typeRewrite: {
       // 反方向：PG 视角的通用类型已属本族，一般不改写；保留空映射以示对称
@@ -311,7 +317,8 @@ export const dialectMap = {
       editableStaging: true,
       // ALTER 只有 ADD/RENAME/DROP COLUMN 与 RENAME TO 四形：改类型/注释得重建整表
       // 搬数据，盲生成的风险不对等 → 设计器整体只读预览（与 db-ddl-generate 同口径）
-      alterDdl: false
+      alterDdl: false,
+      createTableDdl: false
     },
     // SQLite 类型改写：PG 视角类型落到本族后的存储/展示口径
     typeRewrite: {
@@ -440,7 +447,8 @@ export function getCapabilities (dbType) {
     // treeDepth 是数字（元数据树层数），缺省 0 = 无树；与其它布尔位不同
     treeDepth: 0,
     editableStaging: false,
-    alterDdl: false
+    alterDdl: false,
+    createTableDdl: false
   }
 }
 

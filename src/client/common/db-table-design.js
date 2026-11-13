@@ -18,7 +18,7 @@
  * 零差异，否则一打开设计器就冒一堆假变更。
  */
 import { diffTableStructure } from './db-structure-diff.js'
-import { diffToDdl, tableCommentDdl } from './db-ddl-generate.js'
+import { diffToDdl, tableCommentDdl, createTableDdl } from './db-ddl-generate.js'
 
 let seq = 0
 const nextKey = () => 'd' + (++seq)
@@ -111,6 +111,53 @@ export function newIndex () {
   }
 }
 
+/**
+ * 新建 / 复制表的空基准草稿（方案 B：草稿形状只有 createDraft 一个出口）。
+ *
+ * 空结构也过一次 createDraft，形状永远与"从真实表复制来的草稿"一致 —— 不再
+ * 在组件里手写一份字面量。N7 首版手写 emptyDraft 漏了 foreignKeys，渲染层读
+ * `.length` 直接把弹层炸掉，就是两处形状手工对齐的代价。
+ * 预置一个空列行：让用户看到编辑行的形状，而不是对着空屏猜。
+ */
+export function emptyDraft () {
+  const d = createDraft({ columns: [], indexes: [], foreignKeys: [] })
+  return { ...d, columns: [newColumn()] }
+}
+
+/**
+ * 把"从别的表读来的草稿"重基线成一张全新表的草稿（复制表功能）。
+ *
+ * 直接用 createDraft(源结构) 的话，每行都带着 origName/src：渲染层会把列名判成
+ * "已有列"而禁用输入（那是改表语义），draftToStructure 还会把源表的契约字段
+ * 一起铺进目标结构。新建表里所有列/索引都该可编辑，所以逐行按 newColumn /
+ * newIndex 重建，只搬用户看得见的字段；foreignKeys 只留作只读展示。
+ */
+export function draftAsNew (draft) {
+  const d = draft || {}
+  return {
+    comment: text(d.comment),
+    columns: (d.columns || []).filter(Boolean).map(c => ({
+      ...newColumn(),
+      name: text(c.name),
+      type: text(c.type),
+      nullable: c.nullable !== false,
+      hasDefault: !!c.hasDefault,
+      defaultValue: text(c.defaultValue),
+      comment: text(c.comment)
+    })),
+    indexes: (d.indexes || []).filter(Boolean).map(ix => ({
+      ...newIndex(),
+      name: text(ix.name),
+      columns: (ix.columns || []).map(String),
+      unique: ix.unique === true,
+      primary: ix.primary === true,
+      method: ix.method === null || ix.method === undefined ? null : String(ix.method)
+    })),
+    // 外键只读展示：CREATE 生成器不产外键，留着是让用户看见"源表挂着外键"
+    foreignKeys: Array.isArray(d.foreignKeys) ? d.foreignKeys.filter(Boolean) : []
+  }
+}
+
 const name = v => String(v === null || v === undefined ? '' : v).trim()
 const fold = v => name(v).toLowerCase()
 
@@ -196,20 +243,45 @@ export function designIssues (draft) {
 }
 
 /**
- * 草稿相对当前结构的候选语句。
+ * 草稿 → 候选语句（方案 B：新建/改表共用的唯一预览入口）。
+ *
+ * 一条流水线、三个基准：
+ * - alter  base = 当前表结构，target = 当前表 → 逐条 ALTER（差异）
+ * - create  base = 空结构 / 复制来的别的表结构，target = 新表 → 一条 CREATE（全量）
+ * 两条分支都先过 designIssues（同一套草稿校验），再过 draftToStructure（唯一
+ * 归一化出口），方言拼串各交给 diffToDdl / createTableDdl，但列定义共用
+ * colDefTail。组件里不再有"create 模式另算一套预览"的分支。
+ *
  * @param {object} opts
- * @param {object} opts.current 当前 v2 结构（基准，语句作用在它对应的表上）
+ * @param {'alter'|'create'} opts.mode 缺省 alter（兼容既有调用）
+ * @param {object} opts.current 当前 v2 结构（仅 alter 用）
  * @param {object} opts.draft 设计器草稿
  * @param {string} opts.dialect 引擎名
- * @param {object} opts.loc 表定位 { database, schema, table }
+ * @param {object} opts.loc 表定位（alter 的基准表）
+ * @param {object} opts.target create 的目标 { database, schema, table }
  * @returns {{diff: object|null, items: Array, issues: Array}}
- *   items = diffToDdl 的结果 + 表注释项（若有），表注释排在最前；
- *   issues 非空时 diff=null、items=[] —— 草稿本身不合法就不该给语句。
+ *   issues 非空时 items=[] —— 草稿本身不合法就不该给语句。
  */
-export function designPreview ({ current, draft, dialect, loc }) {
+export function designPreview ({ mode, current, draft, dialect, loc, target }) {
   const issues = designIssues(draft)
   if (issues.length) {
     return { diff: null, items: [], issues }
+  }
+  if (mode === 'create') {
+    // 方言能力 / 表名 / 列名 / 类型 / 索引列引用的拒绝理由由生成器给 reason，
+    // 渲染层与 ALTER 的 item.reason 共用 ddlReasonKey 一套文案，不再有两套口径。
+    const res = createTableDdl(draftToStructure(draft), dialect, target || loc)
+    return {
+      diff: null,
+      items: [{
+        id: 'create-table',
+        entry: null,
+        sqls: res.sqls,
+        supported: res.supported,
+        reason: res.reason
+      }],
+      issues: []
+    }
   }
   const diff = diffTableStructure(current || {}, draftToStructure(draft), { dialect })
   const items = diffToDdl(diff, dialect, loc)

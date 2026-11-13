@@ -243,9 +243,9 @@ describe('N3b 边界：宁可不给语句', () => {
     assert.equal(r.items.every(i => i.reason === 'alter-unsupported'), true,
       JSON.stringify(ids(r.items)))
     assert.equal(G.buildScript(r.items, ids(r.items)), '')
-    // 组件侧的只读横幅走同一条能力位，两边判据一致
+    // 组件侧的只读横幅走同一条能力位，按 mode 取不同的位，两边判据一致
     const view = read(VIEW)
-    assert.match(view, /capabilityOf\(dialect, 'alterDdl'\)/)
+    assert.match(view, /capabilityOf\(dialect, isCreate \? 'createTableDdl' : 'alterDdl'\)/)
   })
 
   test('非 SQL 引擎（redis）：unknown-dialect 优先，不谎报成"能力不支持"', () => {
@@ -358,59 +358,126 @@ describe('N3b 组件边界：只呈现，不生成、不执行', () => {
     // 唯一的出口是父组件注入的回调
     const apply = view.slice(view.indexOf('const applyScript = () => {'))
     assert.match(apply, /onApplySql\(script\)/)
-    assert.match(apply, /if \(!script \|\| !onApplySql\)/)
-    assert.match(view, /disabled=\{!script \|\| !onApplySql\}/)
+    assert.match(apply, /if \(!script \|\| !onApplySql \|\| copying\)/, '复制取数期间不许落脚本')
+    assert.match(view, /disabled=\{!script \|\| !onApplySql \|\| copying\}/)
     assert.match(view, /disabled=\{!item\.supported\}/, '不支持的条目不给勾')
   })
 
-  test('语句与差异都来自纯模块，reason 文案走共用映射', () => {
+  test('方案 B：create/alter 共用一条流水线，归一化与拼串各只有一处', () => {
     const view = read(VIEW)
+    const design = read(DESIGN)
+    const gen = read(GEN)
     assert.match(view, /from '\.\.\/\.\.\/common\/db-table-design'/)
-    assert.match(view, /designPreview\(\{ current, draft, dialect, loc \}\)/)
-    // N7 新建表：create 模式没有"勾选差异"语义，直接全量生成；ALTER 模式仍吃 picked
-    assert.match(view, /buildScript\(items, createMode \? generatable : picked\)/)
-    assert.match(view, /createTableDdl\(draft, dialect, \{/, 'CREATE 生成的方言拼串只在 db-ddl-generate')
+    // 组件只传 mode，不再为 create 另算一套预览；差异/建表分叉下沉到纯模块
+    assert.match(view, /mode: isCreate \? 'create' : 'alter'/)
+    assert.match(design, /export function designPreview \(\{ mode, current, draft, dialect, loc, target \}\)/)
+    assert.match(design, /if \(mode === 'create'\)/)
+    assert.equal(/designPreview\(\{ current, draft, dialect, loc \}\)/.test(view), false,
+      '组件不得留在 create 模式自己分叉的旧写法')
+    // create/copy 没有"勾选差异"语义，直接全量生成；ALTER 模式仍吃 picked
+    assert.match(view, /buildScript\(items, isCreate \? generatable : picked\)/)
+    // CREATE 的方言拼串只在生成器，且吃 draftToStructure 这个唯一归一化出口
+    assert.match(design, /createTableDdl\(draftToStructure\(draft\), dialect, target \|\| loc\)/)
+    assert.equal(/createTableDdl\(/.test(view), false,
+      '组件不许直接调生成器拼串（能力位字符串不算调用）')
+    assert.equal(/hasDefault === false/.test(gen), false,
+      'hasDefault→defaultValue 归一化只允许在 draftToStructure 一处')
+    assert.equal(/CREATE_SUPPORTED_DIALECTS/.test(gen), false,
+      '方言白名单必须并到 sql-dialects 能力位，不许生成器里再留一份')
+    assert.match(gen, /capabilityOf\(dialect, 'createTableDdl'\)/)
     assert.match(view, /e\(ddlReasonKey\(item\.reason\)\)/,
       'reason→词条只能有 db-ddl-reason 一份')
     assert.equal(/const REASON_KEY = \{/.test(view), false, '组件里不得自带一份映射')
     assert.match(view, /setPicked\(\[\]\)\s*\n\s*\}, \[preview\]\)/, '草稿一改就作废勾选')
   })
 
-  test('入口按钮在会话页签栏右侧，结构区不再重复', () => {
+  test('入口紧跟会话页签，能力位与 mode/target 状态单真源', () => {
     const area = read(AREA)
     assert.match(area, /\{e\('dbDesign'\)\}/, '工具条按钮文案缺失')
     assert.match(area, /onClick=\{openTableDesign\}/)
     assert.match(area, /structureV2\.type !== 'view'/, '视图没有可 ALTER 的列与索引')
-    // N7 迭代：新建表入口从结构区工具行迁到顶部页签栏（tabBarExtraContent，
-    // 会话页签之后），结构区不再有第二个入口
+    // 新建表入口是顶部页签栏紧跟「会话」的伪页签项，不是 tabBarExtraContent
+    // （那会被 flex 推到页签栏最右端），结构区不许留第二个入口
     assert.doesNotMatch(area, /dbCreateTable/, '结构区不该再有新建表按钮')
     const s = read(SESSION)
-    assert.match(s, /createTableExtra = dialect === 'mysql'/, '新建表方言开关只在 owner 一处')
-    assert.match(s, /tabBarExtraContent=\{createTableExtra\}/, '入口要挂在页签栏右侧')
-    assert.match(s, /<DbTableDesign[\s\S]{0,600}open=\{structDesign\.open\}/)
-    assert.match(s, /<DbTableDesign[\s\S]{0,700}createMode=\{structDesign\.create === true\}/)
-    assert.match(s, /<DbTableDesign[\s\S]{0,700}createDatabases=\{structDesign\.databases\}/, '库列表要传进设计器')
-    assert.match(s, /<DbTableDesign[\s\S]{0,700}loadStructure=\{loadFreshStructure\}/)
-    assert.match(s, /<DbTableDesign[\s\S]{0,700}onApplySql=\{s => applyGeneratedSql\(s, closeTableDesign\)\}/)
+    assert.match(s, /createTableTab = capabilityOf\(dialect, 'createTableDdl'\)/,
+      '入口放行只看能力位，与生成器同源')
+    assert.doesNotMatch(s, /tabBarExtraContent/, '不许用 tabBarExtraContent（会跑到最右端）')
+    assert.match(s, /\.\.\.\(createTableTab \? \[createTableTab\] : \[\]\)/, '伪页签要追加在会话之后')
+    assert.match(s, /onMouseDown=\{ev => ev\.stopPropagation\(\)\}/, 'mousedown 也要拦（防 rc-tabs 激活）')
+    assert.match(s, /if \(k === 'createTable'\)\s*\{\s*return/, 'onChange 要挡住伪页签的 activeKey')
+    // 方案 B：mode/target 单真源，不再有 create 布尔 + loc 兼职
+    assert.match(s, /useDbRedisInstance\(\{ tabId, sel, defaultDatabase: currentDbName \}\)/,
+      '空库可用：连接默认库要传进 hook')
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}open=\{structDesign\.open\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}mode=\{structDesign\.mode\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}target=\{structDesign\.target\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}databases=\{structDesign\.databases\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}sourceTables=\{structDesign\.sourceTables\}/,
+      '复制源清单要传进设计器')
+    assert.equal(/createMode=|createDatabases=|structDesign\.create|structDesign\.loc/.test(s), false,
+      '旧状态形状不许残留')
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}loadStructure=\{loadFreshStructure\}/)
+    assert.match(s, /<DbTableDesign[\s\S]{0,800}onApplySql=\{s => applyGeneratedSql\(s, closeTableDesign\)\}/)
     assert.match(s, /!isRedis\s*\?\s*\(\s*<DbTableDesign/, 'Redis 实例不该有表设计器')
     assert.match(s, /openTableDesign=\{openTableDesign\}/, '入口要接到 owner 的 handler')
-    // N7 修复：没打开过表时 sel 为 null，不许静默返回（用户视角=点了没反应）
-    assert.match(read(HOOK),
-      /message\.warning\(window\.translate\('dbCreateTableNeedDb'\)\)/,
-      '无库上下文要给可行动提示')
-    // N7 迭代：弹层里目标库可下拉换（默认跟随打开的表）；库列表打开时拉一次
-    assert.match(read(HOOK), /'show databases'/, 'openCreateTable 要拉库列表')
-    assert.match(read(HOOK), /databases\s*,\s*\n\s*loc:/, '库列表要落进 structDesign')
-    const view = read(VIEW)
-    assert.match(view, /createDatabases/, '设计器要接库列表 prop')
-    assert.match(view, /database: createDb \|\| \(loc && loc\.database\) \|\| ''/, '生成 SQL 的库名走下拉选中值')
-    assert.match(view, /db-design-db-select/, '目标库下拉要渲染出来')
   })
 
-  test('N7 create 模式草稿形状自守：foreignKeys 缺失不许炸渲染', () => {
+  test('阶段0：默认库降级链 + 复制源清单一次拉齐', () => {
+    const hook = read(HOOK)
+    // sel 只在打开表后有值：空库里必须回落到连接默认库，而不是弹 warning 把人挡在外面
+    assert.match(hook, /const seedDb = \(sel && sel\.database\) \|\| defaultDatabase \|\| ''/)
+    assert.match(hook, /const database = seedDb \|\| databases\[0\] \|\| ''/)
+    assert.match(hook, /'show databases'/, '要拉库清单')
+    assert.match(hook, /CREATE_SOURCE_TABLES_SQL/, '要拉可复制的源表清单')
+    assert.match(hook, /information_schema\.TABLES/, '跨库表清单走 information_schema（外库可复制）')
+    assert.match(hook, /TABLE_TYPE = 'BASE TABLE'/, '视图不能当复制源')
+    assert.match(hook, /Promise\.all\(\[/, '库清单与表清单一次并发拉齐')
+    assert.match(hook, /mode: 'create'/, 'create 模式由 owner 定')
+    assert.match(hook, /sourceTables/, '源表清单要落进 structDesign')
+    assert.match(hook,
+      /message\.warning\(window\.translate\('dbCreateTableNeedDb'\)\)/,
+      '连库清单都拿不到时才提示（兜底，不再是主路径）')
+  })
+
+  test('复制表：草稿基准可从本库/外库结构预填，UI 有来源选择', () => {
     const view = read(VIEW)
-    // emptyDraft 与 createDraft（db-table-design.js）形状对齐，补了 foreignKeys
-    assert.match(view, /foreignKeys: \[\]/, 'emptyDraft 必须带 foreignKeys 空数组')
+    const design = read(DESIGN)
+    assert.match(view, /sourceOptions/, '复制源下拉要渲染')
+    assert.match(view, /db-design-source-select/, '复制源 Select 要有独立样式钩子')
+    assert.match(view, /e\('dbCreateTableSourceBlank'\)/, '空白表是可回退的选项')
+    assert.match(view, /dbCreateTableSourceHint/, '要写明只复制结构不含数据')
+    assert.match(view, /dbCreateTableFkHint/, '外键不进 CREATE 要提示')
+    assert.match(view, /draftAsNew\(createDraft\(structure \|\| \{\}\)\)/,
+      '复制预填要过重基线，否则列名被判成已有列而禁用')
+    assert.match(view, /loadStructure\(\{ database, schema: '', table \}\)/,
+      '跨库读结构复用 alter 的 getTableStructure 通道')
+    assert.match(view, /table \+ '_copy'/, '目标表名为空时自动给可编辑默认值')
+    assert.match(view, /setTargetTable\(t => t\.trim\(\) \? t :/, '不覆盖用户已输入的表名')
+    assert.match(design, /export function draftAsNew/, '重基线下沉到纯模块')
+    assert.match(design, /export function emptyDraft/, '空草稿形状只有 createDraft 一个出口')
+    // 目标库/表名都进 target，生成 SQL 的全限定前缀跟着下拉走
+    assert.match(view, /database: targetDb \|\| \(target && target\.database\) \|\| ''/)
+    assert.match(view, /table: targetTable\.trim\(\)/)
+    assert.match(view, /db-design-db-select/, '目标库下拉要渲染出来')
+    // 复制后草稿仍可全量编辑；换源会重建草稿，改过必须先确认，不能静默丢改动
+    assert.match(view, /const isNew = isCreate \|\| !c\.origName/,
+      'create/copy 模式列名必须可编辑（改表模式才禁改名）')
+    assert.match(view, /setDraftDirty\(true\)/, '结构编辑要标脏')
+    assert.match(view, /ConfirmModal\.confirm\(\{/, '换源要走统一确认弹层')
+    assert.match(view, /dbCreateTableSwitchSourceHint/, '换源要说明会丢改动')
+  })
+
+  test('空草稿形状由纯模块统一产出，组件不许再手写一份', () => {
+    const view = read(VIEW)
+    const design = read(DESIGN)
+    // N7 首版组件里手写 emptyDraft 漏了 foreignKeys，打开弹层即 TypeError：
+    // 现在空结构也过一次 createDraft，形状与"从真实表复制来的草稿"必然一致
+    assert.match(design, /export function emptyDraft \(\)/)
+    assert.match(design, /createDraft\(\{ columns: \[\], indexes: \[\], foreignKeys: \[\] \}\)/)
+    assert.equal(/const emptyDraft = useCallback/.test(view), false,
+      '组件里不许再手写空草稿字面量')
+    assert.match(view, /setDraft\(emptyDraft\(\)\)/)
     // 渲染守卫自守：草稿形状不齐时只少一块展示，不能整个弹层 TypeError
     assert.match(view, /draft && draft\.foreignKeys && draft\.foreignKeys\.length/,
       '外键块读取必须三段守卫')
@@ -420,7 +487,9 @@ describe('N3b 组件边界：只呈现，不生成、不执行', () => {
 
   test('取数与勾选落地都复用既有通道，不另起炉灶', () => {
     const hook = read(HOOK)
-    assert.match(hook, /const \[structDesign, setStructDesign\] = useState\(\{ open: false, loc: null \}\)/)
+    assert.match(hook,
+      /const \[structDesign, setStructDesign\] = useState\(\{[\s\S]{0,240}mode: 'alter'[\s\S]{0,240}sourceTables: \[\]/,
+      'owner 状态是 mode/target/databases/sourceTables 单一真源')
     assert.match(hook, /const openTableDesign = \(\) => \{/, '入口状态归 owner')
     assert.match(hook, /const closeTableDesign = \(\) => \{/)
     // 两个弹层共用同一个"绕缓存取当下结构"的函数

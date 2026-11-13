@@ -1,17 +1,28 @@
-# N7 新建表 / 新建键 · 手动测试用例
+# N7 新建表 / 复制表 / 新建键 · 手动测试用例
 
-> 功能：MySQL 页面新建表（设计器 create 模式 + createTableDdl）、Redis 页面新建键（五类型 + TTL）。
-> 自动化已备：unit-ci `db-create-table-key.spec.js`（13 用例）+ CDP 实机探针 `self-test/db-create-e2e-cdp-probe.js`（15/15 PASS）。
+> 功能：MySQL 页面新建表（可空白、可复制本库/外库已有表结构）、Redis 页面新建键（五类型 + TTL）。
+> 架构（方案 B「双入口、单实现」）：改表 / 新建 / 复制共用同一草稿编辑 UI、同一套校验、
+> 同一归一化出口与同一条「预览 → 生成脚本 → 落 SQL 编辑器」通道。复制只预填**结构**，不含数据。
+> 自动化已备：unit-ci `db-create-table-key.spec.js` + `db-table-design.spec.js`（两 spec 合计 45 用例）、
+> `db-workspace-home.spec.js`（伪页签 onChange 契约）、`error-copy.spec.js`（错误复制链），
+> CDP 实机 `db-create-e2e-cdp-probe.js`（15 判据，op 层）+ `db-create-ui-cdp-probe.js`（42 判据，真渲染真点击）。
 > 本手册覆盖自动化测不到的 UI 交互：弹层布局、输入焦点、按钮态、生成脚本进编辑器的执行链。
 
 ## 前置准备
 
 | 项 | 值 |
 |---|---|
-| 被测包 | 含 N7 改动的重新打包 deb（或 `npm run dev` 本地跑） |
+| 被测包 | 含本轮改动的重新打包 deb（或 `npm run dev` 本地跑；改源码后须先 `npm run compile`） |
 | Redis | 127.0.0.1:6379（无密码即可），另备一个带密码实例更好 |
 | MySQL | 192.168.115.67:13306，user `root` / password `password` |
-| 自动化备核 | `node self-test/db-create-e2e-cdp-probe.js`（退出码 0 即过） |
+| 复制源 | 库 A 准备 `src_local`（含主键 + 表注释），库 B 准备 `src_ext`（含 UNIQUE KEY + 表注释） |
+| 自动化备核 | `node self-test/db-create-e2e-cdp-probe.js` + `node self-test/db-create-ui-cdp-probe.js`（退出码 0 即过） |
+
+> **实机探针隔离说明**：两个探针各自用独立 `TMPDIR`、动态 CDP 端口与 DISPLAY。
+> `app/lib/single-instance.js` 的锁 socket 落在 `app.getPath('temp')`（默认 `/tmp`），
+> 若本机正在跑打包版 electerm，源码探针会被判成「第二实例」静默 `app.quit()`，
+> 表现为 DevTools 端口通但 `no page target`；固定端口还会误连旧页面。
+> 沙箱内运行请加 `env -u NODE_OPTIONS -u ELECTRON_RUN_AS_NODE`。
 
 ## P0 Redis 新建键
 
@@ -47,23 +58,23 @@
 
 ## P0 MySQL 新建表
 
-### M0 入口可达性（2026-11-12 修复回归；同日入口迁至页签栏）
+### M0 入口可达性与空库（阶段 0 治本）
 
 | 步骤 | 操作 | 预期 |
 |---|---|---|
-| 1 | 连上 MySQL 后**不打开任何表**，直接点顶部页签栏右侧的「新建表」（会话页签之后） | 弹出 warning 提示「请先打开一张表…」，**不再无响应**，也不报 TypeError |
-| 2 | 打开任意一张表 → 再点页签栏「新建表」 | 弹层正常打开（标题「新建表」+ 目标库下拉 + 表名输入框），无 TypeError（emptyDraft 缺 foreignKeys 的回归锁） |
-| 3 | 弹层里确认目标库默认=打开表所在库；下拉切到另一个库 | 预览脚本的全限定前缀 `db.table` 立即跟着切换 |
-| 4 | 弹层里填表名 + 预置列的列名/类型 | 预览区实时渲染 CREATE TABLE（只填表名不填类型时显示 missing-column-type 原因文案，属正确行为） |
-| 5 | 自动化备核 | `node self-test/db-create-ui-cdp-probe.js`（真渲染真点击，含库切换双向判据，退出码 0 即过） |
+| 1 | 连上 MySQL 后**不打开任何表**，直接点页签栏里**紧跟「会话」**的「新建表」 | 弹层**直接打开**（旧版会弹 warning「请先打开一张表」把人挡在外面，已治本）；目标库回落连接默认库 `dbName` |
+| 2 | 打开任意一张表 → 再点「新建表」 | 弹层正常打开，目标库默认=打开表所在库；无 TypeError（空草稿形状已由纯模块统一产出） |
+| 3 | 下拉切到另一个库，再切回来 | 预览脚本的全限定前缀 `db.table` 双向跟随 |
+| 4 | 填表名 + 预置列的列名/类型 | 预览区实时出 CREATE TABLE（只填表名不填类型时给 missing-column-type 原因，属正确行为） |
+| 5 | 自动化备核 | `node self-test/db-create-ui-cdp-probe.js`（A/B/C/D 四阶段 42 判据，退出码 0 即过） |
 
 ### M1 完整建表链
 
-入口：MySQL tab → **顶部页签栏右侧**「新建表」按钮（常驻，不依赖已选表；结构区不再有第二个入口）。
+入口：MySQL tab → 顶部页签栏**紧跟「会话」**的「新建表」（伪页签，点击开弹层不切页签；不依赖已选表，结构区不残留第二个入口）。
 
 | 步骤 | 操作 | 预期 |
 |---|---|---|
-| 1 | 打开设计器 | 标题为「新建表」，顶部有目标库下拉（默认跟随打开的表）+ 表名输入框，草稿预置 1 个空列，无「刷新」按钮 |
+| 1 | 打开设计器 | 标题「新建表」；顶部两行：目标库下拉 + 表名输入框、「复制自」下拉（默认「空白表」）；草稿预置 1 个空列；无「刷新」按钮 |
 | 2 | 表名 `t_ui_users`，加列：id int NOT NULL DEFAULT 0、username varchar(64) NOT NULL 注释「用户名」、note varchar(255) 可空 | 预览区实时出 CREATE TABLE 候选脚本 |
 | 3 | 检查生成脚本 | `username` 列**没有** `DEFAULT ''`（hasDefault=false 同口径）；PK/UNIQUE KEY 内联；表注释在右括号后：`) COMMENT='...'` |
 | 4 | 生成 → 脚本落入 SQL 编辑器 → 执行 | 成功；information_schema 反查三列/PRIMARY/uk/表注释一致（SQL 带全限定前缀，任何库上下文执行都落对库） |
@@ -78,21 +89,41 @@
 | 3 | 两列同名 | duplicate-column |
 | 4 | 索引引用不存在的列 | index-column-missing |
 | 5 | 删光所有列 | no-column |
+| 6 | 列名留空 / 两列同名 / 索引没选列 | 顶部红条给草稿问题（create 与 alter 共用 `designIssues` 同一套文案，不再各写一套） |
 
 ### M3 方言与只读
 
 | 步骤 | 操作 | 预期 |
 |---|---|---|
-| 1 | 打开 postgres/sqlite tab 看结构区 | 无「新建表」按钮（canCreateTable 只对 mysql 开） |
-| 2 | readOnly MySQL bookmark | 「新建表」不可用（走既有只读通道） |
+| 1 | 打开 postgres/sqlite tab 看页签栏 | 无「新建表」按钮（`createTableDdl` 能力位只对 mysql 开；UI 与生成器同源，不认引擎名） |
+| 2 | readOnly MySQL bookmark | 弹层仍可打开浏览设计，写入走既有只读护栏 |
+
+### M4 复制已有表（本库 / 外库）★ 新增
+
+前提：库 A 有 `src_local`（主键 + 表注释），库 B 有 `src_ext`（UNIQUE KEY + 表注释）。弹层打开时一次拉齐全部非系统库的 BASE TABLE 作为「复制自」候选（本库与外库同一份清单，可搜索）。
+
+| 步骤 | 操作 | 预期 |
+|---|---|---|
+| 1 | 新建表弹层 →「复制自」选 `A.src_local` | 草稿立即预填：列 / 索引 / 表注释与源表一致；预览出 CREATE TABLE，含 `PRIMARY KEY` 与 `COMMENT='...'` |
+| 2 | 看表名输入框 | 自动填 `src_local_copy`（可随手改）；目标库仍可下拉换，与源库无关 |
+| 3 | 改列名 / 类型 / 默认值 / 表注释，增删列与索引 | **全部可编辑**（列名不禁用——只有「表设计」改表模式才禁改名）；预览实时跟随 |
+| 4 | 执行生成的 CREATE | 只建结构，**不含任何数据行** |
+| 5 | 「复制自」改选 `B.src_ext`（外库） | 已改过草稿时先弹确认「切换复制来源？…已修改的内容会丢失」；确认后草稿换成外库表的列与 UNIQUE KEY，跨库前缀由目标库决定 |
+| 6 | 选回「空白表」 | 同样确认后草稿重置为 1 个空列行 |
+| 7 | 复制一张带外键的表 | 外键区只读列出并提示「不会随 CREATE TABLE 生成」（设计器不编辑外键，产物里也没有 FK 约束） |
+
+> 说明：复制走 `getTableStructure` 按库读结构（跨库天然可用），再经 `draftAsNew` 重基线清掉
+> `origName/src`；生成的仍是普通 CREATE TABLE 脚本，落入 SQL 编辑器由你决定何时执行。
+> 若改了源表引用的列名却没同步改索引列，预览会给 `index-column-missing` 原因（正确行为）。
 
 ## P1 回归面
 
 | 用例 | 操作 | 预期 |
 |---|---|---|
 | G1 弹层滚动 | 新建键/新建表弹层在 1366x768 小窗下 | wrap 不滚、body 内滚（SSOT 约定不回退）；必要时跑 `node self-test/modal-scroll-cdp-probe.js` |
-| G2 旧改表链 | 打开已有表进设计器改一列 → 生成 ALTER | 与改动前行为一致（createMode 只在新建入口生效） |
-| G3 结构区原功能 | 表结构/索引/DDL 各 tab 切换 | 无异常（新建表入口已迁页签栏，结构区不应残留旧按钮） |
+| G2 改表链（方案 B 回归） | 打开已有表 →「表设计」改一列 → 生成 ALTER | 与改动前一致；已有列名仍只读、刷新按钮与差异勾选都在；UI 探针 B 阶段已锁 |
+| G2b 单流水线一致性 | 对比新建/改表模式对 `DEFAULT ''`、列注释、索引列的写法 | 完全一致（归一化只在 `draftToStructure` 一处，生成器不再判 `hasDefault`） |
+| G3 结构区原功能 | 表结构/索引/DDL 各 tab 切换 | 无异常（新建表入口在页签栏，结构区不残留旧按钮） |
 | G4 Redis 原功能 | 对已有 string 键查看/编辑/TTL 修改 | 无异常（新弹层不影响已有编辑链） |
 | G5 错误复制 | 制造一个报错（如断网连库）→ 错误通知点复制图标 → 粘贴 | **消息 + 完整堆栈**都在剪贴板里；不再出现 `[object Object]`（2026-11-12 修复，notification/clipboard/error-modal 三处已锁） |
 
@@ -101,7 +132,9 @@
 ```bash
 redis-cli del t:s t:h t:l t:s t:z
 mysql -h 192.168.115.67 -P 13306 -uroot -ppassword \
-  -e "drop table if exists electerm_create_test.e2e_users; drop table if exists <your_db>.t_ui_users"
+  -e "drop table if exists electerm_create_test.e2e_users; drop table if exists <your_db>.t_ui_users; \
+      drop table if exists <A>.src_local; drop table if exists <B>.src_ext; \
+      drop database if exists ui_probe_alt_db; drop table if exists <A>.ui_probe_local_src"
 ```
 
 ## 记录

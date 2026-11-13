@@ -18,9 +18,14 @@ const path = require('path')
 const http = require('http')
 
 const ROOT = path.join(__dirname, '..')
-const CDP_PORT = 19341
-const INSPECT_PORT = 19342
-const DISPLAY = ':97'
+// 端口/DISPLAY/TMPDIR 按 pid 唯一化。踩过的坑：app/lib/single-instance.js 的锁
+// socket 落在 app.getPath('temp')，默认是 /tmp；用户若正在跑打包版 /opt/electerm，
+// 源码探针会被判成「第二实例」直接 app.quit()，表现为 DevTools 端口通但 no page target。
+// 独立 TMPDIR 让探针的单实例锁与正式版彻底隔离，固定端口同理避免误连旧页面。
+const UNIQ = process.pid % 30000
+const CDP_PORT = 21000 + UNIQ
+const INSPECT_PORT = 24000 + UNIQ
+const DISPLAY = ':' + (120 + (process.pid % 100))
 const MYSQL = { host: '192.168.115.67', port: 13306, user: 'root', password: 'password' }
 const DB_NAME = 'electerm_create_test'
 const REDIS_PREFIX = 'e2e:n7:'
@@ -48,7 +53,9 @@ const httpJson = url => new Promise((resolve, reject) => {
 async function main () {
   const run = fs.mkdtempSync(path.join(os.tmpdir(), 'electerm-create-cdp-'))
   const userData = path.join(run, 'ud')
+  const probeTmp = path.join(run, 'tmp')
   fs.mkdirSync(userData, { recursive: true })
+  fs.mkdirSync(probeTmp, { recursive: true })
 
   const xvfb = spawn('Xvfb', [DISPLAY, '-screen', '0', '1280x900x24'], { stdio: 'ignore' })
   await wait(1200)
@@ -56,16 +63,20 @@ async function main () {
   delete env.ELECTRON_RUN_AS_NODE
   env.DISPLAY = DISPLAY
   env.ELECTERM_USER_DATA = userData
+  // app.getPath('temp') 认 TMPDIR，单实例 socket 因此落在本探针私有目录
+  env.TMPDIR = probeTmp
   env.NODE_OPTIONS = ''
   const app = spawn(
     path.join(ROOT, 'node_modules/electron/dist/electron'),
     [path.join(ROOT, 'work/app/app.js'),
       '--remote-debugging-port=' + CDP_PORT,
       '--inspect=' + INSPECT_PORT],
-    { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] }
+    { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true }
   )
   let appErr = ''
+  let appOut = ''
   app.stderr.on('data', d => { appErr += String(d) })
+  app.stdout.on('data', d => { appOut += String(d) })
 
   const WebSocket = require(path.join(ROOT, 'node_modules/ws'))
 
@@ -109,6 +120,9 @@ async function main () {
     // 生成器从源码 import（渲染层代码打包进 assets bundle，op 级验证不需要它进产物；
     // generate 出的 SQL 经真实 executeSql 落库，等于替 UI 把"写入编辑器后执行"走完）
     const GEN = await import('file://' + path.join(ROOT, 'src/client/common/db-ddl-generate.js'))
+    // 方案 B：createTableDdl 吃 draftToStructure 产出的 v2 结构（唯一归一化出口），
+    // 探针也要走这条链，不能把草稿形状直接塞给生成器
+    const DESIGN = await import('file://' + path.join(ROOT, 'src/client/common/db-table-design.js'))
 
     // ---------- 1. 渲染层就绪 ----------
     const page = await getPageTarget()
@@ -220,7 +234,7 @@ async function main () {
         { key: 'i2', origName: '', name: 'uk_username', columns: ['username'], unique: true, primary: false, method: null }
       ]
     }
-    const gen = GEN.createTableDdl(draft, 'mysql', { database: DB_NAME, table: 'e2e_users' })
+    const gen = GEN.createTableDdl(DESIGN.draftToStructure(draft), 'mysql', { database: DB_NAME, table: 'e2e_users' })
     check('createTableDdl supported', gen.supported, gen.reason)
     check('脚本是一条 CREATE', gen.sqls.length === 1 && gen.sqls[0].startsWith('CREATE TABLE'), gen.sqls[0].slice(0, 60))
     await msql(gen.sqls[0])
@@ -247,7 +261,7 @@ async function main () {
     check('表注释落库', tbcRow && String(tbcRow.table_comment || tbcRow.TABLE_COMMENT).includes('e2e'), tbcRow)
 
     // 生成器拒绝口径（坏表名不出语句）
-    const bad = GEN.createTableDdl(draft, 'mysql', { database: DB_NAME, table: 'bad name' })
+    const bad = GEN.createTableDdl(DESIGN.draftToStructure(draft), 'mysql', { database: DB_NAME, table: 'bad name' })
     check('非法表名 supported=false', !bad.supported && bad.reason === 'bad-table-name', bad.reason)
 
     // ---------- 4. 清理 ----------
@@ -262,9 +276,12 @@ async function main () {
     failCount++
     console.error('[fail]', e.message)
     console.error('[stderr-tail]', appErr.slice(-500))
+    console.error('[stdout-tail]', appOut.slice(-500))
   } finally {
-    app.kill('SIGKILL')
-    xvfb.kill()
+    // detached 进程组整体收掉：只 kill 主进程会留下 gpu/server 子进程，
+    // 它们会继承单实例 socket 的 fd，把后续探针继续判成第二实例
+    try { process.kill(-app.pid, 'SIGKILL') } catch (e) { try { app.kill('SIGKILL') } catch (e2) {} }
+    xvfb.kill('SIGKILL')
   }
 
   console.log(`\n[verdict] ${failCount === 0 ? 'PASS' : 'FAIL'} | pass ${passCount} / fail ${failCount}`)

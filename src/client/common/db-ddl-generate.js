@@ -401,58 +401,64 @@ export function buildScript (items, selectedIds) {
   return lines.join('\n')
 }
 
-// ================================ CREATE TABLE（新建表，N7） ================================
+// ================================ CREATE TABLE（新建表 / 复制表，N7） ================================
 
-// 首版只放 mysql：PG 的 CREATE TABLE 细节（序列/默认值方言）还没实测口径，
-// 盲生成最容易错 —— 宁可先不放，报差异让人手写。判定看方言 id 而不是能力位，
-// 因为 CREATE 的安全边界与 ALTER（alterDdl）不同源。
-const CREATE_SUPPORTED_DIALECTS = new Set(['mysql'])
+// 放行判据统一走 sql-dialects 的 createTableDdl 能力位：UI 入口、生成器、能力声明
+// 三处共用一个真源。CREATE 的安全边界与 ALTER（alterDdl）不同源，故单独一位，
+// 但不允许再在这里另写一份引擎名白名单。
 
 // 标识符口径：字母/下划线开头，只含字母数字下划线 $。点号一律不收 ——
 // 表名带库名前缀该由 loc（database 段）表达，列名带点没有合法解释
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_$]*$/
 
 /**
- * 新建表草稿 → CREATE TABLE 候选脚本（纯函数）。
+ * v2 表结构 → CREATE TABLE 候选脚本（纯函数）。
  *
- * 与 diffToDdl 同三条安全边界：只生成不执行（落编辑器走危险分级）、方言白名单、
+ * 入参是 `draftToStructure(draft)` 的产出 —— 方案 B 收敛后的**唯一归一化出口**：
+ * 列用 columnType / defaultValue（null = 没有默认），索引用 name/columns/unique/
+ * primary。于是 `hasDefault=false → defaultValue=null` 只在 db-table-design.js
+ * 定义一次，建表与改表对"一列长什么样"不可能分叉；复制别的表也只是换一份
+ * draft，走的仍是这条链。
+ *
+ * 与 diffToDdl 同三条安全边界：只生成不执行（落编辑器走危险分级）、能力位放行、
  * 结构不对就 supported=false 只报原因。列定义复用 colDefTail（与 ALTER 的
- * MODIFY COLUMN 同一份拼串 —— 建表和改表对"一列长什么样"的看法不允许分叉）。
+ * MODIFY COLUMN 同一份拼串）—— colDefTail 认归一后的 type 字段，这里做一次
+ * v2 字段名适配，不在拼串函数里加兼容分支污染它的口径。
  *
- * 主键/索引来自草稿 indexes：primary 内联 PRIMARY KEY，unique 内联 UNIQUE KEY，
- * 普通索引内联 INDEX（MySQL 允许全部内联进 CREATE，一条语句建完）。
- * @param {object} draft createDraft 形状 { comment, columns, indexes }
+ * 主键/索引内联进 CREATE：primary → PRIMARY KEY，unique → UNIQUE KEY，
+ * 普通 → INDEX（MySQL 允许一条语句建完）。
+ * @param {object} structure draftToStructure 的 v2 结构
  * @param {string} dialect 引擎名
- * @param {object} loc { database, table }（table 来自新建表输入框）
+ * @param {object} loc { database, table }（table 来自新建表的目标表名输入）
  * @returns {{sqls: string[], supported: boolean, reason: string}}
  */
-export function createTableDdl (draft, dialect, loc) {
+export function createTableDdl (structure, dialect, loc) {
   const d = getDialect(dialect)
   if (!d) {
     return unsupported('unknown-dialect')
   }
-  if (!CREATE_SUPPORTED_DIALECTS.has(d.id)) {
+  if (!capabilityOf(dialect, 'createTableDdl')) {
     return unsupported('create-unsupported-dialect')
   }
   if (!loc || !IDENT_RE.test(String(loc.table || ''))) {
     return unsupported('bad-table-name')
   }
-  const cols = (draft && Array.isArray(draft.columns)) ? draft.columns.filter(Boolean) : []
+  const s = structure || {}
+  const cols = Array.isArray(s.columns) ? s.columns.filter(Boolean) : []
   if (!cols.length) {
     return unsupported('no-column')
   }
-  // hasDefault=false → defaultValue 按 null 处理，与 ALTER 路径 draftToStructure
-  // （db-table-design.js:132）同口径 —— 否则建表会给每列拼一个 DEFAULT ''，
-  // 而改表同一列却是"没有默认"，两边分叉
+  // v2 列字段名（columnType）→ colDefTail 的拼串口径（type）。默认值/注释
+  // 已经是 draftToStructure 归一过的形态，这里**不再**做第二次归一化。
   const normCols = cols.map(c => ({
     ...c,
-    defaultValue: c.hasDefault === false ? null : c.defaultValue
+    type: String(c.columnType || c.type || '')
   }))
   for (const c of normCols) {
     if (!IDENT_RE.test(String(c.name || ''))) {
       return unsupported('bad-column-name')
     }
-    if (!String(c.type || '').trim()) {
+    if (!c.type.trim()) {
       return unsupported('missing-column-type')
     }
   }
@@ -462,7 +468,8 @@ export function createTableDdl (draft, dialect, loc) {
   }
   // 索引引用的列必须真实存在（拼出 CREATE 的那一刻就拦，不留给 MySQL 报）
   const nameSet = new Set(names)
-  const ixs = ((draft && Array.isArray(draft.indexes)) ? draft.indexes : []).filter(ix => ix && Array.isArray(ix.columns) && ix.columns.length)
+  const ixs = (Array.isArray(s.indexes) ? s.indexes : [])
+    .filter(ix => ix && Array.isArray(ix.columns) && ix.columns.length)
   for (const ix of ixs) {
     for (const col of ix.columns) {
       if (!nameSet.has(String(col))) {
@@ -482,7 +489,7 @@ export function createTableDdl (draft, dialect, loc) {
       lines.push('  INDEX ' + quoteIdent(String(ix.name || loc.table + '_ix'), d.id) + ' (' + colsSql + ')')
     }
   }
-  const comment = String((draft && draft.comment) || '').trim()
+  const comment = String(s.comment || '').trim()
   // 表注释是表选项，必须放在右括号之后（括号内只允许列定义和索引定义，
   // 拼成 ", COMMENT='...'" 会被 MySQL 直接拒：syntax near '='）
   const tail = comment ? ' COMMENT=' + strLit(comment) : ''

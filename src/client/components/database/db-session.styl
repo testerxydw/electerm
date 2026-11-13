@@ -874,6 +874,20 @@
 .db-design-db-select
   min-width 180px
   max-width 260px
+// 复制来源：库.表 标签较长，给足宽度；说明文字吃掉剩余空间且单行省略，
+// 不许把 Select 挤到换行（第二行仍在 .db-design-comment 的 flex 链里）
+.db-design-source-select
+  min-width 280px
+  max-width 460px
+  flex 0 1 auto
+.db-design-source-hint
+  flex 1 1 auto
+  min-width 0
+  font-size 12px
+  color var(--text-muted)
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
 .db-design-block
   padding 8px
   border 1px solid var(--border)

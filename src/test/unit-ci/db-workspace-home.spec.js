@@ -95,7 +95,11 @@ describe('U1c 空态装配', () => {
   test('只在"未选中表"时替换数据页；选中后回到原网格', () => {
     const src = sessionSrc()
     assert.match(src, /children: sel \? dataArea : workspaceHome/)
-    assert.match(src, /activeKey=\{mainTab\}\n\s*onChange=\{setMainTab\}/)
+    // 「新建表」是页签栏上的伪页签项（紧跟会话页签），onChange 必须拦住
+    // createTable 这个 key，否则受控 activeKey 会被带到一个没有 children 的页签；
+    // 其余 key 仍原样交给 setMainTab，不新开数据请求。
+    assert.match(src, /activeKey=\{mainTab\}\n\s*onChange=\{k => \{/)
+    assert.match(src, /k === 'createTable'[\s\S]{0,160}setMainTab\(k\)/)
   })
 
   test('四个入口全部复用既有闭包，不新增数据请求', () => {
