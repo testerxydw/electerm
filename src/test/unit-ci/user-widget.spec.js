@@ -160,6 +160,25 @@ describe('runWidget', () => {
 })
 
 describe('config mode metadata', () => {
+  it('remembers form values unless the manifest opts out', () => {
+    writeWidget('default-persist-widget', {
+      name: 'default-persist-widget',
+      main: 'main.js',
+      electerm: { id: 'default-persist-widget', type: 'frontend', configs: [] }
+    }, { 'main.js': 'module.exports = {}\n' })
+    writeWidget('no-persist-widget', {
+      name: 'no-persist-widget',
+      main: 'main.js',
+      electerm: { id: 'no-persist-widget', type: 'frontend', persist: false, configs: [] }
+    }, { 'main.js': 'module.exports = {}\n' })
+
+    const widgets = registry.listWidgets()
+    // a config-mode widget has no reason to be re-typed on every visit, so
+    // remembering is the default and `persist: false` is the opt-out
+    assert.equal(widgets.find(w => w.id === 'default-persist-widget').info.persist, true)
+    assert.equal(widgets.find(w => w.id === 'no-persist-widget').info.persist, false)
+  })
+
   it('sanitizes config entries and defaults the action to run', () => {
     writeWidget('form-widget', {
       name: 'form-widget',
@@ -296,5 +315,36 @@ describe('import and delete', () => {
       () => userWidget.resolveUserWidgetEntry('../escape'),
       /Invalid widget ID/
     )
+  })
+})
+
+describe('widget UI calls', () => {
+  it('talks to the running module after the require cache is cleared', async () => {
+    writeWidget('state-widget', {
+      name: 'state-widget',
+      main: 'main.js',
+      electerm: { id: 'state-widget', name: 'State', type: 'instance' }
+    }, {
+      'main.js': `
+        let starts = 0
+        exports.widgetRun = () => ({
+          instanceId: 'state-1',
+          start: async () => { starts += 1; return { success: true } },
+          stop: async () => {}
+        })
+        exports.count = () => starts
+      `
+    })
+    const result = await registry.runWidget('state-widget', {})
+    assert.equal(await registry.callWidgetFunc('state-widget', 'count'), 1)
+
+    // Re-importing a widget purges its require cache. Without binding to the
+    // running instance's module, the panel would call a fresh module whose
+    // state (and proxy listener) is empty, e.g. "not running yet".
+    const { entry } = registry.resolveWidgetModule('state-widget')
+    delete require.cache[require.resolve(entry)]
+    assert.equal(await registry.callWidgetFunc('state-widget', 'count'), 1)
+
+    await registry.stopWidget(result.instanceId)
   })
 })

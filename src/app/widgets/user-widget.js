@@ -14,7 +14,10 @@
  * from `electerm.configs`, calls `electerm.action` (default "run") in the main
  * process on submit, and draws the returned result (message/details/table/
  * buttons/openTab/aiConfig/bookmarks) with its own components. No HTML, no CSS,
- * no bridge.
+ * no bridge. That form remembers the values it was last used with, so a second
+ * visit starts where the last one ended; `electerm.persist: false` opts out, and
+ * a password field or a generated secret is never stored either way (see
+ * client/common/widget-form-memory.js).
  *
  * `electerm.credentialProvider: { get, save }` names two main-process exports
  * that serve passwords for bookmarks that ask for it (`usePasswordManager` in
@@ -169,6 +172,7 @@ function errorEntry (id, message) {
       type: 'frontend',
       builtin: false,
       singleInstance: false,
+      autoRun: false,
       configs: [],
       ui: '',
       action: DEFAULT_ACTION,
@@ -241,14 +245,22 @@ function readWidget (dir, folderName) {
       type,
       builtin: false,
       singleInstance: !!conf.singleInstance,
+      // A widget that ships its own UI has no generated run form to tick
+      // "Start with electerm" in. Declaring it in the manifest lets the panel
+      // start the instance on its own and register it for autorun (see
+      // client/components/widgets/custom-widget-panel.jsx).
+      autoRun: !!conf.autoRun,
       configs: sanitizeConfigs(conf.configs),
       // relative to the widget folder; the renderer builds
       // electerm-widget://<id>/<ui> out of it
       ui,
       action,
       submitLabel: typeof conf.submitLabel === 'string' ? conf.submitLabel : '',
-      // remember non-password values in local storage between panel visits
-      persist: !!conf.persist,
+      // Remember the values this form was last used with, so a second visit
+      // does not have to be typed in again (client/common/widget-form-memory.js).
+      // On by default; `persist: false` opts out. Passwords and generated
+      // secrets are never stored either way.
+      persist: conf.persist !== false,
       credentialProvider: sanitizeCredentialProvider(conf.credentialProvider)
     }
   }

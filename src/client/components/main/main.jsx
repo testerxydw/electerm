@@ -53,6 +53,7 @@ import AutoSync from '../setting-sync/auto-sync'
 import BatchOpRunner from '../batch-op/batch-op-runner'
 import UnixTimestampTooltip from '../terminal/unix-timestamp-tooltip'
 import ImportProgress from '../common/import-progress.jsx'
+import ExportBookmarksModal from '../bookmark-export/export-bookmarks-modal'
 import { pick } from 'lodash-es'
 import './wrapper.styl'
 import TerminalInfo from '../terminal-info/terminal-info-entry'
@@ -494,6 +495,11 @@ export default auto(function Index (props) {
         <AutoSync config={config} />
         <WorkspaceSaveModal store={store} />
         <BookmarkFromHistoryModal />
+        {/* opened by the AI agent's export_bookmarks tool, see
+            components/bookmark-export */}
+        {store.bookmarkExport && (
+          <ExportBookmarksModal request={store.bookmarkExport} />
+        )}
         <NotificationContainer />
         <CommandPalette store={store} />
         <BatchOpRunner />

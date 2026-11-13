@@ -1495,7 +1495,10 @@ const en = {
   mcpTrustAutoInlineWarn: 'Tool calls of this server (including writes) will no longer ask.',
   mcpHintStdio: 'stdio servers run commands on this machine as your user; only add servers you trust.',
   mcpHintAuto: 'When trust is auto-approve, tool calls of that server (including writes) will no longer ask.',
-  mcpHintCredential: 'Server credentials are stored with the same scheme as other local secrets; without a system keyring they are saved as marked plaintext.'
+  mcpHintCredential: 'Server credentials are stored with the same scheme as other local secrets; without a system keyring they are saved as marked plaintext.',
+  // upstream v5.10.1 watcher UI: generic keys not yet in the upstream locale package
+  delete: 'Delete',
+  interval: 'Interval'
 }
 
 // 简体中文
@@ -2974,7 +2977,10 @@ const zhCn = {
   mcpTrustAutoInlineWarn: '该 server 的工具调用（含写操作）将不再询问。',
   mcpHintStdio: 'stdio server 会以当前用户身份在本机执行命令，只添加你信任的 server。',
   mcpHintAuto: '信任设为自动放行后，该 server 的工具调用（含写操作）将不再询问。',
-  mcpHintCredential: 'server 凭据与其他本地机密使用同一套存储方案；无系统 keyring 时会以标记明文保存。'
+  mcpHintCredential: 'server 凭据与其他本地机密使用同一套存储方案；无系统 keyring 时会以标记明文保存。',
+  // 上游 v5.10.1 watcher UI 用到的通用词条（语言包尚未收录）
+  delete: '删除',
+  interval: '间隔'
 }
 
 module.exports = {

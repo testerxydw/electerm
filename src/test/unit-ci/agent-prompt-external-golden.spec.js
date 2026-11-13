@@ -2,13 +2,15 @@
  * T03-02（M18 硬门）+ T03-03（M19 新基线冻结）· `buildAgentSystemPrompt(config, true)`。
  *
  * 基线声明（判据文档 §0.2 原话）：这是**新增输入域**的冻结，不是旧基线的
- * 重新冻结 —— 旧基线（1824 / 19da66c3…，hasExternal=false）由
+ * 重新冻结 —— 旧基线（2258 / 6e5d13a1…，hasExternal=false）由
  * `agent-system-prompt-golden.spec.js` 钉着不变，两条并存。
  *
  * 防漂移与旧基线同规：本文件的 EXT_GOLDEN 是唯一输入，spec 不读文档；
- * 2024/1824 之类数字只是注释里给人交叉校验的。
+ * 2704/2258 之类数字只是注释里给人交叉校验的。
  *
- * 冻结来源：2026-11-10 T03 批次一实现后冻结，固定入参
+ * 冻结来源：2026-11-10 T03 批次一实现后冻结；2026-11-13 合并上游 v5.10.1
+ * 重新冻结：#4728 新增 export_bookmarks，plain/ext 逐行 diff 确认只多同一段
+ * 工具描述。固定入参
  * `{ languageAI: 'en', roleAI: '' }`、`window.store.getLangName() === 'english'`、
  * `window.et = {}`、`hasExternal === true`。
  *
@@ -35,14 +37,14 @@ const GOLDEN_INPUT = { languageAI: 'en', roleAI: '' }
 const GOLDEN_UI_LANG = 'english'
 
 // 旧基线（M18 硬门：hasExternal=false 必须逐字节等于它，不能被新输入域带跑）
-const PLAIN_LENGTH = 1824
+const PLAIN_LENGTH = 2258
 const PLAIN_SHA256 =
-  '19da66c3acf0e917bd7a5513aa13656e80818af0801ee488cf7d9eacb7aa2980'
+  '6e5d13a11daa2d3fa131bf22356b04fd33e0c52fccd94cfcb0c38c07f969f964'
 
-// 新基线（M19）：hasExternal=true。纯 ASCII，length === byteLength === 2270。
-const EXT_LENGTH = 2270
+// 新基线（M19）：hasExternal=true。纯 ASCII，length === byteLength === 2704。
+const EXT_LENGTH = 2704
 const EXT_SHA256 =
-  '2b36695d18685430d4002e15e7ab2e524b69a120bd41c50a755198fd60e5eecd'
+  'b1a15cdcbbc94b00f894f81fff56f0f02a32e9cb6138c596c72531353046dd64'
 
 const EXT_GOLDEN = `You are a helpful assistant.
 
@@ -50,6 +52,7 @@ You are operating inside electerm, a terminal/SSH client. You have access to too
 - Run commands in terminal tabs and read their output
 - Open new terminal tabs (local or SSH)
 - Manage bookmarks (create, list, open connections)
+- Export a filtered subset of bookmarks to a file (the user confirms it in a panel, and bookmark credentials are never returned to you)
 - Switch between tabs
 - Transfer files via SFTP (upload, download, list, read, delete remote files)
 - Inspect an open database session (current connection/database/table, table list, table structure, the result set the user is looking at), compare two tables' structure, and write SQL into its editor
@@ -62,6 +65,7 @@ Always explain what you are doing before executing commands.
 If a command produces errors, analyze the output and try to fix the issue.
 Prefer using the active terminal unless the user specifies otherwise.
 For SSH connections, prefer using open_tab to connect directly, or create a bookmark with add_bookmark and open it with open_bookmark if the user wants to save the connection.
+To export bookmarks, call export_bookmarks once with a filter object (for example type "ssh" plus hasPrivateKey true for "all SSH bookmarks that use a private key") and tell the user the panel is open. Never ask the user to paste a password or private key, and never expect a tool to hand you one.
 For file transfers, use the sftp_upload and sftp_download tools. The tab must be an SSH/FTP connection with SFTP initialized.
 
 Reply in en language.
@@ -266,14 +270,14 @@ describe('agent system prompt · external baseline (M18 hard gate + M19 freeze)'
     delete globalThis.window
   })
 
-  it('M18 硬门：hasExternal=false 仍与旧基线逐字节相同（1824 / 19da66c3…）', () => {
+  it('M18 硬门：hasExternal=false 仍与旧基线逐字节相同（2258 / 6e5d13a1…）', () => {
     assert.ok(plain, 'before() 未取到 hasExternal=false 的输出（导出路径没跑？）')
     assert.equal(plain.length, PLAIN_LENGTH, '长度漂了——新输入域不许影响旧输出')
     const sha = crypto.createHash('sha256').update(plain, 'utf8').digest('hex')
     assert.equal(sha, PLAIN_SHA256, `sha256=${sha}`)
   })
 
-  it('M19：hasExternal=true 与新冻结基线逐字符一致（2270 字符）', () => {
+  it('M19：hasExternal=true 与新冻结基线逐字符一致（2704 字符）', () => {
     assert.equal(
       actual.length,
       EXT_LENGTH,

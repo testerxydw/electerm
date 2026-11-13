@@ -37,6 +37,10 @@ import { filesize } from 'filesize'
 import { createTransferProps } from './transfer-common'
 import generate from '../../common/uid'
 import sanitizeFilename from '../../common/sanitize-filename'
+import {
+  clickRenameDelay,
+  shouldArmClickRename
+} from '../../common/click-rename'
 import { openTextEditor } from '../text-editor/open-text-editor'
 import { refsStatic, refs, filesRef } from '../common/ref'
 import iconsMap from '../sys-menu/icons-map'
@@ -80,6 +84,7 @@ export default class FileSection extends React.Component {
     filesRef.remove(this.id)
     clearTimeout(this.timer)
     this.timer = null
+    this.cancelClickRename()
     this.domRef = null
     this.dropTarget = null
     this.removeFileEditEvent()
@@ -194,6 +199,7 @@ export default class FileSection extends React.Component {
   }
 
   onDragStart = e => {
+    this.cancelClickRename()
     this.props.modifier({
       onDrag: true
     })
@@ -376,6 +382,32 @@ export default class FileSection extends React.Component {
     })
   }
 
+  cancelClickRename = () => {
+    clearTimeout(this.renameTimer)
+    this.renameTimer = null
+  }
+
+  // Click an already selected item to rename it, like the OS file managers.
+  // The rename is delayed by the double-click interval so a double click
+  // (open file / enter directory) cancels it instead.
+  armClickRename = () => {
+    this.cancelClickRename()
+    this.renameTimer = setTimeout(this.commitClickRename, clickRenameDelay)
+  }
+
+  commitClickRename = () => {
+    this.renameTimer = null
+    // Selection may have moved on while the timer was pending
+    if (!shouldArmClickRename({
+      file: this.state.file,
+      selectedIds: this.props.selectedFiles,
+      isMobile: !!window.store.isMobile
+    })) {
+      return
+    }
+    this.doRename()
+  }
+
   editPermission = () => {
     this.openFileModeModal(this.state.file)
   }
@@ -551,10 +583,13 @@ export default class FileSection extends React.Component {
       isEmpty
     } = file
     if (isEmpty || isParent) {
+      this.cancelClickRename()
       return this.props.modifier({
         selectedFiles: new Set()
       })
     }
+    // Selection before this click decides whether this is the "second click"
+    const selectedBefore = this.props.selectedFiles
     this.props.modifier({
       lastClickedFile: file
     })
@@ -587,6 +622,16 @@ export default class FileSection extends React.Component {
       selectedType: type,
       lastClickedFile: file
     })
+    if (shouldArmClickRename({
+      file,
+      selectedIds: selectedBefore,
+      modifierKey: e.ctrlKey || e.metaKey || e.shiftKey,
+      isMobile: !!window.store.isMobile
+    })) {
+      this.armClickRename()
+    } else {
+      this.cancelClickRename()
+    }
   }
 
   changeFileMode = async (file) => {
@@ -619,11 +664,19 @@ export default class FileSection extends React.Component {
     const file = copy(this.state.file)
     const { nameTemp, name, type, id } = this.state.file
     if (name === nameTemp) {
+      // Edit ended without a change, so nothing will refresh the list and
+      // clear the flag that turns off type-to-filter/Enter while editing.
       if (!id) {
+        this.props.modifier({
+          onEditFile: false
+        })
         return this.cancelNew(type)
       }
       delete file.nameTemp
       delete file.isEditing
+      this.props.modifier({
+        onEditFile: false
+      })
       return this.setState({
         file
       })
@@ -670,6 +723,7 @@ export default class FileSection extends React.Component {
 
   enterDirectory = (e, file = this.state.file) => {
     e && e.stopPropagation && e.stopPropagation()
+    this.cancelClickRename()
     const { type, name, isParent } = file
     const n = `${type}Path`
     const path = isParent ? file.path : this.props[n]
@@ -838,6 +892,8 @@ export default class FileSection extends React.Component {
   }
 
   transferOrEnterDirectory = async (e, edit) => {
+    // Double click means open, never rename
+    this.cancelClickRename()
     const { file } = this.state
     const { isDirectory, type, size } = file
     const isLocal = type === typeMap.local
@@ -1333,6 +1389,7 @@ export default class FileSection extends React.Component {
         <Input
           value={nameTemp}
           prefix={pre}
+          selectall
           onChange={this.handleChange}
           onBlur={this.handleBlur}
           onPressEnter={this.handleBlur}

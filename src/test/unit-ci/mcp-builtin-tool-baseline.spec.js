@@ -1,11 +1,11 @@
 /**
- * M10 基线锚点（T03 配套）· 内置工具 36 锁 + 别名前缀契约 + 边界块包装形状。
+ * M10 基线锚点（T03 配套）· 内置工具 37 锁 + 别名前缀契约 + 边界块包装形状。
  *
  * 三件事，全是指向「将来谁改坏了别让它绿着」的护栏：
- *   1. `agentTools` 恰好 36 个（设计 §1-S6：36 项工具 ↔ 36 个 case），名字
+ *   1. `agentTools` 恰好 37 个（设计 §1-S6：37 项工具 ↔ 37 个 case），名字
  *      全部 `[a-z0-9_]`、不重复、没有一个以 `mcp__` 开头（S7：前缀隔离是
  *      executeToolCall 外部分支的唯一路由依据）；
- *   2. `executeToolCall` 的 switch 对 36 个名字逐个有 case（源码文本断言）；
+ *   2. `executeToolCall` 的 switch 对 37 个名字逐个有 case（源码文本断言）；
  *   3. 渲染层 `external-tool-guard.js` 的前缀与主进程 `tool-name.js` 的
  *      `PREFIX` 一致 —— 任何一边单独改前缀，别名就路由不进外部分支。
  *
@@ -25,8 +25,9 @@ const AGENT_TOOLS = path.join(ROOT, 'client/components/ai/agent-tools.js')
 const TOOL_NAME = path.join(ROOT, 'app/mcp/client/tool-name.js')
 const GUARD = path.join(ROOT, 'client/common/external-tool-guard.js')
 
-// F1（判据文档 §0）：内置工具 36 个，这是 M10 基线的数字
-const BUILTIN_COUNT = 36
+// F1（判据文档 §0）：内置工具 37 个，这是 M10 基线的数字。
+// 2026-11-13 合并上游 v5.10.1：#4728 新增 export_bookmarks，36 -> 37。
+const BUILTIN_COUNT = 37
 
 let mod = null
 let sandbox = null
@@ -50,7 +51,7 @@ after(() => {
 })
 
 describe('builtin tool baseline (M10 / F1)', () => {
-  it('agentTools 恰好 36 个，agentToolNames 与之一一对应', () => {
+  it('agentTools 恰好 37 个，agentToolNames 与之一一对应', () => {
     const { agentTools, agentToolNames } = mod
     assert.equal(agentTools.length, BUILTIN_COUNT, `内置工具数从 ${BUILTIN_COUNT} 漂了`)
     assert.equal(agentToolNames.length, BUILTIN_COUNT)
@@ -61,7 +62,7 @@ describe('builtin tool baseline (M10 / F1)', () => {
     )
   })
 
-  it('36 个名字全部 [a-z0-9_]、唯一、且不以 mcp__ 开头（S7）', () => {
+  it('37 个名字全部 [a-z0-9_]、唯一、且不以 mcp__ 开头（S7）', () => {
     const names = mod.agentToolNames
     assert.equal(new Set(names).size, BUILTIN_COUNT, '内置工具名出现重复')
     for (const name of names) {
@@ -70,7 +71,7 @@ describe('builtin tool baseline (M10 / F1)', () => {
     }
   })
 
-  it('executeToolCall 对 36 个名字逐个有 case（源码文本断言）', () => {
+  it('executeToolCall 对 37 个名字逐个有 case（源码文本断言）', () => {
     const source = fs.readFileSync(AGENT_TOOLS, 'utf8')
     const missing = mod.agentToolNames.filter(name => !source.includes(`case '${name}'`))
     assert.deepEqual(

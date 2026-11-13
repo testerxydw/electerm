@@ -22,13 +22,16 @@
  *
  * 防漂移（**这条比基线本身重要**）：
  *   本文件里的 `GOLDEN` 是**唯一**输入，spec 不读任何文档。
- *   文档 §7 附录里的 1824 / sha256 只是给人做交叉校验的注释——
+ *   文档 §7 附录里的 2258 / sha256 只是给人做交叉校验的注释——
  *   如果哪天有人把文档数字改坏，本 spec 不会跟着变绿。
  *
- * 基线来源：2026-11-10 冻结，基线 commit `f6e79ae6`，
+ * 基线来源：2026-11-10 冻结（commit `f6e79ae6`）；2026-11-13 合并上游
+ *           v5.10.1 重新冻结：#4728 新增 export_bookmarks，逐行 diff 确认
+ *           只多两行工具描述（含凭据不返回护栏）。
  *           固定入参 `{ languageAI: 'en', roleAI: '' }`、
  *           `window.store.getLangName() === 'english'`、`window.et = {}`。
- * 基线不许「重新冻结」：不一致就必须逐字符 diff 出差异并修实现。
+ * 基线不许「重新冻结」：不一致就必须逐字符 diff 出差异并修实现；
+ *           需求变更（如上游新增工具）走评审后才允许更新本文件冻结值。
  */
 
 const { describe, it, before, after } = require('node:test')
@@ -50,17 +53,18 @@ const ROLE = path.join(ROOT, 'client/common/ai-role.js')
 
 const GOLDEN_INPUT = { languageAI: 'en', roleAI: '' }
 const GOLDEN_UI_LANG = 'english'
-const GOLDEN_LENGTH = 1824
+const GOLDEN_LENGTH = 2258
 const GOLDEN_SHA256 =
-  '19da66c3acf0e917bd7a5513aa13656e80818af0801ee488cf7d9eacb7aa2980'
+  '6e5d13a11daa2d3fa131bf22356b04fd33e0c52fccd94cfcb0c38c07f969f964'
 
-// 冻结基线全文（2026-11-10）。不要「修一下」让它变绿。
+// 冻结基线全文（2026-11-13 重新冻结）。不要「修一下」让它变绿。
 const GOLDEN = `You are a helpful assistant.
 
 You are operating inside electerm, a terminal/SSH client. You have access to tools that let you:
 - Run commands in terminal tabs and read their output
 - Open new terminal tabs (local or SSH)
 - Manage bookmarks (create, list, open connections)
+- Export a filtered subset of bookmarks to a file (the user confirms it in a panel, and bookmark credentials are never returned to you)
 - Switch between tabs
 - Transfer files via SFTP (upload, download, list, read, delete remote files)
 - Inspect an open database session (current connection/database/table, table list, table structure, the result set the user is looking at), compare two tables' structure, and write SQL into its editor
@@ -73,6 +77,7 @@ Always explain what you are doing before executing commands.
 If a command produces errors, analyze the output and try to fix the issue.
 Prefer using the active terminal unless the user specifies otherwise.
 For SSH connections, prefer using open_tab to connect directly, or create a bookmark with add_bookmark and open it with open_bookmark if the user wants to save the connection.
+To export bookmarks, call export_bookmarks once with a filter object (for example type "ssh" plus hasPrivateKey true for "all SSH bookmarks that use a private key") and tell the user the panel is open. Never ask the user to paste a password or private key, and never expect a tool to hand you one.
 For file transfers, use the sftp_upload and sftp_download tools. The tab must be an SSH/FTP connection with SFTP initialized.
 
 Reply in en language.`
@@ -218,7 +223,7 @@ describe('agent system prompt golden (M10-③)', () => {
     delete globalThis.window
   })
 
-  it('基线与冻结值逐字符一致（1824 字符）', () => {
+  it('基线与冻结值逐字符一致（2258 字符）', () => {
     assert.equal(
       actual.length,
       GOLDEN_LENGTH,
@@ -226,7 +231,7 @@ describe('agent system prompt golden (M10-③)', () => {
       '基线不许重新冻结：请逐字符 diff 出哪句变了'
     )
     // 先自己算一次首个差异位置：`assert.equal` 的 diff 只给行级上下文，
-    // 1824 字符里改一个空格时看不出到底哪一位变了。
+    // 2258 字符里改一个空格时看不出到底哪一位变了。
     const max = Math.max(actual.length, GOLDEN.length)
     let firstDiff = -1
     for (let i = 0; i < max; i++) {

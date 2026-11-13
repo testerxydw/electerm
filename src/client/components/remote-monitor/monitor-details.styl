@@ -18,11 +18,22 @@
   overflow-x hidden
   overflow-y auto
 
+// section title with the table's filter funnel pinned to its right end; the
+// heading is a flex row even without a funnel so the title keeps its baseline
 .remote-monitor-detail-heading
+  display flex
+  align-items center
+  gap 6px
   margin-bottom 8px
   color var(--text)
   font-size 13px
   font-weight 600
+
+.remote-monitor-detail-heading-text
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
 
 .remote-monitor-detail-state
   margin 6px 0
@@ -84,6 +95,29 @@
   cursor pointer
   &:hover
     color var(--primary)
+
+// user-defined watcher output: raw text, so it keeps its own whitespace and
+// scrolls instead of stretching the 488px popover
+.remote-monitor-custom-output
+  max-height 320px
+  margin 4px 0
+  padding 6px 8px
+  overflow auto
+  border-radius var(--radius-xs)
+  background var(--main-light)
+  color var(--text)
+  font-family inherit
+  font-size 11px
+  line-height 1.45
+  white-space pre
+  user-select text
+
+.remote-monitor-custom-refresh
+  flex-shrink 0
+  margin-left auto
+  color var(--text-dark)
+  &:hover
+    color var(--text)
 
 .remote-monitor-item.remote-monitor-level-warning,
 .remote-monitor-level-warning
