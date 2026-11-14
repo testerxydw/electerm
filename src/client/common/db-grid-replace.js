@@ -15,12 +15,12 @@
  * - 主键值参与定位，主键为空的行无法安全定位，直接跳过。
  */
 
+import { escapeRegExp } from './escape-reg-exp.js'
+
 const isBlank = v => v === null || v === undefined
 
-// 正则元字符转义：查找串是**字面量**，'a.b' 不该匹配 'axb'
-export function escapeRegExp (s) {
-  return String(s == null ? '' : s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
+// 正则元字符转义来自 common/escape-reg-exp.js（SSOT），re-export 保持既有 API。
+export { escapeRegExp }
 
 // 主键值可用于定位：null/undefined 无法拼 WHERE，空串在部分引擎里也不等价（''≠NULL）
 export const usableKey = pk => !isBlank(pk) && pk !== ''

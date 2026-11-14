@@ -7,6 +7,14 @@ const loadGroups = () => import('../../client/common/keyword-groups.js')
 const loadPresetsForCount = () => import('../../client/common/keyword-presets.js')
 const loadAddon = () => import('../../client/components/terminal/highlight-addon.js')
 
+// 闸算法验收基准阈值：本文件语料按 35% 构造（脏行 100% / 混合行 44% / 中位 46.8%），
+// 用来验证「削最胖命中、按物理行裁决、\n 与 \r 不计入行长度」等算法行为。
+// 产品默认阈值与开关策略只在 common/keyword-limits.js 定义（当前 0.6、默认关闸），
+// 由 keyword-limits-ssot.spec.js 单独锁；本文件所有闸调用显式传 GATE_OPTS，
+// 产品调默认值不会把算法验收用例带翻，这里也不复制第二份产品默认值。
+const GATE_T = 0.35
+const GATE_OPTS = { threshold: GATE_T }
+
 // ip 色组编译出来的真彩色序列。色板是 COLOR_GROUPS 一份，测试期望值必须跟着它走，
 // 否则每次重排色板都会伪装成「覆盖率闸把 IP 丢了」。
 const ipColorCode = async () => {
@@ -29,9 +37,9 @@ const semanticOnly = async (list = []) => {
  * 语料固定（不随预设增删而漂移）：
  *  - 15 行真实日志（沿用 highlight-equivalence.spec.js 的代表性混合语料）；
  *  - 93% 那行的等价形态：一条绝对路径吃满整行（实测 100%）；
- *  - 1 行脏 + 9 行净的多行片段（实测整片段平均仅 26%，低于 35% 阈值）——
+ *  - 1 行脏 + 9 行净的多行片段（实测整片段平均仅 26%，低于夹具阈值）——
  *    这正是文档 §7.3 / §11#10 要防的「按写入片段算占比会静默放宽阈值」：
- *    若按片段算，26% < 35%，脏行根本不会被闸掉。
+ *    若按片段算，26% < GATE_T，脏行根本不会被闸掉。
  */
 
 const corpus = [
@@ -63,7 +71,7 @@ const ratioOf = (line, patterns, scan, gate = true) => {
   const { collectMatches, applyCoverageGate } = gateCache
   let hits = collectMatches(line, patterns, scan, 512)
   if (gate) {
-    hits = applyCoverageGate(line, hits)
+    hits = applyCoverageGate(line, hits, GATE_OPTS)
   }
   const colored = hits.reduce((n, h) => n + (h.end - h.start), 0)
   return { ratio: colored / (line.length || 1), hits }
@@ -89,6 +97,7 @@ const buildPatterns = async (withStructure) => {
 describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
   const scanMod = await loadScan()
   gateCache = scanMod
+  const { HIGHLIGHT_LIMITS } = await import('../../client/common/keyword-limits.js')
 
   test('默认「全部应用」= 语义档：中位单行染色率 ≤ 20%', async () => {
     const { patterns, scan } = await buildPatterns(false)
@@ -150,7 +159,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const mixed = '2026-10-09T08:00:00Z ERROR failed to connect: permission denied'
     const before = ratioOf(mixed, patterns, scan, false)
     const after = ratioOf(mixed, patterns, scan, true)
-    assert.ok(before.ratio > 0.35)
+    assert.ok(before.ratio > GATE_T)
     assert.ok(after.ratio < before.ratio, 'gate must reduce coloring on busy lines')
     assert.ok(after.hits.every(h => h.tier !== 'structure'), 'only signal survives')
     assert.ok(after.hits.some(h => h.text === 'ERROR'), 'error word still coloured')
@@ -159,30 +168,30 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
   test('批次 G 闸豁免：diff 头/hunk/指纹不计入占比、不被闸丢；脏路径照旧被闸', async () => {
     const { patterns, scan } = await buildPatterns(true)
     const { collectMatches, applyCoverageGate } = gateCache
-    const families = line => applyCoverageGate(line, collectMatches(line, patterns, scan, 512))
+    const families = line => applyCoverageGate(line, collectMatches(line, patterns, scan, 512), GATE_OPTS)
       .map(h => h.family)
     // 这三类行天然短：不计豁免的话 diff 头 ≈ 89%、hunk = 45%、指纹 ≈ 65%，会被整行丢弃
-    // 削最胖命中后回落到阈值内：两条等长路径丢一条、留一条（≤35%），diff 头豁免照旧
+    // 削最胖命中后回落到阈值内：两条等长路径丢一条、留一条（≤GATE_T），diff 头豁免照旧
     assert.deepEqual(families('diff --git a/src/app.js b/src/app.js'), ['diff-header', 'path'])
     assert.deepEqual(families('@@ -12,7 +12,8 @@ const init = () => {'), ['diff-hunk'])
     assert.deepEqual(families('ED25519 key fingerprint is SHA256:4Kq9vX2mZ8bR1nT6wY3cJ5hL0pF7sD9gA2eU4iO6xQ8.'), ['fingerprint'])
     // 豁免不扩散：同一条短行上的胖路径（rank 20）仍然被闸
     assert.deepEqual(families(dirtyLine), [])
-    // 反证：diff 行若把豁免命中计入占比，整体已超 35%——豁免确实从占比里扣掉了
+    // 反证：diff 行若把豁免命中计入占比，整体已超 GATE_T——豁免确实从占比里扣掉了
     const raw = collectMatches('diff --git a/src/app.js b/src/app.js', patterns, scan, 512)
     const rawRatio = raw.reduce((n, h) => n + (h.end - h.start), 0) / 38
-    assert.ok(rawRatio > 0.35)
+    assert.ok(rawRatio > GATE_T)
   })
 
   test('多行片段：按行算，脏行被闸、9 行净不受影响（按片段算会漏）', async () => {
     const { patterns, scan } = await buildPatterns(true)
     const { collectMatches, applyCoverageGate } = gateCache
     const all = collectMatches(multiLineChunk, patterns, scan, 512)
-    const gated = applyCoverageGate(multiLineChunk, all)
+    const gated = applyCoverageGate(multiLineChunk, all, GATE_OPTS)
 
     // 反证：整片段平均占比低于阈值，若按片段算则一行都不会被闸
     const wholeRatio = all.reduce((n, h) => n + (h.end - h.start), 0) / multiLineChunk.length
-    assert.ok(wholeRatio < 0.35, `whole-chunk average ${(wholeRatio * 100).toFixed(0)}% must be < 35%`)
+    assert.ok(wholeRatio < GATE_T, `whole-chunk average ${(wholeRatio * 100).toFixed(0)}% must be < GATE_T`)
 
     const dirtyEnd = dirtyLine.length
     const dirtyStructure = gated.filter(h => h.start < dirtyEnd && h.tier === 'structure')
@@ -195,7 +204,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
   test('阈值可配置、enabled:false 直通、无 structure 时零开销快路径', async () => {
     const { patterns, scan } = await buildPatterns(true)
     const { collectMatches, applyCoverageGate, defaultCoverageThreshold } = gateCache
-    assert.equal(defaultCoverageThreshold, 0.35)
+    assert.equal(defaultCoverageThreshold, HIGHLIGHT_LIMITS.coverageThreshold)
     const all = collectMatches(multiLineChunk, patterns, scan, 512)
     assert.equal(applyCoverageGate(multiLineChunk, all, { enabled: false }), all)
     // 阈值 1.0 = 永不触发
@@ -205,20 +214,20 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     assert.ok(strict.length < all.length)
     // 全 signal 的规则集：tier 都是 signal，闸直接返回原数组
     const signalOnly = all.map(h => ({ ...h, tier: 'signal' }))
-    assert.equal(applyCoverageGate(multiLineChunk, signalOnly), signalOnly)
+    assert.equal(applyCoverageGate(multiLineChunk, signalOnly, GATE_OPTS), signalOnly)
     assert.equal(applyCoverageGate('', [], {}).length, 0)
   })
 
   test('阈值判定不含换行符：\\n 不计入行长度', () => {
     const { applyCoverageGate } = gateCache
-    // 手工构造：10 字符行里 4 字符命中 = 40% > 35%，另一行 10 字符里 2 字符 = 20%
+    // 手工构造：10 字符行里 4 字符命中 = 40% > GATE_T，另一行 10 字符里 2 字符 = 20%
     const content = 'AB12xxxxxx\nCD3xxxxxxx'
     const hits = [
       { start: 0, end: 2, tier: 'structure' },
       { start: 2, end: 4, tier: 'structure' },
       { start: 11, end: 13, tier: 'structure' }
     ]
-    const out = applyCoverageGate(content, hits)
+    const out = applyCoverageGate(content, hits, GATE_OPTS)
     // 超阈值行只削最胖命中：40% 丢一个 2 字符命中回落到 20%、保留另一个；净行不动
     assert.deepEqual(out.map(h => h.start), [2, 11])
   })
@@ -245,7 +254,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const line = 'AB CD EF GH IJ KL'
     const hits = collectMatches(line, patterns, scan, 512)
     assert.ok(hits.every(h => h.tier === 'signal'))
-    assert.equal(applyCoverageGate(line, hits), hits)
+    assert.equal(applyCoverageGate(line, hits, GATE_OPTS), hits)
   })
 
   test('两端同源：终端与网格都调用 applyCoverageGate（源码契约）', () => {
@@ -263,12 +272,12 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     assert.match(addon, /applyCoverageGate\(plain,/, 'terminal gate must judge the whole physical line')
   })
 
-  test('结构档打开时，覆盖率闸把中位染色率压回单行 35% 上限内（保留小命中、不整行素色）', async () => {
+  test('结构档打开时，覆盖率闸把中位染色率压回单行基准阈值内（保留小命中、不整行素色）', async () => {
     const { patterns, scan } = await buildPatterns(true)
     const raw = corpus.map(line => ratioOf(line, patterns, scan, false).ratio)
     const gated = corpus.map(line => ratioOf(line, patterns, scan, true).ratio)
-    assert.ok(median(raw) > 0.35, `ungated median ${(median(raw) * 100).toFixed(1)}% should be noisy`)
-    assert.ok(median(gated) <= 0.35, `gated median ${(median(gated) * 100).toFixed(1)}% should be ≤ 35%`)
+    assert.ok(median(raw) > GATE_T, `ungated median ${(median(raw) * 100).toFixed(1)}% should be noisy`)
+    assert.ok(median(gated) <= GATE_T, `gated median ${(median(gated) * 100).toFixed(1)}% should be ≤ GATE_T`)
     assert.ok(median(gated) > 0.10, `gated median ${(median(gated) * 100).toFixed(1)}% must stay visible, not over-suppressed`)
   })
 
@@ -290,7 +299,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
       const keywords = activeKeywords(list)
       const patterns = compileKeywords(keywords)
       const scan = buildScan(patterns)
-      const hits = applyCoverageGate(dirtyLine, collectMatches(dirtyLine, patterns, scan, 512))
+      const hits = applyCoverageGate(dirtyLine, collectMatches(dirtyLine, patterns, scan, 512), GATE_OPTS)
       return {
         structure: keywords.filter(k => k.tier === 'structure').length,
         ratio: hits.reduce((n, h) => n + (h.end - h.start), 0) / dirtyLine.length,
@@ -321,23 +330,24 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     clearKeywordCache()
     const { keywords, patterns, scan } = await buildPatterns(true)
     // 一行 199 字符：前半 10 个 IP（88.9%），后半 1 个 IP + 100 普通字符（7.3%）
-    // 整行 88/199 = 44.2% > 35% → 削最胖的 IP 回落到 ≤35%，但保留小命中（不整行素色）
+    // 整行 88/199 = 44.2% > GATE_T → 削最胖的 IP 回落到 ≤GATE_T，但保留小命中（不整行素色）
     const head = Array.from({ length: 10 }, (_, i) => '10.1.2.' + (i + 1)).join(' ')
     const line = head + ' ' + 'x'.repeat(100) + ' 10.1.2.99'
-    const plainHits = applyCoverageGate(line, collectMatches(line, patterns, scan, 512))
+    const plainHits = applyCoverageGate(line, collectMatches(line, patterns, scan, 512), GATE_OPTS)
     const keptStruct = plainHits.filter(h => h.tier === 'structure')
       .reduce((n, h) => n + (h.end - h.start), 0) / line.length
-    assert.ok(keptStruct <= 0.35 + 1e-9, 'whole physical line trimmed to ≤35%')
+    assert.ok(keptStruct <= GATE_T + 1e-9, 'whole physical line trimmed to ≤ GATE_T')
     assert.ok(keptStruct > 0, 'small hits survive the trim (not nuked to plain)')
 
     // addon 构造函数要的是原始 keywords（内部自己编译），传已编译 patterns 会退化成
     // 空规则集，让断言变成假阳性。先自检无 ANSI 时确实有染色，再比对插入 SGR 的结果。
-    const addon = new KeywordHighlighterAddon(keywords)
+    // 产品默认关闸，这里显式打开并用与纯函数侧相同的夹具阈值，才能验证闸裁决
+    const addon = new KeywordHighlighterAddon(keywords, { coverageGate: true, coverageThreshold: GATE_T })
     // 自检：规则确实生效（净行里的 IP 会被染色），否则「0 命中」可能是空规则集的假阳性
     const sanity = addon.highlightKeywords('host 10.1.2.3 ' + 'y'.repeat(80))
     const ip = await ipColorCode()
     assert.ok(sanity.includes(ip + '10.1.2.3'), 'fixture sanity: addon must be live')
-    // 脏行整行 44% > 35%：削到 ≤35% 但保留小命中；无 ANSI 与有 ANSI 的裁决必须一致
+    // 脏行整行 44% > GATE_T：削到 ≤GATE_T 但保留小命中；无 ANSI 与有 ANSI 的裁决必须一致
     const plainColored = addon.highlightKeywords(line).split(ip).length - 1
     assert.ok(plainColored > 0, 'trimmed dirty line keeps some structure (not nuked to plain)')
     const splitAt = head.length + 1
@@ -356,7 +366,7 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     clearKeywordCache()
     const { keywords } = await buildPatterns(true)
     const addon = new KeywordHighlighterAddon(keywords)
-    // 一个 IP + 大量普通字符：整行远低于 35%，IP 应保留
+    // 一个 IP + 大量普通字符：整行远低于 GATE_T，IP 应保留
     const line = '10.1.2.3 ' + 'x'.repeat(160)
     const sgr = '\u001b[31m\u001b[0m'
     const out = addon.highlightKeywords(line.slice(0, 20) + sgr + line.slice(20))
@@ -369,27 +379,32 @@ describe('V2 批次 3：行级覆盖率闸与档位语义', async () => {
     const content = 'XXXXXXXXXX\nCD'
     const hit = { start: 9, end: 13, tier: 'structure' }
     // 第二行 CD 被 2/2=100% 染色；旧实现只把 1 字符算进第一行 → 命中存活
-    assert.equal(applyCoverageGate(content, [hit]).length, 0,
+    assert.equal(applyCoverageGate(content, [hit], GATE_OPTS).length, 0,
       'cross-line hit must be attributed to every line it covers')
     const clean = 'XXXXXXXXXX\n' + 'y'.repeat(40) + '\nCD'
     const cleanHit = { start: 9, end: 12, tier: 'structure' }
-    assert.equal(applyCoverageGate(clean, [cleanHit]).length, 1,
+    assert.equal(applyCoverageGate(clean, [cleanHit], GATE_OPTS).length, 1,
       'a cross-line hit with low coverage must survive')
   })
 
-  test('CRLF 的 \\r 不计入可见行长（不翻转 35% 判定）', () => {
+  test('CRLF 的 \\r 不计入可见行长（不翻转阈值判定）', () => {
     const { applyCoverageGate } = gateCache
     const hit = { start: 0, end: 35, tier: 'structure' }
     const lf = 'x'.repeat(35) + 'y'.repeat(64) + '\n'
     const crlf = lf.replace('\n', '\r\n')
-    assert.equal(applyCoverageGate(lf, [hit]).length, 0, 'LF: 35/99 > 35% → drop')
-    assert.equal(applyCoverageGate(crlf, [hit]).length, 0, 'CRLF must give the same verdict')
+    assert.equal(applyCoverageGate(lf, [hit], GATE_OPTS).length, 0, 'LF: 35/99 > GATE_T → drop')
+    assert.equal(applyCoverageGate(crlf, [hit], GATE_OPTS).length, 0, 'CRLF must give the same verdict')
   })
 
   test('opts 健壮性：非法 threshold 退回默认值，enabled=false 直通', () => {
     const { applyCoverageGate } = gateCache
-    const line = 'x'.repeat(35) + 'y'.repeat(64)
-    const hit = { start: 0, end: 35, tier: 'structure' }
+    // 语料染色占比按产品默认阈值（SSOT）推导：非法 threshold 回落到默认值时应触发闸。
+    // 不写死 35%，产品默认再调整也不会把「回落」语义测反。
+    const T = HIGHLIGHT_LIMITS.coverageThreshold
+    const colored = Math.ceil(100 * T) + 10
+    const line = 'x'.repeat(colored) + 'y'.repeat(100 - colored)
+    const hit = { start: 0, end: colored, tier: 'structure' }
+    assert.ok(colored / line.length > T, 'fixture must exceed the product default threshold')
     assert.equal(applyCoverageGate(line, [hit], { threshold: NaN }).length, 0)
     assert.equal(applyCoverageGate(line, [hit], { enabled: false }).length, 1)
     assert.equal(applyCoverageGate(line, [hit], { threshold: -1 }).length, 0)

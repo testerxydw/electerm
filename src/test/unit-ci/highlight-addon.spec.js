@@ -98,7 +98,9 @@ describe('keyword highlight addon', () => {
       { keyword: '\\bERROR\\b', color: 'red' },
       { keyword: '\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b', color: 'blue', tier: 'structure' }
     ]
-    const addon = new KeywordHighlighterAddon(rules)
+    // 产品默认关闸（SSOT），本用例验的是「闸仍按物理行裁决」，必须显式开闸；
+    // 对照用的 noGate 保持关闸，两者阈值都取 SSOT 默认值。
+    const addon = new KeywordHighlighterAddon(rules, { coverageGate: true })
     const blue = '\u001b[34m'
     const osc = '\u001b]0;ERROR 10.1.2.3\nmore ERROR 10.1.2.4\u0007'
     const oscLine = 'osc ' + osc + ' ERROR ' + 'q'.repeat(80)

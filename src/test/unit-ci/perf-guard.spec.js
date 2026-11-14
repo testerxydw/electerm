@@ -37,12 +37,13 @@ const loadHighlightValue = async () => {
   // 行级覆盖率闸。三者都注入真实实现，否则沙箱里会 ReferenceError（历史遗留缺口）。
   const { buildScan, collectMatches, applyCoverageGate } =
     await import('../../client/common/keyword-scan.js')
+  const { resolveHighlightOptions } =
+    await import('../../client/common/keyword-limits.js')
   const sandbox = {
-    maxHighlightLength: 4096,
-    maxHits: 200,
     buildScan,
     collectMatches,
     applyCoverageGate,
+    resolveHighlightOptions,
     React: {
       createElement: (type, props, ...children) => ({ type, props, children })
     }
@@ -206,10 +207,13 @@ describe('perf guard: source contracts (committed perf fixes stay fixed)', () =>
     )
   })
 
-  test('value pane opts keep the lifted limits', () => {
+  test('value pane opts keep the lifted limits', async () => {
     const src = loadSrc(path.join(DB_DIR, 'db-value-pane.jsx'))
-    assert.ok(src.includes('maxLength = 100000'), 'preview maxLength drifted')
-    assert.ok(src.includes('maxHits = 2000'), 'preview maxHits drifted')
+    assert.ok(src.includes('maxLength = HIGHLIGHT_LIMITS.maxPreviewLength'), 'preview maxLength must come from SSOT')
+    assert.ok(src.includes('maxHits = HIGHLIGHT_LIMITS.maxHitsPerPreview'), 'preview maxHits must come from SSOT')
+    const { HIGHLIGHT_LIMITS } = await import('../../client/common/keyword-limits.js')
+    assert.equal(HIGHLIGHT_LIMITS.maxPreviewLength, 100000)
+    assert.equal(HIGHLIGHT_LIMITS.maxHitsPerPreview, 2000)
   })
 
   test('redis string editing goes through setKey op (readonly enforced in main process)', () => {

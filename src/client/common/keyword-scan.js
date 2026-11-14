@@ -39,11 +39,14 @@
  * 天然同口径（文档 §7.3 的"两处必须一起改"约束由此消失）。
  */
 
-const maxMatchesDefault = 512
+import { HIGHLIGHT_LIMITS } from './keyword-limits.js'
 
-// 单行染色占比上限（V2 §7.3 默认 35%）。超过该值的行只保留 signal 命中，
+const maxMatchesDefault = HIGHLIGHT_LIMITS.maxMatchesPerSegment
+
+// 单行染色占比上限（V2 §7.3）。取值来自 keyword-limits.js（SSOT，当前 0.6），
+// 本模块不再定义第二份默认值。超过该值的行只保留 signal 命中，
 // structure 命中整行丢弃，直接消灭「一条胖路径吃满整行」的 93% 花屏。
-export const defaultCoverageThreshold = 0.35
+export const defaultCoverageThreshold = HIGHLIGHT_LIMITS.coverageThreshold
 
 // 合成单遍扫描结构（按 patterns 数组身份缓存，终端与网格共用同一份）：
 //   combined   把所有规则源用非捕获组包一层后 | 连起来，一次 exec 找"最早命中的起点"
@@ -272,7 +275,7 @@ export function collectMatches (content, patterns, scan, cap = maxMatchesDefault
  *
  * @param {string} content 与 collectMatches 同一个纯文本（坐标基准）
  * @param {Array} matches collectMatches 的输出（互不重叠、按左到右）
- * @param {object} opts { threshold = 0.35, enabled = true }
+ * @param {object} opts { threshold = defaultCoverageThreshold, enabled = true }
  * @returns {Array} 过滤后的新数组（无丢弃时返回原数组，避免无谓分配）
  */
 export function applyCoverageGate (content, matches, opts = {}) {
@@ -299,7 +302,7 @@ export function applyCoverageGate (content, matches, opts = {}) {
 
   // 行边界：每行 [start, end)，end 为 \n 的下标或文本末尾。
   // \n 与其前的 \r（CRLF）都是行分隔符，不计入可见行长，也不计入染色面积——
-  // 否则 Windows/PTY 输出的 \r 会把分母撑大、翻转 35% 判定。
+  // 否则 Windows/PTY 输出的 \r 会把分母撑大、翻转阈值判定。
   const lineStarts = [0]
   for (let i = 0; i < content.length; i++) {
     if (content.charCodeAt(i) === 10) {
@@ -323,7 +326,7 @@ export function applyCoverageGate (content, matches, opts = {}) {
   const lineCount = lineStarts.length
   // 批次 G（用户裁决）：marker 层（rank 0：diff 头/hunk/冲突标记/Redis 类型）与 SSH 指纹
   // 是边界记号/精确 token，不计入行染色占比、也不被闸丢弃——这些行天然短，
-  // 35% 闸会把「diff --git a/x b/x」「SHA256:…」整行误杀，等于增补后仍然素色。
+  // 覆盖率闸会把「diff --git a/x b/x」「SHA256:…」整行误杀，等于增补后仍然素色。
   // 胖路径/长 URL（rank ≥ 10 的其它家族）照旧受闸。
   const isGateExempt = m => m.rank === 0 || m.family === 'fingerprint'
   for (const m of matches) {

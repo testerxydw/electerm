@@ -1,6 +1,7 @@
 import { compileKeywords } from '../../common/keyword-compile.js'
 import { activeKeywords } from '../../common/keyword-groups.js'
 import { buildScan, collectMatches, applyCoverageGate } from '../../common/keyword-scan.js'
+import { resolveHighlightOptions } from '../../common/keyword-limits.js'
 
 // 单遍扫描 + 家族 rank 裁决（V3：最左起点 → rank 小者胜 → 同 rank 取更长）已抽到
 // common/keyword-scan.js，终端与网格共用同一套实现；
@@ -84,10 +85,11 @@ const plainNewlineIndexes = (text) => {
 
 export class KeywordHighlighterAddon {
   constructor (keywords, opts = {}) {
-    // 覆盖率闸默认关闭：structure 命中（时间戳/路径/数字/URL）在密集行不再被
-    // 35% 占比闸整段压掉，改为「全部渲染」。恢复密度治理：传 opts.coverageGate === true。
-    this.coverageGate = opts.coverageGate === true
-    this.coverageThreshold = opts.coverageThreshold
+    // 所有限制开关与阈值统一从 common/keyword-limits.js 读（SSOT），两端不再各自硬编码。
+    // 保留实例字段名：契约探针（keyword-compile.spec / highlight-equivalence.spec）会读写它们。
+    const limits = resolveHighlightOptions(opts)
+    this.coverageGate = limits.coverageGate
+    this.coverageThreshold = limits.coverageThreshold
     // 编译走进程级共享缓存（keyword-compile.js）：同一份配置开 N 个页签、
     // 断线重连 N 次都只编译一次，不再每个终端常驻一套 RegExp。
     // 缓存按内容摘要命中，所以这里不必保留 keywords 数组。
@@ -98,19 +100,16 @@ export class KeywordHighlighterAddon {
     // in the attach addon merges ordinary command output (e.g. `show running-config`)
     // into chunks well over this size, so large writes are highlighted line by
     // line instead of being skipped whole; only single huge lines are skipped.
-    this.maxHighlightLength = 4096
+    this.maxHighlightLength = limits.maxLength
     // Writes larger than this bypass keyword highlighting entirely: a command
     // flood or download progress, where scanning every byte (and rebuilding the
-    // result string) is pure overhead.
-    // 整块跳过阈值 256KB → 4MB：history / cat 大文件 / grep 大量结果这类
-    // 「一次性吐出大量行」的命令整块输出不再被整块跳过（此类输出通常 < 几 MB，并非持续洪水）。
-    // 单段 4096 跳过（maxHighlightLength）仍保留，防止单条超长行炸扫描。
-    this.maxHighlightChunkLength = 4 * 1024 * 1024
+    // result string) is pure overhead. 默认值见 keyword-limits.js。
+    this.maxHighlightChunkLength = limits.maxChunkLength
     // Upper bound on match objects collected per text segment. A flooded line
     // ("error error error...") otherwise allocates one record per hit; with the
     // DB grid the same rule of thumb (see db-highlight.jsx), hits past the cap
     // are simply not coloured.
-    this.maxMatchesPerSegment = 512
+    this.maxMatchesPerSegment = limits.maxHits
     // Compile the ANSI/OSC splitter once instead of allocating a new RegExp on
     // every write (this was the #1 allocation in the hot path under load).
     const ESC = String.fromCharCode(27) // \x1b

@@ -12,7 +12,7 @@ export const MIN_WATCHER_INTERVAL = 1
 export const MAX_WATCHER_INTERVAL = 3600
 
 const MAX_NAME_LENGTH = 40
-const MAX_COMMAND_LENGTH = 2000
+const MAX_WATCHER_COMMAND_LENGTH = 2000
 const FALLBACK_NAME = 'custom'
 
 // `watch` keeps its own refresh loop, but the app polls on its own interval --
@@ -224,7 +224,7 @@ export function normalizeWatcher (input) {
   return {
     id,
     name: watcherName(input.name, parsed.command),
-    command: parsed.command.slice(0, MAX_COMMAND_LENGTH),
+    command: parsed.command.slice(0, MAX_WATCHER_COMMAND_LENGTH),
     interval: normalizeWatcherInterval(input.interval, intervalFallback(parsed)),
     enabled: input.enabled !== false
   }

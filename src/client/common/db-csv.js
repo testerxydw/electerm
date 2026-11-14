@@ -7,21 +7,11 @@
  */
 
 import { isPgFamily, isSqliteFamily } from './db-engine-family.js'
+import { isBinEnvelope } from './db-column-width.js'
 
-// 识别 F3 二进制信封（src/app/lib/db-client/{mysql,postgres}.js 的 binEnvelope 输出）。
-// 仅当结构严格匹配才认作信封，避免与业务里恰好带 __bin 键的普通对象混淆。
-export function isBinEnvelope (v) {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) {
-    return false
-  }
-  if (!('__bin' in v)) {
-    return false
-  }
-  const bin = v.__bin
-  return !!bin && typeof bin === 'object' &&
-    typeof bin.size === 'number' && typeof bin.b64 === 'string' &&
-    typeof bin.truncated === 'boolean'
-}
+// F3 二进制信封形状判定来自 common/db-column-width.js（SSOT）；此处 re-export 保持
+// db-csv 的既有 API，避免调用方改动。严格形状匹配，避免误认带 __bin 键的普通对象。
+export { isBinEnvelope }
 
 // 单字段转义：null/undefined 输出空串，其余 String() 化后按需包裹
 export function csvEscape (v) {

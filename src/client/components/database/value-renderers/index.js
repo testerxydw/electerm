@@ -11,6 +11,11 @@
  */
 
 import { detectFormats } from '../db-value-format'
+import { isBinEnvelope } from '../../../common/db-column-width.js'
+
+// F3 二进制信封形状判定来自 common/db-column-width.js（SSOT）；此处 re-export 保持
+// 组件层既有 API（use-db-grid-columns / db-value-pane / db-session 等都从这里取）。
+export { isBinEnvelope }
 
 // 注册表：register({ key, label, readonly, maxBytes, kind, detect })
 const registry = []
@@ -22,21 +27,6 @@ export function register (spec) {
 
 export function getRenderers () {
   return registry.slice()
-}
-
-// 识别 F3 二进制信封（与主进程 binEnvelope、db-csv.isBinEnvelope 同源）。
-// 仅当结构严格匹配才认作信封，避免与业务里恰好带 __bin 键的普通对象混淆。
-export function isBinEnvelope (v) {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) {
-    return false
-  }
-  if (!('__bin' in v)) {
-    return false
-  }
-  const b = v.__bin
-  return !!b && typeof b === 'object' &&
-    typeof b.size === 'number' && typeof b.b64 === 'string' &&
-    typeof b.truncated === 'boolean'
 }
 
 // 二进制预览上限：信封只内联 4KB 前缀，超出的渲染器只给前 N 字节 + 复制/另存。

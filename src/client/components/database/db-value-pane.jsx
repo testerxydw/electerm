@@ -14,6 +14,7 @@ import { copy } from '../../common/clipboard'
 import { cellText } from '../../common/db-column-width'
 import { formatValue } from './db-value-format'
 import { highlightValue } from './db-highlight'
+import { HIGHLIGHT_LIMITS } from '../../common/keyword-limits.js'
 import { selectRenderers, isBinEnvelope, binPreviewBytes, bytesToHex } from './value-renderers'
 
 const e = window.translate
@@ -129,8 +130,8 @@ export default function DbValuePane (props) {
     themeConfig,
     editable = false,
     saving = false,
-    maxLength = 100000,
-    maxHits = 2000,
+    maxLength = HIGHLIGHT_LIMITS.maxPreviewLength,
+    maxHits = HIGHLIGHT_LIMITS.maxHitsPerPreview,
     onSave,
     onClose,
     extra,

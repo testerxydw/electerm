@@ -7,17 +7,15 @@
  * （`.db-kw-<color>`，见 db-session.styl）。
  *
  * 长文本与超多命中直接跳过：单元格是按行 x 列渲染的，避免正则扫描拖慢整表。
+ * 所有限制开关与阈值统一从 common/keyword-limits.js 读（SSOT），与终端同默认值；
+ * 值预览通过 opts 放宽上限。
  */
 
 import { useMemo } from 'react'
 import { activeKeywords } from '../../common/keyword-groups.js'
 import { compileKeywords, keywordsSignature } from '../../common/keyword-compile.js'
 import { buildScan, collectMatches, applyCoverageGate } from '../../common/keyword-scan.js'
-
-// 与终端高亮插件同口径的默认上限：超长文本/超多命中跳过（表格单元格性能考量）。
-// 值预览（<pre>，单值专用查看区）通过 opts 放宽，见 highlightValue
-const maxHighlightLength = 4096
-const maxHits = 200
+import { resolveHighlightOptions } from '../../common/keyword-limits.js'
 
 // 配置变化极少，按内容摘要缓存编译结果
 export function useKeywordPatterns () {
@@ -34,8 +32,9 @@ export function useKeywordPatterns () {
 }
 
 export function highlightValue (text, patterns, themeConfig, opts = {}) {
-  const maxLength = opts.maxLength || maxHighlightLength
-  const hitLimit = opts.maxHits || maxHits
+  const limits = resolveHighlightOptions(opts, 'grid')
+  const maxLength = limits.maxLength
+  const hitLimit = limits.maxHits
   if (!patterns || !patterns.length) {
     return text
   }
@@ -49,11 +48,10 @@ export function highlightValue (text, patterns, themeConfig, opts = {}) {
   if (!matches.length) {
     return text
   }
-  // V2 §7.3：与终端同一套行级覆盖率闸。一个单元格即一行，超过阈值时只留 signal。
-  // 纯配色契约探针可传 opts.coverageGate=false 关掉。
+  // 行级覆盖率闸：与终端同一套实现、同一个默认开关（SSOT），一个单元格即一行。
   const hits = applyCoverageGate(text, matches, {
-    enabled: opts.coverageGate !== false,
-    threshold: opts.coverageThreshold
+    enabled: limits.coverageGate,
+    threshold: limits.coverageThreshold
   })
   if (!hits.length) {
     return text

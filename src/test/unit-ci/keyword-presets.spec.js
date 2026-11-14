@@ -305,6 +305,7 @@ describe('keyword presets', () => {
     // 批次 3 的覆盖率闸同样两端同源；本用例是「同跨度」契约断言，两端都关闸。
     const rules = await allApplied()
     const compiled = compileKeywords(rules)
+    const { resolveHighlightOptions } = await import('../../client/common/keyword-limits.js')
 
     const fs = require('node:fs')
     const path = require('node:path')
@@ -318,11 +319,10 @@ describe('keyword presets', () => {
       "React.createElement('span', { key: h.start, className: 'db-kw', style: (themeConfig && themeConfig[h.color] ? { color: themeConfig[h.color] } : undefined), __start: h.start, __end: h.end, __color: h.color }, text.slice(h.start, h.end))")
     const gridSpans = []
     const sandbox = {
-      maxHighlightLength: 4096,
-      maxHits: 200,
       buildScan,
       collectMatches,
       applyCoverageGate,
+      resolveHighlightOptions,
       React: { createElement: (type, props) => { if (type === 'span') gridSpans.push({ start: props.__start, end: props.__end, color: props.__color }); return { type, props } } }
     }
     vm.runInNewContext(body, sandbox)

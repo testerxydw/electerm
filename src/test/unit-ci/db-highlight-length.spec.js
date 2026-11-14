@@ -20,6 +20,7 @@ const SRC = path.join(ROOT, 'src/client/components/database/db-highlight.jsx')
 const loadScan = () => import('../../client/common/keyword-scan.js')
 const loadHighlightValue = async () => {
   const { buildScan, collectMatches, applyCoverageGate } = await loadScan()
+  const { resolveHighlightOptions } = await import('../../client/common/keyword-limits.js')
   const src = fs.readFileSync(SRC, 'utf8')
   const m = src.match(/export function highlightValue \([\s\S]*?\n\}/)
   assert.ok(m, 'highlightValue definition not found in db-highlight.jsx')
@@ -36,11 +37,10 @@ const loadHighlightValue = async () => {
   )
   const sandbox = {
     // createElement 桩：够断言分段结构即可；模块级上限常量一并注入
-    maxHighlightLength: 4096,
-    maxHits: 200,
     buildScan,
     collectMatches,
     applyCoverageGate,
+    resolveHighlightOptions,
     React: {
       createElement: (type, props, ...children) => ({ type, props, children })
     }

@@ -1,3 +1,5 @@
+import { escapeRegExp } from '../../../common/escape-reg-exp.js'
+
 // Expands control-char escapes typed by users, e.g. in trigger send text:
 // \n \t \r \\ \xHH hex bytes and ^X caret notation (^M = \r, ^C = \x03)
 export function expandControlChars (text) {
@@ -37,9 +39,8 @@ export function expandControlChars (text) {
   return result
 }
 
-export function escapeRegExp (s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
+// 转义规则来自 common/escape-reg-exp.js（SSOT），re-export 保持 trigger-engine 的既有 import。
+export { escapeRegExp }
 
 export function toSafeRegExp (pattern, flags = '') {
   if (pattern instanceof RegExp) {

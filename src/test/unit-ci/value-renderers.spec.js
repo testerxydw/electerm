@@ -4,6 +4,11 @@ const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
 
+// isBinEnvelope 已收口到 common/db-column-width.js（SSOT），本模块只 re-export。
+// vm 会 strip 掉 import 行，因此把**真实 SSOT 函数**注入沙箱，既让注册表逻辑跑起来，
+// 也保证这里验的是产品实际用的那一份，而不是测试里再写一份等价实现。
+const { isBinEnvelope: isBinEnvelopeSSOT } = require('../../client/common/db-column-width.js')
+
 // F3 §9.2 值呈现器注册表（纯逻辑，vm 加载真实源码、strip ESM export，
 // 并把 detectFormats 注入为沙箱全局，避免依赖 db-value-format 的 ESM 加载链）
 const ROOT = path.join(__dirname, '../../..')
@@ -14,6 +19,7 @@ const loadMod = () => {
     .replace(/^import\s.*$/gm, '') // 去掉 import 行（检测委托给注入的 detectFormats）
     .replace(/^export\s+/gm, '') // ESM export 降级为普通声明
   const ctx = {
+    isBinEnvelope: isBinEnvelopeSSOT,
     detectFormats: (text) => {
       // 极简文本嗅探，足以驱动注册表的 text 分支判定
       if (typeof text !== 'string') return []

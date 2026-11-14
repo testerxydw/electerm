@@ -1,8 +1,9 @@
 // H1a-1/H1a-2：5 处网格共用的单元格展示层 + 列宽决策纯函数
 // （SQL 结果 / 数据页 / 表结构页 / Redis 键列表 / Redis 详情）
 //
-// 为什么不 import value-renderers 的 isBinEnvelope：那个模块属于组件层（带呈现器
-// 注册表与 JSX 依赖），这里是可单测的 common 纯模块，只做形状判断即可。
+// isBinEnvelope 是 F3 二进制信封形状判定的单一真源（SSOT）。过去 value-renderers
+// （组件层，带呈现器注册表）和 db-csv 各写了一份等价实现，只因分层不能反向 import；
+// 现在那两处改为从本模块 import 再 re-export，形状规则只有一份，避免逐份漂移。
 export const COL_W_MIN = 90
 export const COL_W_MAX = 360
 export const COL_W_FALLBACK = 90
