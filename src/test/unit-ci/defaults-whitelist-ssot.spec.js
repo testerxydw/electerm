@@ -22,6 +22,17 @@ const ALLOWED_KEYS = new Set([
   'reason', 'identifiers', 'nonMirroredNames', 'guardTokens', 'names'
 ])
 
+// noMerge 反向检查依赖白名单自身的 guardTokens 完整性。这里把期望 token 集合
+// 作为测试期望夹具锁死：它不来自产品源码、不含任何产品取值，不是第二份 SSOT，
+// 只是防止「先删 token 再写值相等断言」把反向检查变成空转（V-B2 / V-B3）。
+const EXPECTED_GUARD_TOKENS = {
+  'W3-1': ['leftSideBarIcons', 'defaultSettingKeySet'],
+  'W3-2': ['serverManagedConfigKeys', 'constantsKeySet'],
+  'W3-3': ['leftSideBarIcons', 'legacyDefaultLeftSideBarIcons'],
+  'W3-4': ['defaultSettingKeySet', 'aggregateLayerKeys'],
+  'W2-6': ['legacyDefaultLeftSideBarIcons']
+}
+
 /** 汇总四类白名单条目，供路径 / lockedBy / noMerge 三类断言共用。 */
 function entries () {
   return [
@@ -136,6 +147,12 @@ describe('defaults whitelist: 可机读白名单契约（不存取值）', () =>
       const entry = byId.get(id)
       assert.ok(entry, `noMerge 引用的 ${id} 没有对应白名单条目`)
       assert.ok(Array.isArray(entry.guardTokens) && entry.guardTokens.length > 0, `${id} 必须有 guardTokens`)
+      assert.ok(EXPECTED_GUARD_TOKENS[id], `noMerge ${id} 没有 guardTokens 期望基线`)
+      assert.deepEqual(
+        entry.guardTokens.slice().sort(),
+        EXPECTED_GUARD_TOKENS[id].slice().sort(),
+        `${id} guardTokens 与基线不符：删 token 会绕过 noMerge 反向检查`
+      )
       for (const token of entry.guardTokens) {
         assert.equal(lockSpec.includes(token), false, `${token} 属于 noMerge ${id}，禁止值相等断言`)
       }
@@ -161,6 +178,16 @@ describe('defaults whitelist: 可机读白名单契约（不存取值）', () =>
         return re.test(read(path.join(ROOT, file)))
       })
       assert.ok(found, `豁免名 ${name} 在所列组件里没有真实定义`)
+    }
+    // G4：豁免清单不得静默扩大——files 里每个文件都必须至少真实定义一个
+    // 豁免名，否则「往清单塞一个无关文件」不会被任何断言发现（V-E6）。
+    for (const relFile of fork.files) {
+      const src = read(path.join(ROOT, relFile))
+      const hit = fork.names.some(name => {
+        const re = new RegExp(`^[ \\t]*(?:export[ \\t]+)?const[ \\t]+${name}[ \\t]*=`, 'm')
+        return re.test(src)
+      })
+      assert.ok(hit, `W2-7 豁免文件 ${relFile} 没有任何真实同名局部常量定义`)
     }
 
     for (const sample of whitelist.modulePrivateSample) {

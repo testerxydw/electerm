@@ -78,20 +78,34 @@ describe('defaults domain registry: L2 域导出名登记护栏', () => {
     assert.equal(new Set(allNames).size, 209)
   })
 
-  test('③ 组件不得同名重定义域导出名（语义分叉显式豁免）', () => {
-    const exempt = new Set()
+  test('③ 组件不得同名重定义域导出名（语义分叉按 文件+名字 逐项豁免）', () => {
+    // 豁免不再按名字全局放行：只有「该名字确实在登记的某个文件里以
+    // const <name> = 形式定义」才生成 (relFile, name) 豁免对，避免把
+    // NA / typeMap / modals / isMac 变成任意组件都能用的通行证（V-E1 / V-E1b）。
+    const exemptPairs = new Set()
     for (const fork of whitelist.semanticForks) {
-      if (Array.isArray(fork.names)) {
-        fork.names.forEach(name => exempt.add(name))
+      if (!Array.isArray(fork.names) || !Array.isArray(fork.files)) {
+        continue
+      }
+      for (const name of fork.names) {
+        const re = new RegExp(`^[ \\t]*(?:export[ \\t]+)?const[ \\t]+${name}[ \\t]*=`, 'm')
+        for (const relFile of fork.files) {
+          const file = path.join(ROOT, relFile)
+          if (fs.existsSync(file) && re.test(read(file))) {
+            exemptPairs.add(`${relFile}::${name}`)
+          }
+        }
       }
     }
-    const forbidden = new Set(allNames.filter(name => !exempt.has(name)))
+    const allNameSet = new Set(allNames)
     const collisions = []
     const defRe = /^[ \t]*(?:export[ \t]+)?const[ \t]+([A-Za-z_$][\w$]*)[ \t]*=/gm
     for (const file of componentFiles()) {
+      const relFile = path.relative(ROOT, file).split(path.sep).join('/')
       for (const match of read(file).matchAll(defRe)) {
-        if (forbidden.has(match[1])) {
-          collisions.push(`${path.relative(ROOT, file).split(path.sep).join('/')}:${match[1]}`)
+        const name = match[1]
+        if (allNameSet.has(name) && !exemptPairs.has(`${relFile}::${name}`)) {
+          collisions.push(`${relFile}:${name}`)
         }
       }
     }
