@@ -4,7 +4,7 @@
  */
 
 const log = require('../../common/log')
-const { normalizeMysqlType, toColumns } = require('../../common/db-type-normalize')
+const { normalizeMysqlType, toColumns, BIN_PREFIX_LIMIT } = require('../../common/db-type-normalize')
 // N1：TLS 档位（校验模式）的唯一口径，三适配器共用
 const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
 
@@ -243,8 +243,6 @@ async function mapLimit (list, limit, fn) {
 // （那会直接丢掉数据），改成携带 base64 前缀的 `__bin` 信封，导出/预览都能复用。
 // 大字段只带前缀供预览，全量取回走独立 op getCellBinary，不进 getPageData。
 const INLINE_LIMIT = 64 * 1024
-// 超限时只随信封带前 BIN_PREFIX_LIMIT 字节供预览（16KB base64，一页 400 行也不会拖垮渲染）
-const BIN_PREFIX_LIMIT = 4096
 
 // Buffer 继承自 Uint8Array；主进程经打包后 Buffer 可能被替换为 `buffer` polyfill，
 // 其 isBuffer 对「原生 Buffer 实例」返回 false，故一律用 instanceof Uint8Array 判定，

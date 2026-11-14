@@ -49,22 +49,17 @@ function parseLiteral (raw, label) {
 }
 
 describe('cross-package defaults: L1 逐值锁（只读产品源码）', () => {
-  test('① BIN 4096：主进程三个适配器与渲染层预览四处逐值相等', () => {
-    const mysql = read(app('lib/db-client/mysql.js'))
-    const postgres = read(app('lib/db-client/postgres.js'))
-    const sqlite = read(app('lib/db-client/sqlite.js'))
+  test('① BIN 4096：app 侧唯一权威点与渲染层预览逐值相等', () => {
+    // P1 T04 后 app 侧三份裸定义已收口到 db-bin-prefix-limit.js，三适配器经
+    // db-type-normalize.js 共享出口取常量；「不得写回裸定义 / 必须走共享出口」
+    // 由 db-bin-prefix-ssot.spec.js 锁。
+    const authority = read(app('common/db-bin-prefix-limit.js'))
     const renderer = read(client('components/database/value-renderers/index.js'))
 
-    const values = [
-      numberAfter(mysql, /\bconst BIN_PREFIX_LIMIT = (\d+)\b/, 'mysql.js'),
-      numberAfter(postgres, /\bconst BIN_PREFIX_LIMIT = (\d+)\b/, 'postgres.js'),
-      numberAfter(sqlite, /\bconst BIN_PREFIX_LIMIT = (\d+)\b/, 'sqlite.js'),
-      numberAfter(renderer, /\bconst BIN_MAX_PREVIEW = (\d+)\b/, 'value-renderers/index.js')
-    ]
-    values.forEach((value, i) => {
-      assert.equal(value, 4096, `BIN 限制第 ${i + 1} 处偏离审计基线`)
-    })
-    assert.equal(new Set(values).size, 1, '四处 BIN 截断上限必须互等')
+    const a = numberAfter(authority, /\bexports\.BIN_PREFIX_LIMIT = (\d+)\b/, 'db-bin-prefix-limit.js')
+    const b = numberAfter(renderer, /\bconst BIN_MAX_PREVIEW = (\d+)\b/, 'value-renderers/index.js')
+    assert.equal(a, 4096, 'app 侧权威点偏离审计基线')
+    assert.equal(b, a, '渲染层预览截断与服务端信封截断必须同值（跨包漂移）')
   })
 
   test('② keyword2FA：主进程聚合层与渲染层出厂默认串逐值相等', () => {

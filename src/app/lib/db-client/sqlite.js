@@ -19,7 +19,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const log = require('../../common/log')
-const { normalizeSqliteType, toColumns } = require('../../common/db-type-normalize')
+const { normalizeSqliteType, toColumns, BIN_PREFIX_LIMIT } = require('../../common/db-type-normalize')
 
 const dbs = new Map()
 const refs = new Map()
@@ -219,7 +219,6 @@ function bindParams (params) {
 // 与 mysql/postgres 适配器同一套规则：Date/bigint 先行、Buffer 走 __bin 信封、
 // 其余带原型的对象转字符串 —— 保证 IPC 结构化克隆不会因为某个驱动自定义对象整页失败。
 const INLINE_LIMIT = 64 * 1024
-const BIN_PREFIX_LIMIT = 4096
 
 function binEnvelope (v) {
   const buf = Buffer.from(v)

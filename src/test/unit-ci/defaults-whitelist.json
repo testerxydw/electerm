@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "domainFiles": [
     "constants.js",
     "db-session-const.js",
@@ -10,6 +10,39 @@
     "theme-defaults.js"
   ],
   "domainFilePattern": "-(?:const|limits|limit|defaults|protocol)\\.js$|^(?:constants|default-setting|term-flow|theme-defaults)\\.js$",
+  "namingConflictNames": [
+    "CHAR_W",
+    "DEFAULT_MAX_BYTES",
+    "DEFAULT_MAX_ROWS",
+    "ENC_PREFIX",
+    "EVENT_NAME_HISTORY",
+    "EXT",
+    "FORMATS",
+    "HOSTS",
+    "LOG_PREFIX",
+    "MAX",
+    "MAX_HISTORY",
+    "MAX_NAME_LENGTH",
+    "MAX_PORT",
+    "PREFIX",
+    "PROGRESS_INTERVAL_MS",
+    "SORT_BY_FREQ_KEY",
+    "STATIC_KEY",
+    "STORAGE_KEY_DESC",
+    "STORAGE_KEY_HISTORY",
+    "TIMEOUT"
+  ],
+  "docOnlyIds": [
+    "W2-1",
+    "W2-3",
+    "W2-4",
+    "W2-5",
+    "W2-6",
+    "W2-7",
+    "W3-2",
+    "W3-3",
+    "W3-4"
+  ],
   "deliberateDuplicates": [
     {
       "id": "W1-1",
@@ -159,8 +192,7 @@
         "src/app/common/constants.js",
         "src/client/common/constants.js"
       ],
-      "lockedBy": "build-version-sync.spec.js",
-      "reason": "同名不同内容：app 侧是 CommonJS 配置键清单，client 侧是 ESM 的 UI 尺寸 / 主题 / 标志大表；硬合会改配置结构与产品行为",
+      "reason": "同名不同内容：app 侧是 CommonJS 配置键清单，client 侧是 ESM 的 UI 尺寸 / 主题 / 标志大表；硬合会改配置结构与产品行为。无 spec 守护，仅文档登记（此前误挂 build-version-sync.spec.js 属间接引用，已在 schemaVersion 2 纠正）",
       "guardTokens": [
         "serverManagedConfigKeys",
         "constantsKeySet"
@@ -197,21 +229,22 @@
         "src/app/common/default-setting.js",
         "src/client/components/terminal/mixins/term-touch.js"
       ],
-      "lockedBy": "session-ssh-mfa.spec.js",
-      "reason": "keyword2FA 是同值跨包双份，本批次按 O10 补逐值锁但不改定义位置；terminalWordSeparator 三份同值属 fallback 副本，本批次只登记，P1 收口候选"
+      "lockedBy": "cross-package-defaults-ssot.spec.js",
+      "reason": "keyword2FA 是同值跨包双份，P0 已补逐值锁（O10），故 lockedBy 由「仅行为」的 session-ssh-mfa.spec.js 纠正为真正守护它的逐值锁 spec；terminalWordSeparator 三份同值属 fallback 副本，本批次只登记，P1 收口候选"
     }
   ],
   "crossPackagePairs": [
     {
       "id": "O09-bin-4096",
-      "authority": "src/app/lib/db-client/mysql.js",
+      "authority": "src/app/common/db-bin-prefix-limit.js",
       "mirrors": [
+        "src/app/lib/db-client/mysql.js",
         "src/app/lib/db-client/postgres.js",
         "src/app/lib/db-client/sqlite.js",
         "src/client/components/database/value-renderers/index.js"
       ],
       "lockedBy": "cross-package-defaults-ssot.spec.js",
-      "reason": "二进制信封截断与渲染层预览截断必须同值，四个定义点原先全无一致性锁；本批次只补逐值锁，三处适配器定义的收口属于 P1 批次",
+      "reason": "二进制信封截断与渲染层预览截断必须同值。P1 T04 已把 app 侧三处裸定义收口到唯一权威点 db-bin-prefix-limit.js（取值 4096 不变），三适配器经 db-type-normalize.js 共享出口解构，避免新增相对 require 破坏 vm 打桩 spec；本条锁跨包逐值相等，裸定义 / 共享出口形态由 db-bin-prefix-ssot.spec.js 锁",
       "identifiers": [
         "BIN_PREFIX_LIMIT",
         "BIN_MAX_PREVIEW"

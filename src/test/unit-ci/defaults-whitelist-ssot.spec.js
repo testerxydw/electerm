@@ -66,9 +66,9 @@ function lockedBySpecs () {
 
 describe('defaults whitelist: 可机读白名单契约（不存取值）', () => {
   test('① schemaVersion 与顶层结构固定，且不含任何取值字段', () => {
-    assert.equal(whitelist.schemaVersion, 1)
+    assert.equal(whitelist.schemaVersion, 2)
     for (const key of [
-      'domainFiles', 'deliberateDuplicates', 'semanticForks',
+      'domainFiles', 'docOnlyIds', 'namingConflictNames', 'deliberateDuplicates', 'semanticForks',
       'crossPackageDuplicates', 'crossPackagePairs', 'noMerge', 'modulePrivateSample'
     ]) {
       assert.ok(Array.isArray(whitelist[key]), `${key} must be an array`)
@@ -123,6 +123,48 @@ describe('defaults whitelist: 可机读白名单契约（不存取值）', () =>
     for (const pair of whitelist.crossPackagePairs) {
       assert.equal(pair.lockedBy, 'cross-package-defaults-ssot.spec.js')
       assert.ok(fs.existsSync(path.join(UNIT, pair.lockedBy)))
+    }
+
+    // G3：lockedBy 不能只「指向任意存在的 spec」。语义锚点一律从条目自身
+    // 已登记的标识符与文件路径派生，不使用 id（编号只是登记号，任何 spec
+    // 提到它都不代表守护），也不硬编码 id → spec 映射制造第二份真相。
+    for (const entry of entries()) {
+      if (!entry.lockedBy) continue
+      assert.notEqual(entry.lockedBy, 'defaults-whitelist-ssot.spec.js', '不得自我引用')
+      const specSrc = read(path.join(UNIT, entry.lockedBy))
+      const anchors = [
+        ...(entry.identifiers || []),
+        ...(entry.guardTokens || []),
+        ...(entry.names || [])
+      ]
+      for (const key of ['files', 'authority', 'mirrors']) {
+        const value = entry[key]
+        const paths = typeof value === 'string' ? [value] : (Array.isArray(value) ? value : [])
+        for (const rel of paths) {
+          anchors.push(path.basename(rel).replace(/\.(js|jsx|json)$/, ''))
+        }
+      }
+      assert.ok(anchors.length > 0, `${entry.id} 没有任何可判定的语义锚点`)
+      assert.ok(
+        anchors.some(token => token && specSrc.includes(token)),
+        `${entry.id} 的 lockedBy ${entry.lockedBy} 无语义锚点命中：疑似假锁（V-E2）`
+      )
+    }
+
+    // 反向：无 lockedBy 的条目必须显式登记进 docOnlyIds，防止靠「删锁」绕过锚点锁；
+    // 逐值锁覆盖的 crossPackagePairs 一律不得声明为仅文档登记。
+    const noLock = entries().filter(entry => !entry.lockedBy).map(entry => entry.id).sort()
+    assert.deepEqual(
+      whitelist.docOnlyIds.slice().sort(),
+      noLock,
+      'docOnlyIds 必须与实际无 lockedBy 的条目集合完全相同'
+    )
+    for (const id of whitelist.docOnlyIds) {
+      assert.equal(
+        whitelist.crossPackagePairs.some(pair => pair.id === id),
+        false,
+        `${id} 已被逐值锁覆盖，不得声明为仅文档登记`
+      )
     }
   })
 

@@ -5,7 +5,7 @@
  * 浏览其他库需新建指向该库的书签连接
  */
 
-const { normalizePgType, toColumns } = require('../../common/db-type-normalize')
+const { normalizePgType, toColumns, BIN_PREFIX_LIMIT } = require('../../common/db-type-normalize')
 // N1：TLS 档位（校验模式）的唯一口径，三适配器共用
 const { resolveTlsProfile, tlsSigTag } = require('./db-tls')
 
@@ -407,8 +407,6 @@ function pageWindow (page, pageSize) {
 // 大字段只带前缀供预览，全量取回走独立 op getCellBinary，不进 getPageData。
 // PG 的 pg 驱动把 bytea 默认返回 Buffer，与 MySQL 的 Uint8Array 同属二进制路径。
 const INLINE_LIMIT = 64 * 1024
-// 超限时只随信封带前 BIN_PREFIX_LIMIT 字节供预览（16KB base64，一页 400 行也不会拖垮渲染）
-const BIN_PREFIX_LIMIT = 4096
 
 // Buffer 继承自 Uint8Array；主进程经打包后 Buffer 可能被替换为 `buffer` polyfill，
 // 其 isBuffer 对「原生 Buffer 实例」返回 false，故一律用 instanceof Uint8Array 判定，

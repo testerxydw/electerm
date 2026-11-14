@@ -251,7 +251,15 @@ function toColumns (driverFields, normalize) {
   })
 }
 
+// O09 / P1 T04：二进制信封前缀上限的唯一权威点在 db-bin-prefix-limit.js。
+// 三适配器统一从本模块取，而不是各自 require 权威点 —— 全仓 vm 打桩 spec 都以
+// 「真实 db-type-normalize 模块」作桩对象，适配器新增相对 require 会在 spec 文件
+// 上下文解析失败（src/test/unit-ci/../../common/... 不存在）。这里只做 re-export，
+// 取值仍只有一处，产品行为不变。
+const { BIN_PREFIX_LIMIT } = require('./db-bin-prefix-limit')
+
 module.exports = {
+  BIN_PREFIX_LIMIT,
   MYSQL_TYPE_NAMES,
   MYSQL_LOB_TYPES,
   PG_TYPE_NAMES,

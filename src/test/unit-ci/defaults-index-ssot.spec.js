@@ -76,6 +76,19 @@ function findIndexFiles (dir, out) {
   return out
 }
 
+/** 递归收集 src/client 下的产品源码文件（索引自身排除）。 */
+function clientSources (dir, out) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      clientSources(full, out)
+    } else if (/\.(js|jsx)$/.test(entry.name) && full !== INDEX) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
 describe('defaults index: L3 唯一索引契约（只读源码，不加载模块）', () => {
   test('A1 索引只 re-export、零定义', () => {
     const src = read(INDEX)
@@ -96,7 +109,9 @@ describe('defaults index: L3 唯一索引契约（只读源码，不加载模块
 
   test('A2 域文件清单完整（新增域文件必须被索引）', () => {
     const discovered = discoverDomainFiles()
-    const indexed = [...read(INDEX).matchAll(/from '\.\/([^']+\.js)'/g)]
+    // A1/A2/A3 统一走 indexCode：注释里出现 from './x.js' 不该被当成 re-export 目标，
+    // 也不该让 A3 的跨包检查误报（§9.4 A1 注释语义 Known Issue）。
+    const indexed = [...indexCode(read(INDEX)).matchAll(/from '\.\/([^']+\.js)'/g)]
       .map(m => m[1])
       .sort()
     assert.deepEqual(indexed, discovered, 'every discovered domain file must be re-exported by the index')
@@ -117,7 +132,7 @@ describe('defaults index: L3 唯一索引契约（只读源码，不加载模块
   })
 
   test('A3 索引不跨包、不引入 CJS', () => {
-    const src = read(INDEX)
+    const src = indexCode(read(INDEX))
     assert.doesNotMatch(src, /\.\.\/\.\.\/app\/|src\/app|require\(|module\.exports/)
     const targets = [...src.matchAll(/from '([^']+)'/g)].map(m => m[1])
     assert.ok(targets.length > 0, 'index must have re-export targets')
@@ -149,5 +164,26 @@ describe('defaults index: L3 唯一索引契约（只读源码，不加载模块
     assert.deepEqual(found.sort(), ['src/client/common/defaults.js'])
     assert.ok(fs.existsSync(INDEX))
     assert.equal(fs.existsSync(path.join(ROOT, 'src/app/common/defaults.js')), false)
+  })
+
+  // §9.4「索引无运行时消费者」：把它从「现状」升级为契约锁。索引本批次定位是
+  // 可发现性入口；一旦被产品代码 import，constants.js 顶层读 window + import PNG
+  // 会被带进 vite 打包链（R3），故禁止接线，而不是等产品代码来消费它。
+  test('A6 索引不被任何 client 产品源码 import / require', () => {
+    // 按路径 basename 精确判定：theme-defaults.js / shortcuts-defaults.js 只是
+    // 名字以 defaults.js 结尾，不能算「接线到索引」。
+    const refs = []
+    for (const file of clientSources(path.join(ROOT, 'src/client'), [])) {
+      const code = indexCode(read(file))
+      const importRe = /(?:from|import)\s+['"]([^'"]+)['"]|\brequire\(\s*['"]([^'"]+)['"]\s*\)/g
+      let m
+      while ((m = importRe.exec(code)) !== null) {
+        if (path.basename(m[1] || m[2]) === 'defaults.js') {
+          refs.push(path.relative(ROOT, file).split(path.sep).join('/'))
+          break
+        }
+      }
+    }
+    assert.deepEqual(refs, [], `索引不得被产品代码接线：${refs.join(', ')}`)
   })
 })
