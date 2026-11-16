@@ -33,7 +33,15 @@
   // 窗口角控件组让开原生按钮；其格子内的溢出控制区同步让位
   .tabs-corner
     right var(--wco-controls-width)
-  .tabs.has-corner
+  // Only the pane whose tab bar sits under those buttons has to clear them —
+  // the same pane that owns the window controls (shouldRenderWindowControl in
+  // index.jsx), and only while the bar really reaches the window's right edge.
+  // A pinned right panel ends it earlier, and wcoBarNeedsClearance () in
+  // index.jsx drops the class then. In a split layout the other panes' tab
+  // bars are not under the buttons, so their own buttons stay at their own
+  // right edge.
+  .tabs.has-corner,
+  .tabs.wco-bar
     .tabs-extra
       right calc(var(--wco-controls-width) + 44px)
 .tabs-inner

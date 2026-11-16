@@ -30,6 +30,7 @@ import { rightClickBehaviors } from '../../common/right-click-behavior'
 import SessionBarActions from '../common/session-bar-actions'
 import SessionBarStatus from '../common/session-bar-status'
 import TermSearch from '../terminal/term-search'
+import SerialControl from './serial-control'
 import './session-control.styl'
 
 const e = window.translate
@@ -342,6 +343,16 @@ export default function SessionControl (props) {
     )
   }
 
+  // serial: control lines, received data view and raw send, see serial-control.jsx.
+  // mobile has one icon that opens a panel: the toolbar is too narrow for
+  // the row of controls
+  function renderSerialControl () {
+    if (tab.type !== terminalSerialType) {
+      return null
+    }
+    return <SerialControl tabId={tab.id} compact={isMobile} />
+  }
+
   // T5-2d：会话信息三段（ssh2 算法 / zsh 版本 / ↑↓ 速率），公共组件一行调用
   function renderBarStatus () {
     return (
@@ -426,6 +437,7 @@ export default function SessionControl (props) {
         {renderRecordIcon()}
         {renderWrapIcon()}
         {renderExitGracefullyIcon()}
+        {renderSerialControl()}
         {renderTermControls(true)}
       </div>
     )
@@ -457,6 +469,7 @@ export default function SessionControl (props) {
       {renderRecordIcon()}
       {renderWrapIcon()}
       {renderExitGracefullyIcon()}
+      {renderSerialControl()}
       {renderTermControls()}
     </div>
   )

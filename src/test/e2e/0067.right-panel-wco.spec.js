@@ -124,6 +124,63 @@ test('pinned right panel clears the Windows caption buttons', async () => {
     assert.equal(wco.content.bottom, wco.viewport.height)
     // the band is the tab bar's colour, so the strip reads as one title bar
     assert.equal(wco.band, wco.tabBar)
+
+    // Pinned, the tab bar stops at the panel's left edge, so the caption strip
+    // is the panel's business — the bar must not reserve it. It used to keep
+    // .wco-bar anyway, which pushed the add/layout buttons a whole caption
+    // strip left of the panel and left that space empty.
+    //
+    // Off Windows (where the overlay always exists) the right end of the bar
+    // can belong to the app's own min/max/close instead: without the native
+    // frame, window-control.jsx draws them at the bar's right edge and
+    // tabs.styl reserves their strip (.not-system-ui.not-mac.not-webapp
+    // .tabs-extra { right 96px }). That strip is not empty, so it does not
+    // count as the dead gap this checks for — the CI runner is Linux, and it
+    // would otherwise read those 96px as a regression.
+    const tabBarGap = () => page.evaluate(() => {
+      const bar = document.querySelector('.tabs')
+      const extra = document.querySelector('.tabs-extra')
+      if (!bar || !extra) {
+        return null
+      }
+      const barRect = bar.getBoundingClientRect()
+      const ownControls = document.querySelector('.window-controls')
+      // offsetWidth is 0 when the class hides them (system title bar), so a
+      // hidden element cannot claim the strip
+      const ownControlsWidth = ownControls && ownControls.offsetWidth
+        ? Math.round(barRect.right - ownControls.getBoundingClientRect().left)
+        : 0
+      return {
+        // how far the bar itself reaches: only a bar that touches the window's
+        // right edge is under the buttons
+        toWindowEdge: Math.round(window.innerWidth - barRect.right),
+        // the empty strip between the bar's own buttons and whatever owns the
+        // right end: the caption buttons, or our own window controls
+        gap: Math.round(
+          barRect.right - extra.getBoundingClientRect().right - ownControlsWidth
+        ),
+        wcoBar: bar.classList.contains('wco-bar'),
+        ownControlsWidth
+      }
+    })
+    const pinnedGap = await tabBarGap()
+    assert.ok(pinnedGap.toWindowEdge > 50, 'the panel, not the bar, owns the right edge')
+    assert.ok(
+      pinnedGap.gap < 10,
+      `no dead gap at the end of the tab bar, got ${pinnedGap.gap}px`
+    )
+
+    // unpinned, the bar runs under the buttons again and has to clear them
+    await page.evaluate(() => window.store.setRightPanelPinned(false))
+    await page.waitForFunction(() => document.querySelector('.right-side-panel-pinned') === null)
+    const unpinnedGap = await tabBarGap()
+    if (unpinnedGap.wcoBar) {
+      assert.ok(unpinnedGap.toWindowEdge < 10, 'the bar reaches the window edge again')
+      assert.ok(
+        unpinnedGap.gap > 50,
+        `the bar clears the caption buttons, got ${unpinnedGap.gap}px`
+      )
+    }
   } finally {
     await app.close()
   }

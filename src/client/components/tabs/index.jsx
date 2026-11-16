@@ -500,13 +500,40 @@ export default class Tabs extends Component {
     return batch === batchToRender[layout]
   }
 
+  // The pane whose tab bar sits under Windows' native caption buttons is the
+  // same pane that owns the window controls; only it has to clear that strip.
+  // The pinned right panel takes that role over: it is a full-height dock
+  // owning the right column (layout.jsx reserves rightPanelWidth), so the
+  // buttons land on the strip the panel reserves (side-panel-r/
+  // right-side-panel.styl) and the tab bar stops at the panel's left edge.
+  // Clearing the strip there protects nothing — it just leaves a dead gap the
+  // width of the caption buttons at the end of the tab bar.
+  wcoBarNeedsClearance = () => {
+    const {
+      isMobile,
+      isWindowControlsOverlay,
+      rightPanelPinned,
+      rightPanelVisible
+    } = window.store
+    if (!isWindowControlsOverlay || !this.shouldRenderWindowControl()) {
+      return false
+    }
+    const pinnedRightPanel = !isMobile && rightPanelVisible && rightPanelPinned
+    return !pinnedRightPanel
+  }
+
   getExtraTabWidth = () => {
     if (!this.shouldRenderWindowControl()) {
       return 0
     }
-    return window.store.isWindowControlsOverlay
+    // not the overlay: the buttons are ours, drawn inside this pane's tab bar,
+    // so they take their room whether the right panel is docked or not
+    if (!window.store.isWindowControlsOverlay) {
+      return windowControlWidth
+    }
+    return this.wcoBarNeedsClearance()
       ? getWindowControlsOverlayWidth()
-      : windowControlWidth
+      : 0
   }
 
   // The pane that owns the window-level corner controls (.tabs-corner: layout
@@ -514,10 +541,11 @@ export default class Tabs extends Component {
   // their width (see tabs.styl). Native title strip
   // modes keep the layout menu inside tabs-extra instead — there is no
   // window-owned top strip to pin the corner controls to.
+  // wco-bar additionally covers the Windows native-caption overlay, cleared
+  // only when the tab bar really reaches the window's right edge.
   tabsClassName = (extra) => {
     return classNames('tabs', extra, {
-      // still used by the mobile WCO rule (mobile.styl)
-      'wco-bar': window.store.isWindowControlsOverlay && this.shouldRenderWindowControl(),
+      'wco-bar': this.wcoBarNeedsClearance(),
       // has-corner 同时驱动 tabs-extra 的让位宽度（tabs.styl）；窗口角控件组
       // 不压住本格子右缘（右面板挤压终端区）时无需让位，避免暴露空白
       'has-corner': !this.props.isMobile &&

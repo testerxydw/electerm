@@ -9,7 +9,8 @@ const {
   dialog,
   powerMonitor,
   globalShortcut,
-  shell
+  shell,
+  webContents
 } = require('electron')
 const fs = require('fs')
 const { join } = require('path')
@@ -18,13 +19,18 @@ const log = require('../common/log')
 const ipcSyncFuncs = require('./ipc-sync')
 const { dbAction, tables } = require('./db')
 const { createLoadInitData } = require('./init-data')
-const loadInitData = createLoadInitData(dbAction, tables)
+// The upgrade module owns the "a brand new db has to be seeded before anyone
+// reads it" rule, so the batched read asks it first. Called (not required)
+// lazily: `upgrade` is a getter for the default-data modules, which stay off
+// the pre-window startup path until the renderer actually asks for data.
+const loadInitData = createLoadInitData(dbAction, tables, () => upgrade().ensureDbInit())
 const { listItermThemes } = require('./iterm-theme')
 const installSrc = require('./install-src')
 const { getConfig } = require('./get-config')
 const loadSshConfig = require('./ssh-config')
 const {
   listWidgets,
+  listWidgetInstances,
   runWidget,
   stopWidget,
   runWidgetFunc,
@@ -35,6 +41,7 @@ const {
   deleteWidget
 } = require('../widgets/load-widget')
 const widgetLog = require('../widgets/instance-log')
+const cssBus = require('../widgets/css-bus')
 const {
   checkMigrate,
   migrate
@@ -76,9 +83,10 @@ const {
 const { openFileWithEditor } = require('./open-file-with-editor')
 const { loadFontList } = require('./font-list')
 // `../upgrade` pulls in the whole default-data set (db-defaults,
-// default-local-bookmarks, init-db, version-upgrade) and nothing needs it until
-// the renderer asks -- and it asks only *after* the UI has mounted. Require it
-// lazily so it stays off the pre-window startup path.
+// default-local-bookmarks, init-db, version-upgrade). Not needed to open the
+// window: first use is the renderer's startup db read (loadInitData awaits its
+// ensureDbInit so a fresh db is seeded before the tables are read), later ones
+// are the upgrade calls. Require it lazily so it stays off the pre-window path.
 let upgradeMod
 const upgrade = () => (upgradeMod || (upgradeMod = require('../upgrade')))
 const { listSerialPorts } = require('./serial-port')
@@ -187,7 +195,35 @@ async function initAppServer () {
   globalState.set('config', config)
 }
 
+// The app renderer is a plain window on http://127.0.0.1:<port>; devtools, the
+// widget iframes (electerm-widget://) and about:blank are webContents too, and
+// styling any of those would be pointless or wrong.
+const NON_APP_SCHEME = /^(devtools|electerm-widget|chrome|chrome-extension|about|data):/i
+
+function appWindows () {
+  return webContents.getAllWebContents().filter(wc => (
+    !wc.isDestroyed() &&
+    wc.getType() === 'window' &&
+    !NON_APP_SCHEME.test(wc.getURL() || '')
+  ))
+}
+
+// One widget css change -> every app window. A window that is not ready yet
+// picks the full set up at boot through getWidgetStyles (ipc-sync.js).
+function broadcastWidgetCss (payload) {
+  for (const wc of appWindows()) {
+    try {
+      wc.send('widget-css', payload)
+    } catch (e) {}
+  }
+}
+
 function initIpc () {
+  // Widget stylesheets are applied in the renderer (see
+  // client/common/widget-style-host.js), so a widget's css travels as an ipc
+  // event to every app window. Same code path on desktop and in the web app:
+  // only this transport differs.
+  cssBus.configure(broadcastWidgetCss)
   powerMonitor.on('resume', () => {
     globalState.get('win').webContents.send('power-resume', null)
   })
@@ -599,6 +635,9 @@ function initIpc () {
     unwatchFile,
     openFileWithEditor,
     listWidgets,
+    // the panel mirrors this instead of remembering each run result, so a
+    // reloaded renderer still knows what is running
+    listWidgetInstances,
     runWidget,
     stopWidget,
     runWidgetFunc,

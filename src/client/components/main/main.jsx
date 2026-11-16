@@ -65,6 +65,7 @@ import TransferPanel from '../file-transfer/transfer-panel'
 import { isRemoteMonitorBarVisible } from '../remote-monitor/visibility'
 import { normalizeLeftSideBarIcons } from '../../common/left-sidebar-icon-defs'
 import '../../common/fs.js'
+import { initWidgetStyleHost } from '../../common/widget-style-host'
 import './term-fullscreen.styl'
 
 const Resolutions = lazy(() => import('../rdp/resolution-edit'))
@@ -81,6 +82,9 @@ export default auto(function Index (props) {
     // store.height 初值是占位的 500，挂载后校准一次实测窗口高度
     setTimeout(store.onResize, 200)
     const { ipcOnEvent } = window.pre
+    // widgets that restyle the app: their css is applied here, in the document
+    // the user is looking at, on desktop and in the web app alike
+    initWidgetStyleHost()
     ipcOnEvent('checkupdate', store.onCheckUpdate)
     ipcOnEvent('open-about', store.openAbout)
     ipcOnEvent('new-ssh', store.onNewSsh)

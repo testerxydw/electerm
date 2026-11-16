@@ -64,7 +64,12 @@ const makeQueue = async (options) => {
   const { StartupQueue } = await loadModule()
   const addon = makeAddon(options)
   const host = makeHost(addon, options)
-  return { queue: new StartupQueue(host), addon, host }
+  const queue = new StartupQueue(host)
+  // These tests are about what gets typed and in which order; the "wait until
+  // the shell has drawn a prompt" gate has its own spec
+  // (startup-queue-injection.spec.js), with a clock to test against.
+  queue.waitForFirstPrompt = () => Promise.resolve(true)
+  return { queue, addon, host }
 }
 
 // 默认注入（命令历史为基础功能）后, 队列首条是 bash 集成命令
@@ -116,9 +121,15 @@ describe('startup queue', () => {
     unhold()
     await tick(30)
 
-    // shell integration is injected only once per queue; the stale generation
-    // (parked before old-1 was typed) is dropped entirely
-    assert.deepEqual(addon.sent, [await getIntegrationCmd(), 'new-1\r', 'new-2\r'])
+    // A new connection is a fresh pty (startup-queue.js resets shellInjected),
+    // so the new generation injects shell integration again, then runs the new
+    // scripts; the stale generation parked before old-1 was dropped entirely.
+    assert.deepEqual(addon.sent, [
+      await getIntegrationCmd(),
+      await getIntegrationCmd(),
+      'new-1\r',
+      'new-2\r'
+    ])
   })
 
   test('shell integration is injected before the scripts and only once', async () => {

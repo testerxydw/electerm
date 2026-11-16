@@ -16,7 +16,7 @@ const bookmarkSchema = {
     profile: 'string - profile id to reuse saved auth',
     title: 'string - bookmark title',
     description: 'string - bookmark description',
-    startDirectoryRemote: 'string - remote starting directory',
+    startDirectory: 'string - remote starting directory',
     startDirectoryLocal: 'string - local starting directory',
     enableSsh: 'boolean - enable ssh, default is true',
     enableSftp: 'boolean - enable sftp, default is true',
@@ -79,7 +79,7 @@ const bookmarkSchema = {
     rxLineEnding: 'string - RX line ending conversion: "none" (default), "lf_to_crlf" (for LF-only devices), "cr_to_crlf" (for CR-only devices)',
     runScripts: 'array - run scripts after connected ({delay,script})',
     triggers: 'array - declarative auto triggers, same shape as ssh.triggers',
-    startDirectoryRemote: 'string - remote starting directory',
+    startDirectory: 'string - remote starting directory',
     startDirectoryLocal: 'string - local starting directory',
     profile: 'string - profile id',
     proxy: 'string - proxy address (socks5://...)'

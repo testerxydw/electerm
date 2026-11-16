@@ -35,16 +35,94 @@ export default Store => {
     if (widgetId === 'mcp-server') {
       window.store.initMcpHandler()
     }
-    return window.pre.runGlobalAsync('runWidget', widgetId, config)
+    const result = await window.pre.runGlobalAsync('runWidget', widgetId, config)
+    if (result && result.instanceId) {
+      // the instance is the main process's, so re-read the list instead of
+      // assembling one here (see refreshWidgetInstances)
+      await window.store.refreshWidgetInstances()
+    }
+    return result
   }
 
-  Store.prototype.deleteWidgetInstance = (instanceId) => {
+  /**
+   * Mirror the main process's running instances into the store.
+   *
+   * An instance only exists in the main process, so the renderer must not build
+   * its own list from run results: a page reload (or a second window) would
+   * then show nothing as running while the instances are still alive — and the
+   * sidebar badge, the Run/Stop button and the instance detail panel all read
+   * this array. Every start and stop path ends here.
+   *
+   * `autoRun` is the one field the renderer owns (store.autoRunWidgets), so it
+   * is merged in rather than asked for.
+   */
+  Store.prototype.refreshWidgetInstances = async function () {
+    const { store } = window
+    let list
+    try {
+      list = await window.pre.runGlobalAsync('listWidgetInstances')
+    } catch (err) {
+      console.error('Failed to list widget instances:', err)
+      return
+    }
+    const autoRun = new Map()
+    for (const item of store.autoRunWidgets || []) {
+      autoRun.set(item.widgetId, item)
+    }
+    store.widgetInstances = (list || []).map(item => {
+      const auto = autoRun.get(item.widgetId)
+      return {
+        id: item.instanceId,
+        title: `${item.name} (${item.instanceId})`,
+        widgetId: item.widgetId,
+        serverInfo: item.serverInfo,
+        // an AI config the widget offered to apply, whitelisted in the main
+        // process (app/widgets/ai-config.js)
+        aiConfig: item.aiConfig,
+        config: item.config,
+        startedAt: item.startedAt,
+        autoRun: !!auto,
+        autoRunId: auto ? auto.id : undefined
+      }
+    })
+  }
+
+  // Drop one renderer-side entry. Only for reconciling a row whose instance the
+  // main process no longer has (crash, re-import): everything else reads the
+  // list back from the main process instead (refreshWidgetInstances).
+  Store.prototype.dropWidgetInstance = (instanceId) => {
     const {
       widgetInstances
     } = window.store
     // assigned, not spliced: an in-place mutation fires no subscriber, and the
     // instance list, the sidebar badge and the detail panel all read this array
     window.store.widgetInstances = widgetInstances.filter(w => w.id !== instanceId)
+  }
+
+  /**
+   * Delete a running instance — the × on its row, labelled "delete", so it has
+   * to stay deleted.
+   *
+   * Stopping alone is not enough: the widget is also in the launch list
+   * (store.autoRunWidgets), and a reload starts everything in it, which put the
+   * row straight back — that is why the green "autoRun" tag is the tell. So
+   * stop it *and* take it out of the launch list.
+   */
+  Store.prototype.deleteWidgetInstance = async (instanceId) => {
+    const { store } = window
+    const instance = store.widgetInstances.find(w => w.id === instanceId)
+    if (!instance) {
+      return
+    }
+    const stopped = await store.stopWidget(instanceId)
+    if (!stopped) {
+      // still running: leave the launch entry alone rather than half-delete
+      return
+    }
+    store.setWidgetAutoRun(instance.widgetId, false)
+    if (store.settingItem && store.settingItem.id === instanceId) {
+      store.closeWidgetInstance()
+    }
   }
 
   // Selecting a running instance in the widgets list shows its detail + log in
@@ -68,15 +146,18 @@ export default Store => {
     const {
       store
     } = window
-    const r = await window.pre.runGlobalAsync('stopWidget', instanceId)
-      .catch(err => {
-        console.error('stopWidget error', err)
-        message.error(window.translate('stopWidgetFailed') + ': ' + err.message)
-        return false
-      })
-    if (r) {
-      store.deleteWidgetInstance(instanceId)
+    try {
+      // the main process answers undefined for an instance it has already
+      // lost, which is a stop that succeeded as far as the renderer cares: the
+      // refresh below then drops the stale row
+      await window.pre.runGlobalAsync('stopWidget', instanceId)
+    } catch (err) {
+      console.error('stopWidget error', err)
+      message.error(window.translate('stopWidgetFailed') + ': ' + err.message)
+      return false
     }
+    await store.refreshWidgetInstances()
+    return true
   }
 
   Store.prototype.runWidgetFunc = async (instanceId, funcName, ...args) => {
@@ -141,6 +222,16 @@ export default Store => {
     safeSetItemJSON(key, { ...conf, autoRun: !!enabled })
   }
 
+  // Uninstall: the launch list is the renderer's, so the entry has to go here
+  // as well — otherwise every launch tries to start a folder that is gone.
+  Store.prototype.forgetWidgetAutoRun = (widgetId) => {
+    const { store } = window
+    if (!store.autoRunWidgets) {
+      return
+    }
+    store.autoRunWidgets = store.autoRunWidgets.filter(w => w.widgetId !== widgetId)
+  }
+
   Store.prototype.toggleAutoRunWidget = (instance) => {
     const { store } = window
     const { widgetId, config } = instance
@@ -178,7 +269,14 @@ export default Store => {
     if (!items || !items.length) {
       return
     }
+    // A renderer that just loaded finds the instances still running in the main
+    // process (refreshWidgetInstances runs first, see load-data.js): starting
+    // them again would only raise "already has a running instance"
+    const running = new Set(store.widgetInstances.map(i => i.widgetId))
     for (const item of items) {
+      if (running.has(item.widgetId)) {
+        continue
+      }
       try {
         const runConfig = {
           ...deepCopy(item.config),
@@ -189,23 +287,8 @@ export default Store => {
         if (runConfig.autoRun === false) {
           continue
         }
-        const result = await store.runWidget(item.widgetId, runConfig)
-        if (result && result.instanceId) {
-          const instance = {
-            id: result.instanceId,
-            title: `${result.widgetId} (${result.instanceId})`,
-            widgetId: result.widgetId,
-            serverInfo: result.serverInfo,
-            // an AI config the widget offers to apply, sanitised in the main
-            // process (app/widgets/ai-config.js)
-            aiConfig: result.aiConfig || null,
-            config: item.config,
-            startedAt: Date.now(),
-            autoRun: true,
-            autoRunId: item.id
-          }
-          store.widgetInstances = [...store.widgetInstances, instance]
-        }
+        // runWidget refreshes the instance list from the main process
+        await store.runWidget(item.widgetId, runConfig)
       } catch (err) {
         console.error(`Failed to autorun widget ${item.widgetId}:`, err)
       }

@@ -242,7 +242,7 @@ export default auto(function WidgetInstanceDetail ({ instance, store }) {
                 className='mg1y'
                 type='error'
                 showIcon
-                message={status.error}
+                title={status.error}
               />
               )
             : null
