@@ -28,19 +28,19 @@ const makeAddon = () => {
       addon.lastOutput = Date.now()
     },
     _sendData: data => addon.sent.push(data),
+    setInjectionEcho: cmd => { addon.injectionEcho = cmd },
     onInitialData: cb => setTimeout(cb, 0),
-    startOutputSuppression: (timeout, onEnd, discardOnTimeout) => {
+    startOutputSuppression: (timeout, onEnd) => {
       addon.outputSuppressed = true
       addon.onEnd = onEnd
-      addon.discardOnTimeout = discardOnTimeout
       addon.timeout = timeout
     },
-    stopOutputSuppression: (discard = true) => {
+    stopOutputSuppression: () => {
       if (!addon.outputSuppressed) {
         return
       }
       addon.outputSuppressed = false
-      addon.stoppedWith.push(discard)
+      addon.stoppedWith.push('replayed')
       const cb = addon.onEnd
       addon.onEnd = null
       cb?.()
@@ -159,7 +159,8 @@ describe('local PowerShell startup', () => {
 
 // A remote shell can not be spawned by us, so the script is still typed there -
 // and the window that hides its echo still has to behave: nothing before the
-// prompt, and on giving up the buffered echo is discarded, never flushed.
+// prompt, and on giving up the window still closes so the queue is never left
+// waiting (the addon itself strips the typed echo from the replay).
 describe('remote shell integration window', () => {
   test('types nothing until the shell has drawn a prompt', async () => {
     const addon = makeAddon()
@@ -200,7 +201,7 @@ describe('remote shell integration window', () => {
     queue.dispose()
   })
 
-  test('keeps hiding while the shell is silent, and never flushes the echo', async () => {
+  test('keeps hiding while the shell is silent, and closes the window on give up', async () => {
     const addon = makeAddon()
     const queue = await makeQueue(addon, { remote: true })
     await tick(40)
@@ -209,12 +210,12 @@ describe('remote shell integration window', () => {
     assert.equal(addon.sent.length, 1)
 
     // The echo arrives but the prompt never confirms OSC 633 (a profile that
-    // replaced `prompt` afterwards), so the window must end without writing
-    // anything back to the screen.
+    // replaced `prompt` afterwards), so the window must end on its own: the
+    // addon strips the typed line from the replay, leftover output shows up.
     addon.feed()
     await tick(2700)
     assert.equal(addon.outputSuppressed, false, 'gave up on a silent shell')
-    assert.deepEqual(addon.stoppedWith, [true], 'buffered echo is discarded, not flushed')
+    assert.deepEqual(addon.stoppedWith, ['replayed'], 'window ends, queue is not left waiting')
     assert.equal(queue.shellInjected, false, 'no confirmation, so not marked as injected')
     queue.dispose()
   })

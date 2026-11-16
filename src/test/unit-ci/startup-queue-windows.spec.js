@@ -20,6 +20,7 @@ const makeAddon = (sent) => ({
   disposed: false,
   outputSuppressed: false,
   _sendData: data => sent.push(data),
+  setInjectionEcho: () => {},
   getLastOutputTime: () => Date.now(),
   onInitialData: cb => cb(),
   startOutputSuppression: (timeout, onEnd) => {

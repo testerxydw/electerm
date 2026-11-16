@@ -36,6 +36,55 @@ const DSR_REPLY_TIMEOUT = 1000
 // FIFO 天然保序，xterm 自己的 parser 会跨 term.write 调用保持转义序列状态，
 // 不需要再手工拼接被 chunk 边界截断的尾巴。
 
+/**
+ * 注入窗口回放过滤：只剥掉注入命令自身的回显行，其余字节原样保留。
+ * chunks 是抑制窗口内按序缓冲的 {str, bytes}；needle 是 typed 注入命令
+ * 原文（去尾部 \r）。回显在 pty 输出里是 needle 后跟换行；找不到 needle
+ * （回显形式异常）时不剥——宁可多显示一行，也不误删其他输出。
+ * bytes 全额保留：流控按原 ws 帧 ACK，剥离只影响写屏内容；归档/录制
+ * 已在缓冲时收下全量字节，不受影响。
+ */
+export function filterSuppressedEcho (chunks, needle) {
+  if (!needle || !Array.isArray(chunks) || !chunks.length) {
+    return chunks
+  }
+  const total = chunks.map(c => c.str).join('')
+  const idx = total.indexOf(needle)
+  if (idx === -1) {
+    return chunks
+  }
+  // 回显行尾：优先 \n（typed \r 在 pty 里回显为换行），退化 \r，
+  // 缓冲里两者都没有时剥到缓冲尾（行尾必然先于首个 OSC 633 到达，
+  // 走到这一支说明窗口恰在回显行中途关闭，多剥的只有行尾碎片）
+  let end = total.indexOf('\n', idx + needle.length)
+  if (end === -1) {
+    const cr = total.indexOf('\r', idx + needle.length)
+    end = cr === -1 ? total.length : cr + 1
+  } else {
+    end += 1
+  }
+  const keeps = [
+    [0, idx],
+    [end, total.length]
+  ].filter(([a, b]) => b > a)
+  const out = []
+  let off = 0
+  for (const chunk of chunks) {
+    const start = off
+    off += chunk.str.length
+    let visible = ''
+    for (const [a, b] of keeps) {
+      const s = Math.max(a, start)
+      const e = Math.min(b, start + chunk.str.length)
+      if (e > s) {
+        visible += chunk.str.slice(s - start, e - start)
+      }
+    }
+    out.push({ str: visible, bytes: chunk.bytes })
+  }
+  return out
+}
+
 export default class AttachAddonCustom {
   constructor (term, socket, isWindowsShell, infoTabId = '') {
     this.term = term
@@ -54,6 +103,8 @@ export default class AttachAddonCustom {
     this.suppressedChars = 0
     this.suppressTimeout = null
     this.onSuppressionEndCallback = null
+    // 注入命令原文（去尾 \r），抑制窗口回放时剥它自己的回显
+    this._injectionEcho = null
     this.hasReceivedInitialData = false
     this.onInitialDataCallback = null
     this._bidirectional = true
@@ -208,10 +259,19 @@ export default class AttachAddonCustom {
   }
 
   /**
-   * 输出抑制窗口：只延后显示，绝不丢弃。
-   * shell integration 注入期间到达的每个字节都进 taps / 录制 / 服务端归档，
-   * 窗口结束时按序补写进 xterm。屏幕上会多出注入脚本的回显，这是「一个
-   * 字符都不丢」的代价；旧实现用 discard=true 把整段输出直接扔掉。
+   * 记录本次注入的命令原文（去尾部 \r），供抑制窗口回放时剥掉它自己的
+   * 回显。只影响写屏：taps / 录制 / 服务端归档在缓冲时已收下全量字节。
+   */
+  setInjectionEcho = (cmd) => {
+    const s = String(cmd || '')
+    this._injectionEcho = s ? s.replace(/\r+$/, '') : null
+  }
+
+  /**
+   * 输出抑制窗口：只延后显示，不丢字节。注入期间到达的每个字节都进
+   * taps / 录制 / 服务端归档，窗口结束时按序补写进 xterm——注入命令
+   * 自己的回显行除外（setInjectionEcho + filterSuppressedEcho 只剥这一行，
+   * 其余回显照常上屏）；找不到回显时不剥，宁可多显示不误删。
    */
   startOutputSuppression = (timeout = 3000, onEnd = null) => {
     if (this.disposed) {
@@ -246,11 +306,15 @@ export default class AttachAddonCustom {
       this.suppressTimeout = null
     }
     this.outputSuppressed = false
-    const pending = this.suppressedData
+    const needle = this._injectionEcho
+    this._injectionEcho = null
+    const pending = filterSuppressedEcho(this.suppressedData, needle)
     this.suppressedData = []
     this.suppressedChars = 0
-    // 按序补写：窗口内每个字节原样交给 xterm，一个不少。连接已关闭时
-    // 不再写屏幕（term 即将销毁），字节仍在服务端无损归档里。
+    // 按序补写：窗口内每个字节交给 xterm，注入回显行除外——其空片段
+    // （str='' + bytes>0）走 _enqueueWrite 的纯 ACK 通道，账目按原帧全额
+    // 记，只是不写屏。连接已关闭时不再写屏幕（term 即将销毁），字节仍在
+    // 服务端无损归档里。
     if (!this.disposed) {
       for (const item of pending) {
         this._enqueueWrite(item.str, item.bytes)

@@ -17,6 +17,7 @@ const makeAddon = ({ holdInitialData = false, autoEndSuppression = true } = {}) 
     outputSuppressed: false,
     pendingInitialData: null,
     _sendData: (d) => sent.push(d),
+    setInjectionEcho: () => {},
     onInitialData: (cb) => {
       if (holdInitialData) {
         addon.pendingInitialData = cb

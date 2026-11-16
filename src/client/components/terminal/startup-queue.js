@@ -586,24 +586,24 @@ export class StartupQueue {
         pollTimer = null
         resolve()
       }
-      // Stop hiding output *without* showing what was hidden: everything
-      // buffered in this window is the echo of the injection itself, which is
-      // exactly what the window exists to keep off the screen. Writing it out
-      // is what made the injected script appear in a PowerShell tab (#4737).
+      // End the window: the addon replays what it buffered minus the typed
+      // injection line itself (setInjectionEcho), so banner fragments that
+      // trickled in with the echo still show up, but the script does not.
+      // The call used to pass a discard flag the addon ignores - the whole
+      // buffer was replayed verbatim, which is how the script still ended up
+      // on screen (#4737).
       //
-      // Nothing reached the terminal, so the screen is left at whatever it
-      // showed before the injection - which, on a shell that drew its first
-      // prompt inside the window, is nothing at all. One empty Enter asks the
-      // shell for a fresh prompt; it is skipped when the line may hold
-      // unsubmitted input (a password prompt, hidden input, a full-screen
-      // program), where a stray Enter is worse than a bare line.
+      // One empty Enter then asks the shell for a fresh prompt; it is skipped
+      // when the line may hold unsubmitted input (a password prompt, hidden
+      // input, a full-screen program), where a stray Enter is worse than a
+      // bare line.
       const giveUp = () => {
         if (done) {
           return
         }
         gaveUp = true
         if (addon.outputSuppressed) {
-          addon.stopOutputSuppression(true)
+          addon.stopOutputSuppression()
           if (
             this.addon === addon &&
             !addon.disposed &&
@@ -688,12 +688,15 @@ export class StartupQueue {
           // Start suppressing output before sending the integration command.
           // This hides the command and its output until OSC 633 is detected.
           // The addon's own timer is only a backstop: the poll above decides.
+          // The typed line is handed over first so the window can strip its
+          // own echo from the replay (everything else still shows up).
+          addon.setInjectionEcho(integrationCmd)
           addon.startOutputSuppression(injectionMaxWaitMs + 2000, () => {
             if (!gaveUp && !addon.disposed) {
               this.shellInjected = true
             }
             finish()
-          }, true)
+          })
           addon._sendData(integrationCmd)
         })
       })
