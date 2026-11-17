@@ -247,7 +247,7 @@ describe('OSC 633;E fingerprint filter', () => {
     const seen = []
     addon.onCommandExecuted(cmd => seen.push(cmd))
     // 注入行签名（eval 'if [[ + 指纹串双标记），无反斜杠无分号保证 _deserializeOscValue 恒等
-    addon._handleOsc633("E; eval 'if [[ $- == *i* ]] && [[ -z \"${ELECTERM_SHELL_INTEGRATION:-}\" ]]")
+    addon._handleOsc633("E; eval 'if [[ $- == *i* ]] && [[ -z \"$ELECTERM_SHELL_INTEGRATION\" ]]")
     assert.deepEqual(seen, [], 'injected line never reaches the history callback')
     assert.equal(addon.reportedCommand, true, 'OSC channel still counts as working')
     addon._handleOsc633('E;ls -la')

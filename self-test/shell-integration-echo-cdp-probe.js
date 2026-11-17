@@ -260,8 +260,9 @@ const main = async () => {
   // 通道存活改在真实命令执行后判定（见下方 osc 633 alive 检查）
 
   // bash 侧决定性证据：守卫两条件（$- 交互位 + 环境变量）、PROMPT_COMMAND
-  // 是否含 __e_cmd（$((1+1)) 展开后的 PC_YES_2 只可能来自输出行）、末条历史
-  await send(cdp, 'echo GUARD_I=$- VAR=[${ELECTERM_SHELL_INTEGRATION:-}]; [[ "$PROMPT_COMMAND" == *__e_cmd* ]] && echo PC_YES_$((1+1)) || echo PC_NO_$((1+1)); fc -ln -1\n')
+  // 是否含 __e_cmd（$((1+1)) 展开后的 PC_YES_2 只可能来自输出行）、末条历史。
+  // 变量引用用 $VAR 形态（注入已 export 为 1，足够判定；避免字面 ${ 触发 lint）
+  await send(cdp, 'echo GUARD_I=$- VAR=[$ELECTERM_SHELL_INTEGRATION]; [[ "$PROMPT_COMMAND" == *__e_cmd* ]] && echo PC_YES_$((1+1)) || echo PC_NO_$((1+1)); fc -ln -1\n')
   await sleep(700)
 
   // 1) 注入回显不上屏。判据用注入行专属签名 "eval 'if [["（探针自己 typed 的
@@ -276,7 +277,6 @@ const main = async () => {
   check('bash executed the injected script (PROMPT_COMMAND set)', pcYes && !pcNo, { pcYes, pcNo })
   const gi = buf.match(/GUARD_I=([^\s]*)\s*VAR=\[([^\]]*)\]/)
   console.log('guard:', gi ? JSON.stringify({ flags: gi[1], envVar: gi[2] }) : 'not found')
-  const fc = buf.lastIndexOf('fc -ln -1')
   console.log('buffer tail:', JSON.stringify(buf.slice(Math.max(0, buf.length - 900))))
 
   // 2) bash 内存 history：真实命令入史、注入行被自删
@@ -299,7 +299,7 @@ const main = async () => {
   check('injected line not in electerm command history', leaked.length === 0, leaked.slice(0, 2))
   check('real command in electerm command history', cmds.some(c => c.includes('echo SI_PROBE_OK')), undefined)
   // 通道存活：真实命令已被 633;E 上报（tracker.reportedCommand 翻转）
-  const reportedNow = await cdp.eval(`(window.refs.get('term-' + window.__si.id).cmdAddon || {}).reportedCommand === true`)
+  const reportedNow = await cdp.eval("(window.refs.get('term-' + window.__si.id).cmdAddon || {}).reportedCommand === true")
   check('osc 633 channel alive (real command reported)', reportedNow === true, { reportedNow })
 
   try { fs.unlinkSync(HIST_FILE) } catch (e) {}
