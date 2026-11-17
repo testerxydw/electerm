@@ -141,18 +141,25 @@ export class CommandTrackerAddon {
         }
         return true
 
-      case 'E': // Command line
+      case 'E': { // Command line
         // The actual command being executed
         this.executedCommand = this._deserializeOscValue(args)
         this.currentCommand = this.executedCommand
-        // Call the callback if registered
+        // 指纹过滤：注入命令本身不是用户命令，不上报（远端脚本旧版/用户自配
+        // 脚本没有排除逻辑时这里兜底）。但仍翻转 reportedCommand——OSC 通道
+        // 确实在工作，manual 兜底该让位。判据用注入行专属签名（eval 'if [[ +
+        // 指纹串双标记）：只含指纹串的真实用户命令（如 echo $ELECTERM_...）
+        // 不能被误杀。
         if (this._onCommandExecuted && this.executedCommand) {
-          // 真实上报才翻转标志：坏解析产生的空 E（或手动测试注入）
-          // 不能关闭 manual 兜底，否则 OSC 记不到、manual 又让位，两头全空
           this.reportedCommand = true
-          this._onCommandExecuted(this.executedCommand)
+          const isInjectedLine = this.executedCommand.includes("eval 'if [[") &&
+            this.executedCommand.includes('ELECTERM_SHELL_INTEGRATION')
+          if (!isInjectedLine) {
+            this._onCommandExecuted(this.executedCommand)
+          }
         }
         return true
+      }
 
       case 'P': // Property (e.g., Cwd=<path>)
         this._handleProperty(args)

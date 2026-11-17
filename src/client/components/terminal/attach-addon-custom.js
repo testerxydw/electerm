@@ -498,15 +498,19 @@ export default class AttachAddonCustom {
     // 抑制窗口只「延后显示」，不再丢弃。窗口内每个字节都进 taps / 录制 /
     // 服务端归档，窗口结束（OSC 633 或超时）时按序补写进 xterm。
     if (this.outputSuppressed) {
-      if (this.indexOfShellIntegration(str) !== -1) {
+      // 结束窗口的那个 chunk 不能走下面的原样写屏：pty 可能把注入命令的回显
+      // 和首个 OSC 633 合并进同一帧（本地 pty 很快，echo/执行/prompt 常在同一
+      // 个 flush 批次），也可能回显跨 chunk 恰好断在这里——原样写屏会漏出回
+      // 显。先推入缓冲再统一回放，让 filterSuppressedEcho 按全文定位剥除。
+      const endsWindow = this.indexOfShellIntegration(str) !== -1
+      this._notifyDataConsumers(str)
+      this.suppressedData.push({ str, bytes })
+      this.suppressedChars += str.length
+      this._suppressedBytes += bytes
+      if (endsWindow) {
         this.stopOutputSuppression()
-      } else {
-        this._notifyDataConsumers(str)
-        this.suppressedData.push({ str, bytes })
-        this.suppressedChars += str.length
-        this._suppressedBytes += bytes
-        return
       }
+      return
     }
 
     this._notifyDataConsumers(str)

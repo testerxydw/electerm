@@ -29,12 +29,20 @@ import { getPowerShellIntegrationScript } from '../../common/powershell-integrat
  */
 function getBashInlineIntegration () {
   // Each statement is complete and can be joined with semicolons
+  //
+  // 指纹排除：注入命令本身（含 ELECTERM_SHELL_INTEGRATION）不作为用户命令
+  // 上报 633;E，否则它会进 electerm 的命令历史面板。
+  // history 自删：bash 先把命令 append 进内存 history 再执行 PROMPT_COMMAND，
+  // 主机 HISTCONTROL 没配 ignorespace 时（RHEL 默认只有 ignoredups）前导空格
+  // 挡不住注入行。这里每个 prompt 都检查末条，含指纹串才删——不能只用一次性
+  // 标记：bash 启动时的首个 prompt 会先跑一次 PROMPT_COMMAND，把标记消耗掉，
+  // 注入行反而删不到。history 禁用（HISTSIZE=0）时静默跳过。
   return [
     'if [[ $- == *i* ]] && [[ -z "${ELECTERM_SHELL_INTEGRATION:-}" ]]',
     'then export ELECTERM_SHELL_INTEGRATION=1',
     '__e_esc() { local v="$1"; v="${v//\\\\/\\\\\\\\}"; v="${v//;/\\\\x3b}"; printf \'%s\' "$v"; }',
-    '__e_pre() { [[ "$BASH_COMMAND" == __e_* || "$BASH_COMMAND" == PROMPT_COMMAND=* ]] && return; [[ "$BASH_COMMAND" == "$PROMPT_COMMAND" ]] && return; [[ -n "${PROMPT_COMMAND:-}" && "$PROMPT_COMMAND" == *"$BASH_COMMAND"* ]] && return; [[ "${__e_in:-0}" == "0" ]] && { __e_in=1; printf \'\\e]633;E;%s\\a\\e]633;C\\a\' "$(__e_esc "$BASH_COMMAND")"; }; }',
-    '__e_cmd() { local c="$?"; [[ "${__e_in:-0}" == "1" ]] && { printf \'\\e]633;D;%s\\a\' "$c"; __e_in=0; }; printf \'\\e]633;P;Cwd=%s\\a\\e]633;A\\a\' "$(__e_esc "$PWD")"; return "$c"; }',
+    '__e_pre() { [[ "$BASH_COMMAND" == __e_* || "$BASH_COMMAND" == PROMPT_COMMAND=* ]] && return; [[ "$BASH_COMMAND" == *"eval \'if [["*ELECTERM_SHELL_INTEGRATION* ]] && return; [[ "$BASH_COMMAND" == "$PROMPT_COMMAND" ]] && return; [[ -n "${PROMPT_COMMAND:-}" && "$PROMPT_COMMAND" == *"$BASH_COMMAND"* ]] && return; [[ "${__e_in:-0}" == "0" ]] && { __e_in=1; printf \'\\e]633;E;%s\\a\\e]633;C\\a\' "$(__e_esc "$BASH_COMMAND")"; }; }',
+    '__e_cmd() { local c="$?"; local h; if h=$(history 1 2>/dev/null) && [[ "$h" == *"eval \'if [["*ELECTERM_SHELL_INTEGRATION* ]]; then read -r hn _ <<<"$h"; history -d "$hn" 2>/dev/null; fi; [[ "${__e_in:-0}" == "1" ]] && { printf \'\\e]633;D;%s\\a\' "$c"; __e_in=0; }; printf \'\\e]633;P;Cwd=%s\\a\\e]633;A\\a\' "$(__e_esc "$PWD")"; return "$c"; }',
     'trap \'__e_pre\' DEBUG',
     'PROMPT_COMMAND="__e_cmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"',
     'fi'
@@ -55,10 +63,14 @@ function getZshInlineIntegration () {
     'if [[ -o interactive ]] && [[ -z "${ELECTERM_SHELL_INTEGRATION:-}" ]]',
     'then export ELECTERM_SHELL_INTEGRATION=1',
     '__e_esc() { local v="$1"; v="${v//\\\\/\\\\\\\\}"; v="${v//;/\\\\x3b}"; builtin printf \'%s\' "$v"; }',
-    '__e_preexec() { __e_cmd="$1"; builtin printf \'\\e]633;E;%s\\a\\e]633;C\\a\' "$(__e_esc "$1")"; }',
+    '__e_preexec() { [[ "$1" == *"eval \'if [["*ELECTERM_SHELL_INTEGRATION* ]] && return; __e_cmd="$1"; builtin printf \'\\e]633;E;%s\\a\\e]633;C\\a\' "$(__e_esc "$1")"; }',
     '__e_precmd() { local c="$?"; [[ -n "$__e_cmd" ]] && builtin printf \'\\e]633;D;%s\\a\' "$c"; __e_cmd=""; builtin printf \'\\e]633;P;Cwd=%s\\a\\e]633;A\\a\' "$(__e_esc "$PWD")"; }',
     'precmd_functions+=(__e_precmd)',
     'preexec_functions+=(__e_preexec)',
+    // 注入行（含指纹串）不进 zsh history：zshaddhistory 返回非零时该行不入史。
+    // 注意这会覆盖用户自定义的 zshaddhistory——自定义者罕见，为换注入行不落史
+    // 可接受；函数体末尾 return 0 保证普通命令照常入史。
+    'zshaddhistory() { [[ "$1" == *"eval \'if [["*ELECTERM_SHELL_INTEGRATION* ]] && return 1; return 0 }',
     'fi'
   ].join('; ')
 }
@@ -72,7 +84,7 @@ function getFishInlineIntegration () {
     'set -g ELECTERM_SHELL_INTEGRATION 1',
     'function __e_esc; echo $argv | string replace -a \'\\\\\' \'\\\\\\\\\' | string replace -a \';\' \'\\\\x3b\'; end',
     'function __e_prompt --on-event fish_prompt; printf \'\\e]633;A\\a\\e]633;P;Cwd=%s\\a\' (__e_esc "$PWD"); end',
-    'function __e_preexec --on-event fish_preexec; printf \'\\e]633;E;%s\\a\\e]633;C\\a\' (__e_esc "$argv"); end',
+    'function __e_preexec --on-event fish_preexec; if string match -q -- \'*ELECTERM_SHELL_INTEGRATION*\' "$argv"; return; end; printf \'\\e]633;E;%s\\a\\e]633;C\\a\' (__e_esc "$argv"); end',
     'function __e_postexec --on-event fish_postexec; printf \'\\e]633;D;%s\\a\' $status; end',
     'end'
   ].join('; ')
