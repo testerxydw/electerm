@@ -38,35 +38,53 @@ const DSR_REPLY_TIMEOUT = 1000
 
 /**
  * 注入窗口回放过滤：只剥掉注入命令自身的回显行，其余字节原样保留。
- * chunks 是抑制窗口内按序缓冲的 {str, bytes}；needle 是 typed 注入命令
- * 原文（去尾部 \r）。回显在 pty 输出里是 needle 后跟换行；找不到 needle
- * （回显形式异常）时不剥——宁可多显示一行，也不误删其他输出。
+ * chunks 是抑制窗口内按序缓冲的 {str, bytes}。
+ *
+ * 定位用「注入行专属双标记」而不是 needle 原文：readline 会再次回显整行，
+ * pty 原始回显与编辑器回显可能分属两个 chunk；远端/旧版注入脚本回显形式
+ * 与本地原文不一致时（例如脚本版本不同、shell 对引号做了转义）needle 精确
+ * 匹配会落空，注入行就会漏到屏幕。双标记（同一行同时含 `eval 'if [[` 与
+ * `ELECTERM_SHELL_INTEGRATION`）是注入命令唯一稳定签名，真实用户命令同时
+ * 含这两串的概率可以忽略（含指纹串的命令也会被 shell 端 __e_pre 排除）。
+ *
+ * 当 needle 精确命中时仍优先按 needle 剥（行为与旧版一致，覆盖人为构造的
+ * 非注入 echo）；双标记用于 needle 落空的兜底。
  * bytes 全额保留：流控按原 ws 帧 ACK，剥离只影响写屏内容；归档/录制
  * 已在缓冲时收下全量字节，不受影响。
  */
-export function filterSuppressedEcho (chunks, needle) {
-  if (!needle || !Array.isArray(chunks) || !chunks.length) {
-    return chunks
+const INJECT_MARK_A = "eval 'if [["
+const INJECT_MARK_B = 'ELECTERM_SHELL_INTEGRATION'
+
+// 从 bufferedStr 的 mark 位置向前找行首（\n 之后，或 0）、向后找行尾
+// （\n，退化 \r；都没有则到缓冲尾），返回 [行首, 行尾) 剥除区间。
+function lineRangeAt (str, mark, endOffset) {
+  let lineStart = mark
+  const nlBefore = str.lastIndexOf('\n', mark - 1)
+  if (nlBefore !== -1) {
+    lineStart = nlBefore + 1
   }
-  const total = chunks.map(c => c.str).join('')
-  const idx = total.indexOf(needle)
-  if (idx === -1) {
-    return chunks
-  }
-  // 回显行尾：优先 \n（typed \r 在 pty 里回显为换行），退化 \r，
-  // 缓冲里两者都没有时剥到缓冲尾（行尾必然先于首个 OSC 633 到达，
-  // 走到这一支说明窗口恰在回显行中途关闭，多剥的只有行尾碎片）
-  let end = total.indexOf('\n', idx + needle.length)
+  const lineEnd = str.indexOf('\n', endOffset)
+  let end = lineEnd === -1 ? -1 : lineEnd + 1
   if (end === -1) {
-    const cr = total.indexOf('\r', idx + needle.length)
-    end = cr === -1 ? total.length : cr + 1
-  } else {
-    end += 1
+    const cr = str.indexOf('\r', endOffset)
+    end = cr === -1 ? str.length : cr + 1
   }
-  const keeps = [
-    [0, idx],
-    [end, total.length]
-  ].filter(([a, b]) => b > a)
+  return [lineStart, end]
+}
+
+function stripRanges (chunks, ranges) {
+  const total = chunks.map(c => c.str).join('')
+  const keeps = []
+  let cursor = 0
+  for (const [a, b] of ranges) {
+    if (a > cursor) {
+      keeps.push([cursor, a])
+    }
+    cursor = Math.max(cursor, b)
+  }
+  if (cursor < total.length) {
+    keeps.push([cursor, total.length])
+  }
   const out = []
   let off = 0
   for (const chunk of chunks) {
@@ -83,6 +101,40 @@ export function filterSuppressedEcho (chunks, needle) {
     out.push({ str: visible, bytes: chunk.bytes })
   }
   return out
+}
+
+export function filterSuppressedEcho (chunks, needle) {
+  if (!Array.isArray(chunks) || !chunks.length) {
+    return chunks
+  }
+  const total = chunks.map(c => c.str).join('')
+  const ranges = []
+  if (needle) {
+    const idx = total.indexOf(needle)
+    if (idx !== -1) {
+      // 回显行尾：优先 \n（typed \r 在 pty 里回显为换行），退化 \r，
+      // 缓冲里两者都没有时剥到缓冲尾（行尾必然先于首个 OSC 633 到达，
+      // 走到这一支说明窗口恰在回显行中途关闭，多剥的只有行尾碎片）
+      ranges.push(lineRangeAt(total, idx, idx + needle.length))
+    }
+  }
+  // readline 会把注入行回显两次（pty 原始回显 + 编辑器回显），且 pty 原始
+  // 回显行尾是 \n 而 typed 是 \r——needle 精确命中只覆盖一处。第二处回显若与
+  // typed 原文逐字节一致会被上面剥掉；不一致（远端/旧版脚本、引号转义差异）
+  // 时靠双标记兜底再剥。双标记（同一行同时含 `eval 'if [[` 与
+  // `ELECTERM_SHELL_INTEGRATION`）是注入命令唯一稳定签名，真实用户命令同时
+  // 含这两串的概率可以忽略。
+  const scanFrom = ranges.length
+    ? ranges[ranges.length - 1][1]
+    : 0
+  const mark = total.indexOf(INJECT_MARK_A, scanFrom)
+  if (mark !== -1 && total.indexOf(INJECT_MARK_B, mark) !== -1) {
+    ranges.push(lineRangeAt(total, mark, mark + INJECT_MARK_A.length))
+  }
+  if (!ranges.length) {
+    return chunks
+  }
+  return stripRanges(chunks, ranges)
 }
 
 export default class AttachAddonCustom {
@@ -260,7 +312,9 @@ export default class AttachAddonCustom {
 
   /**
    * 记录本次注入的命令原文（去尾部 \r），供抑制窗口回放时剥掉它自己的
-   * 回显。只影响写屏：taps / 录制 / 服务端归档在缓冲时已收下全量字节。
+   * 回显。回放优先按原文精确剥；readline 二次回显 / 远端回显形式差异导致
+   * 原文落空时，filterSuppressedEcho 的双标记指纹兜底仍能剥掉注入行。
+   * 只影响写屏：taps / 录制 / 服务端归档在缓冲时已收下全量字节。
    */
   setInjectionEcho = (cmd) => {
     const s = String(cmd || '')

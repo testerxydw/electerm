@@ -108,4 +108,53 @@ describe('filterSuppressedEcho: real injection command', () => {
     const out = filterSuppressedEcho(chunks, needle)
     assert.equal(joined(out), 'output:  eval \'x=1\'\n')
   })
+
+  test('strips the injected line when readline echoes it twice (copy/reconnect)', async () => {
+    // 真 pty 回显：bash 行编辑器会把 eval 行回显两次，且第一次回显后跟 \r\n。
+    // 复制会话 = 新 pty 重新注入，此时 readline 二次回显让 needle 原文只匹配
+    // 到第一处、行尾落在第一个 \n，第二个回显行漏到屏幕——旧实现只剥第一处。
+    // 双标记指纹兜底把两个回显行都剥掉。用真实注入命令构造，两处回显都含
+    // `eval 'if [[` + `ELECTERM_SHELL_INTEGRATION` 双标记。
+    const [{ filterSuppressedEcho }, { getShellIntegrationCommand }] = await Promise.all([
+      load(),
+      loadShell()
+    ])
+    const cmd = getShellIntegrationCommand('bash')
+    const needle = cmd.replace(/\r+$/, '')
+    const echo = `${needle}\r\n`
+    const chunks = [
+      { str: `banner\r\n${echo}${echo}`, bytes: 14 + echo.length * 2 },
+      { str: 'user@host:~$ ', bytes: 13 }
+    ]
+    const out = filterSuppressedEcho(chunks, needle)
+    assert.equal(joined(out), 'banner\r\nuser@host:~$ ')
+    assert.deepEqual(out.map(c => c.bytes), [14 + echo.length * 2, 13])
+  })
+
+  test('strips injected line via fingerprint when the echo differs from the typed needle', async () => {
+    // 远端/旧版注入脚本回显与本地原文不一致（引号转义、chunk 被提示符碎片打断），
+    // needle 原文找不到——双标记指纹（eval 'if [[ + ELECTERM_SHELL_INTEGRATION）
+    // 仍能定位并剥掉整行。
+    const { filterSuppressedEcho } = await load()
+    const chunks = [
+      { str: 'banner\r\n', bytes: 8 },
+      { str: " eval 'if [[ -z \"$" + '{ELECTERM_SHELL_INTEGRATION:-}' + "\" ]]'\r\n", bytes: 55 },
+      { str: 'user@host:~$ ', bytes: 13 }
+    ]
+    const out = filterSuppressedEcho(chunks, null)
+    assert.equal(joined(out), 'banner\r\nuser@host:~$ ')
+  })
+
+  test('fingerprint fallback does not strip a user command that mentions the env var', async () => {
+    // 用户真实命令同时含 eval 'if [[ 与指纹串的概率极低，但必须确认不误杀：
+    // 单标记（只有指纹串）不触发，双标记要同一行内两串都存在。
+    const { filterSuppressedEcho } = await load()
+    const chunks = [
+      { str: 'banner\r\n', bytes: 8 },
+      { str: 'echo $ELECTERM_SHELL_INTEGRATION\r\n', bytes: 35 },
+      { str: 'user@host:~$ ', bytes: 13 }
+    ]
+    const out = filterSuppressedEcho(chunks, null)
+    assert.equal(joined(out), 'banner\r\necho $ELECTERM_SHELL_INTEGRATION\r\nuser@host:~$ ')
+  })
 })
