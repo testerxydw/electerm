@@ -23,6 +23,7 @@
   <a href="https://github.com/electerm/electerm-web-docker">Docker</a> ·
   <a href="https://demo.electerm.org">在线演示</a> ·
   <a href="https://github.com/electerm/electerm-android">Android</a> ·
+  <a href="https://play.google.com/store/apps/details?id=org.electerm.electerm">Google Play</a> ·
   <a href="https://github.com/electerm/electerm-harmony">鸿蒙</a> ·
   <a href="https://apps.apple.com/us/app/electerm/id6792971552">App Store</a> ·
   <a href="https://appgallery.huawei.com/app/detail?id=org.electerm.electerm">华为应用市场</a> ·
@@ -39,36 +40,12 @@
 ## 赞助商
 
 <div align="center">
-  <a href="https://www.atlascloud.ai/?ref=PCAEL2&utm_source=github&utm_medium=link&utm_campaign=electerm">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/atlas-cloud.png?raw=true" alt="Atlas Cloud" width="260" />
-  </a>
-</div>
-
-[Atlas Cloud](https://www.atlascloud.ai/?ref=PCAEL2&utm_source=github&utm_medium=link&utm_campaign=electerm) 提供与 OpenAI 兼容的 AI API 和模型访问，用于在 electerm 中实现 AI 驱动的工作流程。
-
-----
-
-<div align="center">
   <a href="https://www.packyapi.ai/register?aff=DOZI">
     <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/packy-api.png?raw=true" alt="PackyCode" width="210" />
   </a>
 </div>
 
 [PackyCode](https://www.packyapi.ai/register?aff=DOZI) 是一家稳定、高效的 API 中转服务商，一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币 1:1 充值，无汇率无手续费坑，新用户首充立享折扣 + $1 免费体验额度，多分组折扣低至 2 折起，提供专属 Codex/Claude Code 高速通道。
-
-----
-
-<div align="center">
-  <br />
-  <br />
-  <a href="https://go.apimart.ai/gh-electerm">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/apimart.jpg?raw=true" alt="ApiMart" width="200" />
-  </a>
-  <br />
-  <br />
-</div>
-
-感谢 APIMart 赞助 electerm！APIMart 是一个低成本的 AI 图像和视频生成 API 平台 —— GPT-Image-2 低至 $0.006/张，1 美元可生成 160+ 张图片。一个异步 API 同时支持图像和视频：提交任务，获取任务 ID，通过轮询或回调获取结果。可批量生成数万张图片而不超时，切换模型无需修改代码。按量付费，无月费 —— [点击这里注册开始使用](https://go.apimart.ai/gh-electerm)。
 
 ----
 

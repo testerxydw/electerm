@@ -22,6 +22,7 @@
   <a href="https://github.com/electerm/electerm-web-docker">Docker</a> ·
   <a href="https://demo.electerm.org">オンラインデモ</a> ·
   <a href="https://github.com/electerm/electerm-android">Android</a> ·
+  <a href="https://play.google.com/store/apps/details?id=org.electerm.electerm">Google Play</a> ·
   <a href="https://github.com/electerm/electerm-harmony">HarmonyOS</a> ·
   <a href="https://apps.apple.com/us/app/electerm/id6792971552">Apple App Store</a> ·
   <a href="https://appgallery.huawei.com/app/detail?id=org.electerm.electerm">Huawei AppGallery</a> ·
@@ -38,36 +39,12 @@
 ## スポンサー
 
 <div align="center">
-  <a href="https://www.atlascloud.ai/?ref=PCAEL2&utm_source=github&utm_medium=link&utm_campaign=electerm">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/atlas-cloud.png?raw=true" alt="Atlas Cloud" height="200" />
-  </a>
-</div>
-
-[Atlas Cloud](https://www.atlascloud.ai/?ref=PCAEL2&utm_source=github&utm_medium=link&utm_campaign=electerm) は、electerm での AI 活用ワークフロー向けに、OpenAI 互換の AI API とモデルへのアクセスを提供しています。
-
-----
-
-<div align="center">
   <a href="https://www.packyapi.ai/register?aff=DOZI">
     <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/packy-api.png?raw=true" alt="PackyCode" width="210" />
   </a>
 </div>
 
 [PackyCode](https://www.packyapi.ai/register?aff=DOZI) — 1つの API エンドポイントと1つの API キーで主要な AI モデルにアクセスできる API 中継サービスです。自動フェイルオーバーと、Codex / Claude Code 専用の高速ルートにより、高速で安定した利用が可能です。$1 分の無料クレジットと初回チャージの割引、対象ルートでは最大 80% の割引が適用されます。人民元での支払いに対応し、為替手数料や追加のチャージ手数料はかかりません。
-
-----
-
-<div align="center">
-  <br />
-  <br />
-  <a href="https://go.apimart.ai/gh-electerm">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/apimart.jpg?raw=true" alt="ApiMart" width="200" />
-  </a>
-  <br />
-  <br />
-</div>
-
-APIMart が electerm をスポンサーしてくれています！APIMart は、AI 画像・動画生成のための低価格 API プラットフォームです。GPT-Image-2 は 1 枚 $0.006 から、1 ドルで 160 枚以上の画像を生成できます。1 つの非同期 API で画像と動画の両方に対応：タスクを送信して ID を取得し、ポーリングまたはコールバックで結果を取得します。タイムアウトを気にせず数万枚の画像をバッチ処理でき、コードを変更せずにモデルを切り替えられます。従量課金で月額料金なし — [こちらから登録して始めましょう](https://go.apimart.ai/gh-electerm)。
 
 ----
 

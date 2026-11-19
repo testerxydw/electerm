@@ -22,6 +22,7 @@ Besides mainstream Windows/macOS/Linux/Android, electerm also supports HarmonyOS
   <a href="https://github.com/electerm/electerm-web-docker">Docker</a> ·
   <a href="https://demo.electerm.org">Online demo</a> ·
   <a href="https://github.com/electerm/electerm-android">Android</a> ·
+  <a href="https://play.google.com/store/apps/details?id=org.electerm.electerm">Google Play</a> ·
   <a href="https://github.com/electerm/electerm-harmony">HarmonyOS</a> ·
   <a href="https://apps.apple.com/us/app/electerm/id6792971552">Apple App Store</a> ·
   <a href="https://appgallery.huawei.com/app/detail?id=org.electerm.electerm">Huawei AppGallery</a> ·
@@ -38,36 +39,12 @@ Besides mainstream Windows/macOS/Linux/Android, electerm also supports HarmonyOS
 ## Sponsors
 
 <div align="center">
-  <a href="https://www.atlascloud.ai/?ref=PCAEL2&utm_source=github&utm_medium=link&utm_campaign=electerm">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/atlas-cloud.png?raw=true" alt="Atlas Cloud" width="260" />
-  </a>
-</div>
-
-[Atlas Cloud](https://www.atlascloud.ai/?ref=PCAEL2&utm_source=github&utm_medium=link&utm_campaign=electerm) provides OpenAI-compatible AI APIs and model access for AI-powered workflows in electerm.
-
-----
-
-<div align="center">
   <a href="https://www.packyapi.ai/register?aff=DOZI">
     <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/packy-api.png?raw=true" alt="PackyCode" width="210" />
   </a>
 </div>
 
 [PackyCode](https://www.packyapi.ai/register?aff=DOZI) — Access leading AI models through PackyCode with one API endpoint and one API key. Enjoy fast, reliable access with automatic failover and dedicated high-speed routes for Codex and Claude Code. Get started with $1 in free credits, a discount on your first top-up, and savings of up to 80% on eligible routes. Pay in RMB with no currency conversion markups or extra top-up fees.
-
-----
-
-<div align="center">
-  <br />
-  <br />
-  <a href="https://go.apimart.ai/gh-electerm">
-    <img src="https://github.com/electerm/electerm-resource/blob/master/static/images/apimart.jpg?raw=true" alt="ApiMart" width="200" />
-  </a>
-  <br />
-  <br />
-</div>
-
-Thanks to APIMart for sponsoring electerm! APIMart is a low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — [sign up here to get started](https://go.apimart.ai/gh-electerm).
 
 ----
 
