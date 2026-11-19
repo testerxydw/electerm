@@ -1511,12 +1511,13 @@ export default Store => {
     if (!options.autoConfirm || sensitive) {
       return null
     }
-    return normalizeConflictPolicy(spec.conflictPolicy)
+    const { conflictPolicy = 'mergeOrOverwriteAll' } = spec
+    return normalizeConflictPolicy(conflictPolicy)
   }
 
   Store.prototype.mcpSftpUpload = async function (args, transferOptions) {
     const { store } = window
-    const { tab, tabId } = store.mcpGetSshSftpRef(args.tabId)
+    const { sftp, tab, tabId } = store.mcpGetSshSftpRef(args.tabId)
     const localPath = args.localPath
     const remotePath = args.remotePath
     if (!localPath) {
@@ -1527,13 +1528,19 @@ export default Store => {
     }
 
     const fromFile = await getLocalFileInfo(localPath)
+    const destination = fromFile.isDirectory
+      ? null
+      : await getRemoteFileInfo(sftp, remotePath).catch(() => null)
+    const toPath = destination?.isDirectory
+      ? `${remotePath.endsWith('/') ? remotePath : remotePath + '/'}${window.pre.basename(localPath)}`
+      : remotePath
     const transferItem = {
       host: tab.host,
       tabType: tab.type || 'ssh',
       typeFrom: 'local',
       typeTo: 'remote',
       fromPath: localPath,
-      toPath: remotePath,
+      toPath,
       fromFile: {
         ...fromFile,
         host: tab.host,
@@ -1550,7 +1557,7 @@ export default Store => {
     const resolvePolicy = await store.mcpApproveTransfer({
       direction: 'upload',
       fromPath: localPath,
-      toPath: remotePath,
+      toPath,
       conflictPolicy: args.conflictPolicy,
       host: tab.host
     }, transferOptions)
@@ -1562,7 +1569,7 @@ export default Store => {
 
     return {
       success: true,
-      message: `Upload started: ${localPath} → ${tab.host}:${remotePath}`,
+      message: `Upload started: ${localPath} → ${tab.host}:${toPath}`,
       transferId: transferItem.id,
       tabId
     }
