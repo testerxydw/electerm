@@ -76,6 +76,47 @@ describe('terminal output archive is lossless', () => {
     assert.equal(a.close().sha256, crypto.createHash('sha256').update('still counted').digest('hex'))
   })
 
+  // 归档名要能认出是哪个终端：logName（标题_主机_tabId）进文件名，
+  // 非法字符替换、整名按 UTF-8 字节截断；没标签时退回 pid（tabId）。
+  test('file name carries the terminal label, sanitized and byte-bounded', async () => {
+    const dir = path.join(tmp, 'label')
+    const a = new TerminalOutputArchive({
+      pid: 'AbC1234',
+      dir,
+      label: '新连接_host/../x:y'
+    })
+    a.write('x')
+    a.close()
+    await a.drain()
+    const name = path.basename(a.stats().parts[0])
+    assert.ok(name.includes('新连接'), name)
+    assert.ok(!/[<>:"\\|?*]/.test(name), 'no illegal characters: ' + name)
+    assert.ok(!name.includes('/'), 'no path separators: ' + name)
+    assert.match(name, /^lossless-.+-\d+-000\.bin$/)
+
+    const longDir = path.join(tmp, 'label-long')
+    const long = new TerminalOutputArchive({
+      pid: 'p6',
+      dir: longDir,
+      label: '很长的标题'.repeat(40) + '_host_ukXi5xT_2026-11-19-10-39-41'
+    })
+    long.write('y')
+    long.close()
+    await long.drain()
+    const longName = path.basename(long.stats().parts[0])
+    assert.ok(Buffer.byteLength(longName) <= 200, String(Buffer.byteLength(longName)))
+    assert.ok(longName.includes('很长的标题'), 'truncation must not mangle characters')
+    assert.ok(longName.includes('ukXi5xT_2026-11-19-10-39-41'), 'the tab id tail survives: ' + longName)
+    assert.ok(!longName.includes('\ufffd'), 'no replacement chars')
+
+    const plainDir = path.join(tmp, 'label-absent')
+    const plain = new TerminalOutputArchive({ pid: 'p9', dir: plainDir })
+    plain.write('z')
+    plain.close()
+    await plain.drain()
+    assert.match(path.basename(plain.stats().parts[0]), /^lossless-p9-/)
+  })
+
   // I-5 前置条件：归档对"产出 vs 落盘 vs 丢失"的记账必须逐字节诚实，
   // 这样重放一致性才有可核对基线（producedBytes === bytes + lostBytes）。
   test('producedBytes accounts for every byte, and error is reported once (I-5)', async () => {

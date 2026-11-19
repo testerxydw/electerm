@@ -17,15 +17,69 @@ const crypto = require('crypto')
 
 // 单文件分片阈值：只换文件，不丢数据、不给归档设总量上限。
 const MAX_PART_BYTES = 256 * 1024 * 1024
+// 终端标签（标题_主机_tabId）按 UTF-8 字节截断：文件名还要放下
+// `lossless-`、13 位时间戳、3 位分片号和 `.bin`，标签留 120 字节
+// （中文一字 3 字节），整名约 150 字节，给 Windows 的路径上限留余量。
+const MAX_LABEL_BYTES = 120
+// 截断时保住结尾：`_tabId_时间戳` 在末尾，丢了它就没法和 .log 对号。
+const LABEL_TAIL_BYTES = 48
 
-function safePartName (pid, index) {
-  const safe = String(pid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64)
+// 超长标签：头截断 + `~` + 完整尾段（id 与时间戳），中间不会切坏多字节字符。
+function fitLabel (s) {
+  if (Buffer.byteLength(s) <= MAX_LABEL_BYTES) {
+    return s
+  }
+  const chars = [...s]
+  const tail = []
+  let tailBytes = 0
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const n = Buffer.byteLength(chars[i])
+    if (tailBytes + n > LABEL_TAIL_BYTES) {
+      break
+    }
+    tail.unshift(chars[i])
+    tailBytes += n
+  }
+  const headLimit = chars.length - tail.length
+  let headBytes = MAX_LABEL_BYTES - tailBytes - 1
+  const head = []
+  for (let i = 0; i < headLimit; i++) {
+    const n = Buffer.byteLength(chars[i])
+    if (headBytes < n) {
+      break
+    }
+    head.push(chars[i])
+    headBytes -= n
+  }
+  return head.join('') + '~' + tail.join('')
+}
+
+/**
+ * 归档名要能一眼认出是哪个终端：优先用渲染层传来的 logName
+ * （`标题_主机_tabId`，与 .log 同源，便于两边对号），保留可读字符，
+ * 只替换文件系统不接受的字符，并去掉 Windows 拒绝的结尾点/空格
+ * 与开头点（避免变成隐藏文件）。
+ */
+function safeLabel (label) {
+  const s = String(label == null ? '' : label)
+    .replace(/[\p{Cc}<>:"/\\|?*]/gu, '_') // 控制字符 + 各系统保留字符
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\.+/, '')
+    .replace(/[. ]+$/, '')
+  return fitLabel(s)
+}
+
+function safePartName (pid, index, label) {
+  const fallback = String(pid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64)
+  const safe = safeLabel(label) || fallback || 'session'
   return `lossless-${safe}-${Date.now()}-${String(index).padStart(3, '0')}.bin`
 }
 
 class TerminalOutputArchive {
-  constructor ({ pid, dir, maxPartBytes = MAX_PART_BYTES, onError = null } = {}) {
+  constructor ({ pid, dir, label = '', maxPartBytes = MAX_PART_BYTES, onError = null } = {}) {
     this.pid = pid || 'session'
+    this.label = label
     // DATA_PATH 全项目语义 = 数据目录本身（command-line.js 文档 / sqlite.js 同款），
     // 旧写法 join(DATA_PATH, 'electerm', ...) 会拼出 electerm/electerm 双层目录；
     // server fork 子进程无 electron，app-props 不可用，走主进程传入的 env.appPath 兜底
@@ -65,7 +119,7 @@ class TerminalOutputArchive {
     if (this._closed || this._stream || this.failed) {
       return
     }
-    const file = path.join(this.dir, safePartName(this.pid, this._index))
+    const file = path.join(this.dir, safePartName(this.pid, this._index, this.label))
     try {
       const stream = fs.createWriteStream(file, { flags: 'a' })
       // 没有 error 监听会把失败抛成 uncaughtException，连带整个会话被 cleanup。

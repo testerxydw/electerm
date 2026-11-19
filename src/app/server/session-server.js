@@ -176,6 +176,9 @@ if (type === 'rdp') {
     const sessionLogDir = term.initOptions && term.initOptions.sessionLogPath
     const archive = new TerminalOutputArchive({
       pid,
+      // 与 .log 同源的 `标题_主机_tabId`：文件名里带标签，才能在归档目录里
+      // 一眼认出是哪个终端产出的；缺失时退回 pid（tabId）。
+      label: term.initOptions && term.initOptions.logName,
       dir: sessionLogDir ? path.join(sessionLogDir, ARCHIVE_SUBDIR) : undefined,
       onError: (msg) => {
         // 归档降级立刻通知渲染层，避免"看起来成功实则有空洞"。
