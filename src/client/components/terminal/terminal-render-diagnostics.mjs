@@ -4,21 +4,26 @@ import { rendererStates } from './terminal-render-lifecycle.mjs'
 import { webglCircuitStates } from './terminal-webgl-circuit-breaker.mjs'
 
 /**
- * Renderer diagnostics are a development aid, not telemetry.
+ * Renderer diagnostics.
  *
- * In a production build the default sink is a no-op and `logTerminalRender`
- * returns before it reads anything off the terminal, so nothing is serialised,
- * stringified or written to electron-log. A shipped app can turn the same
- * `[terminal-render] {...}` lines back on for a bug report by running
- * `localStorage.electermRenderDebug = '1'` and reloading.
+ * This build ships with them ON, so a "terminal lost a chunk" report already
+ * has the renderer state and, via attach-addon-custom.js, the byte ledger
+ * recorded. It can still be switched off for one profile with
+ * `localStorage.electermRenderDebug = '0'` (takes a reload).
+ *
+ * Every line goes through `console.info('[terminal-render] ...')`. The main
+ * process mirrors only that prefix into ~/.config/electerm/logs/main.log
+ * (src/app/lib/render-console-log.js), so devtools is not the only copy.
  */
 const debugStorageKey = 'electermRenderDebug'
 
 function readDebugFlag () {
   try {
-    return window.localStorage.getItem(debugStorageKey) === '1'
+    // Diagnostics build: on unless explicitly disabled.
+    return window.localStorage.getItem(debugStorageKey) !== '0'
   } catch (_) {
-    return false
+    // No window (Node unit tests) or storage blocked: keep recording.
+    return true
   }
 }
 
@@ -129,8 +134,8 @@ const consoleSink = line => console.info(line)
 export function logTerminalRender (owner, event, details = {}, emit = consoleSink) {
   // A caller-supplied sink means "record this", which is how the unit tests
   // exercise the formatter on a non-dev build. The gate only applies to the
-  // default console sink, so a production build exits here before taking any
-  // snapshot of the terminal.
+  // default console sink: with `electermRenderDebug = '0'` it returns before
+  // taking any snapshot of the terminal.
   if (emit === consoleSink && !enabled) return
   // Diagnostics must never break a recovery path. Whitelisted fields only:
   // props and errors are never expanded.

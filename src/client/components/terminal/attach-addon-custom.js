@@ -222,7 +222,7 @@ export default class AttachAddonCustom {
     this._retryCount = 0
     this._writeWatchdog = null
     // 逐字节账本：received（ws 帧）/ written（进 xterm）/ acked（解析完）
-    // 三者应收敛到同一数值；droppedBytes 恒为 0。
+    // 三者应收敛到同一数值；droppedBytes 只在解码器抛错时增长（诊断计数）。
     this._receivedBytes = 0
     this._writtenBytes = 0
     this._ackedBytes = 0
@@ -230,12 +230,19 @@ export default class AttachAddonCustom {
     this._droppedBytes = 0
     this._archivePath = null
     this._archiveParts = []
+    // 诊断构建：空闲时把账本落进 main.log（见 _armStatsSnapshot）。是否
+    // 真的上报由「本连接是否注册了 __termFlowStats」决定——单元测试里构造的
+    // 实例不注册，因此不会往 TAP 输出里插诊断行。
+    this._statsTimer = null
+    this._lastStats = null
+    this._statsHookRegistered = false
     // Automation taps: 解码后的字符串，抑制窗口的输出也会送到（不再静默吞）。
     this._dataTaps = new Set()
     // CDP 探针 / UI 读取逐字节账本的唯一入口。
     if (typeof window !== 'undefined' && infoTabId) {
       window.__termFlowStats = window.__termFlowStats || {}
       window.__termFlowStats[infoTabId] = () => this.getLosslessStats()
+      this._statsHookRegistered = true
     }
     // G1 广播输入：>0 表示本次 sendToServer 是别的终端镜像过来的，不再二次扇出
     this._broadcastDepth = 0
@@ -545,7 +552,14 @@ export default class AttachAddonCustom {
           { stream: true }
         )
       } catch (e) {
+        // 解码器抛错：这一帧的字节真的没了（不是分片 held back）。它是唯一
+        // 「丢了还照 ACK、服务端察觉不到」的通道，所以必须进账本并留痕。
         str = ''
+        this._droppedBytes += bytes
+        this._logFlowDiagnostic('decode-error', {
+          bytes,
+          errorType: e && e.name ? String(e.name) : 'Error'
+        })
       }
     }
 
@@ -676,6 +690,7 @@ export default class AttachAddonCustom {
       term?.parent?.notifyOnData?.()
       term?.parent?.onTerminalWrite?.()
       this._pump()
+      this._armStatsSnapshot()
     }
     try {
       term.write(data, onDone)
@@ -758,6 +773,54 @@ export default class AttachAddonCustom {
     archivePath: this._archivePath,
     archiveParts: this._archiveParts.slice()
   })
+
+  /**
+   * 诊断构建的零丢弃证据：把账本写进 console 的 `[terminal-render]` 行，
+   * 主进程按前缀转存到 main.log（src/app/lib/render-console-log.js）。
+   * 只写计数与归档路径，不写终端内容；与上次快照相同则跳过，避免空闲刷屏。
+   */
+  _logFlowDiagnostic = (event, extra = {}) => {
+    if (!this._statsHookRegistered) {
+      return
+    }
+    try {
+      const stats = this.getLosslessStats()
+      const key = [stats.receivedBytes, stats.writtenBytes, stats.ackedBytes, stats.droppedBytes].join('/')
+      if (event === 'flow-stats' && key === this._lastStats) {
+        return
+      }
+      if (event === 'flow-stats') {
+        this._lastStats = key
+      }
+      console.info('[terminal-render] ' + JSON.stringify({
+        schema: 1,
+        event,
+        time: new Date().toISOString(),
+        tab: this.infoTabId || null,
+        ...extra,
+        ...stats
+      }))
+    } catch (_) {}
+  }
+
+  /** 输出安静 1s 后落一次账本：apt 这类长任务的「结束时刻」正好在这里。 */
+  _armStatsSnapshot = () => {
+    if (!this._statsHookRegistered) {
+      return
+    }
+    clearTimeout(this._statsTimer)
+    this._statsTimer = setTimeout(() => {
+      this._statsTimer = null
+      if (this.disposed || this._writeInFlight || this._pending.length) {
+        return
+      }
+      this._logFlowDiagnostic('flow-stats')
+    }, 1000)
+    // Node 里（单元测试）不拖住事件循环；浏览器里没有 unref。
+    if (typeof this._statsTimer?.unref === 'function') {
+      this._statsTimer.unref()
+    }
+  }
 
   // Best-effort bookkeeping of what sits on the current command line. Only
   // answers "could there be input we saw no printable character for?"; whether
@@ -1042,6 +1105,10 @@ export default class AttachAddonCustom {
     clearTimeout(this._retryTimer)
     this._retryTimer = null
     this._flushScheduled = false
+    clearTimeout(this._statsTimer)
+    this._statsTimer = null
+    // 连接关闭前的最终账本：队列里还压着多少字节，一眼可见。
+    this._logFlowDiagnostic('flow-stats-final')
     if (this._pendingBytes || this._inflightBytes) {
       console.warn(`[AttachAddon] connection closed with ${this._pendingBytes + this._inflightBytes} output bytes still queued; full stream is in the lossless archive: ${this._archivePath || '(path not reported)'}`)
     }

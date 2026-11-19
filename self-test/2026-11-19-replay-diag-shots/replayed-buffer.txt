@@ -1,0 +1,734 @@
+dp25@dp25-PC:~$ Your user’s .npmrc file (${HOME}/.npmrc)
+has a `globalconfig` and/or a `prefix` setting, which are incompatible with nvm.
+Run `nvm use --delete-prefix v22.23.2 --silent` to unset it.
+dp25@dp25-PC:~$  eval 'if [[ $- == *i* ]] && [[ -z "${ELECTERM_SHELL_INTEGRATION:-}" ]]; then export ELECTERM_SHELL_INTEGRATION=1; __e_esc() { loca
+l v="$1"; v="${v//\\/\\\\}"; v="${v//;/\\x3b}"; printf '\''%s'\'' "$v"; }; __e_pre() { [[ "$BASH_COMMAND" == __e_* || "$BASH_COMMAND" == PROMPT_COM
+MAND=* ]] && return; [[ "$BASH_COMMAND" == *"eval '\''if [["*ELECTERM_SHELL_INTEGRATION* ]] && return; [[ "$BASH_COMMAND" == "$PROMPT_COMMAND" ]] &
+& return; [[ -n "${PROMPT_COMMAND:-}" && "$PROMPT_COMMAND" == *"$BASH_COMMAND"* ]] && return; [[ "${__e_in:-0}" == "0" ]] && { __e_in=1; printf '\'
+'\e]633;E;%s\a\e]633;C\a'\'' "$(__e_esc "$BASH_COMMAND")"; }; }; __e_cmd() { local c="$?"; local h; if h=$(history 1 2>/dev/null) && [[ "$h" == *"e
+val '\''if [["*ELECTERM_SHELL_INTEGRATION* ]]; then read -r hn _ <<<"$h"; history -d "$hn" 2>/dev/null; fi; [[ "${__e_in:-0}" == "1" ]] && { printf
+ '\''\e]633;D;%s\a'\'' "$c"; __e_in=0; }; printf '\''\e]633;P;Cwd=%s\a\e]633;A\a'\'' "$(__e_esc "$PWD")"; return "$c"; }; trap '\''__e_pre'\'' DEBU
+G; PROMPT_COMMAND="__e_cmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"; fi' 2>/dev/null
+dp25@dp25-PC:~$ history 
+    1  # 阶段 3.5/5：编译/替换 Linux 原生模块
+    2  # ============================================================================
+    3  stage_native_modules() {     log "阶段 3.5/5：编译/替换 Linux 原生模块";     [[ -d "${RES_DIR}/app.asar.unpacked" ]] || die "未找到 ${RES_DI
+R}/app.asar.unpacked";      local BS_BUILD_DIR="${SCRIPT_DIR}/.native-build-${ELECTRON_VER}";     mkdir -p "${BS_BUILD_DIR}"; 
+    4      if [[ "$BASE_MODE" == "hybrid" ]]; then
+    5          step "替换 better-sqlite3.node（官方基座 Linux 预编译）...";         local BS_L="${LINUX_BASE_APP}/resources/app.asar.unpacked/node_
+modules/better-sqlite3";         local BS_DEST="${RES_DIR}/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node";       
+  [[ -f "${BS_L}/build/Release/better_sqlite3.node" ]] || die "官方基座缺 better_sqlite3.node";         mkdir -p "$(dirname "$BS_DEST")";         c
+p -f "${BS_L}/build/Release/better_sqlite3.node" "$BS_DEST";         rsync -a "${BS_L}/bin/" "${RES_DIR}/app.asar.unpacked/node_modules/better-sqli
+te3/bin/" 2>/dev/null || true;         step "已替换 better-sqlite3.node（官方 Linux 预编译）"; 
+    6          local NB_CACHE="${BS_BUILD_DIR}/better-sqlite3/node_modules" dep DEP_DEST;         for dep in bindings file-uri-to-path; do         
+    DEP_DEST="${RES_DIR}/app.asar.unpacked/node_modules/${dep}";             if [[ -d "$DEP_DEST" ]]; then continue; fi;             if [[ -d "${NB
+_CACHE}/${dep}" ]]; then                 cp -a "${NB_CACHE}/${dep}" "$DEP_DEST";                 step "已复制运行时依赖(缓存): ${dep}";            
+ else                 mkdir -p "${BS_BUILD_DIR}/js-deps";                 ( cd "${BS_BUILD_DIR}/js-deps" && npm install "$dep" --no-save >/dev/null
+ 2>&1 ) || true;                 if [[ -d "${BS_BUILD_DIR}/js-deps/node_modules/${dep}" ]]; then                     cp -a "${BS_BUILD_DIR}/js-deps
+/node_modules/${dep}" "$DEP_DEST";                     step "已复制运行时依赖(npm): ${dep}";                 else                     echo "  [提示
+] 未能取得 ${dep}（better-sqlite3 加载器可能自行内联，先观察日志）";                 fi;             fi;         done; 
+    7          local LN="${LINUX_BASE_APP}/resources/app.asar.unpacked/node_modules";         local WN="${RES_DIR}/app.asar.unpacked/node_modules" 
+nm mod;         if [[ -d "${LN}/koffi/build/koffi/linux_${ELECTRON_ARCH}" && -d "${WN}/koffi/build/koffi" ]]; then             rsync -a "${LN}/koff
+i/build/koffi/linux_${ELECTRON_ARCH}/"                       "${WN}/koffi/build/koffi/linux_${ELECTRON_ARCH}/";             step "已补 koffi Linux 
+预编译";         fi;         for nm in "@tencent/qimei-node/build/Release/qimei.node"                   "node-pty/build/Release/pty.node"; do      
+       mod="${nm%%/build/*}";             [[ -d "${WN}/${mod}" ]] || continue;             if [[ -f "${LN}/${nm}" ]]; then                 mkdir -p
+ "${WN}/$(dirname "$nm")";                 cp -f "${LN}/${nm}" "${WN}/${nm}";                 step "已补 Linux 预编译: ${nm}";             fi;     
+    done;     else         step "为 Electron ${ELECTRON_VER} 准备 better-sqlite3 ...";         local BS_NODE_DIR="${BS_BUILD_DIR}/better-sqlite3/no
+de_modules";         local BS_SRC="${BS_NODE_DIR}/better-sqlite3/build/Release/better_sqlite3.node";         if [[ ! -f "$BS_SRC" ]]; then         
+    rm -rf "${BS_BUILD_DIR}/better-sqlite3";             mkdir -p "${BS_BUILD_DIR}/better-sqlite3";             (                 cd "${BS_BUILD_DI
+R}/better-sqlite3" &&                 npm_config_runtime=electron                 npm_config_target="${ELECTRON_VER}"                 npm_config_di
+sturl=https://electronjs.org/headers                 npm_config_arch=${ELECTRON_ARCH}                 npm install better-sqlite3@12.8.0 --no-save 2
+>&1 | tail -30;             ) || die "better-sqlite3 安装/编译失败";             [[ -f "$BS_SRC" ]] || die "better-sqlite3 编译后未找到 .node";    
+     fi;          local BS_DEST="${RES_DIR}/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node";         mkdir -p "$(d
+irname "$BS_DEST")";         cp -f "$BS_SRC" "$BS_DEST";         step "已替换 better-sqlite3.node"; 
+    8          for dep in bindings file-uri-to-path; do             local DEP_SRC="${BS_NODE_DIR}/${dep}";             local DEP_DEST="${RES_DIR}/a
+pp.asar.unpacked/node_modules/${dep}";             if [[ -d "$DEP_SRC" && ! -d "$DEP_DEST" ]]; then                 cp -a "$DEP_SRC" "$DEP_DEST";  
+               step "已复制运行时依赖: ${dep}";             fi;         done;     fi; 
+    9  }
+   10  # ============================================================================
+   11  # 阶段 4/5：精简冗余文件（--slim）
+   12  # ============================================================================
+   13  stage_slim() {     log "阶段 4/5：精简冗余文件（--slim）";     [[ -d "$APP_DIR" ]] || die "未找到 ${APP_DIR}";      local before after;     
+before="$(du -sm "$APP_DIR" | cut -f1)"; 
+   14      find "$RES_DIR/app.asar.unpacked" -name '*.exe' -delete 2>/dev/null || true;     find "$RES_DIR/app.asar.unpacked" -name '*.dll' -delete
+ 2>/dev/null || true;     find "$RES_DIR/app.asar.unpacked" -name '*.dSYM' -prune -exec rm -rf {} + 2>/dev/null || true;     find "$RES_DIR/app.asa
+r.unpacked" -name '*.framework' -prune -exec rm -rf {} + 2>/dev/null || true; 
+   15      find "$RES_DIR/app.asar.unpacked" -type d \( -name 'darwin-x64*' -o -name 'darwin-arm64*'         -o -name 'win32*' -o -name 'msvc*' \) 
+-prune -exec rm -rf {} + 2>/dev/null || true; 
+   16      local KEEP="linux_${ELECTRON_ARCH}" bn;     while IFS= read -r KO; do         [[ -d "$KO" ]] || continue;         for sub in "$KO"/*/; d
+o             bn="$(basename "$sub")";             [[ "$bn" == "$KEEP" ]] && continue;             step "slim: 删除 koffi 跨架构预编译: $bn";      
+       rm -rf "$sub";         done;     done < <(find "$RES_DIR/app.asar.unpacked" -type d -path '*/koffi/build/koffi' 2>/dev/null); 
+   17      find "$RES_DIR/app.asar.unpacked" -name '*.xcframework' -prune -exec rm -rf {} + 2>/dev/null || true
+   18      find "$RES_DIR/app.asar.unpacked" -type d -path '*/src/mac' -prune -exec rm -rf {} + 2>/dev/null || true; 
+   19      find "$APP_DIR/locales" -name '*.pak' ! -name 'zh-CN.pak' ! -name 'en-US.pak' -delete 2>/dev/null || true;      after="$(du -sm "$APP_DI
+R" | cut -f1)";     step "精简: ${before} MB -> ${after} MB (省 $((before-after)) MB)"; }
+   20  # ============================================================================
+   21  # 阶段 5/5：桌面集成 + 启动脚本
+   22  # ============================================================================
+   23  stage_desktop() {     log "阶段 5/5：桌面集成（启动脚本 / 图标 / 桌面入口）"; 
+   24      local ICON_SRC="";     local PACKED_ICON="${RES_DIR}/app.asar.unpacked/resources/icon.png";     if [[ -f "$PACKED_ICON" ]]; then        
+ ICON_SRC="$PACKED_ICON";     elif [[ -f "${SCRIPT_DIR}/workbuddy-icon-256.png" ]]; then         ICON_SRC="${SCRIPT_DIR}/workbuddy-icon-256.png";  
+   fi;     local ICON_DIR="${PKG_DIR}/usr/share/icons/hicolor"; 
+   25      step "写入启动脚本 ..."
+   26      cat > "${APP_DIR}/workbuddy.sh" <<'LAUNCHER'
+   27  #!/bin/bash
+   28  # WorkBuddy CN - Linux Launcher
+   29  # Repackaged from official Windows installer with Electron Linux runtime.
+   30  #
+   31  # 退出守护（树杀）：本脚本不用 exec 把自己替换成主进程，而是留在父进程位置守着应用。
+   32  # 主进程无论正常退出还是被 kill -9 强杀，wait 都会返回，随后清理整棵进程树与
+   33  # 脱离了进程组的残留（zygote / utility / daemon-app-server-entry / edge-sync /
+   34  # chrome_crashpad_handler 等），避免留下孤儿进程。
+   35  APP_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+   36  ELECTRON="$APP_DIR/workbuddy"
+   37  SELF_UID="$(id -u)"
+   38  ulimit -n 65535 2>/dev/null || true
+   39  #   --title-bar-style=custom : 使用应用自带的无边框标题栏
+   40  #   --disable-backgrounding-occluded-windows / --disable-renderer-backgrounding /
+   41  #   --disable-background-timer-throttling : 禁用 DDE 下的遮挡检测与后台节流
+   42  EXTRA_ARGS="--title-bar-style=custom \
+   43      --disable-backgrounding-occluded-windows --disable-renderer-backgrounding \
+   44      --disable-background-timer-throttling"
+   45  # --disable-dev-shm-usage 改为按需追加（与 trae 侧同规则）：它把共享内存从 /dev/shm 挪到 /tmp 文件，
+   46  # 多一层文件开销；只有 /dev/shm 偏小（容器 / 部分发行版默认 64M）时才有收益。
+   47  SHM_MB="$(df -m /dev/shm 2>/dev/null | awk 'NR==2{print $2}')"
+   48  if [ -n "$SHM_MB" ] && [ "$SHM_MB" -lt 1024 ]; then
+   49      EXTRA_ARGS="--disable-dev-shm-usage $EXTRA_ARGS"
+   50  fi
+   51  # 本应用（$APP_DIR 下）当前所有进程 PID（排除 launcher 自身）
+   52  app_pids() { pgrep -u "$SELF_UID" -f "^${APP_DIR}/" 2>/dev/null | grep -vx "$$" | sort -n; }
+   53  BEFORE_PIDS="$(app_pids)"
+   54  # 递归树杀：先杀后代，再杀自身
+   55  kill_tree() {
+   56      local pid="$1" sig="$2" kid
+   57      for kid in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$kid" "$sig"; done
+   58      kill -"$sig" "$pid" 2>/dev/null || true
+   59  }
+   60  # 三重清理：进程树 → 进程组（若主进程自成一组长）→ 应用路径兜底
+   61  reap() {
+   62      kill_tree "$APP_PID" TERM
+   63      if [ "$(ps -o pgid= -p "$APP_PID" 2>/dev/null | tr -d ' ')" = "$APP_PID" ]; then
+   64          kill -TERM -"$APP_PID" 2>/dev/null || true
+   65      fi
+   66      sleep 1
+   67      kill_tree "$APP_PID" KILL
+   68      if [ "$(ps -o pgid= -p "$APP_PID" 2>/dev/null | tr -d ' ')" = "$APP_PID" ]; then
+   69          kill -KILL -"$APP_PID" 2>/dev/null || true
+   70      fi
+   71      # 脱离了进程组的残留（如 chrome_crashpad_handler 会自行 setsid）：按应用路径兜底
+   72      local left
+   73      if [ -n "$BEFORE_PIDS" ]; then
+   74          left="$(app_pids | grep -vxF -f <(printf '%s\n' "$BEFORE_PIDS") || true)"
+   75      else
+   76          left="$(app_pids)"
+   77      fi
+   78      if [ -n "$left" ]; then
+   79          echo "[launcher] 清理残留进程: $(echo $left | tr '\n' ' ')" >&2
+   80          kill -TERM $left 2>/dev/null || true
+   81          sleep 1
+   82          kill -KILL $left 2>/dev/null || true
+   83      fi
+   84  }
+   85  if [ ! -u "$APP_DIR/chrome-sandbox" ]; then
+   86      # 本机无 SUID chrome-sandbox 时 Chromium 沙箱不可用：主进程已用 --no-sandbox 规避。
+   87      # 但 5.9.0+ remote-window 架构会 spawn 独立 helper Electron 子进程承载设置等窗口，
+   88      # spawn 参数为空数组、不带 --no-sandbox（app.asar 内固定写法，无法经命令行传入）。
+   89      # 该环境变量经 {...process.env} 继承给 helper，使其同样禁用沙箱，
+   90      # 否则 helper 内渲染进程初始化失败 → 设置等独立窗口报「加载失败 ERR_FAILED」。
+   91      export ELECTRON_DISABLE_SANDBOX=1
+   92      "$ELECTRON" --no-sandbox ${EXTRA_ARGS} "$@" &
+   93  else
+   94      "$ELECTRON" ${EXTRA_ARGS} "$@" &
+   95  fi
+   96  APP_PID=$!
+   97  trap 'reap; exit 130' INT TERM HUP
+   98  wait "$APP_PID"
+   99  rc=$?
+  100  reap
+  101  exit $rc
+  102  LAUNCHER
+  103       chmod 755 "${APP_DIR}/workbuddy.sh";     chmod 755 "${APP_DIR}/workbuddy";     chmod 755 "${APP_DIR}/chrome-sandbox" 2>/dev/null || tru
+e; 
+  104      local BIN_LINK="${PKG_DIR}/usr/bin/workbuddy";     mkdir -p "$(dirname "$BIN_LINK")";     rm -f "$BIN_LINK";     ln -s "/opt/workbuddy/w
+orkbuddy.sh" "$BIN_LINK"; 
+  105      local DESKTOP_DIR="${PKG_DIR}/usr/share/applications";     mkdir -p "$DESKTOP_DIR"
+  106      rm -f "${DESKTOP_DIR}/com.xydw.workbuddy.desktop"           "${DESKTOP_DIR}/workbuddy-bin.desktop"           "${DESKTOP_DIR}/chrome_cras
+hpad_handler.desktop"   # 清理旧包名/旧隐藏条目残留
+  107      cat > "${DESKTOP_DIR}/workbuddy.desktop" <<'DESKTOP'
+  108  [Desktop Entry]
+  109  Type=Application
+  110  Name=WorkBuddy
+  111  GenericName=AI Coding Workbench
+  112  Comment=Tencent CodeBuddy AI coding assistant
+  113  Exec=workbuddy
+  114  Icon=com.xydw.workbuddy
+  115  Terminal=false
+  116  Categories=Development;Utility;
+  117  Keywords=code;editor;ai;ide;workbuddy;coding;
+  118  DESKTOP
+  119   
+  120      find "$ICON_DIR" -type f -name 'workbuddy.png' -delete 2>/dev/null || true   # 清理旧包名图标残留
+  121      if [[ -n "$ICON_SRC" && -f "$ICON_SRC" ]]; then         step "生成图标（源: $ICON_SRC）..."
+  122          local RESIZE_TOOL="" size out;         if command -v convert >/dev/null 2>&1; then             RESIZE_TOOL="convert";         elif c
+ommand -v magick >/dev/null 2>&1; then             RESIZE_TOOL="magick";         elif command -v ffmpeg >/dev/null 2>&1; then             RESIZE_TO
+OL="ffmpeg";         fi;         for size in 16 32 48 64 128 256 512; do             mkdir -p "${ICON_DIR}/${size}x${size}/apps";             out="
+${ICON_DIR}/${size}x${size}/apps/com.xydw.workbuddy.png";             case "$RESIZE_TOOL" in                 convert) convert "$ICON_SRC" -resize "
+${size}x${size}" "$out" ;;                 magick)  magick  "$ICON_SRC" -resize "${size}x${size}" "$out" ;;                 ffmpeg)  ffmpeg -y -log
+level error -i "$ICON_SRC" -vf "scale=${size}:${size}" "$out" ;;                 *)       cp -f "$ICON_SRC" "$out" ;;   # 兜底：原图复制（尺寸不精
+确但图标可用）
+  123              esac;         done;         mkdir -p "${ICON_DIR}/scalable/apps";         cp -f "$ICON_SRC" "${ICON_DIR}/scalable/apps/com.xydw.
+workbuddy.png";         step "  已生成 7 个尺寸 + scalable（缩放工具: ${RESIZE_TOOL:-原图复制}）";     else         echo "  [提示] 未找到图标素材，
+跳过图标生成（桌面图标可能显示问号）";     fi; }
+  124  # ============================================================================
+  125  # 构建 deb（结果写入全局 DEB_FILE）
+  126  # ============================================================================
+  127  DEB_FILE=""
+  128  # 从 exe 文件名解析应用版本（X.Y.Z）。例：
+  129  #   WorkBuddy-win32-x64-user-5.5.1.37570276-9af62480.exe -> 5.5.1
+  130  # 参数可选；缺省时从仓库根目录选取最新 exe。
+  131  app_version_from_exe() {     local exe="${1:-}";     if [[ -z "$exe" ]]; then         exe="$(ls -t "${SCRIPT_DIR}"/WorkBuddy-win32-x64-user-
+*.exe 2>/dev/null | head -n 1 || true)";     fi;     [[ -n "$exe" && -f "$exe" ]] || return 1;     local base; base="$(basename "$exe")";     if [[
+ "$base" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then         echo "${BASH_REMATCH[1]}";         return 0;     fi;     return 1; }
+  132  bump_version() {     local current="$1" base rev;     if [[ "${current}" =~ ^([0-9]+(\.[0-9]+)+)-([0-9]+)$ ]]; then         base="${BASH_REM
+ATCH[1]}"; rev=$(( ${BASH_REMATCH[3]} + 1 ));         echo "${base}-${rev}";     elif [[ "${current}" =~ ^([0-9]+(\.[0-9]+)+)$ ]]; then         ech
+o "${current}-1";     else         die "无法自增版本号: ${current}";     fi; }
+  133  stage_deb() {     log "构建 deb 包";     [[ -f "${CONTROL_FILE}" ]] || die "未找到 ${CONTROL_FILE}";     [[ -d "${PKG_DIR}/opt" ]] || die "
+未找到 ${PKG_DIR}/opt";      local old_version new_version app_ver cur_app;     old_version="$(grep -E '^Version: ' "${CONTROL_FILE}" | head -n 1 |
+ sed -E 's/^Version:[[:space:]]+//')";     [[ -n "${old_version}" ]] || die "无法解析 ${CONTROL_FILE} 的 Version"
+  134      app_ver="$(app_version_from_exe "$WIN_EXE")" || app_ver="";     if [[ -n "$app_ver" ]]; then         cur_app="${old_version%%-*}";      
+   if [[ "$cur_app" == "$app_ver" ]]; then             local cur_rev="${old_version##*-}";             if [[ "$cur_rev" =~ ^[0-9]+$ ]]; then       
+          new_version="${app_ver}-$((cur_rev + 1))";             else                 new_version="${app_ver}-1";             fi;         else     
+        new_version="${app_ver}-1";         fi
+  135          if [[ "${DO_EXTRACT:-1}" -eq 0 && "$cur_app" != "$app_ver" ]]; then             die "检测到新 exe 版本 ${app_ver}，但当前为 --skip-e
+xtract（deb-pkg 仍是 ${cur_app}）。请去掉 --skip-extract 重新拆包后再构建。";         fi;     else         new_version="$(bump_version "${old_versi
+on}")";     fi;     sed -i "s/^Version: .*/Version: ${new_version}/" "${CONTROL_FILE}";     sed -i "s/^Architecture: .*/Architecture: ${DEB_ARCH}/"
+ "${CONTROL_FILE}";     step "版本: ${old_version} -> ${new_version}（Architecture: ${DEB_ARCH}）"; 
+  136      local installed_size;     installed_size="$(du -s --block-size=1K --exclude=DEBIAN "${PKG_DIR}" | cut -f1)";     if grep -qE '^Installed
+-Size: ' "${CONTROL_FILE}"; then         sed -i "s/^Installed-Size: .*/Installed-Size: ${installed_size}/" "${CONTROL_FILE}";     else         sed 
+-i "/^Version: /a Installed-Size: ${installed_size}" "${CONTROL_FILE}";     fi;     step "Installed-Size: ${installed_size} KiB ($(awk -v k="${inst
+alled_size}" 'BEGIN{printf "%.1f GiB", k/1024/1024}'))"; 
+  137      : > "${PKG_DIR}/DEBIAN/md5sums";     (         cd "${PKG_DIR}";         find . -path ./DEBIAN -prune -o -type f -print0 | xargs -0 md5su
+m | sed 's| \./| |';     ) > "${PKG_DIR}/DEBIAN/md5sums";     step "md5sums 已生成: $(wc -l < "${PKG_DIR}/DEBIAN/md5sums") 个文件"; 
+  138      cat > "${PKG_DIR}/DEBIAN/postinst" <<'SCRIPT'
+  139  #!/bin/sh
+  140  set -e
+  141  case "$1" in
+  142      configure|abort-upgrade|abort-remove|abort-deconfigure)
+  143          if command -v update-icon-caches >/dev/null 2>&1; then
+  144              update-icon-caches /usr/share/icons/hicolor
+  145          fi
+  146          if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  147              gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+  148          fi
+  149          if command -v update-desktop-database >/dev/null 2>&1; then
+  150              update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+  151          fi
+  152          # 安装并加载 AppArmor profile（官方包同款 unconfined 声明式 profile，
+  153          # 用于启用 AppArmor/userns 限制的系统上保障 chrome-sandbox 正常工作）。
+  154          # 官方 profile 内路径为 /opt/WorkBuddy/workbuddy，本包安装于 /opt/workbuddy，需替换。
+  155          if [ -f /opt/workbuddy/resources/apparmor-profile ] \
+  156             && [ -d /sys/kernel/security/apparmor ] \
+  157             && command -v apparmor_parser >/dev/null 2>&1; then
+  158              sed 's|/opt/WorkBuddy/workbuddy|/opt/workbuddy/workbuddy|g' \
+  159                  /opt/workbuddy/resources/apparmor-profile > /etc/apparmor.d/workbuddy
+  160              apparmor_parser -r /etc/apparmor.d/workbuddy 2>/dev/null || true
+  161          fi
+  162          ;;
+  163  esac
+  164  exit 0
+  165  SCRIPT
+  166       chmod 755 "${PKG_DIR}/DEBIAN/postinst"; 
+  167      cat > "${PKG_DIR}/DEBIAN/prerm" <<'SCRIPT'
+  168  #!/bin/sh
+  169  set -e
+  170  case "$1" in
+  171      remove|purge)
+  172          if [ -f /etc/apparmor.d/workbuddy ] && command -v apparmor_parser >/dev/null 2>&1; then
+  173              apparmor_parser -R /etc/apparmor.d/workbuddy 2>/dev/null || true
+  174          fi
+  175          rm -f /etc/apparmor.d/workbuddy
+  176          if command -v update-icon-caches >/dev/null 2>&1; then
+  177              update-icon-caches /usr/share/icons/hicolor
+  178          fi
+  179          if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  180              gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+  181          fi
+  182          if command -v update-desktop-database >/dev/null 2>&1; then
+  183              update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+  184          fi
+  185          ;;
+  186  esac
+  187  exit 0
+  188  SCRIPT
+  189       chmod 755 "${PKG_DIR}/DEBIAN/prerm"; 
+  190      DEB_FILE="${SCRIPT_DIR}/com.xydw.workbuddy_${new_version}_${DEB_ARCH}.deb";     dpkg-deb --build --root-owner-group "${PKG_DIR}" "${DEB_
+FILE}";     step "产物: ${DEB_FILE} ($(du -h "${DEB_FILE}" | cut -f1))"; }
+  191  # ============================================================================
+  192  # 安装
+  193  # ============================================================================
+  194  stage_install() {     log "安装";     step "安装 deb ...";     sudo dpkg -i "${DEB_FILE}" 2>&1 | tail -n 3; }
+  195  # ============================================================================
+  196  # 主流程
+  197  # ============================================================================
+  198  if [[ "${DO_EXTRACT}" -eq 1 ]]; then     stage_extract; fi
+  199  if [[ "$BASE_MODE" == "hybrid" ]]; then     stage_fetch_linux_base; else     stage_fetch_electron; fi
+  200  stage_assemble
+  201  if [[ "$DO_PATCH" -eq 1 ]]; then     stage_patch_app; fi
+  202  stage_native_modules
+  203  if [[ "${DO_SLIM}" -eq 1 ]]; then     stage_slim; fi
+  204  stage_desktop
+  205  if [[ "${DO_DEB}" -eq 1 ]]; then     stage_deb; fi
+  206  if [[ "${DO_INSTALL}" -eq 1 ]]; then     stage_install; fi
+  207  echo ""
+  208  echo "======================================================================"
+  209  echo " 完成！"
+  210  if [[ "${DO_DEB}" -eq 1 ]]; then     echo "   deb 版: $(basename "${DEB_FILE}")   (入口: WorkBuddy，运行 /usr/bin/workbuddy 或 /opt/workbudd
+y/workbuddy.sh)"; fi
+  211  if [[ "${DO_INSTALL}" -ne 1 ]]; then     echo "   （--no-install：未安装，产物已生成）"; fi
+  212  echo "======================================================================"
+  213  ELECTRON_DISABLE_SANDBOX=1 workbuddy
+  214  export PATH="$PATH:/usr/share/trae-cn/resources/app/node_modules/@vscode/ripgrep/bin" 2>/dev/null
+  215  history 
+  216  sudo apt update && sudo apt dist-upgrade
+  217  bash run-bdebfast.sh --prepare
+  218  cat /etc/resolv.conf 
+  219  bash run-bdebfast.sh
+  220  history 
+  221  sudo apt update && sudo apt dist-upgrade
+  222  history 
+  223  cd -- '/home/dp25'
+  224  sudo apt update && sudo apt dist-upgrade
+  225  cd -- '/home/dp25'
+  226  sudo apt update
+  227  history 
+  228  bash run-bdebfast.sh --prepare
+  229  clear
+  230  sudo apt update&&sudo apt install linux-headers-7.3.0-amd64-desktop-rolling linux-image-7.3.0-amd64-desktop-rolling
+  231  sudo apt update && sudo apt dist-upgrade
+  232  git pull --tags github master --force
+  233  ls
+  234  cd github-release-pkg-url/
+  235  git pull --tags github master --force
+  236  git push master origin/master
+  237  bash run-bdebfast.sh --prepare
+  238  zcode
+  239  sudo rm -rf /persistent/var/cache/dde-wallpaper-cache/*
+  240  bash run-bdebfast.sh --prepare
+  241  git log --oneline -1
+  242  git log --oneline -2
+  243  npx standard src/client/components/database/db-session.jsx src/test/unit-ci/db-grid-scroll.spec.js 2>&1 | tail -5
+  244  git log --oneline -1 && git status --short
+  245  git log --oneline -1 && git status --short
+  246  top
+  247  history 
+  248  sudo apt update && sudo apt dist-upgrade
+  249  bash run-bdebfast.sh --prepare
+  250  sudo apt update && sudo apt dist-upgrade
+  251  history 
+  252  bash run-bdebfast.sh --prepare
+  253  python3 /tmp/fix-sugg.py && /usr/bin/rm -f /tmp/fix-sugg.py && grep -c '<<<<<<<\|>>>>>>>\|^=======$' src/client/components/terminal/mixins/t
+erm-suggestions.js; sed -n '108,240p' src/client/components/terminal/mixins/term-suggestions.js
+  254  python3 /tmp/fix-sugg.py && /usr/bin/rm -f /tmp/fix-sugg.py && grep -n '<<<<<<<\|>>>>>>>\|^=======$' src/client/components/terminal/mixins/t
+erm-suggestions.js; sed -n '108,245p' src/client/components/terminal/mixins/term-suggestions.js
+  255  python3 /tmp/fix-sock.py && /usr/bin/rm -f /tmp/fix-sock.py && grep -n '<<<<<<<\|>>>>>>>\|^=======$' src/client/components/terminal/mixins/t
+erm-socket.js; sed -n '210,230p;285,360p' src/client/components/terminal/mixins/term-socket.js
+  256  echo "committed" && git log --oneline -1
+  257  git log --oneline -1
+  258  git log --oneline -4 && git status --short
+  259  git log --oneline -2 | cat && git status --short
+  260  git log --oneline -3 | cat && git status --short
+  261  git log --oneline -4 | cat && git status --short
+  262  bash run-bdebfast.sh --prepare
+  263  history 
+  264  history 
+  265  cd -- '/home/dp25'
+  266  ssh root@192.168.115.88
+  267  bash run-bdebfast.sh --prepare
+  268  cd -- '/home/dp25'
+  269  sudo apt update && sudo apt dist-upgrade
+  270  history
+  271  bash run-bdebfast.sh --prepare
+  272  history 
+  273  uname -a
+  274  sensors
+  275  top
+  276  sensors
+  277  top
+  278  sensors
+  279  top
+  280  sensors
+  281  history 
+  282  sudo apt update && sudo apt dist-upgrade
+  283  history 
+  284  top
+  285  sensors
+  286  history 
+  287  top
+  288  sensors
+  289  sudo apt update && sudo apt dist-upgrade
+  290  history 
+  291  top
+  292  history 
+  293  sudo apt update && sudo apt dist-upgrade
+  294  history 
+  295  top
+  296  history 
+  297  sudo apt update && sudo apt dist-upgrade
+  298  history 
+  299  sudo apt update && sudo apt dist-upgrade
+  300  history 
+  301  sensors
+  302  top
+  303  history 
+  304  history |grep zram
+  305  history |grep zarm
+  306  history |grep zerm
+  307  history |grep zram
+  308  sudo apt update && sudo apt dist-upgrade
+  309  history 
+  310  history |systemctl
+  311  history |grep systemctl
+  312  systemctl status 
+  313  systemctl status huawei-speaker-mute.service 
+  314  cat /usr/local/bin/huawei-speaker-mute.sh
+  315  systemctl status huawei-speaker-mute.service 
+  316  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  317  sudo apt update && sudo apt dist-upgrade
+  318  sudo apt remove zcode
+  319  # 1. 强制清理 half-installed 的内核残留（绕过 apt 依赖图）
+  320  sudo dpkg --purge --force-depends linux-image-6.18.38-amd64-desktop-rolling
+  321  # 2. 卸载 zcode
+  322  sudo dpkg --purge --force-depends zcode
+  323  # 3. 清理用户数据与桌面残留
+  324  sudo rm -rf /opt/ZCode ~/.config/ZCode ~/.zcode
+  325  sudo rm -f /usr/share/dsg/icons/zcode.dci /usr/share/applications/zcode.desktop
+  326  sudo find /usr/share/icons -name 'zcode.png' -delete
+  327  sudo update-desktop-database 2>/dev/null
+  328  # 4. 修复 apt 依赖图
+  329  sudo apt --fix-broken install
+  330  # 5. 验证
+  331  dpkg -l | grep -E 'zcode|linux-image-6.18.38'
+  332  # 应该没有任何输出
+  333  sudo apt-get update
+  334  sudo apt-get upgrade -y
+  335  sudo apt update && sudo apt dist-upgrade
+  336  history 
+  337  echo 111
+  338  history 
+  339  echo 111
+  340  history 
+  341  history
+  342  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  343  systemctl status huawei-speaker-mute.service
+  344  udo journalctl -u huawei-speaker-mute.service --no-pager
+  345  systemctl status huawei-speaker-mute.service
+  346  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  347  systemctl status huawei-speaker-mute.service
+  348  udo journalctl -u huawei-speaker-mute.service --no-pager
+  349  systemctl status huawei-speaker-mute.service
+  350  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  351  sensors
+  352  history 
+  353  history
+  354  echo  1111
+  355  history 
+  356  necho "ni你好"
+  357  echo "nihao"
+  358  sudo apt update && sudo apt dist-upgrade
+  359  history 
+  360  sudo apt update && sudo apt dist-upgrade
+  361  top
+  362  history 
+  363  sudo apt install ./qoder-cn-ide_amd64.deb 
+  364  apt search linux-image
+  365  apt search linux-image |grep "已安装"
+  366  history 
+  367  npm install --no-audit --no-fund --ignore-scripts >/dev/null 2>&1; echo "install exit=$?"; node -e "const l=require('./package-lock.json');c
+onsole.log('lock 含 @types/react:', !!l.packages['node_modules/@types/react'], '| 条目数', Object.keys(l.packages).length)"
+  368  history 
+  369  history |tail -n50
+  370  history 
+  371  cd /home/dp25/Downloads/
+  372  ls
+  373  sudo apt install ./TRAE_CN-linux-x64.deb 
+  374  sudo apt install ./TRAE_CN-linux-x64.deb
+  375  bash electerm-mem.sh 
+  376  bash run-bdebfast.sh --prepare
+  377  bash electerm-mem.sh 
+  378  bash run-bdebfast.sh --prepare
+  379  bash electerm-mem.sh 
+  380  bash run-bdebfast.sh --prepare
+  381  cd /home/dp25/Downloads/
+  382  sudo apt install ./TRAE_CN-linux-x64.deb 
+  383  bash run-bdebfast.sh --
+  384  bash run-bdebfast.sh --help
+  385  bash run-bdebfast.sh --prepare
+  386  history 
+  387  pwd
+  388  top
+  389  cat /etc/fstab
+  390  df -h
+  391  history 
+  392  sudo apt update && sudo apt dist-upgrade
+  393  history 
+  394  top
+  395  ls
+  396  pwd
+  397  laundry-and-baby-toolbox
+  398  dp25@dp25-PC:~$ laundry-and-baby-toolbox
+  399  Traceback (most recent call last):
+  400  ModuleNotFoundError: No module named 'version'
+  401  dp25@dp25-PC:~$ 
+  402  bash run-bdebfast.sh --prepare
+  403  ls
+  404  bash scripts/test-build.sh 
+  405  sudo apt update && sudo apt dist-upgrade
+  406  pkill dde-shell
+  407  reboot
+  408  bash run-bdebfast.sh --prepare
+  409  sudo apt update && sudo apt dist-upgrade
+  410  pkill dde-shell
+  411  history 
+  412  bash run-bdebfast.sh --prepare
+  413  ls
+  414  bash build_deb.sh 
+  415  ls
+  416  sudo apt install ./laundry-and-baby-toolbox_2.4.1_amd64.deb 
+  417  bash build_deb.sh 
+  418  sudo apt install ./laundry-and-baby-toolbox_2.4.2_amd64.deb 
+  419  systemctl status huawei-speaker-mute.service
+  420  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  421  systemctl status huawei-speaker-mute.service
+  422  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  423  systemctl status huawei-speaker-mute.service
+  424  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  425  history 
+  426  pkill dde-shell
+  427  history 
+  428  systemctl status huawei-speaker-mute.service
+  429  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  430  history 
+  431  systemctl status huawei-speaker-mute.service
+  432  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  433  sudo apt update && sudo apt dist-upgrade
+  434  history 
+  435  systemctl status huawei-speaker-mute.service
+  436  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  437  sudo apt update && sudo apt dist-upgrade
+  438  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  439  history 
+  440  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  441  ls
+  442  bash build_deb.sh 
+  443  sudo apt install ./laundry-and-baby-toolbox_2.4.3_amd64.deb 
+  444  cd electerm/
+  445  ls
+  446  bash run-bdebfast.sh --prepare
+  447  systemctl status huawei-speaker-mute.service
+  448  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  449  history 
+  450  sudo apt update && sudo apt dist-upgrade
+  451  systemctl status huawei-speaker-mute.service
+  452  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  453  ls
+  454  bash build_deb.sh 
+  455  cd electerm/
+  456  bash run-bdebfast.sh
+  457  bash run-bdebfast.sh --prepare
+  458  ls
+  459  bash build_deb.sh 
+  460  history 
+  461  systemctl status huawei-speaker-mute.service
+  462  sudo journalctl -u huawei-speaker-mute.service --no-pager
+  463  sudo apt update && sudo apt dist-upgrade
+  464  df -h
+  465  cd /tmp
+  466  ls
+  467  rm -rf electerm-*
+  468  df -h
+  469  rm -rf wb*
+  470  df -h
+  471  ls 
+  472  df -h
+  473  sudo apt update && sudo apt dist-upgrade
+  474  history 
+  475  history
+  476  hi
+  477  bash run-bdebfast.sh --prepare
+  478  bash build_deb.sh 
+  479  sudo apt install ./laundry-and-baby-toolbox_2.4.28_amd64.deb
+  480  sudo apt install ./laundry-and-baby-toolbox_2.4.29_amd64.deb
+  481  sudo apt install ./laundry-and-baby-toolbox_2.4.33_amd64.deb
+  482  sudo apt install ./laundry-and-baby-toolbox_2.4.35_amd64.deb
+  483  bash build_deb.sh 
+  484  pkill dde-shell
+  485  hisss
+  486  history 
+  487  echo "hhh"
+  488  history 
+  489   eval 'if [[ 1 ]]; then echo HI; fi' 2>/dev/null
+  490  ll-cli --version
+  491  sudo apt update && sudo apt dist-upgrade
+  492  ls -lt ~/.config/electerm/session_logs/lossless_output | head
+  493  cat -v ~/.config/electerm/session_logs/lossless_outplossless-JRLuCLt_2026-11-18-18-20-36-1794997237249-000.bin --less
+  494  cat -v ~/.config/electerm/session_logs/lossless_outplossless-JRLuCLt_2026-11-18-18-20-36-1794997237249-000.bin
+  495  cat -v ~/.config/electerm/session_logs/lossless-JRLuCLt_2026-11-18-18-20-3
+  496  ls -lt ~/.config/electerm/session_logs/lossless_output | head
+  497  cat -v ~/.config/electerm/session_logs/lossless_output/lossless-JRLuCLt_2026-11-18-18-20-36-1794997237249-000.bin
+  498  cat -v ~/.config/electerm/session_logs/lossless_output/lossless-Tb5Amho_2026-11-18-09-13-44-1794964426060-000.bin
+  499  ls
+  500  pwd
+  501  cd /media/dp25/DATA/deb/fcitx5-deb/github/electerm
+  502  ls
+  503  node -e 'const fs=require("fs"),{Terminal}=require("@xterm/headless")const t=new Terminal({cols:256,rows:24,scrollback:20000,allowProposedAp
+i:true})t.write(fs.readFileSync(process.argv[1]),()=>{  const b=t.buffer.active  for(let i=0;i<b.length;i++)console.log(b.getLine(i).translateToStr
+ing(true))})' ~/.config/electerm/session_logs/lossless_output/lossless-Tb5Amho_2026-11-18-09-13-44-1794964426060-000.bin | tail -40
+  504  history 
+dp25@dp25-PC:~$ sudo apt update && sudo apt dist-upgrade
+获取:1 https://d.spark-app.store/apm-deb-source  InRelease [1,912 B]
+0% [正在等待报头] [1 InRelease 0 B/1,912 B 0%] [已连接到 com-store-packages.uniontech.com (120.77.173.206)] [已连接到 proposed-packages.deepin.com 
+0% [正在等待报头] [已连接到 com-store-packages.uniontech.com (120.77.173.206)] [已连接到 proposed-packages.deepin.com (27.25.152.254)] [已连接到 co
+                                                                                                                                                   
+命中:4 https://mirrors.tuna.tsinghua.edu.cn/deepin/beige crimson InRelease                                                                  
+命中:5 https://proposed-packages.deepin.com/beige-testing unstable/crimson InRelease                                           
+获取:6 https://dl.google.com/linux/chrome-stable/deb stable InRelease [2,548 B]                                                
+0% [正在连接 cdn-community-packages.deepin.com (27.25.152.254)] [已连接到 app-store-files.uniontech.com (182.242.223.99)] [6 InRelease 2,548 B/2,54
+                                                                                                                                                   
+                                                                                                                                                   
+获取:7 https://packages.microsoft.com/repos/edge-stable stable InRelease [3,590 B]                           
+获取:2 https://app-store-files.uniontech.com/261118173350119/appstorev23 crimson InRelease [7,664 B]         
+命中:3 https://cdn-community-packages.deepin.com/driver-25 snipe InRelease     
+获取:8 https://packages.microsoft.com/repos/code stable InRelease [3,590 B]
+获取:9 https://dl.google.com/linux/chrome-stable/deb stable/main amd64 Packages [1,407 B]
+获取:10 https://packages.microsoft.com/repos/edge-stable stable/main amd64 Packages [64.7 kB]
+获取:11 https://packages.microsoft.com/repos/code stable/main amd64 Packages [31.4 kB]
+已下载 117 kB，耗时 2秒 (49.0 kB/s)  
+正在读取软件包列表... 完成
+正在分析软件包的依赖关系树... 完成
+正在读取状态信息... 完成                 
+有 1 个软件包可以升级。请执行 ‘apt list --upgradable’ 来查看它们。
+正在读取软件包列表... 完成
+正在分析软件包的依赖关系树... 完成
+正在读取状态信息... 完成                 
+正在计算更新... 完成
+下列软件包是自动安装的并且现在不需要了：
+  deepin-default-settings-tuning deepin-livewallpaper-default deepin-systemassistant-knowledge deepin-wallpapers dnsutils gcr4 geoclue-2-demo gsfon
+ts imagemagick-7-common insserv inxi libcgroup1
+  libdjvulibre-text libdjvulibre21 libdlmaria2 libdlmcontrolui libdlmdatabase libdlmlog libdtkdeclarative5 libfcft4 libfftw3-double3 libgeoclue-2-0
+ libharfbuzz-icu0 libjavascriptcoregtk-4.1-0
+  libjxr-tools libjxr0 libkf6breezeicons6 libkf6completion-data libkf6completion6 libkf6configqml6 libkf6iconthemes-data libkf6iconthemes6 libkf6ic
+onwidgets6 libkf6kcmutils-data libkf6kcmutilscore6
+  libkf6kcmutilsquick6 libkf6kiowidgets6 libkf6screendpms8 libkf6xmlgui-data libkf6xmlgui6 libkscreen-data libkscreenlocker6 liblayershellqtinterfa
+ce6 liblqr-1-0 libmagickcore-7.q16-10
+  libmagickcore-7.q16-10-extra libmagickwand-7.q16-10 libmanette-0.2-0 libmarisa0 libmbedcrypto3 libmujs1 libnet1 libopencc-data libopencc1.1 libpk
+gconf3 libplasma6 libplasmaactivities6
+  libplasmaquick6 libpthread-stubs0-dev libqt5webengine5 libqt6positioning6-plugins libqt6serialport6 libraqm0 libroc0.3 libtag1v5 libtag1v5-vanill
+a libutempter0 libutf8proc2 libwebkit2gtk-4.1-0
+  libwlroots-0.19 libwmf0.2-7 libxcb-dpms0 libyyjson0 ncurses-term network-manager-integration-plugins network-manager-l2tp-gnome network-manager-o
+penconnect-gnome network-manager-openvpn-gnome
+  network-manager-pptp-gnome network-manager-vpnc-gnome p7zip-legacy patool python3-certifi python3-chardet python3-charset-normalizer python3-futu
+re python3-idna python3-pefile python3-psutil
+  python3-pycurl python3-pyqt5.qtsvg python3-pyqt5.qtwebchannel python3-pyqt5.qtwebengine python3-requests python3-urllib3 python3-watchdog python3
+-xdg qml-module-qt-labs-folderlistmodel
+  qml-module-qt-labs-settings qml-module-qtgraphicaleffects qml-module-qtqml qml-module-qtqml-models2 qml-module-qtquick-controls qml-module-qtquic
+k-dialogs qml-module-qtquick-layouts
+  qml-module-qtquick-privatewidgets qml-module-qtquick-window2 qml6-module-qt-labs-folderlistmodel startpar sysv-rc transhell wmctrl xbitmaps
+使用'sudo apt autoremove'来卸载它(它们)。
+下列软件包将被升级：
+  code
+升级了 1 个软件包，新安装了 0 个软件包，要卸载 0 个软件包，有 0 个软件包未被升级。
+需要下载 295 MB 的归档。
+解压缩后会消耗 9,329 kB 的额外空间。
+您希望继续执行吗？ [Y/n] ^C
+dp25@dp25-PC:~$ sudo apt update && sudo apt dist-upgrade
+                                                                                                                                                   
+命中:2 https://mirrors.tuna.tsinghua.edu.cn/deepin/beige crimson InRelease
+                                                                                                                                                   
+命中:3 https://d.spark-app.store/apm-deb-source  InRelease                                                 
+命中:5 https://dl.google.com/linux/chrome-stable/deb stable InRelease                                      
+命中:6 https://proposed-packages.deepin.com/beige-testing unstable/crimson InRelease                       
+                                                                                                                                                   
+命中:7 https://packages.microsoft.com/repos/edge-stable stable InRelease
+                                                                                                                                                   
+命中:8 https://packages.microsoft.com/repos/code stable InRelease                       
+命中:4 https://cdn-community-packages.deepin.com/driver-25 snipe InRelease              
+获取:1 https://app-store-files.uniontech.com/261118173350119/appstorev23 crimson InRelease [7,664 B]
+已下载 7,664 B，耗时 3秒 (3,014 B/s) 
+正在读取软件包列表... 完成
+正在分析软件包的依赖关系树... 完成
+正在读取状态信息... 完成                 
+有 1 个软件包可以升级。请执行 ‘apt list --upgradable’ 来查看它们。
+正在读取软件包列表... 完成
+正在分析软件包的依赖关系树... 完成
+正在读取状态信息... 完成                 
+正在计算更新... 完成
+下列软件包是自动安装的并且现在不需要了：
+  deepin-default-settings-tuning deepin-livewallpaper-default deepin-systemassistant-knowledge deepin-wallpapers dnsutils gcr4 geoclue-2-demo gsfon
+ts imagemagick-7-common insserv inxi libcgroup1
+  libdjvulibre-text libdjvulibre21 libdlmaria2 libdlmcontrolui libdlmdatabase libdlmlog libdtkdeclarative5 libfcft4 libfftw3-double3 libgeoclue-2-0
+ libharfbuzz-icu0 libjavascriptcoregtk-4.1-0
+  libjxr-tools libjxr0 libkf6breezeicons6 libkf6completion-data libkf6completion6 libkf6configqml6 libkf6iconthemes-data libkf6iconthemes6 libkf6ic
+onwidgets6 libkf6kcmutils-data libkf6kcmutilscore6
+  libkf6kcmutilsquick6 libkf6kiowidgets6 libkf6screendpms8 libkf6xmlgui-data libkf6xmlgui6 libkscreen-data libkscreenlocker6 liblayershellqtinterfa
+ce6 liblqr-1-0 libmagickcore-7.q16-10
+  libmagickcore-7.q16-10-extra libmagickwand-7.q16-10 libmanette-0.2-0 libmarisa0 libmbedcrypto3 libmujs1 libnet1 libopencc-data libopencc1.1 libpk
+gconf3 libplasma6 libplasmaactivities6
+  libplasmaquick6 libpthread-stubs0-dev libqt5webengine5 libqt6positioning6-plugins libqt6serialport6 libraqm0 libroc0.3 libtag1v5 libtag1v5-vanill
+a libutempter0 libutf8proc2 libwebkit2gtk-4.1-0
+  libwlroots-0.19 libwmf0.2-7 libxcb-dpms0 libyyjson0 ncurses-term network-manager-integration-plugins network-manager-l2tp-gnome network-manager-o
+penconnect-gnome network-manager-openvpn-gnome
+  network-manager-pptp-gnome network-manager-vpnc-gnome p7zip-legacy patool python3-certifi python3-chardet python3-charset-normalizer python3-futu
+re python3-idna python3-pefile python3-psutil
+  python3-pycurl python3-pyqt5.qtsvg python3-pyqt5.qtwebchannel python3-pyqt5.qtwebengine python3-requests python3-urllib3 python3-watchdog python3
+-xdg qml-module-qt-labs-folderlistmodel
+  qml-module-qt-labs-settings qml-module-qtgraphicaleffects qml-module-qtqml qml-module-qtqml-models2 qml-module-qtquick-controls qml-module-qtquic
+k-dialogs qml-module-qtquick-layouts
+  qml-module-qtquick-privatewidgets qml-module-qtquick-window2 qml6-module-qt-labs-folderlistmodel startpar sysv-rc transhell wmctrl xbitmaps
+使用'sudo apt autoremove'来卸载它(它们)。
+下列软件包将被升级：
+  code
+升级了 1 个软件包，新安装了 0 个软件包，要卸载 0 个软件包，有 0 个软件包未被升级。
+需要下载 295 MB 的归档。
+解压缩后会消耗 9,329 kB 的额外空间。
+您希望继续执行吗？ [Y/n] y
+获取:1 https://packages.microsoft.com/repos/code stable/main amd64 code amd64 1.147.0-1794903003 [295 MB]
+10% [1 code 37.9 MB/295 MB 13%]                                                                                                                    
+12% [1 code 45.3 MB/295 MB 15%]                                                                                                                    
+14% [1 code 51.2 MB/295 MB 17%]                                                                                                                    
+15% [1 code 56.1 MB/295 MB 19%]                                                                                                                    
+17% [1 code 64.0 MB/295 MB 22%]                                                                                                                    
+20% [1 code 74.5 MB/295 MB 25%]                                                                                                                    
+23% [1 code 85.0 MB/295 MB 29%]                                                                                                                    
+24% [1 code 89.7 MB/295 MB 30%]                                                                                                                    
+28% [1 code 104 MB/295 MB 35%]                                                                                                                     
+31% [1 code 115 MB/295 MB 39%]                                                                                                                     
+33% [1 code 122 MB/295 MB 41%]                                                                                                                     
+36% [1 code 133 MB/295 MB 45%]                                                                                                                     
+39% [1 code 144 MB/295 MB 49%]                                                                                                                     
+42% [1 code 154 MB/295 MB 52%]                                                                                                                     
+44% [1 code 162 MB/295 MB 55%]                                                                                                                     
+47% [1 code 174 MB/295 MB 59%]                                                                                                                     
+50% [1 code 183 MB/295 MB 62%]                                                                                                                     
+52% [1 code 193 MB/295 MB 65%]                                                                                                                     
+57% [1 code 209 MB/295 MB 71%]                                                                                                                     
+57% [1 code 209 MB/295 MB 71%]                                                                                                                     
+60% [1 code 220 MB/295 MB 75%]                                                                                                                     
+63% [1 code 232 MB/295 MB 79%]                                                                                                                     
+65% [1 code 240 MB/295 MB 82%]                                                                                                                     
+66% [1 code 245 MB/295 MB 83%]                                                                                                                     
+69% [1 code 255 MB/295 MB 87%]                                                                                                                     
+73% [1 code 270 MB/295 MB 92%]                                                                                                                     
+76% [1 code 281 MB/295 MB 95%]                                                                                                                     
+80% [1 code 293 MB/295 MB 99%]                                                                                                                     
+100% [执行中]                                                                                                                                      
+                                                                                                                                                   
+已下载 295 MB，耗时 20秒 (14.7 MB/s)                  
+正在预设定软件包 ...
+(正在读取数据库 ... 系统当前共安装有 380048 个文件和目录。)
+准备解压 .../code_1.147.0-1794903003_amd64.deb  ...
+正在解压 code (1.147.0-1794903003) 并覆盖 (1.146.0-1794340865) ....................................................................................
+正在设置 code (1.147.0-1794903003) ...############.................................................................................................
+正在处理用于 shared-mime-info (2.4-5deepin1) 的触发器 ...##############################............................................................
+正在处理用于 deepin-home-appstore-daemon (9.1.9) 的触发器 ...###############################################################.......................
+正在处理用于 desktop-file-utils (0.28-1) 的触发器 ...##############################################################################################
+dp25@dp25-PC:~$ 

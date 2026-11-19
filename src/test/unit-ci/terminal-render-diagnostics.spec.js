@@ -115,18 +115,41 @@ test('diagnostics tolerate DOM mode and missing xterm internals', async () => {
   assert.equal(record.state.webgl, false)
 })
 
-test('the default sink stays silent outside a dev build', async () => {
+test('the default sink records on a diagnostics build', async () => {
   const { logTerminalRender } = await load()
   const originalInfo = console.info
   const lines = []
   console.info = line => lines.push(line)
   try {
-    // No sink argument: this is the production path.
+    // No sink argument: this is the shipped path of the diagnostics build.
     logTerminalRender(fixture(), 'recover-request', { reason: 'initial' })
   } finally {
     console.info = originalInfo
   }
-  assert.deepEqual(lines, [], 'a shipped build must not log renderer diagnostics')
+  assert.equal(lines.length, 1, 'a diagnostics build records without a sink argument')
+  assert.ok(lines[0].startsWith('[terminal-render] '))
+})
+
+test("electermRenderDebug='0' still switches the default sink off", async () => {
+  const originalWindow = globalThis.window
+  globalThis.window = { localStorage: { getItem: () => '0' } }
+  try {
+    // Fresh module instance: `enabled` is resolved once at import time.
+    const { logTerminalRender } = await import(
+      '../../client/components/terminal/terminal-render-diagnostics.mjs?off=1'
+    )
+    const originalInfo = console.info
+    const lines = []
+    console.info = line => lines.push(line)
+    try {
+      logTerminalRender(fixture(), 'recover-request', { reason: 'initial' })
+    } finally {
+      console.info = originalInfo
+    }
+    assert.deepEqual(lines, [], "'0' must keep the default sink quiet")
+  } finally {
+    globalThis.window = originalWindow
+  }
 })
 
 test('broken private getters or console must not break recovery', async () => {

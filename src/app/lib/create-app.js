@@ -16,6 +16,7 @@ const { findVvFile } = require('../common/vv-file')
 const { handleSingleInstance } = require('./single-instance')
 const { setupCrashReporter, setupCommandLineSwitches } = require('./crash-reporter')
 const { registerWidgetScheme, initWidgetProtocol } = require('../widgets/protocol')
+const attachRenderConsoleLog = require('./render-console-log')
 
 let conf = {}
 
@@ -85,6 +86,11 @@ exports.createApp = async function () {
       }
       win.focus()
     }
+  })
+  // 诊断构建：渲染层的 [terminal-render] 行额外落一份到 main.log，
+  // 免得 devtools 一关/一崩，证据就没了。
+  app.on('web-contents-created', (event, wc) => {
+    attachRenderConsoleLog(wc)
   })
   app.whenReady().then(async () => {
     conf = await getDbConfig()
