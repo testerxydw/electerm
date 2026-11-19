@@ -18,6 +18,7 @@
  *   npm run bdebfast                 # 重编译客户端 + 打自增 test deb
  *   node build/bin/build-deb-fast.js --skip-compile  # 跳过 vite 编译（仅改了非客户端资源时）
  *   node build/bin/build-deb-fast.js --prepare       # 强制重新 prepare work/app
+ *   node build/bin/build-deb-fast.js --no-sync-locales  # 跳过语言包版本同步（离线/复现构建）
  */
 
 const { execSync } = require('child_process')
@@ -37,6 +38,8 @@ const skipCompile = args.includes('--skip-compile')
 const forcePrepare = args.includes('--prepare')
 // --ui: UI 测试包, 版本号带 -ui 后缀 (如 5.5.79~test.82-ui), 用于 UI 分支验证
 const isUi = args.includes('--ui')
+// --no-sync-locales: 跳过「检测上游新版 → bump 本地锁」，用于离线或需要锁定版本的复现构建
+const skipSyncLocales = args.includes('--no-sync-locales')
 
 function echo (s) { process.stdout.write(s + '\n') }
 function run (cmd) {
@@ -127,6 +130,20 @@ if (!exists(electronDist)) {
 }
 if (!exists(workApp)) {
   echo('[deb-fast] 提示：work/app 不存在，将自动执行首次 prepare。')
+}
+
+// 0.5 同步语言包版本：检测上游 electerm-locales 新版 → bump package.json + lock。
+// 必须放在依赖指纹计算（第 3 步 depsChanged）之前：bump 后指纹变化 → 自动 prepare →
+// npm i 装新包 → patch-locales 补本地词，这样本次打包就能带上上游新翻译。
+// 失败/离线不阻断（sync-locales 内部降级）；--no-sync-locales 供复现构建跳过。
+if (skipSyncLocales) {
+  echo('[deb-fast] 跳过语言包同步（--no-sync-locales）')
+} else {
+  try {
+    require('./sync-locales').run()
+  } catch (e) {
+    echo(`[deb-fast] ⚠ 语言包同步异常，忽略（不阻断打包）：${e.message}`)
+  }
 }
 
 // 1. 自增测试版本号
