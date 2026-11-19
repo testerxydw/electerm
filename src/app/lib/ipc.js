@@ -352,6 +352,23 @@ function initIpc () {
     keepDaysDefault: losslessArchive.DEFAULT_KEEP_DAYS
   })
   const cleanLosslessArchive = async (opts) => losslessArchive.cleanArchive(getLosslessArchiveDir(), opts)
+  // 回放归档打印：按名读回原始字节（只读），渲染层只递裸文件名，
+  // 越界仍由 resolveArchive 唯一闸拒掉。分片读取，避免整量塞进渲染内存。
+  const readLosslessArchive = async (name, { offset = 0, size = 0 } = {}) => {
+    const file = losslessArchive.resolveArchive(getLosslessArchiveDir(), name)
+    const st = fs.statSync(file)
+    const total = st.size
+    const from = Math.max(0, Number(offset) || 0)
+    const chunk = size > 0 ? Math.min(size, Math.max(0, total - from)) : Math.max(0, total - from)
+    const fd = fs.openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(chunk)
+      fs.readSync(fd, buf, 0, chunk, from)
+      return { bytes: buf, total, offset: from }
+    } finally {
+      fs.closeSync(fd)
+    }
+  }
   const asyncGlobals = {
     confirmExit: () => {
       globalState.set('confirmExit', true)
@@ -571,6 +588,7 @@ function initIpc () {
     revealLosslessArchive,
     losslessArchiveInfo,
     cleanLosslessArchive,
+    readLosslessArchive,
     doUpgrade: (...args) => upgrade().doUpgrade(...args),
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
     checkMigrate,

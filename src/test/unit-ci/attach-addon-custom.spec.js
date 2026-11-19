@@ -866,3 +866,54 @@ describe('broadcast fanout (G1)', () => {
     assert.equal(targetSent.length, 1, '没有回环复制')
   })
 })
+
+describe('archive replay', () => {
+  const makeReplayAddon = async () => {
+    const { default: AttachAddonCustom } = await loadModule()
+    const written = []
+    const term = {
+      write: (data, cb) => {
+        written.push(data)
+        cb && cb()
+      }
+    }
+    const socket = { readyState: 1, send: () => {}, binaryType: 'arraybuffer' }
+    const addon = new AttachAddonCustom(term, socket)
+    addon._flushIntervalMs = 0
+    if (!addon.decoder) {
+      addon.decoder = new TextDecoder('utf-8')
+    }
+    return { addon, written }
+  }
+
+  test('replayArchive writes bytes through the FIFO, stripped and counted', async () => {
+    const { addon, written } = await makeReplayAddon()
+    const esc = String.fromCharCode(27)
+    // 含 shell 集成 OSC 133/633 的输出：回放应剥掉它们，只留可读文本
+    const payload = 'hello world\r\n' + esc + ']133;C' + esc + '\\' + 'next line'
+    const res = await addon.replayArchive(new TextEncoder().encode(payload))
+    assert.equal(res.ok, true)
+    const joined = written.join('')
+    assert.ok(joined.includes('hello world'), '普通文本保留')
+    assert.ok(joined.includes('next line'), 'OSC 后的文本保留')
+    assert.ok(!joined.includes(']133;'), 'OSC 133 已被剥离')
+    // 账本：received 计入回放字节；OSC 被剥后 fed < 原始字节数
+    assert.equal(res.fed, joined.length)
+    assert.ok(res.fed < payload.length, 'OSC 序列被剥掉，fed 小于原始长度')
+    assert.equal(addon._droppedBytes, 0, '回放不产生解码丢失')
+  })
+
+  test('replayArchive is rejected while already replaying', async () => {
+    const { addon } = await makeReplayAddon()
+    addon._replaying = true
+    const res = await addon.replayArchive(new TextEncoder().encode('x'))
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'busy')
+  })
+
+  test('replayArchive empty input short-circuits', async () => {
+    const { addon } = await makeReplayAddon()
+    const res = await addon.replayArchive(new Uint8Array(0))
+    assert.equal(res.ok, false)
+  })
+})

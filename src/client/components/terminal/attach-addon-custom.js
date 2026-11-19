@@ -1,7 +1,7 @@
 import { loadAttachAddon } from './xterm-loader.js'
 import { handleSessionControlMessage } from '../../common/session-bar-data.js'
 import SessionTrafficTracker from '../../common/session-traffic.js'
-import SessionRecorder from '../../common/session-recorder.js'
+import SessionRecorder, { stripShellIntegration } from '../../common/session-recorder.js'
 import { FLOW_ACTIONS, bytesOf } from '../../common/term-flow.js'
 import {
   registerBroadcastAddon,
@@ -156,6 +156,7 @@ export default class AttachAddonCustom {
     // 会话录制 (common/session-recorder.js), 状态源 store.recState, dispose 时收尾落盘
     this.recorder = infoTabId ? new SessionRecorder(infoTabId) : null
     this.outputSuppressed = false
+    this._replaying = false
     this.suppressedData = []
     this.suppressedChars = 0
     this.suppressTimeout = null
@@ -599,6 +600,56 @@ export default class AttachAddonCustom {
       }, 100)
     }
     this._enqueueWrite(str, bytes)
+  }
+
+  /**
+   * 回放归档打印：把 lossless bin 的原始字节灌入当前终端渲染层，重现当时
+   * 屏幕画面。纯显示、不向远端/PTY 发任何命令（用户已确认语义）。
+   * 预剥 shell 集成 OSC 133/633（复用 stripShellIntegration，SSOT），否则
+   * 渲染层会把它们当注入命令触发抑制窗口、画面被剥缺。分帧喂入复用
+   * _enqueueWrite → _pump 的 FIFO/流控/账本，天然零丢弃。
+   */
+  replayArchive = async (bytes, { onProgress = null } = {}) => {
+    if (this.disposed || !this.term || !bytes || !bytes.length) {
+      return { ok: false, reason: this.disposed ? 'disposed' : 'empty' }
+    }
+    if (this._replaying) {
+      return { ok: false, reason: 'busy' }
+    }
+    this._replaying = true
+    try {
+      let str = typeof bytes === 'string'
+        ? bytes
+        : this.decoder.decode(
+          bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes),
+          { stream: false }
+        )
+      // 剥 OSC 133/633：避免回放字节被注入抑制窗口误判（见类头注释）。
+      str = stripShellIntegration(str)
+      const total = str.length
+      if (!total) {
+        return { ok: true, fed: 0, stripped: total }
+      }
+      // 分帧喂入，走同一 FIFO；进度经 onProgress 回调，不阻塞渲染。
+      const FRAME = 32 * 1024
+      let fed = 0
+      for (let off = 0; off < total; off += FRAME) {
+        if (this.disposed) {
+          break
+        }
+        const slice = str.slice(off, off + FRAME)
+        const n = slice.length
+        // 回放字节同进 received 账本：written/acked 由 _enqueueWrite 管线推进，
+        // received 补计保证「received == written == acked」收敛（探针判据）。
+        this._receivedBytes += n
+        this._enqueueWrite(slice, n)
+        fed += n
+        onProgress?.({ fed, total })
+      }
+      return { ok: true, fed, total }
+    } finally {
+      this._replaying = false
+    }
   }
 
   /**

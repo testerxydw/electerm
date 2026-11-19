@@ -265,7 +265,7 @@ describe('session-recorder: SessionRecorder 缓冲与落盘', () => {
 
 describe('session-recorder: 接线契约', () => {
   it('attach addon: writeToTerminal 挂 recorder.onData, dispose 停录', () => {
-    assert.match(addonJs, /import SessionRecorder from '\.\.\/\.\.\/common\/session-recorder\.js'/)
+    assert.match(addonJs, /import SessionRecorder(?:, \{[^}]+\})? from '\.\.\/\.\.\/common\/session-recorder\.js'/)
     assert.match(addonJs, /this\.recorder = infoTabId \? new SessionRecorder\(infoTabId\) : null/)
     assert.match(addonJs, /this\.recorder\?\.onData\(str\)/)
     assert.match(addonJs, /this\.recorder\?\.stop\(\)/, 'dispose 必须收尾落盘')
