@@ -26,11 +26,14 @@ describe('filterSuppressedEcho: strips only the injected line', () => {
       { str: 'user@host:~$ ', bytes: 13 }
     ]
     const out = filterSuppressedEcho(chunks, needle)
-    assert.equal(joined(out), 'banner tail \r\nuser@host:~$ ')
+    // 行尾 \r\n 保留在剥除区间之外：注入后画的新 prompt 落到下一行，
+    // 而不是拼在之前的输出后面（否则屏幕上出现两个 prompt）。
+    // 回显行自身变成一个空行，是可接受的视觉结果。
+    assert.equal(joined(out), 'banner tail \r\n\r\nuser@host:~$ ')
     // bytes 全额保留：流控按原帧 ACK
     assert.deepEqual(out.map(c => c.bytes), [14, needle.length + 2, 13])
-    // 被剥空的 chunk 走 str='' + bytes>0 纯 ACK 通道
-    assert.equal(out[1].str, '')
+    // 被剥到只剩行尾 \r\n 的 chunk
+    assert.equal(out[1].str, '\r\n')
     assert.equal(out[1].bytes, needle.length + 2)
   })
 
@@ -44,7 +47,7 @@ describe('filterSuppressedEcho: strips only the injected line', () => {
       { str: echo.slice(cut), bytes: echo.length - cut }
     ]
     const out = filterSuppressedEcho(chunks, needle)
-    assert.equal(joined(out), '')
+    assert.equal(joined(out), '\r\n')
     assert.deepEqual(out.map(c => c.bytes), [cut, echo.length - cut])
   })
 
@@ -93,7 +96,7 @@ describe('filterSuppressedEcho: real injection command', () => {
       { str: `${needle}\r\n`, bytes: needle.length + 2 }
     ]
     const out = filterSuppressedEcho(chunks, needle)
-    assert.equal(joined(out), 'Last login: Fri\r\n')
+    assert.equal(joined(out), 'Last login: Fri\r\n\r\n')
     assert.deepEqual(out.map(c => c.bytes), [17, needle.length + 2])
   })
 
@@ -106,7 +109,7 @@ describe('filterSuppressedEcho: real injection command', () => {
       { str: `output: ${needle}\n`, bytes: 24 }
     ]
     const out = filterSuppressedEcho(chunks, needle)
-    assert.equal(joined(out), 'output:  eval \'x=1\'\n')
+    assert.equal(joined(out), '\r\noutput:  eval \'x=1\'\n')
   })
 
   test('strips the injected line when readline echoes it twice (copy/reconnect)', async () => {
@@ -127,7 +130,8 @@ describe('filterSuppressedEcho: real injection command', () => {
       { str: 'user@host:~$ ', bytes: 13 }
     ]
     const out = filterSuppressedEcho(chunks, needle)
-    assert.equal(joined(out), 'banner\r\nuser@host:~$ ')
+    // 两个回显行各留自己的 \r\n → 两个空行
+    assert.equal(joined(out), 'banner\r\n\r\n\r\nuser@host:~$ ')
     assert.deepEqual(out.map(c => c.bytes), [14 + echo.length * 2, 13])
   })
 
@@ -142,7 +146,7 @@ describe('filterSuppressedEcho: real injection command', () => {
       { str: 'user@host:~$ ', bytes: 13 }
     ]
     const out = filterSuppressedEcho(chunks, null)
-    assert.equal(joined(out), 'banner\r\nuser@host:~$ ')
+    assert.equal(joined(out), 'banner\r\n\r\nuser@host:~$ ')
   })
 
   test('fingerprint fallback does not strip a user command that mentions the env var', async () => {

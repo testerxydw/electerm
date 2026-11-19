@@ -57,6 +57,9 @@ const INJECT_MARK_B = 'ELECTERM_SHELL_INTEGRATION'
 
 // 从 bufferedStr 的 mark 位置向前找行首（\n 之后，或 0）、向后找行尾
 // （\n，退化 \r；都没有则到缓冲尾），返回 [行首, 行尾) 剥除区间。
+// 行尾的 \r\n 保留在剥除区间之外：注入行被剥掉后，这对换行把注入后画的
+// 新 prompt 送到下一行，否则新 prompt 拼在登录 prompt 后面，屏幕上出现
+// 两个 prompt（回显行自身是「空行」是可接受的视觉结果）。
 function lineRangeAt (str, mark, endOffset) {
   let lineStart = mark
   const nlBefore = str.lastIndexOf('\n', mark - 1)
@@ -64,10 +67,12 @@ function lineRangeAt (str, mark, endOffset) {
     lineStart = nlBefore + 1
   }
   const lineEnd = str.indexOf('\n', endOffset)
-  let end = lineEnd === -1 ? -1 : lineEnd + 1
-  if (end === -1) {
+  let end
+  if (lineEnd === -1) {
     const cr = str.indexOf('\r', endOffset)
     end = cr === -1 ? str.length : cr + 1
+  } else {
+    end = lineEnd > 0 && str[lineEnd - 1] === '\r' ? lineEnd - 1 : lineEnd
   }
   return [lineStart, end]
 }

@@ -152,15 +152,29 @@ export class StartupQueue {
    *
    * Returns false when the terminal went away or the shell never settled, in
    * which case the caller must not type anything at all.
+   *
+   * `countPriorOutput`: with a remote login, the banner and the first prompt
+   * regularly arrive in the same ws message - the one that already fired
+   * `onInitialData` before this wait even starts. Demanding output *after*
+   * the wait started would then never see any, and the only way out is the
+   * full timeout: the "several seconds before the start directory" stall.
+   * For remote sessions the caller sets this to count that already-arrived
+   * output as the prompt sighting; only the `quietMs` silence is still
+   * required. Local shells keep the strict rule - conpty's init bytes are
+   * not a prompt (#4737).
    */
-  waitForFirstPrompt = (addon, { quietMs = this.promptReadyQuietMs, timeoutMs = this.promptReadyTimeoutMs } = {}) => {
+  waitForFirstPrompt = (addon, { quietMs = this.promptReadyQuietMs, timeoutMs = this.promptReadyTimeoutMs, countPriorOutput = false } = {}) => {
     if (this.isClosed() || !addon || addon.disposed) {
       return Promise.resolve(false)
     }
     return new Promise((resolve) => {
       const startedAt = Date.now()
-      let last = addon.getLastOutputTime ? addon.getLastOutputTime() : startedAt
-      let sawNew = false
+      const prior = addon.getLastOutputTime ? addon.getLastOutputTime() : startedAt
+      let last = prior
+      // The output predating this wait counts only when the caller asked for
+      // it and the addon really did receive data (hasReceivedInitialData
+      // distinguishes "output already arrived" from "nothing yet").
+      let sawNew = countPriorOutput && addon.hasReceivedInitialData === true && prior <= startedAt
       let done = false
       const finish = (result) => {
         if (done) {
@@ -628,7 +642,8 @@ export class StartupQueue {
         // trickles over the network, so its "quiet" has to be longer - typing
         // into a half-drawn login prompt is how a password ends up in a log.
         this.waitForFirstPrompt(addon, {
-          quietMs: this.isRemoteShell() ? 1500 : this.promptReadyQuietMs
+          quietMs: this.isRemoteShell() ? 1500 : this.promptReadyQuietMs,
+          countPriorOutput: this.isRemoteShell()
         }).then((ready) => {
           if (done || this.addon !== addon || addon.disposed) {
             return finish()
