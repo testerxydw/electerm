@@ -30,6 +30,7 @@ import { rightClickBehaviors } from '../../common/right-click-behavior'
 import SessionBarActions from '../common/session-bar-actions'
 import SessionBarStatus from '../common/session-bar-status'
 import TermSearch from '../terminal/term-search'
+import TerminalArchiveMenu from '../terminal/terminal-archive-menu'
 import SerialControl from './serial-control'
 import './session-control.styl'
 
@@ -421,6 +422,7 @@ export default function SessionControl (props) {
         <TermSearch tab={tab} />
         {renderFontSizeIcons()}
         {skipContextMenuIcon ? null : renderContextMenuIcon()}
+        <TerminalArchiveMenu tab={tab} />
         {renderBarActions()}
       </div>
     )

@@ -54,6 +54,19 @@ export const logMixin = {
     })
   },
 
+  // 无损归档（session-server 的 lossless_output）：attachAddon 是唯一记录者，
+  // 这里只读本次会话的目录与分片路径，供顶栏「完整输出」菜单使用。
+  getArchiveInfo () {
+    const stats = this.attachAddon?.getLosslessStats?.()
+    if (!stats) {
+      return { dir: null, parts: [] }
+    }
+    return {
+      dir: stats.archivePath || null,
+      parts: Array.isArray(stats.archiveParts) ? stats.archiveParts : []
+    }
+  },
+
   // T5-4f: 录制与终端日志统一到右侧「终端日志」页；
   // 右键仅负责打开该页（开始/暂停/停止与日志开关都在页内）。
   onRecord () {

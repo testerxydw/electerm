@@ -1498,7 +1498,19 @@ const en = {
   mcpHintCredential: 'Server credentials are stored with the same scheme as other local secrets; without a system keyring they are saved as marked plaintext.',
   // upstream v5.10.1 watcher UI: generic keys not yet in the upstream locale package
   delete: 'Delete',
-  interval: 'Interval'
+  interval: 'Interval',
+  // 完整输出归档（lossless_output）：顶栏菜单 + 设置页清理项
+  losslessArchive: 'Full output archive',
+  losslessArchiveUsage: '{count} files · {size}',
+  openArchiveDir: 'Open archive folder',
+  revealArchiveFile: 'Show this session in folder',
+  copyArchivePath: 'Copy archive path',
+  archiveNotReady: 'Archive is not ready for this session yet',
+  cleanArchive: 'Clean old archives',
+  cleanArchiveTitle: 'Clean full output archives',
+  cleanArchiveKeepDays: 'Keep archives from the last N days (0 = delete all)',
+  cleanArchiveDone: 'Removed {count} files, freed {size}',
+  cleanArchiveEmpty: 'Nothing to clean'
 }
 
 // 简体中文
@@ -2980,7 +2992,19 @@ const zhCn = {
   mcpHintCredential: 'server 凭据与其他本地机密使用同一套存储方案；无系统 keyring 时会以标记明文保存。',
   // 上游 v5.10.1 watcher UI 用到的通用词条（语言包尚未收录）
   delete: '删除',
-  interval: '间隔'
+  interval: '间隔',
+  // 完整输出归档（lossless_output）：顶栏菜单 + 设置页清理项
+  losslessArchive: '完整输出归档',
+  losslessArchiveUsage: '{count} 个文件 · {size}',
+  openArchiveDir: '打开归档目录',
+  revealArchiveFile: '在文件夹中显示本会话归档',
+  copyArchivePath: '复制归档路径',
+  archiveNotReady: '本会话归档尚未就绪',
+  cleanArchive: '清理旧归档',
+  cleanArchiveTitle: '清理完整输出归档',
+  cleanArchiveKeepDays: '保留最近多少天的归档（0 = 全部删除）',
+  cleanArchiveDone: '已删除 {count} 个文件，释放 {size}',
+  cleanArchiveEmpty: '没有需要清理的归档'
 }
 
 module.exports = {

@@ -330,6 +330,28 @@ function initIpc () {
   const probeRecordings = async (names) => require('./session-recordings').probeRecordings(getSessionLogDir(), names)
   const deleteRecording = async (name) => require('./session-recordings').deleteRecording(getSessionLogDir(), name)
   const showRecordingInFolder = async (name) => shell.showItemInFolder(require('./session-recordings').resolveInDir(getSessionLogDir(), name))
+  // 完整输出归档（lossless_output）: 目录常量 / 统计 / 清理全在主进程，
+  // 渲染层只递裸文件名与保留天数；越界由 lossless-archive → resolveInDir 拒掉。
+  const losslessArchive = require('./lossless-archive')
+  const getLosslessArchiveDir = () => losslessArchive.archiveDir(getSessionLogDir())
+  const openLosslessArchiveDir = async () => {
+    const dir = getLosslessArchiveDir()
+    fs.mkdirSync(dir, { recursive: true })
+    const err = await shell.openPath(dir)
+    if (err) {
+      log.error('[lossless-archive] open dir failed', dir, err)
+    }
+    return dir
+  }
+  const revealLosslessArchive = async (name) => {
+    shell.showItemInFolder(losslessArchive.resolveArchive(getLosslessArchiveDir(), name))
+    return true
+  }
+  const losslessArchiveInfo = async () => ({
+    ...losslessArchive.listArchive(getLosslessArchiveDir()),
+    keepDaysDefault: losslessArchive.DEFAULT_KEEP_DAYS
+  })
+  const cleanLosslessArchive = async (opts) => losslessArchive.cleanArchive(getLosslessArchiveDir(), opts)
   const asyncGlobals = {
     confirmExit: () => {
       globalState.set('confirmExit', true)
@@ -545,6 +567,10 @@ function initIpc () {
     probeRecordings,
     deleteRecording,
     showRecordingInFolder,
+    openLosslessArchiveDir,
+    revealLosslessArchive,
+    losslessArchiveInfo,
+    cleanLosslessArchive,
     doUpgrade: (...args) => upgrade().doUpgrade(...args),
     checkDbUpgrade: (...args) => upgrade().checkDbUpgrade(...args),
     checkMigrate,

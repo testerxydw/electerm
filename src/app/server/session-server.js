@@ -34,6 +34,7 @@ const { trzszManager } = require('./trzsz')
 const { xmodemManager } = require('./xmodem')
 const path = require('path')
 const { TerminalOutputArchive } = require('./terminal-output-archive')
+const { ARCHIVE_SUBDIR } = require('../lib/lossless-archive')
 const flowProtocol = require('../common/term-flow-protocol.json')
 const flowControl = require('../common/term-flow-control')
 
@@ -175,7 +176,7 @@ if (type === 'rdp') {
     const sessionLogDir = term.initOptions && term.initOptions.sessionLogPath
     const archive = new TerminalOutputArchive({
       pid,
-      dir: sessionLogDir ? path.join(sessionLogDir, 'lossless_output') : undefined,
+      dir: sessionLogDir ? path.join(sessionLogDir, ARCHIVE_SUBDIR) : undefined,
       onError: (msg) => {
         // 归档降级立刻通知渲染层，避免"看起来成功实则有空洞"。
         try {

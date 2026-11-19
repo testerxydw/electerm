@@ -11,8 +11,10 @@ import {
   AutoComplete,
   Tooltip,
   Flex,
-  Space
+  Space,
+  InputNumber
 } from 'antd'
+import Modal from '../common/modal'
 import deepCopy from 'json-deep-copy'
 import {
   noTerminalBgValue,
@@ -37,6 +39,7 @@ import createDefaultSessionLogPath from '../../common/default-log-path'
 import TerminalBackgroundConfig from './terminal-bg-config'
 import NumberConfig from './number-config'
 import Upload from '../common/upload'
+import { formatBytes } from '../remote-monitor/monitor-model'
 import {
   getRightClickBehavior,
   rightClickBehaviorList
@@ -49,7 +52,8 @@ const e = window.translate
 export default class SettingTerminal extends Component {
   state = {
     ready: false,
-    keywordFormReset: 1
+    keywordFormReset: 1,
+    archiveInfo: null
   }
 
   componentDidMount () {
@@ -58,6 +62,7 @@ export default class SettingTerminal extends Component {
         ready: true
       })
     }, 0)
+    this.loadArchiveInfo()
   }
 
   componentWillUnmount () {
@@ -213,6 +218,86 @@ export default class SettingTerminal extends Component {
     return (
       <div className='pd2b'>
         <InputConfirm {...inputProps} />
+      </div>
+    )
+  }
+
+  loadArchiveInfo = async () => {
+    try {
+      const info = await window.pre.runGlobalAsync('losslessArchiveInfo')
+      this.setState({ archiveInfo: info })
+    } catch (err) {
+      // 统计失败不打断设置页；清理入口仍可点
+    }
+  }
+
+  handleOpenArchiveDir = () => {
+    window.pre.runGlobalAsync('openLosslessArchiveDir')
+      .catch(window.store.onError)
+  }
+
+  handleCleanArchive = () => {
+    const info = this.state.archiveInfo || {}
+    let days = info.keepDaysDefault || 30
+    Modal.confirm({
+      title: e('cleanArchiveTitle'),
+      content: (
+        <div className='archive-clean-confirm'>
+          <div className='mg1b'>{e('cleanArchiveKeepDays')}</div>
+          <InputNumber
+            min={0}
+            max={3650}
+            defaultValue={days}
+            onChange={v => { days = v }}
+          />
+        </div>
+      ),
+      okText: e('confirm'),
+      cancelText: e('cancel'),
+      onOk: async () => {
+        const res = await window.pre.runGlobalAsync('cleanLosslessArchive', {
+          days: Number(days) || 0
+        })
+        if (!res.removed) {
+          message.warning(e('cleanArchiveEmpty'))
+        } else {
+          message.success(
+            e('cleanArchiveDone')
+              .replace('{count}', res.removed)
+              .replace('{size}', formatBytes(res.freedBytes))
+          )
+        }
+        await this.loadArchiveInfo()
+      }
+    })
+  }
+
+  renderArchiveControl = () => {
+    const { archiveInfo } = this.state
+    if (!archiveInfo) {
+      return null
+    }
+    const usage = e('losslessArchiveUsage')
+      .replace('{count}', archiveInfo.count || 0)
+      .replace('{size}', formatBytes(archiveInfo.bytes || 0))
+    return (
+      <div className='pd2b archive-config-row'>
+        <span className='inline-title mg1r'>{e('losslessArchive')}</span>
+        <span className='mg2r'>{usage}</span>
+        <Button
+          size='small'
+          type='text'
+          onClick={this.handleOpenArchiveDir}
+        >
+          {e('openArchiveDir')}
+        </Button>
+        <Button
+          size='small'
+          type='text'
+          onClick={this.handleCleanArchive}
+        >
+          {e('cleanArchive')}
+        </Button>
       </div>
     )
   }
@@ -574,6 +659,9 @@ export default class SettingTerminal extends Component {
         }
         {
           this.renderLogPathControl()
+        }
+        {
+          this.renderArchiveControl()
         }
         {
           this.renderToggle('saveTerminalLogToFile')
